@@ -137,7 +137,7 @@ def Model_Data_Create(mdlW,v1,v2,v3,mdlsz=100,seed=np.random.randint(9999),\
     #data for non-null dimensions
     Dat     = 3*np.random.normal(size=(mdlsz,nd))
     #data for null dimensions
-    Dat2    = 3*np.random.normal(size=(1+round(v2*mdlsz),nd))
+    Dat2    = 3*np.random.normal(size=(int(1+round(v2*mdlsz)),nd))
     #design matrix // input data // non-null and null dimensions
     DDat    = np.vstack((Dat,Dat2))
     '''
@@ -145,7 +145,7 @@ def Model_Data_Create(mdlW,v1,v2,v3,mdlsz=100,seed=np.random.randint(9999),\
     #------------
     '''
     #dim(Wact)<-mdlsz+mdlsz*v2+1
-    tmp = np.zeros((1+round(v2*mdlsz),1))
+    tmp = np.zeros((int(1+round(v2*mdlsz)),1))
     Wact    = np.vstack((W,tmp))
     '''
     #output data
