@@ -23,7 +23,7 @@ def main():
         help="ratio of null/non-null dimensions in the model")
     parser.add_option("--v3",type="float",default=3,\
         help="ratio of samples/parameters in the model")
-    parser.add_option("--store",action="store_true",dest="store",\
+    parser.add_option("--store",action="store_true",dest="store",default=True,\
         help="store results to file")
     parser.add_option("--saveAs",type="string",default='hdf5',\
         help="File format to store the data. Options: hdf5(default), mat, txt")
@@ -37,14 +37,9 @@ def main():
 
     (options, args) = parser.parse_args()
 
-    if options.store:
-        store=True
-    else:
-        store=False
-
     Model_Data_Create(mdlW=options.mdlW,v1=options.v1,\
                     v2=options.v2,v3=options.v3,\
-                    mdlsz=options.mdlsz,store=store,\
+                    mdlsz=options.mdlsz,store=options.store,\
                     path=options.path,seed=options.seed,\
                     saveAs=options.saveAs,dtype=options.dtype)
 
