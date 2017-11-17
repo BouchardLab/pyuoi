@@ -14,5 +14,5 @@ under construction
 To run serial algorithm on sample data:
 
 run `Model_Data_Create.py`
-run `BoLBO.py`
+run `UoI_Lasso.py`
 

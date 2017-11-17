@@ -64,7 +64,7 @@ def main():
     if options.with_admm:
         with_admm = True
     else:
-        with_admm = False
+        with_admm = True #### should be False
 
     if options.nsamp == -1 or options.ncov == -1:
         nsamp = None
