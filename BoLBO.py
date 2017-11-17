@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from __future__ import division
+
 import pdb, os, h5py, time
 from tqdm import trange
 import numpy as np
@@ -131,7 +131,7 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
     Data
     '''
 
-    print "\nLoading the data with h5py ..."
+    print("\nLoading the data with h5py ...")
     start_load_time = time.time()
 
     with h5py.File(inputFile, 'r') as f:
@@ -140,18 +140,18 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
         m, n = f['data/X'].shape
 
     end_loadTime = time.time()-start_load_time
-    print "\nData loaded in %.4f seconds" % end_loadTime
+    print("\nData loaded in %.4f seconds" % end_loadTime)
 
     '''
     Timer and info
     '''
     maxBoot = np.maximum(nbootE, nbootS)
-    print '\nBoLBO analysis initialized'
-    print '----------------------------'
-    print '\t*No lambda elements    : \t%i' % nMP
-    print '\t*Max. No iterations    : \t%i' % maxBoot
-    print '\t*No model dimensions   : \t%i' % n
-    print '\t*No model samples      : \t%i' % m
+    print('\nBoLBO analysis initialized')
+    print('----------------------------')
+    print('\t*No lambda elements    : \t%i' % nMP)
+    print('\t*Max. No iterations    : \t%i' % maxBoot)
+    print('\t*No model dimensions   : \t%i' % n)
+    print('\t*No model samples      : \t%i' % m)
     start_compTime = time.time()
 
     """
@@ -191,7 +191,7 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
         train = inds[:m_frac]
         test = inds[m_frac:]
 
-        for i in xrange(nMP):
+        for i in range(nMP):
 
             # train
             if not with_admm:
@@ -200,9 +200,9 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
                     outLas.fit(X[train], y[train]-y[train].mean())
                 except:
                     outLas = lm.SGDRegressor(penalty='l1', alpha=lamb0[i])
-                    for j in xrange(n_minibatch):
+                    for j in range(n_minibatch):
                         minibatch = train[j::n_minibatch]
-                        #print '\nlasso 1 - mini-batch %i/%i size: %i'%(j,n_minibatch,len(minibatch))
+                        # print '\nlasso 1 - mini-batch %i/%i size: %i'%(j,n_minibatch,len(minibatch))
                         outLas.partial_fit(X[minibatch],
                                            y[minibatch]-y[minibatch].mean())
                 B0[c, :, i] = outLas.coef_
@@ -250,7 +250,7 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
         '''
         Lasso
         '''
-        for i in xrange(nMP):
+        for i in range(nMP):
 
             # train
             if not with_admm:
@@ -259,7 +259,7 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
                     outLas.fit(X[train], y[train]-y[train].mean())
                 except:
                     outLas = lm.SGDRegressor(penalty='l1', alpha=lambL[i])
-                    for j in xrange(n_minibatch):
+                    for j in range(n_minibatch):
                         minibatch = train[j::n_minibatch]
                         #print '\nlasso 2 - mini-batch %i/%i size: %i'%(j,n_minibatch,len(minibatch))
                         outLas.partial_fit(X[minibatch],
@@ -284,9 +284,9 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
     '''
     sprt = np.ones((nMP, n))*np.nan
     # for each regularization parameter
-    for i in xrange(nMP):
+    for i in range(nMP):
         # for each bootstrap sample
-        for r in xrange(nbootS):
+        for r in range(nbootS):
             tmp_ids = np.where(B[r, :, i] != 0)[0]
             if r == 0:
                 intv = tmp_ids
@@ -336,7 +336,7 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
             test = inds[L_frac:]
 
             # for each regularization parameter
-            for i in xrange(nMP):
+            for i in range(nMP):
                 """
                 Select support
                 """
@@ -354,9 +354,9 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
                                   y[L[train]]-y[L[train]].mean())
                     except:
                         outLR = lm.SGDRegressor(penalty='none')
-                        for j in xrange(n_minibatch):
+                        for j in range(n_minibatch):
                             minibatch = train[j::n_minibatch]
-                            #print '\nols - mini-batch %i/%i size: %i'%(j,n_minibatch,len(minibatch))
+                            # print '\nols - mini-batch %i/%i size: %i'%(j,n_minibatch,len(minibatch))
                             outLR.partial_fit(
                                 X[L[minibatch]][:, sprt_ids],
                                 y[L[minibatch]]-y[L[minibatch]].mean())
@@ -369,8 +369,8 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
                     r = np.corrcoef(yhat, y[L[test]]-y[L[test]].mean())
                     Bgols_R2m[c, i] = r[1, 0]**2
                 else:
-                    print '%i parameters were selected for lambda: %.4f' % \
-                          (sprt_ids.sum(), lambL[i])
+                    print('%i parameters were selected for lambda: %.4f' % \
+                          (sprt_ids.sum(), lambL[i]))
 
         """
         Bagging
@@ -382,7 +382,7 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
             ids = np.where(Bgols_R2m == v.reshape((nbootE, 1)))
             btmp = np.zeros((nbootE, n))
             # this loop can probably be removed
-            for kk in xrange(nbootE):
+            for kk in range(nbootE):
                 # some maxima are constant across a 
                 # variable range of parameter values
                 ids_kk = ids[1][np.where(ids[0] == kk)]
@@ -458,16 +458,16 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
         end_saveTime = time.time() - start_saveTime
         f.attrs['saveTime'] = end_saveTime
 
-    print '\nBoLBO analysis completed'
-    print '------------------------'
-    print '\t*Results stored in %s' % outputFile
-    print "\t*BoLBO times:"
-    print "\t\t-load time: %.4f" % end_loadTime
-    print "\t\t-las1 time: %.4f" % end_las1Time
-    print "\t\t-las2 time: %.4f" % end_las2Time
-    print "\t\t-bols time: %.4f" % end_bolsTime
-    print "\t\t-comp time: %.4f" % end_compTime
-    print "\t\t-save time: %.4f" % end_saveTime
+    print('\nBoLBO analysis completed')
+    print('------------------------')
+    print('\t*Results stored in %s' % outputFile)
+    print("\t*BoLBO times:")
+    print("\t\t-load time: %.4f" % end_loadTime)
+    print("\t\t-las1 time: %.4f" % end_las1Time)
+    print("\t\t-las2 time: %.4f" % end_las2Time)
+    print("\t\t-bols time: %.4f" % end_bolsTime)
+    print("\t\t-comp time: %.4f" % end_compTime)
+    print("\t\t-save time: %.4f" % end_saveTime)
 
 
 if __name__ == '__main__':

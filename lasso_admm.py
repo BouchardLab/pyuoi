@@ -45,20 +45,20 @@ def lasso_admm(X,y,alpha,rho=1.,rel_par=1.,QUIET=True,\
     Xty = X.T.dot(y)
 
     #ADMM solver
-    x = np.zeros((n,1))
-    z = np.zeros((n,1))
-    u = np.zeros((n,1))
+    x = np.zeros((n, 1))
+    z = np.zeros((n, 1))
+    u = np.zeros((n, 1))
 
     # cache the (Cholesky) factorization
-    L,U = factor(X,rho)
+    L, U = factor(X, rho)
 
     if not QUIET:
-        print '\n%3s\t%10s\t%10s\t%10s\t%10s\t%10s' %('iter',
-                                                      'r norm', 
-                                                      'eps pri', 
-                                                      's norm', 
-                                                      'eps dual', 
-                                                      'objective')
+        print('\n%3s\t%10s\t%10s\t%10s\t%10s\t%10s' % ('iter',
+                                                       'r norm',
+                                                       'eps pri',
+                                                       's norm',
+                                                       'eps dual',
+                                                       'objective'))
 
     # Saving state
     h = {}
@@ -68,7 +68,7 @@ def lasso_admm(X,y,alpha,rho=1.,rel_par=1.,QUIET=True,\
     h['eps_pri']    = np.zeros(MAX_ITER)
     h['eps_dual']   = np.zeros(MAX_ITER)
 
-    for k in xrange(MAX_ITER):
+    for k in range(MAX_ITER):
 
         # x-update 
         q = Xty+rho*(z-u) #(temporary value)
@@ -95,19 +95,19 @@ def lasso_admm(X,y,alpha,rho=1.,rel_par=1.,QUIET=True,\
         h['eps_dual'][k] = np.sqrt(n)*ABSTOL+\
                             RELTOL*norm(rho*u)
         if not QUIET:
-            print '%4d\t%10.4f\t%10.4f\t%10.4f\t%10.4f\t%10.2f' %(k+1,\
+            print('%4d\t%10.4f\t%10.4f\t%10.4f\t%10.4f\t%10.2f' %(k+1,\
                                                           h['r_norm'][k],\
                                                           h['eps_pri'][k],\
                                                           h['s_norm'][k],\
                                                           h['eps_dual'][k],\
-                                                          h['objval'][k])
+                                                          h['objval'][k]))
 
         if (h['r_norm'][k]<h['eps_pri'][k]) and (h['s_norm'][k]<h['eps_dual'][k]):
             break
 
     if not QUIET:
         toc = time.time()-tic
-        print "\nElapsed time is %.2f seconds"%toc
+        print("\nElapsed time is %.2f seconds"%toc)
 
     return z.ravel(),h
 

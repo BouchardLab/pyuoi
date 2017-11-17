@@ -104,7 +104,7 @@ def Model_Data_Create(mdlW,v1,v2,v3,mdlsz=100,seed=np.random.randint(9999),\
         mn = 5
         mx = 30
         lp = np.linspace(mn,mx,6)
-        for i in xrange(5):
+        for i in range(5):
             lpW = lp[i]+np.random.uniform(size=(np.floor(mdlsz/5.),1))
             if i==0:
                 W = lpW
@@ -114,7 +114,7 @@ def Model_Data_Create(mdlW,v1,v2,v3,mdlsz=100,seed=np.random.randint(9999),\
         mn = 3
         mx = 20
         lp = np.linspace(mn,mx,6)
-        for i in xrange(5):
+        for i in range(5):
             lpW = np.exp(np.linspace(lp[i],lp[i+1],np.floor(mdlsz/10.)))[:,np.newaxis]
             if i==0:
                 W = np.vstack((-lpW,lpW))
@@ -178,10 +178,10 @@ def Model_Data_Create(mdlW,v1,v2,v3,mdlsz=100,seed=np.random.randint(9999),\
                          'y'    : np.ravel(y).astype(dtype),\
                          'Wact' : Wact.astype(dtype)})
 
-        print '\nData Model:'
-        print '\t* No covariates:\t%i'%DDat.shape[0]
-        print '\t* No samples   :\t%i'%DDat.shape[1]
-        print 'Data stored in %s'%path
+        print('\nData Model:')
+        print('\t* No covariates:\t%i'%DDat.shape[0])
+        print('\t* No samples   :\t%i'%DDat.shape[1])
+        print('Data stored in %s'%path)
     else:
         return DDat.T,np.ravel(y),Wact
 
