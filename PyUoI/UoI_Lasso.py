@@ -1,11 +1,15 @@
 #!/usr/bin/env python
 
-import pdb, os, h5py, time
-from tqdm import trange
+import h5py
+import os
+import time
+from optparse import OptionParser
+
 import numpy as np
 import sklearn.linear_model as lm
-from optparse import OptionParser
-import lasso_admm as admm
+from tqdm import trange
+
+from PyUoI import lasso_admm as admm
 
 __authors__ = "Alex Bujan, Kris Bouchard"
 

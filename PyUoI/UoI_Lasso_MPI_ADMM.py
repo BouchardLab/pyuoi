@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 
-import h5py
 import os
 from optparse import OptionParser
 
+import h5py
 import numpy as np
 from mpi4py import MPI
 
-import lasso_admm_MPI as admm
+from PyUoI import lasso_admm_MPI as admm
 
 np.seterr(invalid='ignore')
 

@@ -16,7 +16,8 @@ def main():
     usage = '%prog [options]'
     parser = OptionParser(usage)
     parser.add_option("--mdlW", type="string", default="ExpI",
-                      help="weight distribution (options: 'Gaus','ExpI','Clst1','Clst2','Lap','Uni','ID')")
+                      help="weight distribution (options: 'Gaus','ExpI',"
+                           "'Clst1','Clst2','Lap','Uni','ID')")
     parser.add_option("--mdlsz", type="int", default=100,
                       help="number of non-null dimensions in the model")
     parser.add_option("--v1", type="float", default=.0,
@@ -29,11 +30,14 @@ def main():
                       default=True,
                       help="store results to file")
     parser.add_option("--saveAs", type="string", default='hdf5',
-                      help="File format to store the data. Options: hdf5(default), mat, txt")
+                      help="File format to store the data. Options: "
+                           "hdf5(default), mat, txt")
     parser.add_option("--path", type="string", default=os.getcwd(),
-                      help="path to store the results (default: current directory)")
+                      help="path to store the results "
+                           "(default: current directory)")
     parser.add_option("--seed", type="int", default=np.random.randint(9999),
-                      help="seed for generating pseudo-random numbers (default: random seed)")
+                      help="seed for generating pseudo-random numbers "
+                           "(default: random seed)")
     parser.add_option("--dtype", type="string", default='f4',
                       help="float type to be used. Options: 'f4' and 'f8' bit")
 
