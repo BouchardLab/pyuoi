@@ -64,7 +64,7 @@ def main():
     if options.with_admm:
         with_admm = True
     else:
-        with_admm = True #### should be False
+        with_admm = False
 
     if options.nsamp == -1 or options.ncov == -1:
         nsamp = None
@@ -276,8 +276,10 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
             R2m[c, i] = r[1, 0]**2
 
     end_las2Time = time.time()-start_las2Time
-
-    del outLas, r, yhat
+    try:
+        del outLas, r, yhat
+    except:
+        print('could not find all vars to delete')
 
     '''
     Compute family of supports
