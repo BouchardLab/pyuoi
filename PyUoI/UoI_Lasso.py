@@ -4,6 +4,7 @@ import h5py
 import os
 import time
 from optparse import OptionParser
+import pdb
 
 import numpy as np
 import sklearn.linear_model as lm
@@ -87,6 +88,46 @@ def main():
                    n_minibatch=options.n_minibatch)
 
 
+def lasso_sweep(X, y, lambdas, nboots, m_frac, with_admm, n_minibatch, desc=''):
+
+    '''
+    Create arrays to collect results
+    '''
+    B = np.zeros((nboots, X.shape[1], len(lambdas)), dtype=np.float32)
+    R2m = np.zeros((nboots, len(lambdas)), dtype=np.float32)
+
+    for c in trange(nboots, desc=desc):
+
+        inds = np.random.permutation(len(X))
+        train = inds[:m_frac]
+        test = inds[m_frac:]
+
+        for i, lamb in enumerate(lambdas):
+            # train
+            if not with_admm:
+                try:
+                    outLas = lm.Lasso(alpha=lamb)
+                    outLas.fit(X[train], y[train]-y[train].mean())
+                except:
+                    outLas = lm.SGDRegressor(penalty='l1', alpha=lamb)
+                    for j in range(n_minibatch):
+                        minibatch = range(j, len(X), n_minibatch)
+                        outLas.partial_fit(X[minibatch],
+                                           y[minibatch]-y[minibatch].mean())
+                B[c, :, i] = outLas.coef_
+            else:
+                B[c, :, i] = admm.lasso_admm(X[train],
+                                (y[train]-y[train].mean())[..., np.newaxis],
+                                alpha=lamb)[0]
+            # test
+            #pdb.set_trace()
+            yhat = X[test].dot(B[c, :, i])
+            r = np.corrcoef(yhat, y[test]-y[test].mean())
+            R2m[c, i] = r[1, 0]**2
+
+    return B, R2m
+
+
 def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
                    nbootE=48, cvlfrct=.9, rndfrct=.8, nMP=48, verbose=True,
                    seed=1234, comm=None, nbootS=48, rndfrctL=.8,
@@ -96,7 +137,7 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
 
     Parameters
     ----------
-    
+
     inputFile     : hdf5 file with input data (X,y pairs)
     outputFile    : hdf5 file to store the results
     bgdOpt        : bagging options
@@ -116,11 +157,11 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
     Notes
     -----
 
-    The final parameters are estimated using linear regression with bagging. 
+    The final parameters are estimated using linear regression with bagging.
     Two options are currently supported:
 
     1) for each bootstrap sample, choose lambda that optimized performance,
-    store those weights, and take the mean of these model parameters across 
+    store those weights, and take the mean of these model parameters across
     bootstrap samples as bagged estimate
 
     2) choose the single lamdba that gave the best average performance across
@@ -173,12 +214,6 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
         lamb0 = np.logspace(-3, 3, nMP, dtype=np.float64)
 
     '''
-    Create arrays to collect results
-    '''
-    B0 = np.zeros((initrnd, n, nMP), dtype=np.float32)
-    R2m0 = np.zeros((initrnd, nMP), dtype=np.float32)
-
-    '''
     Generate ids for separating training and testing blocks
     '''
     np.random.seed(seed)
@@ -189,36 +224,8 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
     '''
     start_las1Time = time.time()
 
-    for c in trange(initrnd, total=initrnd, desc='fitting models'):
-
-        inds = np.random.permutation(m)
-        train = inds[:m_frac]
-        test = inds[m_frac:]
-
-        for i in range(nMP):
-
-            # train
-            if not with_admm:
-                try:
-                    outLas = lm.Lasso(alpha=lamb0[i])
-                    outLas.fit(X[train], y[train]-y[train].mean())
-                except:
-                    outLas = lm.SGDRegressor(penalty='l1', alpha=lamb0[i])
-                    for j in range(n_minibatch):
-                        minibatch = train[j::n_minibatch]
-                        # print '\nlasso 1 - mini-batch %i/%i size: %i'%(j,n_minibatch,len(minibatch))
-                        outLas.partial_fit(X[minibatch],
-                                           y[minibatch]-y[minibatch].mean())
-                B0[c, :, i] = outLas.coef_
-            else:
-                B0[c, :, i] = admm.lasso_admm(
-                    X[train], (y[train]-y[train].mean())[..., np.newaxis],
-                    alpha=lamb0[i])[0]
-
-            # test
-            yhat = X[test].dot(B0[c, :, i])
-            r = np.corrcoef(yhat, y[test]-y[test].mean())
-            R2m0[c, i] = r[1, 0]**2
+    B0, R2m0 = lasso_sweep(X, y, lamb0, initrnd, m_frac, with_admm, n_minibatch,
+                           desc='initial fitting')
 
     end_las1Time = time.time()-start_las1Time
 
@@ -235,55 +242,12 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
     else:
         lambL = np.linspace(v-5*dv, v+5*dv, nMP)
 
-    '''
-    Create arrays to collect results
-    '''
-    B = np.zeros((nbootS, n, nMP), dtype=np.float32)
-    R2m = np.zeros((nbootS, nMP), dtype=np.float32)
-
     start_las2Time = time.time()
 
-    for c in trange(nbootS, desc='boosting'):
-        '''
-        Generate ids for separating training and testing blocks
-        '''
-        inds = np.random.permutation(m)
-        train = inds[:m_frac]
-        test = inds[m_frac:]
-
-        '''
-        Lasso
-        '''
-        for i in range(nMP):
-
-            # train
-            if not with_admm:
-                try:
-                    outLas = lm.Lasso(alpha=lambL[i])
-                    outLas.fit(X[train], y[train]-y[train].mean())
-                except:
-                    outLas = lm.SGDRegressor(penalty='l1', alpha=lambL[i])
-                    for j in range(n_minibatch):
-                        minibatch = train[j::n_minibatch]
-                        #print '\nlasso 2 - mini-batch %i/%i size: %i'%(j,n_minibatch,len(minibatch))
-                        outLas.partial_fit(X[minibatch],
-                                           y[minibatch]-y[minibatch].mean())
-                B[c, :, i] = outLas.coef_
-            else:
-                B[c, :, i] = admm.lasso_admm(
-                    X[train], (y[train]-y[train].mean())[..., np.newaxis],
-                    alpha=lambL[i])[0]
-
-            # test
-            yhat = X[test].dot(B[c, :, i])
-            r = np.corrcoef(yhat, y[test]-y[test].mean())
-            R2m[c, i] = r[1, 0]**2
+    B, R2m = lasso_sweep(X, y, lambL, nbootS, m_frac, with_admm, n_minibatch,
+                         desc='boosting')
 
     end_las2Time = time.time()-start_las2Time
-    try:
-        del outLas, r, yhat
-    except:
-        print('could not find all vars to delete')
 
     '''
     Compute family of supports
