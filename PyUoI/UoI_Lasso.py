@@ -89,10 +89,29 @@ def main():
 
 
 def lasso_sweep(X, y, lambdas, nboots, m_frac, with_admm, n_minibatch, desc=''):
+    """
 
-    '''
-    Create arrays to collect results
-    '''
+    Parameters
+    ----------
+    X: np.array
+        (samples x features)
+    y: np.array
+    lambdas: np.array
+    nboots: int
+    m_frac: int
+    with_admm: bool
+    n_minibatch: int
+    desc: str
+
+    Returns
+    -------
+    B: np.array
+        model coefficients (nboots, nfeatures, nlambdas)
+    R2m: np.array
+        boots, nlambdas
+    """
+
+    # Create arrays to collect results
     B = np.zeros((nboots, X.shape[1], len(lambdas)), dtype=np.float32)
     R2m = np.zeros((nboots, len(lambdas)), dtype=np.float32)
 
@@ -252,19 +271,8 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
     '''
     Compute family of supports
     '''
-    sprt = np.ones((nMP, n))*np.nan
-    # for each regularization parameter
-    for i in range(nMP):
-        # for each bootstrap sample
-        for r in range(nbootS):
-            tmp_ids = np.where(B[r, :, i] != 0)[0]
-            if r == 0:
-                intv = tmp_ids
-            # bolasso support is intersection of supports across
-            # bootstrap samples
-            intv = np.intersect1d(intv, tmp_ids).astype('int')
-        ## BOLASSO support for regularization parameter
-        sprt[i, :len(intv)] = intv
+    # for each lambda, list of feature indices that were supported for all boots
+    supports = np.all(B, axis=0).T
 
     """
     ================
@@ -285,7 +293,7 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
 
     start_bolsTime = time.time()
 
-    for cc in trange(nrnd, desc='Model Estimation', total=nrnd):
+    for cc in trange(nrnd, desc='Model Estimation'):
         '''
         Create arrays to collect the results
         '''
@@ -307,20 +315,14 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
 
             # for each regularization parameter
             for i in range(nMP):
-                """
-                Select support
-                """
-                sprt_ids = sprt[i][~np.isnan(sprt[i])].astype('int')
-                zdids = np.setdiff1d(np.arange(n), sprt_ids)
-                
-                if len(sprt_ids) > 0:
+                if np.any(supports[i]):
                     '''
                     #Linear regression
                     '''
                     # train
                     try:
                         outLR = lm.LinearRegression()
-                        outLR.fit(X[L[train]][:, sprt_ids],
+                        outLR.fit(X[L[train]][:, supports[i]],
                                   y[L[train]]-y[L[train]].mean())
                     except:
                         outLR = lm.SGDRegressor(penalty='none')
@@ -328,11 +330,10 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
                             minibatch = train[j::n_minibatch]
                             # print '\nols - mini-batch %i/%i size: %i'%(j,n_minibatch,len(minibatch))
                             outLR.partial_fit(
-                                X[L[minibatch]][:, sprt_ids],
+                                X[L[minibatch]][:, supports[i]],
                                 y[L[minibatch]]-y[L[minibatch]].mean())
                     rgstrct = outLR.coef_
-                    Bgols_B[c, sprt_ids, i] = rgstrct
-                    Bgols_B[c, zdids, i] = 0
+                    Bgols_B[c, supports[i], i] = rgstrct
 
                     # test
                     yhat = X[L[test]].dot(Bgols_B[c, :, i])
@@ -340,7 +341,7 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
                     Bgols_R2m[c, i] = r[1, 0]**2
                 else:
                     print('%i parameters were selected for lambda: %.4f' % \
-                          (sprt_ids.sum(), lambL[i]))
+                          (supports[i].sum(), lambL[i]))
 
         """
         Bagging
@@ -419,7 +420,7 @@ def BoLASSO_BgdOLS(inputFile, outputFile, bgdOpt=1, nrnd=10, initrnd=10,
         g1.create_dataset(name='lambL', data=lambL, compression='gzip')
 
         g2 = f.create_group('/bolbo')
-        g2.create_dataset(name='sprt', data=sprt, compression='gzip')
+        g2.create_dataset(name='supports', data=supports, compression='gzip')
         g2.create_dataset(name='Bgd', data=Bgd, compression='gzip')
         g2.create_dataset(name='R2', data=R2, compression='gzip')
         g2.create_dataset(name='rsd', data=rsd, compression='gzip')
