@@ -1,5 +1,7 @@
 import numpy as np
 import sklearn.linear_model as lm
+from tqdm import trange
+
 
 from sklearn.metrics import explained_variance_score
 
@@ -147,7 +149,8 @@ class UoI_Lasso():
                                                                        self.train_frac_sel,
                                                                        self.n_boots_coarse,
                                                                        self.n_minibatch,
-                                                                       self.use_admm)
+                                                                       self.use_admm,
+                                                                       desc='coarse lasso sweep')
         # deduce the index which maximizes the explained variance over bootstraps
         lambda_max_idx = np.argmax(np.mean(explained_variance_coarse, axis=0))
         # obtain the lambda which maximizes the explained variance over bootstraps
@@ -178,7 +181,8 @@ class UoI_Lasso():
                                                                      self.train_frac_sel,
                                                                      self.n_boots_sel,
                                                                      self.n_minibatch,
-                                                                     self.use_admm)
+                                                                     self.use_admm,
+                                                                     desc='fine lasso sweep')
         # intersect supports across bootstraps for each lambda value
         # we impose a (potentially) soft intersection
         threshold = int(self.selection_thres_frac * self.n_boots_sel)
@@ -205,7 +209,7 @@ class UoI_Lasso():
         boot_train_split = int(round(self.train_frac_est * train_split))
 
         # iterate over the desired number of randomizations; by default this just performs one bagging procedure
-        for randomization in range(self.n_randomizations):
+        for randomization in trange(self.n_randomizations, desc='model estimation'):
             # set up data arrays for this randomization
             estimates = np.zeros(
                 (self.n_boots_est, self.n_lambdas, n_features_),
@@ -298,7 +302,7 @@ class UoI_Lasso():
 
     @staticmethod
     def lasso_sweep(X, y, lambdas, train_frac, n_bootstraps, n_minibatch,
-                    use_admm=False, seed=None):
+                    use_admm=False, seed=None, desc=''):
         """Perform Lasso regression across bootstraps of a dataset for a sweep of L1 penalty values.
 
         Parameters
@@ -346,7 +350,7 @@ class UoI_Lasso():
         explained_variance = np.zeros((n_bootstraps, n_lambdas),
                                       dtype=np.float32)
         # apply the Lasso to bootstrapped datasets
-        for bootstrap in range(n_bootstraps):
+        for bootstrap in trange(n_bootstraps, desc=desc):
             # for each bootstrap, we'll split the data into a randomly assigned training and test set
             indices = np.random.permutation(n_samples)
             train, test = np.split(indices, [n_train_samples])
