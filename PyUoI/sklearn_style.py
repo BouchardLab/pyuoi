@@ -194,8 +194,9 @@ class UoI_Lasso():
         # we'll use the supports obtained in the selection module to calculate
         # bagged OLS estimates over bootstraps
 
-        if verbose: print(
-            '(3) Model selection complete. Beginning model estimation, with %s randomizations and %s bootstraps.' % (
+        if verbose:
+            print('(3) Model selection complete. Beginning model estimation, '
+                  'with %s randomizations and %s bootstraps.' % (
             self.n_randomizations, self.n_boots_est))
 
         # create or overwrite arrays to collect final results (over all randomizations)
