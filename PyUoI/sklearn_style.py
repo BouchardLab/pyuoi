@@ -1,12 +1,12 @@
 import numpy as np
+from tqdm import trange
 import sklearn.linear_model as lm
 from sklearn.linear_model.base import (_preprocess_data, _rescale_data,
                                        SparseCoefMixin)
-from sklearn.utils import check_X_y
-from tqdm import trange
-
-
 from sklearn.metrics import explained_variance_score
+from sklearn.utils import check_X_y
+
+from PyUoI import lasso_admm
 
 
 class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
@@ -168,10 +168,6 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 
         if sample_weight is not None and np.atleast_1d(sample_weight).ndim > 1:
             raise ValueError("Sample weights must be 1D array or scalar")
-
-        X, y, X_offset, y_offset, X_scale = _preprocess_data(
-            X, y, fit_intercept=self.fit_intercept, normalize=self.normalize,
-            copy=self.copy_X, sample_weight=sample_weight)
 
         if sample_weight is not None:
             # Sample weight can be implemented via a simple rescaling.
@@ -412,7 +408,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
                     estimates[bootstrap, lamb_idx, :] = lasso.coef_
                 else:
                     estimates[bootstrap, lamb_idx, :] = \
-                    admm.lasso_admm(X[train],
+                    lasso_admm.lasso_admm(X[train],
                                     (y[train] - y[train].mean())[
                                         ..., np.newaxis],
                                     alpha=lamb)[0]
