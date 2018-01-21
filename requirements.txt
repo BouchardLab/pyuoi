@@ -1,0 +1,4 @@
+h5py
+scikit-learn
+numpy
+tqdm
