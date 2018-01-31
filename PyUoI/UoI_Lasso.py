@@ -259,6 +259,10 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 			y_train = y[train]
 			X_test = X[test]
 			y_test = y[test]
+		else:
+			X_train = X
+			y_train = y
+
 		# iterate over bootstrap samples
 		for bootstrap in trange(self.n_boots_est, desc='Model Estimation', disable=not verbose):
 			# extract the bootstrap indices, keeping a fraction of the data

@@ -1,6 +1,6 @@
 # PyUoI
 
-This repo contains several implementation of the Union of Intersection
+This repo contains several implementations of the Union of Intersection
 (UoI) algorithm.
 
 ## Installation
