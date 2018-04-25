@@ -418,9 +418,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 												  minibatch].mean())
 					estimates[bootstrap, lamb_idx, :] = lasso.coef_
 				else:
-					estimates[bootstrap, lamb_idx, :] = \
-					utils.lasso_admm(X[train],
-									(y[train] - y[train].mean())[..., np.newaxis], alpha=lamb)[0]
+					estimates[bootstrap, lamb_idx, :] = utils.lasso_admm(X[train], (y[train] - y[train].mean()), alpha=lamb)
 				# run trained Lasso on the test set and obtain predictions
 				y_hat = X[test].dot(estimates[bootstrap, lamb_idx, :])
 				y_true = y[test] - y[test].mean()
