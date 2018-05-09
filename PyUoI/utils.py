@@ -60,7 +60,7 @@ def lasso_admm(X, y, alpha, rho=1., rel_par=1., MAX_ITER=50, ABSTOL=1e-3, RELTOL
 	# Data preprocessing
 	n_samples, n_features = X.shape
 	# save a matrix-vector multiply
-	Xy = np.dot(X.T, y)
+	Xy = np.dot(X.T, y).reshape((n_features, 1))
 
 	# ADMM solver
 	x = np.zeros((n_features, 1))
@@ -74,11 +74,10 @@ def lasso_admm(X, y, alpha, rho=1., rel_par=1., MAX_ITER=50, ABSTOL=1e-3, RELTOL
 		# x-update 
 		q = Xy + rho * (z - u)  # (temporary value)
 		if n_samples >= n_features:
-			x = spsolve(U, spsolve(L, q))[..., np.newaxis]
+			x = spsolve(U, spsolve(L, q)).reshape((n_features, 1))
 		else:
-			ULXq = spsolve(U, spsolve(L, X.dot(q)))[..., np.newaxis]
+			ULXq = spsolve(U, spsolve(L, X.dot(q)))
 			x = (q * 1. / rho) - ((np.dot(X.T, ULXq)) * 1. / (rho ** 2))
-
 		# z-update with relaxation
 		zold = np.copy(z)
 		x_hat = rel_par * x + (1. - rel_par) * zold
