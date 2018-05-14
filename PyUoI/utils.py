@@ -33,7 +33,51 @@ def BIC(n_features, n_samples, rss):
 	BIC = -n_samples * np.log(rss/n_samples) - n_features * np.log(n_samples)
 	return BIC
 
-def lasso_admm(X, y, alpha, rho=1., rel_par=1., MAX_ITER=50, ABSTOL=1e-3, RELTOL=1e-2):
+def lasso_admm(X, y, lamb, rho=1., alpha=1., 
+			max_iter=1000, abs_tol=1e-5, rel_tol=1e-3,
+			verbose=False):
+	"""Solve the Lasso optimization problem using Alternating Direction Method of Multipliers (ADMM)
+	
+	Convergence criteria are given in section 3.3.1 in the Boyd manuscript (equation 3.12).
+	"""
+	n_samples, n_features = X.shape
+
+	# initialize parameter estimates x/z and dual estimates u (equivalent to y)
+	x = np.zeros((n_features, 1))
+	z = np.zeros((n_features, 1))
+	# dual; equivalent to y in most formulations
+	u = np.zeros((n_features, 1))
+
+	Xy = np.dot(X.T, y).reshape((n_features, 1))
+	inv = np.linalg.inv(np.dot(X.T, X) + rho * np.identity(n_features))
+
+	for iteration in range(max_iter):
+		# update x estimates
+		x = np.dot(inv, Xy + rho * (z - u))
+
+		# handle the over-relaxation term
+		z_old = np.copy(z)
+		x_hat = alpha * x + (1 - alpha) * z_old
+		
+		# update z term with over-relaxation
+		z = shrinkage(x=x_hat, threshold=lamb/rho)
+
+		# update dual
+		u += x_hat - z
+
+		# check convergence using eqn 3.12
+		r_norm = norm(x - z)
+		s_norm = norm(rho * (z - z_old))
+
+		eps_primal = np.sqrt(n_features) * abs_tol + np.maximum(norm(x), norm(z)) * rel_tol
+		eps_dual = np.sqrt(n_features) * abs_tol + norm(u) * rel_tol
+
+		if (r_norm <= eps_primal) and (s_norm <= eps_dual):
+			if verbose: print('Convergence: iteration %s' %iteration)
+			break
+	return z.ravel()
+
+def lasso_admm_old(X, y, alpha, rho=1., rel_par=1., max_iter=50, ABSTOL=1e-3, RELTOL=1e-2):
 	"""
 	 Solve lasso problem via ADMM
 	
@@ -60,7 +104,7 @@ def lasso_admm(X, y, alpha, rho=1., rel_par=1., MAX_ITER=50, ABSTOL=1e-3, RELTOL
 	# Data preprocessing
 	n_samples, n_features = X.shape
 	# save a matrix-vector multiply
-	Xy = np.dot(X.T, y)
+	Xy = np.dot(X.T, y).reshape((n_features, 1))
 
 	# ADMM solver
 	x = np.zeros((n_features, 1))
@@ -70,25 +114,24 @@ def lasso_admm(X, y, alpha, rho=1., rel_par=1., MAX_ITER=50, ABSTOL=1e-3, RELTOL
 	# cache the (Cholesky) factorization
 	L, U = factor(X, rho)
 
-	for k in range(MAX_ITER):
+	for k in range(max_iter):
 		# x-update 
 		q = Xy + rho * (z - u)  # (temporary value)
 		if n_samples >= n_features:
-			x = spsolve(U, spsolve(L, q))[..., np.newaxis]
+			x = spsolve(U, spsolve(L, q)).reshape((n_features, 1))
 		else:
-			ULXq = spsolve(U, spsolve(L, X.dot(q)))[..., np.newaxis]
+			ULXq = spsolve(U, spsolve(L, X.dot(q)))
 			x = (q * 1. / rho) - ((np.dot(X.T, ULXq)) * 1. / (rho ** 2))
 
 		# z-update with relaxation
 		zold = np.copy(z)
 		x_hat = rel_par * x + (1. - rel_par) * zold
 		z = shrinkage(x_hat + u, alpha * 1. / rho)
-
 		# u-update
 		u += (x_hat - z)
 
 		# diagnostics, reporting, termination checks
-		objval = objective(X, y, alpha, x, z)
+		#objval = objective(X, y, alpha, x, z)
 		r_norm = norm(x - z)
 		s_norm = norm(-rho * (z - zold))
 		eps_pri = np.sqrt(n_features) * ABSTOL + RELTOL * np.maximum(norm(x), norm(-z))
@@ -99,14 +142,8 @@ def lasso_admm(X, y, alpha, rho=1., rel_par=1., MAX_ITER=50, ABSTOL=1e-3, RELTOL
 
 	return z.ravel()
 
-
-def objective(X, y, alpha, x, z):
-	return .5 * np.sum(np.square(np.dot(X, x) - y)) + alpha * norm(z, 1)
-
-
-def shrinkage(x, kappa):
-	return np.maximum(0., x - kappa) - np.maximum(0., -x - kappa)
-
+def shrinkage(x, threshold):
+	return np.maximum(0., x - threshold) - np.maximum(0., -x - threshold)
 
 def factor(X, rho):
 	n_samples, n_features = X.shape
