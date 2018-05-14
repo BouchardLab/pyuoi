@@ -122,7 +122,6 @@ def lasso_admm_old(X, y, alpha, rho=1., rel_par=1., max_iter=50, ABSTOL=1e-3, RE
 		else:
 			ULXq = spsolve(U, spsolve(L, X.dot(q)))
 			x = (q * 1. / rho) - ((np.dot(X.T, ULXq)) * 1. / (rho ** 2))
-
 		# z-update with relaxation
 		zold = np.copy(z)
 		x_hat = rel_par * x + (1. - rel_par) * zold
