@@ -405,7 +405,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 				if not use_admm:
 					# either use the sklearn Lasso class, or apply SGD if we run into problems
 					try:
-						lasso = lm.Lasso(alpha=lamb, maxiter=10000)
+						lasso = lm.Lasso(alpha=lamb, max_iter=10000)
 						lasso.fit(X[train], y[train] - y[train].mean())
 					except:
 						lasso = lm.SGDRegressor(penalty='l1', alpha=lamb)
