@@ -111,14 +111,15 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		- usage with ADMM is built-in, but not tested
 	"""
 
-	def __init__(self, n_lambdas=48, selection_thres_frac=1.0,
+	def __init__(self, n_lambdas=48, 
+				 selection_thres_max=1., selection_thres_min=1., n_selection_thres=1,
 				 train_frac_sel=0.8, train_frac_est=0.8, train_frac_overall=0.9, 
 				 n_boots_coarse=10, n_boots_sel=48, n_boots_est=48, 
-				 bagging_options=1, n_minibatch=10, use_admm=False, 
+				 bagging_options=1, n_minibatch=10, use_admm=False,
+				 estimation_score='r2', 
 				 copy_X=True, fit_intercept=True, normalize=False):
 		# hyperparameters
 		self.n_lambdas = n_lambdas
-		self.selection_thres_frac = selection_thres_frac
 		# data split fractions
 		self.train_frac_sel = train_frac_sel
 		self.train_frac_est = train_frac_est
@@ -131,6 +132,12 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		self.bagging_options = bagging_options
 		self.n_minibatch = n_minibatch
 		self.use_admm = use_admm
+		# selection thresholds
+		self.selection_thres_max = selection_thres_max
+		self.selection_thres_min = selection_thres_min
+		self.n_selection_thres = n_selection_thres
+		# scoring 
+		self.estimation_score = estimation_score
 		# mimics sklearn.LinearModel.base.LinearRegression
 		self.copy_X = copy_X
 		self.fit_intercept = fit_intercept
@@ -226,8 +233,17 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 							desc='fine lasso sweep', verbose=verbose)
 		# intersect supports across bootstraps for each lambda value
 		# we impose a (potentially) soft intersection
-		threshold = int(self.selection_thres_frac * self.n_boots_sel)
-		self.supports_ = np.count_nonzero(estimates_dense, axis=0) >= threshold
+		#threshold = int(self.selection_thres_frac * self.n_boots_sel)
+
+		self.selection_thresholds = np.linspace(self.selection_thres_min, self.selection_thres_max, self.n_selection_thres)
+		
+		self.supports_ = np.zeros((self.n_selection_thres, self.n_lambdas, self.n_features_), dtype=bool)
+		print(self.supports_.shape)
+		for thres_idx, threshold in enumerate(self.selection_thresholds):
+			self.supports_[thres_idx, :] = np.count_nonzero(estimates_dense, axis=0) >= int(threshold * self.n_boots_sel)
+		self.supports_ = np.reshape(self.supports_, (self.n_selection_thres * self.n_lambdas, self.n_features_))
+		print(self.supports_.shape)
+		#self.supports_ = np.count_nonzero(estimates_dense, axis=0) >= threshold
 
 		########################
 		### Model Estimation ###
@@ -271,33 +287,28 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 			train_boot, test_boot = np.split(bootstrap_indices, [boot_train_split])
 			# iterate over the regularization parameters
 			for lamb_idx, lamb in enumerate(lambdas):
-				if np.any(self.supports_[lamb_idx]):
+				support = self.supports_[lamb_idx]
+				if np.any(support):
 					# fit OLS using the supports from selection module
-					try:
-						X_boot = X_train[train_boot]
-						y_boot = y_train[train_boot]
-						ols = lm.LinearRegression()
-						ols.fit(
-							X_boot[:, self.supports_[lamb_idx]],
-							y_boot - y_boot.mean()
-						)
-					except:
-						ols = lm.SGDRegressor(penalty='none')
-						for batch_idx in range(self.n_minibatch):
-							minibatch = X_boot[batch_idx::self.n_minibatch]
-							ols.partial_fit(
-								X_train[minibatch][:, self.supports_[lamb_idx]],
-								y_train[minibatch] - y_train[minibatch].mean()
-							)
+					X_boot = X_train[train_boot]
+					y_boot = y_train[train_boot]
+					ols = lm.LinearRegression()
+					ols.fit(
+						X_boot[:, support],
+						y_boot - y_boot.mean()
+					)
 					# store the fitted coefficients
-					estimates[bootstrap, lamb_idx, self.supports_[lamb_idx]] = ols.coef_
+					estimates[bootstrap, lamb_idx, support] = ols.coef_
 					# calculate and store the performance on the test set
 					y_hat_boot = np.dot(X_train[test_boot], estimates[bootstrap, lamb_idx, :])
 					y_true_boot = y_train[test_boot] - y_train[test_boot].mean()
 					# calculate sum of squared residuals
 					rss = np.sum((y_hat_boot - y_true_boot)**2)
 					# calculate BIC as our scoring function
-					scores[bootstrap, lamb_idx] = utils.BIC(self.n_features_, boot_train_split, rss)
+					if self.estimation_score == 'r2':
+						scores[bootstrap, lamb_idx] = r2_score(y_true_boot, y_hat_boot)
+					elif self.estimation_score == 'BIC':
+						scores[bootstrap, lamb_idx] = utils.BIC(np.count_nonzero(support), boot_train_split, rss)
 				else:
 					# if no variables were selected, throw a message
 					print('No variables selected in the support for lambda = %d.' % lamb)
