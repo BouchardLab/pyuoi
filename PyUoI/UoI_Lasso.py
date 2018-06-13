@@ -184,7 +184,8 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		if sample_weight is not None:
 			# Sample weight can be implemented via a simple rescaling.
 			X, y = _rescale_data(X, y, sample_weight)
-		
+		print(X)
+		print(y)
 		# extract model dimensions from design matrix
 		self.n_samples_, self.n_features_ = X.shape
 
@@ -415,18 +416,8 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 				# run the Lasso on the training set
 				if not use_admm:
 					# either use the sklearn Lasso class, or apply SGD if we run into problems
-					try:
-						lasso = lm.Lasso(alpha=lamb, max_iter=10000)
-						lasso.fit(X[train], y[train] - y[train].mean())
-					except:
-						lasso = lm.SGDRegressor(penalty='l1', alpha=lamb)
-						# run SGD over minibatches from the dataset
-						for batch_idx in range(n_minibatch):
-							minibatch = range(batch_idx, n_samples,
-											  n_minibatch)
-							lasso.partial_fit(X[minibatch],
-											  y[minibatch] - y[
-												  minibatch].mean())
+					lasso = lm.Lasso(alpha=lamb, max_iter=10000)
+					lasso.fit(X[train], y[train] - y[train].mean())
 					estimates[bootstrap, lamb_idx, :] = lasso.coef_
 				else:
 					estimates[bootstrap, lamb_idx, :] = utils.lasso_admm(X[train], (y[train] - y[train].mean()), lamb=lamb)
