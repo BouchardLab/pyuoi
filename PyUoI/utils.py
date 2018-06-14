@@ -4,11 +4,6 @@ import scipy.sparse as sparse
 from scipy.sparse.linalg import spsolve
 from numpy.linalg import norm, cholesky
 
-"""
-Author  : Alex Bujan (adapted from http://www.stanford.edu/~boyd)
-Date    : 12/06/2015
-"""
-
 def BIC(n_features, n_samples, rss):
 	"""Calculate the Bayesian Information Criterion under the assumption of 
 	normally distributed disturbances (which allows the BIC to take on the
@@ -30,7 +25,7 @@ def BIC(n_features, n_samples, rss):
 	BIC : float
 		Bayesian Information Criterion
 	"""
-	BIC = -n_samples * np.log(rss/n_samples) - n_features * np.log(n_samples)
+	BIC = n_samples * np.log(rss/n_samples) + n_features * np.log(n_samples)
 	return BIC
 
 def lasso_admm(X, y, lamb, rho=1., alpha=1., 

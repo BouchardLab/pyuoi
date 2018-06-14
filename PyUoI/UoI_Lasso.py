@@ -105,19 +105,16 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 	supports_ : np array of booleans, shape = (number of lambdas) x (number of features)
 		boolean array indicating whether a given regressor (column) is selected for estimation
 		for a given lambda (row).
-
-	TODO:
-		- SGDRegressor has not been tested in either the selection or estimation modules
-		- usage with ADMM is built-in, but not tested
 	"""
 
-	def __init__(self, n_lambdas=48, 
-				 selection_thres_max=1., selection_thres_min=1., n_selection_thres=1,
-				 train_frac_sel=0.8, train_frac_est=0.8, train_frac_overall=0.9, 
-				 n_boots_coarse=10, n_boots_sel=48, n_boots_est=48, 
-				 bagging_options=1, n_minibatch=10, use_admm=False,
-				 estimation_score='r2', 
-				 copy_X=True, fit_intercept=True, normalize=False):
+	def __init__(
+		self, n_lambdas=48, 
+		selection_thres_max=1., selection_thres_min=1., n_selection_thres=1,
+		train_frac_sel=0.8, train_frac_est=0.8, train_frac_overall=0.9, 
+		n_boots_coarse=10, n_boots_sel=48, n_boots_est=48, 
+		bagging_options=1, use_admm=False, estimation_score='BIC', 
+		copy_X=True, fit_intercept=True, normalize=False
+	):
 		# hyperparameters
 		self.n_lambdas = n_lambdas
 		# data split fractions
@@ -130,7 +127,6 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		self.n_boots_est = n_boots_est
 		# backup options and switches
 		self.bagging_options = bagging_options
-		self.n_minibatch = n_minibatch
 		self.use_admm = use_admm
 		# selection thresholds
 		self.selection_thres_max = selection_thres_max
@@ -165,18 +161,19 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		verbose : boolean
 			a boolean switch indicating whether the fitting should print out its progress.
 		"""
+		# initialize the seed, if it's provided
+		if seed is not None:
+			np.random.seed(seed)
+
 		# start taken from sklearn.LinearModels.base.LinearRegression
 		X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
 						 y_numeric=True, multi_output=True)
 
-		# start the seed, if it's provided
-		if seed is not None:
-			np.random.seed(seed)
-
-		# sklearn data preprocessing and checks
+		# preprocess data through centering and normalization
 		X, y, X_offset, y_offset, X_scale = _preprocess_data(
 			X, y, fit_intercept=self.fit_intercept, normalize=self.normalize,
 			copy=self.copy_X)
+
 
 		if sample_weight is not None and np.atleast_1d(sample_weight).ndim > 1:
 			raise ValueError("Sample weights must be 1D array or scalar")
@@ -184,8 +181,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		if sample_weight is not None:
 			# Sample weight can be implemented via a simple rescaling.
 			X, y = _rescale_data(X, y, sample_weight)
-		print(X)
-		print(y)
+
 		# extract model dimensions from design matrix
 		self.n_samples_, self.n_features_ = X.shape
 
@@ -200,9 +196,10 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 			lambda_coarse = np.logspace(-3., 3., self.n_lambdas, dtype=np.float64)
 		# run the coarse lasso sweep
 		estimates_coarse, scores_coarse = \
-			self.lasso_sweep(X, y, lambda_coarse, self.train_frac_sel,
-							 self.n_boots_coarse, self.n_minibatch,
-							 self.use_admm, desc='coarse lasso sweep', verbose=verbose)
+			self.lasso_sweep(
+				X, y, lambda_coarse, self.train_frac_sel, self.n_boots_coarse,
+				self.use_admm, desc='coarse lasso sweep', verbose=verbose
+			)
 		# deduce the index which maximizes the explained variance over bootstraps
 		lambda_max_idx = np.argmax(np.mean(scores_coarse, axis=0))
 		# obtain the lambda which maximizes the explained variance over bootstraps
@@ -229,22 +226,22 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 								dtype=np.float64)
 		# run the lasso sweep with new lambda set
 		estimates_dense, scores_dense = \
-			self.lasso_sweep(X, y, lambdas, self.train_frac_sel,
-							self.n_boots_sel, self.n_minibatch, self.use_admm,
-							desc='fine lasso sweep', verbose=verbose)
-		# intersect supports across bootstraps for each lambda value
-		# we impose a (potentially) soft intersection
-		#threshold = int(self.selection_thres_frac * self.n_boots_sel)
-
-		self.selection_thresholds = np.linspace(self.selection_thres_min, self.selection_thres_max, self.n_selection_thres)
-		
+			self.lasso_sweep(
+				X, y, lambdas, self.train_frac_sel, self.n_boots_sel,  
+				self.use_admm, desc='fine lasso sweep', verbose=verbose
+			)
+		# choose selection fraction threshold values to use
+		selection_frac_thresholds = np.linspace(self.selection_thres_min, self.selection_thres_max, self.n_selection_thres)
+		# calculate the actual number of thresholds, but delete any repetitions
+		selection_thresholds = np.sort(np.unique((self.n_boots_sel * selection_frac_thresholds).astype('int')))
+		# create support matrix
 		self.supports_ = np.zeros((self.n_selection_thres, self.n_lambdas, self.n_features_), dtype=bool)
-		print(self.supports_.shape)
-		for thres_idx, threshold in enumerate(self.selection_thresholds):
-			self.supports_[thres_idx, :] = np.count_nonzero(estimates_dense, axis=0) >= int(threshold * self.n_boots_sel)
+		# iterate over each stability selection threshold
+		for thres_idx, threshold in enumerate(selection_thresholds):
+			# calculate the support given the specific selection threshold
+			self.supports_[thres_idx, :] = np.count_nonzero(estimates_dense, axis=0) >= threshold
+		# reshape support matrix so that first axis consists of all combinations of hyperparameters
 		self.supports_ = np.reshape(self.supports_, (self.n_selection_thres * self.n_lambdas, self.n_features_))
-		print(self.supports_.shape)
-		#self.supports_ = np.count_nonzero(estimates_dense, axis=0) >= threshold
 
 		########################
 		### Model Estimation ###
@@ -309,9 +306,16 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 					if self.estimation_score == 'r2':
 						scores[bootstrap, lamb_idx] = r2_score(y_true_boot, y_hat_boot)
 					elif self.estimation_score == 'BIC':
-						scores[bootstrap, lamb_idx] = utils.BIC(np.count_nonzero(support), boot_train_split, rss)
+						n_selected_features = np.count_nonzero(support)
+						scores[bootstrap, lamb_idx] = -utils.BIC(
+							n_features=n_selected_features,
+							n_samples=boot_train_split,
+							rss=rss
+						)
 				else:
 					# if no variables were selected, throw a message
+					# we'll leave the scores array unchanged, so any support
+					# with no selection will be assigned a score of 0.
 					print('No variables selected in the support for lambda = %d.' % lamb)
 
 		if verbose:
@@ -353,7 +357,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		return self
 
 	@staticmethod
-	def lasso_sweep(X, y, lambdas, train_frac, n_bootstraps, n_minibatch,
+	def lasso_sweep(X, y, lambdas, train_frac, n_bootstraps,
 					use_admm=False, seed=None, desc='', verbose=False):
 		"""Perform Lasso regression across bootstraps of a dataset for a sweep
 		of L1 penalty values.
@@ -377,9 +381,6 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		n_bootstraps : int
 			the number of bootstraps to obtain from the dataset; each bootstrap
 			will undergo a Lasso regression
-
-		n_minibatch : int
-			number of minibatches to use in case SGD is used for the regression
 
 		use_admm: bool
 			switch to use the alternating direction method of multipliers (
@@ -415,11 +416,12 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 			for lamb_idx, lamb in enumerate(lambdas):
 				# run the Lasso on the training set
 				if not use_admm:
-					# either use the sklearn Lasso class, or apply SGD if we run into problems
+					# apply coordinate descent through the sklearn Lasso class
 					lasso = lm.Lasso(alpha=lamb, max_iter=10000)
 					lasso.fit(X[train], y[train] - y[train].mean())
 					estimates[bootstrap, lamb_idx, :] = lasso.coef_
 				else:
+					# apply ADMM using our utility function
 					estimates[bootstrap, lamb_idx, :] = utils.lasso_admm(X[train], (y[train] - y[train].mean()), lamb=lamb)
 				# run trained Lasso on the test set and obtain predictions
 				y_hat = X[test].dot(estimates[bootstrap, lamb_idx, :])
