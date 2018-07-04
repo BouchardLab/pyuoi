@@ -28,6 +28,46 @@ def BIC(n_features, n_samples, rss):
 	BIC = n_samples * np.log(rss/n_samples) + n_features * np.log(n_samples)
 	return BIC
 
+def leveled_randomized_ids(groups, fraction):
+	"""Grab bootstrap indices that are leveled across groups.
+
+	Parameters
+	----------
+	groups : array of size (n_samples)
+		contains indices identifying each sample to a specific group
+
+	fraction : float
+		fraction of samples to be selected
+
+	Returns
+	-------
+	leveled_ids : array of size (n_selected_samples)
+		contains the leveled indices that are selected into the bootstrap
+
+	leftover_ids : array
+		contains the leftover indices (useful for splitting into train/test sets)
+
+	"""
+	# initialize id arrays
+	leveled_ids = np.array([])
+	leftover_ids = np.array([])
+	# extract unique group ids
+	unique_ids = np.unique(groups)
+	# iterate through the unique group ids
+	for group_id in unique_ids:
+		# extract the sample indices in the current group
+		candidate_idx = np.argwhere(groups == group_id).ravel()
+		# number of samples that'll be selected from this group into bootstrap
+		n_ids_group = int(fraction * candidate_idx.size)
+		# permute the ids
+		permuted = np.random.permutation(candidate_idx)
+		# split up the ids into the selected and leftover arrays
+		selected_ids_group, leftover_ids_group = np.split(permuted, [n_ids_group])
+		# toss the selected/leftover ids in their corresponding group
+		leveled_ids = np.append(leveled_ids, candidate_idx[selected_ids_group])
+		leftover_ids = np.append(leftover_ids, candidate_idx[leftover_ids_group])
+	return leveled_ids.astype('int'), leftover_ids.astype('int')
+
 def lasso_admm(X, y, lamb, rho=1., alpha=1., 
 			max_iter=1000, abs_tol=1e-5, rel_tol=1e-3,
 			verbose=False):

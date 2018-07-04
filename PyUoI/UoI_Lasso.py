@@ -139,7 +139,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		self.fit_intercept = fit_intercept
 		self.normalize = normalize
 
-	def fit(self, X, y, seed=None, verbose=False, sample_weight=None):
+	def fit(self, X, y, groups=None, seed=None, verbose=False, sample_weight=None):
 		"""Fit data according to the UoI-Lasso algorithm.
 		Relevant information (fits, residuals, model performance) is stored within object.
 		Thus, nothing is returned by this function.
@@ -184,6 +184,12 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 
 		# extract model dimensions from design matrix
 		self.n_samples_, self.n_features_ = X.shape
+
+		# group leveling 
+		if groups is None:
+			self.groups_ = np.ones(self.n_samples_)
+		else:
+			self.groups_ = groups
 
 		if verbose:
 			print('(1) Loaded data.\n %s samples with %s features.' % (self.n_samples_, self.n_features_))
@@ -266,8 +272,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		# either we plan on using a test set, or we'll use the entire dataset for training
 		if self.train_frac_overall < 1:
 			# generate indices for the global training and testing blocks
-			indices = np.random.permutation(self.n_samples_)
-			train, test = np.split(indices, [train_split])
+			train, test = utils.leveled_randomized_ids(self.groups_, self.train_frac_overall)
 			# compile the training and test sets
 			X_train = X[train]
 			y_train = y[train]
@@ -279,10 +284,8 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 
 		# iterate over bootstrap samples
 		for bootstrap in trange(self.n_boots_est, desc='Model Estimation', disable=not verbose):
-			# extract the bootstrap indices, keeping a fraction of the data
-			# available for testing
-			bootstrap_indices = np.random.permutation(train_split)
-			train_boot, test_boot = np.split(bootstrap_indices, [boot_train_split])
+			# extract the bootstrap indices, keeping a fraction of the data available for testing
+			train_boot, test_boot = utils.leveled_randomized_ids(self.groups_[train], self.train_frac_est)
 			# iterate over the regularization parameters
 			for lamb_idx, lamb in enumerate(lambdas):
 				support = self.supports_[lamb_idx]
@@ -356,8 +359,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 
 		return self
 
-	@staticmethod
-	def lasso_sweep(X, y, lambdas, train_frac, n_bootstraps,
+	def lasso_sweep(self, X, y, lambdas, train_frac, n_bootstraps,
 					use_admm=False, seed=None, desc='', verbose=False):
 		"""Perform Lasso regression across bootstraps of a dataset for a sweep
 		of L1 penalty values.
@@ -410,8 +412,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		# apply the Lasso to bootstrapped datasets
 		for bootstrap in trange(n_bootstraps, desc=desc, disable=not verbose):
 			# for each bootstrap, we'll split the data into a randomly assigned training and test set
-			indices = np.random.permutation(n_samples)
-			train, test = np.split(indices, [n_train_samples])
+			train, test = utils.leveled_randomized_ids(self.groups_, train_frac)
 			# iterate over the provided L1 penalty values
 			for lamb_idx, lamb in enumerate(lambdas):
 				# run the Lasso on the training set
