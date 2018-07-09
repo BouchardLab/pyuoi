@@ -189,7 +189,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		if groups is None:
 			self.groups_ = np.ones(self.n_samples_)
 		else:
-			self.groups_ = groups
+			self.groups_ = np.array(groups)
 
 		if verbose:
 			print('(1) Loaded data.\n %s samples with %s features.' % (self.n_samples_, self.n_features_))
