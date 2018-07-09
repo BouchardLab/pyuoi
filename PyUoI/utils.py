@@ -64,8 +64,8 @@ def leveled_randomized_ids(groups, fraction):
 		# split up the ids into the selected and leftover arrays
 		selected_ids_group, leftover_ids_group = np.split(permuted, [n_ids_group])
 		# toss the selected/leftover ids in their corresponding group
-		leveled_ids = np.append(leveled_ids, candidate_idx[selected_ids_group])
-		leftover_ids = np.append(leftover_ids, candidate_idx[leftover_ids_group])
+		leveled_ids = np.append(leveled_ids, selected_ids_group)
+		leftover_ids = np.append(leftover_ids, leftover_ids_group)
 	return leveled_ids.astype('int'), leftover_ids.astype('int')
 
 def lasso_admm(X, y, lamb, rho=1., alpha=1., 
