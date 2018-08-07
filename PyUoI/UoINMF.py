@@ -12,6 +12,7 @@ import numpy as np
 class UoINMF(BaseEstimator, TransformerMixin):
 
     def __init__(self, n_boostraps_u=10, n_bootstraps_i=10,
+                 random_state=None,
                  ranks=None, nmf=None, dbscan=None, lasso=None):
         """
         Union of Intersections Nonnegative Matrix Factorization
@@ -35,6 +36,7 @@ class UoINMF(BaseEstimator, TransformerMixin):
             ranks = ranks,
             nmf = nmf,
             dbscan = dbscan,
+            random_state = random_state,
         )
 
     def set_params(self, **kwargs):
@@ -46,6 +48,7 @@ class UoINMF(BaseEstimator, TransformerMixin):
         ranks = kwargs['ranks']
         nmf = kwargs['nmf']
         dbscan = kwargs['dbscan']
+        random_state = kwargs['random_state']
         self.n_bootstraps_u = n_boostraps_u
         self.n_bootstraps_i = n_bootstraps_i
         self.components_ = None
@@ -68,6 +71,15 @@ class UoINMF(BaseEstimator, TransformerMixin):
             self.dbscan = dbscan
         else:
             self.dbscan = DBSCAN()
+
+        if random_state is None:
+            self._rand = np.random
+        else:
+            if isinstance(random_state, int):
+                self._rand = np.random.RandomState(random_state)
+            elif isinstance(random_state, np.random.RandomState):
+                self._rand = random_state
+            self.nmf.set_params(random_state=self._rand)
         self.cons_meth = np.mean              # the method for computing consensus H bases after clustering
         self.components_ = None
         self.bases_samples_ = None
@@ -92,7 +104,7 @@ class UoINMF(BaseEstimator, TransformerMixin):
         n_H_samples = k_tot*self.n_bootstraps_i
         H_samples = np.zeros((n_H_samples, p), dtype=np.float64)
         ridx = list()
-        rep_idx = np.random.randint(n, size=(self.n_bootstraps_i, n))
+        rep_idx = self._rand.randint(n, size=(self.n_bootstraps_i, n))
         for i in range(self.n_bootstraps_i):
             # compute NMF bases for k across bootstrap replicates
             H_i = i * k_tot
