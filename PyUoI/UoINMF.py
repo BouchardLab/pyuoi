@@ -56,7 +56,12 @@ class UoINMF(BaseEstimator, TransformerMixin):
                 self.ranks = tuple(ranks)
             else:
                 raise ValueError('specify a max value or an array-like for k')
-        self.nmf_cls = nmf if isinstance(nmf, type) else NMF
+        if nmf is not None:
+            if isinstance(nmf, type):
+                raise ValueError('nmf must be an instance, not a class')
+            self.nmf = nmf
+        else:
+            self.nmf = NMF(beta_loss='kullback-leibler', solver='mu', max_iter=400)
         if dbscan is not None:
             if isinstance(dbscan, type):
                 raise ValueError('dbscan must be an instance, not a class')
@@ -93,7 +98,7 @@ class UoINMF(BaseEstimator, TransformerMixin):
             H_i = i * k_tot
             sample = X[rep_idx[i]]
             for (k_idx, k) in enumerate(self.ranks):
-                H_samples[H_i:H_i+k:,] = self.nmf_cls(n_components=k).fit(sample).components_             # concatenate k by p
+                H_samples[H_i:H_i+k:,] = self.nmf.set_params(n_components=k).fit(sample).components_             # concatenate k by p
                 H_i += k
         H_samples = H_samples[np.sum(H_samples, axis=1) != 0.0]      # remove zero bases
         H_samples = normalize(H_samples)                             # normalize by 2-norm   # TODO: double check normalizing across correct axis
