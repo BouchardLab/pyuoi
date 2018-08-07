@@ -1,12 +1,18 @@
 from sklearn.base import TransformerMixin, BaseEstimator
 from sklearn.decomposition import NMF
+from sklearn.cluster import DBSCAN
+from sklearn.preprocessing import normalize
+
+from sklearn.utils.validation import check_non_negative
+
 import scipy.linalg as spla
 import scipy.optimize as spo
+import numpy as np
 
 class UoINMF(BaseEstimator, TransformerMixin):
 
-    def __init__(self, n_boostraps_u=10, n_bootstraps_i=10
-                 ranks=None, nmf=None, dbscan=None, lasso=None)
+    def __init__(self, n_boostraps_u=10, n_bootstraps_i=10,
+                 ranks=None, nmf=None, dbscan=None, lasso=None):
         """
         Union of Intersections Nonnegative Matrix Factorization
 
@@ -23,63 +29,109 @@ class UoINMF(BaseEstimator, TransformerMixin):
             lasso:                  the lasso object to use.
         """
 
+        self.__initialize(
+            n_boostraps_u = n_boostraps_u,
+            n_bootstraps_i = n_bootstraps_i,
+            ranks = ranks,
+            nmf = nmf,
+            dbscan = dbscan,
+        )
+
+    def set_params(self, **kwargs):
+        self.__initialize(**kwargs)
+
+    def __initialize(self, **kwargs):
+        n_boostraps_u = kwargs['n_boostraps_u']
+        n_bootstraps_i = kwargs['n_bootstraps_i']
+        ranks = kwargs['ranks']
+        nmf = kwargs['nmf']
+        dbscan = kwargs['dbscan']
         self.n_bootstraps_u = n_boostraps_u
         self.n_bootstraps_i = n_bootstraps_i
-        self.fit_frac = fit_frac
-        self.ranks = list(range(2,ranks+1)) if isinstance(ranks, int) else list(ranks)
-        self.nmf = nmf isinstance(nmf, type) else NMF
-        self.dbscan = dbscan
-
-    def __normH(self, H):
-        norms = spla.norm(x,axis=1)
-        for i in range(H.shape[0]):
-            H[i] = H[i]/norms[i]
+        self.components_ = None
+        if ranks is not None:
+            if isinstance(ranks, int):
+                self.ranks = list(range(2,ranks+1)) if isinstance(ranks, int) else list(ranks)
+            elif isinstance(ranks, (list, tuple, range, np.array)):
+                self.ranks = tuple(ranks)
+            else:
+                raise ValueError('specify a max value or an array-like for k')
+        self.nmf_cls = nmf if isinstance(nmf, type) else NMF
+        if dbscan is not None:
+            if isinstance(dbscan, type):
+                raise ValueError('dbscan must be an instance, not a class')
+            self.dbscan = dbscan
+        else:
+            self.dbscan = DBSCAN()
+        self.cons_meth = np.mean              # the method for computing consensus H bases after clustering
+        self.components_ = None
+        self.bases_samples_ = None
+        self.boostraps_ = None
 
     def fit(self, X, y=None):
         """
-        Perform UoINMF decomposition.
+        Perform first phase of UoI NMF decomposition.
+
+        Compute H matrix.
+
+        Iterate across a range of k (as specified with the *ranks* argument).
 
         Args:
             X:  array of shape (n_samples, n_features)
             y:  ignored
         """
+        check_non_negative(X, 'UoINMF')
         n, p = X.shape
         Wall = list()
-        Hall = list()
+        k_tot = sum(self.ranks)
+        n_H_samples = k_tot*self.n_bootstraps_i
+        H_samples = np.zeros((n_H_samples, p), dtype=np.float64)
         ridx = list()
-        for k in self.ranks:
+        rep_idx = np.random.randint(n, size=(self.n_bootstraps_i, n))
+        for i in range(self.n_bootstraps_i):
             # compute NMF bases for k across bootstrap replicates
-            nmf = self.nmf(n_components=k)
-            H = np.zeros((self.n_bootstraps_i * p, k))
-            rep_idx = np.zeros((n, n), dtype=int)
-            W_i = 0
-            H_i = 0
-            for i in range(self.n_bootstraps_i):
-                rep_idx[i] = np.randint(n, size=n)
-                nmf.fit_transform(X[rep_idx[i]])                     # n by k
-                H[H_i:H_i+p,:] = nmf.components_.T                   # transpose(k by p)
-                W_i += n
-                H_i += p
-            H = H[np.sum(H, axis=1) != 0.0]                          # remove zero bases
-            self.__normH(H)                                          # normalize by 2-norm
-            labels = self.dbscan.fit_predict(H)                      # cluster all bases
+            H_i = i * k_tot
+            sample = X[rep_idx[i]]
+            for (k_idx, k) in enumerate(self.ranks):
+                H_samples[H_i:H_i+k:,] = self.nmf_cls(n_components=k).fit(sample).components_             # concatenate k by p
+                H_i += k
+        H_samples = H_samples[np.sum(H_samples, axis=1) != 0.0]      # remove zero bases
+        H_samples = normalize(H_samples)                             # normalize by 2-norm   # TODO: double check normalizing across correct axis
 
-            # compute consensus bases from clusters
-            cluster_ids = np.unique([x for x in labels if x != -1])
-            nclusters = len(cluster_ids)
-            H_cons = np.zeros((nclusters, k))
-            for i in cluster_ids:
-                H_cons[i,:] = np.mean(H[labels==i],axis=0)
-            H_cons = H_cons[np.any(np.isnan(H_cons), axis=1),]        # remove nans
-            self.__normH(H_cons)                                      # normalize by 2-norm
-
-            W_boot = list()
-            for i in range(rep_idx.shape[0]):
-                bs_sample = X[rep_idx[i]]
-                W_boot.append(spo.nnls(H_cons.T, X[bs_sample,:].T).T)     # n_prime x k
+        labels = self.dbscan.fit_predict(H_samples)                  # cluster all bases
+        # compute consensus bases from clusters
+        cluster_ids = np.unique([x for x in labels if x != -1])                              # TODO: check if we need to filter out -1
+        nclusters = len(cluster_ids)
+        H_cons = np.zeros((nclusters, p), dtype=np.float64)
+        for i in cluster_ids:
+            H_cons[i,:] = self.cons_meth(H_samples[labels==i], axis=0)
+        # H_cons = H_cons[np.any(np.isnan(H_cons), axis=1),]        # remove nans            # TODO: check if we need to remove NaNs
+        H_cons = normalize(H_cons)                                          # normalize by 2-norm
+        self.components_ = H_cons
+        self.bases_samples_ = H_samples
+        self.boostraps_ = rep_idx
+        return self
 
 
-            Hall.append(H)
+    def transform(self, X):
+            #
+            # When copying this from Shashanka's code, I got confused.
+            # It collects W-row estimates for intersection.
+            #W_boot = [list() for _ in range(n)]                       # For each sample, a list of the W estimates for it
+            #H_cons_T =  H_cons.T
+            #for i in range(rep_idx.shape[0]):                     # for each bootstrap (self.n_boostraps_i)
+            #    X_rep = X[rep_idx[i]]                             # X replicate sample
+            #    W = np.zeros((n, k))
+            #    for j in rep_idx[i]:                   # for each replicate
+            #        W[j].append(spo.nnls(H_cons_T, X_rep[j]))     # collect estimates for each row for intersecting later
+            #    W_boot.append(W)
+
+            W = np.zeros((n, k))
+            H_cons_T =  H_cons.T
+            for i in range(n):
+                W[i,:] = np.equal(spo.nnls(H_cons_T, X[i])[0], np.zeros(k))
+
+            H_samples.append(H_cons)
             Wall.append(W)
             ridx.append(rep_idx)
 
