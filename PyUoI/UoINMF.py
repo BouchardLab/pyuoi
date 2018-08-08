@@ -127,29 +127,61 @@ class UoINMF(BaseEstimator, TransformerMixin):
         self.components_ = H_cons
         self.bases_samples_ = H_samples
         self.boostraps_ = rep_idx
+        self.reconstruction_err_ = None
         return self
 
 
-    def transform(self, X):
-            #
-            # When copying this from Shashanka's code, I got confused.
-            # It collects W-row estimates for intersection.
-            #W_boot = [list() for _ in range(n)]                       # For each sample, a list of the W estimates for it
-            #H_cons_T =  H_cons.T
-            #for i in range(rep_idx.shape[0]):                     # for each bootstrap (self.n_boostraps_i)
-            #    X_rep = X[rep_idx[i]]                             # X replicate sample
-            #    W = np.zeros((n, k))
-            #    for j in rep_idx[i]:                   # for each replicate
-            #        W[j].append(spo.nnls(H_cons_T, X_rep[j]))     # collect estimates for each row for intersecting later
-            #    W_boot.append(W)
+    def transform(self, X, reconstruction_err=True):
+        """
+        Transform the data X according to the fitted UoI-NMF model
 
-            W = np.zeros((n, k))
-            H_cons_T =  H_cons.T
-            for i in range(n):
-                W[i,:] = np.equal(spo.nnls(H_cons_T, X[i])[0], np.zeros(k))
+        Args:
+            X                           : array-like; shape (n_samples, n_features)
+            reconstruction_err          : bool, True to compute reconstruction error, False otherwise
+                                          default True
+        """
+        if self.components_ is None:
+            raise ValueError('UoINMF not fit')
+        if X.shape[1] != self.components_[1]:
+            raise ValueError('incompatible shape: cannot reconstruct with %s and %s' % (X.shape, self.components_.shape))
+        H_t = self.components_.T
+        ret = np.zeros(X.shape, dtype=X.dtype)
+        for i in range(X.shape[0]):
+            ret[i] = spo.nnls(H_t, X[i])
+        if reconstruction_error:
+            self.reconstruction_err_ = np.linalg.norm(self.inverse_transform(ret))
+        return ret
 
-            H_samples.append(H_cons)
-            Wall.append(W)
-            ridx.append(rep_idx)
+    def fit_transform(self, X, y=None, reconstruction_err=True):
+        """
+        Transform the data X according to the fitted UoI-NMF model
 
+        Args:
+            X                           : array-like; shape (n_samples, n_features)
+            y                           : ignored
+            reconstruction_err          : bool, True to compute reconstruction error, False otherwise
+                                          default True
+        Returns:
+            W                           : array-like; shape (n_samples, n_components)
+                                          Transformed data
+        """
+        self.fit(X)
+        return self.transform(X, reconstruction_err=reconstruction_err)
+
+    def inverse_transform(self, W):
+        """
+        Transform data back to its original space.
+
+        Args:
+            W                           : array-like; shape (n_samples, n_components)
+                                          Transformed data matrix
+        Returns:
+            X                           : array-like; shape (n_samples, n_features)
+                                          Data matrix of original shape
+        """
+        if self.components_ is None:
+            raise ValueError('UoINMF not fit')
+        if W.shape[1] != self.components_[0]:
+            raise ValueError('incompatible shape: cannot multiply %s with %s' % (W.shape, self.components_.shape))
+        return np.matmul(W, self.components_)
 
