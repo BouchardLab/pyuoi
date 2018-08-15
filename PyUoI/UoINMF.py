@@ -142,14 +142,14 @@ class UoINMF(BaseEstimator, TransformerMixin):
         """
         if self.components_ is None:
             raise ValueError('UoINMF not fit')
-        if X.shape[1] != self.components_[1]:
+        if X.shape[1] != self.components_.shape[1]:
             raise ValueError('incompatible shape: cannot reconstruct with %s and %s' % (X.shape, self.components_.shape))
         H_t = self.components_.T
-        ret = np.zeros(X.shape, dtype=X.dtype)
+        ret = np.zeros((X.shape[0], self.components_.shape[0]), dtype=X.dtype)
         for i in range(X.shape[0]):
-            ret[i] = spo.nnls(H_t, X[i])
-        if reconstruction_error:
-            self.reconstruction_err_ = np.linalg.norm(self.inverse_transform(ret))
+            ret[i] = spo.nnls(H_t, X[i])[0]
+        if reconstruction_err:
+            self.reconstruction_err_ = np.linalg.norm(X-self.inverse_transform(ret))
         return ret
 
     def fit_transform(self, X, y=None, reconstruction_err=True):
@@ -181,7 +181,7 @@ class UoINMF(BaseEstimator, TransformerMixin):
         """
         if self.components_ is None:
             raise ValueError('UoINMF not fit')
-        if W.shape[1] != self.components_[0]:
+        if W.shape[1] != self.components_.shape[0]:
             raise ValueError('incompatible shape: cannot multiply %s with %s' % (W.shape, self.components_.shape))
         return np.matmul(W, self.components_)
 
