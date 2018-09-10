@@ -11,15 +11,14 @@ import numpy as np
 
 class UoINMF(BaseEstimator, TransformerMixin):
 
-    def __init__(self, n_boostraps_u=10, n_bootstraps_i=10,
+    def __init__(self, n_bootstraps=10,
                  random_state=None,
                  ranks=None, nmf=None, dbscan=None, lasso=None):
         """
         Union of Intersections Nonnegative Matrix Factorization
 
         Args:
-            n_bootstraps_i (int):   number of bootstraps to use for model selection
-            n_bootstraps_u (int):   number of bootstraps to use for model estimation
+            n_bootstraps (int):   number of bootstraps to use for model selection
             ranks (int, list):      the range of k to use. if *ranks* is an int,
                                     range(2, ranks+1) will be used. If not specified, will
                                     range(X.shape[1]) will be used.
@@ -31,8 +30,7 @@ class UoINMF(BaseEstimator, TransformerMixin):
         """
 
         self.__initialize(
-            n_boostraps_u = n_boostraps_u,
-            n_bootstraps_i = n_bootstraps_i,
+            n_bootstraps = n_bootstraps,
             ranks = ranks,
             nmf = nmf,
             dbscan = dbscan,
@@ -43,14 +41,12 @@ class UoINMF(BaseEstimator, TransformerMixin):
         self.__initialize(**kwargs)
 
     def __initialize(self, **kwargs):
-        n_boostraps_u = kwargs['n_boostraps_u']
-        n_bootstraps_i = kwargs['n_bootstraps_i']
+        n_bootstraps = kwargs['n_bootstraps']
         ranks = kwargs['ranks']
         nmf = kwargs['nmf']
         dbscan = kwargs['dbscan']
         random_state = kwargs['random_state']
-        self.n_bootstraps_u = n_boostraps_u
-        self.n_bootstraps_i = n_bootstraps_i
+        self.n_bootstraps = n_bootstraps
         self.components_ = None
         if ranks is not None:
             if isinstance(ranks, int):
@@ -101,11 +97,11 @@ class UoINMF(BaseEstimator, TransformerMixin):
         n, p = X.shape
         Wall = list()
         k_tot = sum(self.ranks)
-        n_H_samples = k_tot*self.n_bootstraps_i
+        n_H_samples = k_tot*self.n_bootstraps
         H_samples = np.zeros((n_H_samples, p), dtype=np.float64)
         ridx = list()
-        rep_idx = self._rand.randint(n, size=(self.n_bootstraps_i, n))
-        for i in range(self.n_bootstraps_i):
+        rep_idx = self._rand.randint(n, size=(self.n_bootstraps, n))
+        for i in range(self.n_bootstraps):
             # compute NMF bases for k across bootstrap replicates
             H_i = i * k_tot
             sample = X[rep_idx[i]]

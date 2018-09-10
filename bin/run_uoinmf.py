@@ -63,7 +63,7 @@ log('normalizing data')
 if not args.no_norm:
     data = data_normalization(data, 'positive')
 
-uoinmf = UoINMF(n_bootstraps_i=args.bootstraps, ranks=list(range(2,20)), random_state=seed,
+uoinmf = UoINMF(n_bootstraps=args.bootstraps, ranks=list(range(2,20)), random_state=seed,
                     dbscan=HDBSCAN(min_cluster_size=args.min_cluster_size, core_dist_n_jobs=1))
 log('running UoINMF')
 log(repr(uoinmf))
