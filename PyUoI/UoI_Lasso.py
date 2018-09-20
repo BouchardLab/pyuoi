@@ -185,6 +185,12 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		# extract model dimensions from design matrix
 		self.n_samples_, self.n_features_ = X.shape
 
+		# edge case
+		if np.all(y == 0):
+			self.coef_ = np.zeros(self.n_features_)
+			self.intercept_ = 0
+			return self
+			
 		# group leveling 
 		if groups is None:
 			self.groups_ = np.ones(self.n_samples_)
@@ -225,15 +231,15 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 
 		# create the final lambda set based on the coarse sweep
 		if self.n_lambdas == 1:
-			lambdas = np.array([lambda_max])
+			self.lambdas = np.array([lambda_max])
 		else:
-			lambdas = np.linspace(lambda_max - 5 * d_lambda,
+			self.lambdas = np.linspace(lambda_max - 5 * d_lambda,
 								lambda_max + 5 * d_lambda, self.n_lambdas,
 								dtype=np.float64)
 		# run the lasso sweep with new lambda set
 		estimates_dense, scores_dense = \
 			self.lasso_sweep(
-				X, y, lambdas, self.train_frac_sel, self.n_boots_sel,  
+				X, y, self.lambdas, self.train_frac_sel, self.n_boots_sel,  
 				self.use_admm, desc='fine lasso sweep', verbose=verbose
 			)
 		# choose selection fraction threshold values to use
@@ -279,6 +285,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 			X_test = X[test]
 			y_test = y[test]
 		else:
+			train = np.arange(self.n_samples_)
 			X_train = X
 			y_train = y
 
@@ -287,7 +294,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 			# extract the bootstrap indices, keeping a fraction of the data available for testing
 			train_boot, test_boot = utils.leveled_randomized_ids(self.groups_[train], self.train_frac_est)
 			# iterate over the regularization parameters
-			for lamb_idx, lamb in enumerate(lambdas):
+			for lamb_idx, lamb in enumerate(self.lambdas):
 				support = self.supports_[lamb_idx]
 				if np.any(support):
 					# fit OLS using the supports from selection module
@@ -315,11 +322,11 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 							n_samples=boot_train_split,
 							rss=rss
 						)
-				else:
+				#else:
 					# if no variables were selected, throw a message
 					# we'll leave the scores array unchanged, so any support
 					# with no selection will be assigned a score of 0.
-					print('No variables selected in the support for lambda = %d.' % lamb)
+				#	print('No variables selected in the support for lambda = %d.' % lamb)
 
 		if verbose:
 			print('(4) Bagging estimates, using bagging option %s.' % self.bagging_options)

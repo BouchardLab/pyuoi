@@ -1,28 +1,16 @@
 # PyUoI
 
-This repo contains several implementations of the Union of Intersection
-(UoI) algorithm.
+This repo contains the currently developed implementations of the Union of Intersection
+(UoI) framework. See the NIPS paper (<a href="https://papers.nips.cc/paper/6708-union-of-intersections-uoi-for-interpretable-data-driven-discovery-and-prediction">Bouchard et al., 2017</a>) for more details.
 
 ## Installation
 
-A conda environment is recommended.
-
-In order to use MPI, you need to install mpi4py. This is best done with
-anaconda:
-
-`conda install mpi4py`
-
-Then download the source:
+PyUoI can easily be installed using `pip`:
 
 ```
-git clone https://github.com/bendichter/PyUoI.git
-cd PyUoI
+pip install PyUoI
 ```
 
-Install without MPI support:
+## Current Implementations of UoI
 
-`pip install -e .`
-
-Install with MPI support:
-
-`pip install -e .['MPI']`
+We have currently implemented UoI-Lasso. See `demo.ipynb` for an example of how to run it.

@@ -16,10 +16,11 @@ setup(
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='0.0.1',
+    version='0.0.9',
 
     description='union of intersection sparse model fitting algorithm',
     long_description=long_description,
+    long_description_content_type="text/markdown",
 
 
     # Author details
@@ -39,7 +40,7 @@ setup(
         'Topic :: Scientific/Engineering',
 
         # Pick your license as you wish (should match "license" above)
-        'License :: OSI Approved :: MIT License',
+        'License :: OSI Approved :: BSD License',
 
         # Specify the Python versions you support here. In particular, ensure
         # that you indicate whether you support Python 2, Python 3 or both.
@@ -77,6 +78,8 @@ setup(
     extras_require={
         'MPI': ['mpi4py'],
     },
+
+    url='https://github.com/BouchardLab/PyUoI'
 
 
     # To provide executable scripts, use entry points in preference to the
