@@ -5,6 +5,7 @@ from tqdm import trange
 import sklearn.linear_model as lm
 from sklearn.linear_model.base import (_preprocess_data, _rescale_data,
 									   SparseCoefMixin)
+from sklearn.linear_model.coordinate_descent import _alpha_grid
 from sklearn.metrics import r2_score
 from sklearn.utils import check_X_y
 
@@ -201,11 +202,15 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 			print('(1) Loaded data.\n %s samples with %s features.' % (self.n_samples_, self.n_features_))
 
 		# perform an initial coarse sweep over the lambda parameters
-		# this is to zero-in on the relevant regularization region.
-		if self.n_lambdas == 1:
-			lambda_coarse = np.array([1.0])
-		else:
-			lambda_coarse = np.logspace(-3., 3., self.n_lambdas, dtype=np.float64)
+		lambda_coarse = _alpha_grid(
+			X=X, y=y, 
+			l1_ratio=1.0, 
+			fit_intercept=self.fit_intercept,
+			eps=1e-3,
+			n_alphas=self.n_lambdas,
+			normalize=self.normalize
+		)
+
 		# run the coarse lasso sweep
 		estimates_coarse, scores_coarse = \
 			self.lasso_sweep(
@@ -227,7 +232,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		### Model Selection ###
 		#######################
 		if verbose:
-			print('(2) Beginning model selection. Exploring penalty region centered at %d.' % lambda_max)
+			print('(2) Beginning model selection. Exploring penalty region centered at %g.' % lambda_max)
 
 		# create the final lambda set based on the coarse sweep
 		if self.n_lambdas == 1:
