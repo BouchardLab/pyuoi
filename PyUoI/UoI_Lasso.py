@@ -371,6 +371,27 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 
 		return self
 
+	def score(self, X, y, metric='r2'):
+		# make predictions
+		if self.fit_intercept:
+			y_hat = np.dot(X, self.coef_) + self.intercept_
+		else:
+			y_hat = np.dot(X, self.coef_)
+
+		if metric == 'r2':
+			return r2_score(y, y_hat)
+		elif metric == 'BIC':
+			if self.fit_intercept:
+				n_features = np.count_nonzero(self.coef_) + 1
+			else:
+				n_features = np.count_nonzero(self.coef_)
+
+			rss = np.sum((y - y_hat)**2)
+			return utils.BIC(n_features=n_features, n_samples=y.shape[0], rss=rss)
+		else:
+			raise ValueError('Incorrect metric specified.')
+
+
 	def lasso_sweep(self, X, y, lambdas, train_frac, n_bootstraps,
 					use_admm=False, seed=None, desc='', verbose=False):
 		"""Perform Lasso regression across bootstraps of a dataset for a sweep
