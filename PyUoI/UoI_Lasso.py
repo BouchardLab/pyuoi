@@ -11,10 +11,6 @@ from sklearn.utils import check_X_y
 
 from PyUoI import utils
 
-# get rid of annoying LAPACK warning
-import warnings
-warnings.filterwarnings(action="ignore", module="scipy", message="^internal gelsd")
-
 class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 	"""Class modeled after scikit-learn's linear_model suite of regression solvers.
 	This class performs UoI-Lasso, developed by Bouchard et al. (2017).
@@ -111,10 +107,11 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 	def __init__(
 		self, n_lambdas=48, 
 		selection_thres_max=1., selection_thres_min=1., n_selection_thres=1,
-		train_frac_sel=0.8, train_frac_est=0.8, train_frac_overall=0.9, 
+		train_frac_sel=0.8, train_frac_est=0.8, train_frac_overall=1., 
 		n_boots_coarse=10, n_boots_sel=48, n_boots_est=48, 
 		bagging_options=1, use_admm=False, estimation_score='BIC', 
-		copy_X=True, fit_intercept=True, normalize=False
+		copy_X=True, fit_intercept=True, normalize=False,
+		random_state=None
 	):
 		# hyperparameters
 		self.n_lambdas = n_lambdas
@@ -166,7 +163,6 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		if seed is not None:
 			np.random.seed(seed)
 
-		# start taken from sklearn.LinearModels.base.LinearRegression
 		X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
 						 y_numeric=True, multi_output=True)
 
@@ -174,7 +170,6 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		X, y, X_offset, y_offset, X_scale = _preprocess_data(
 			X, y, fit_intercept=self.fit_intercept, normalize=self.normalize,
 			copy=self.copy_X)
-
 
 		if sample_weight is not None and np.atleast_1d(sample_weight).ndim > 1:
 			raise ValueError("Sample weights must be 1D array or scalar")
@@ -247,6 +242,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 				X, y, self.lambdas, self.train_frac_sel, self.n_boots_sel,  
 				self.use_admm, desc='fine lasso sweep', verbose=verbose
 			)
+
 		# choose selection fraction threshold values to use
 		selection_frac_thresholds = np.linspace(self.selection_thres_min, self.selection_thres_max, self.n_selection_thres)
 		# calculate the actual number of thresholds, but delete any repetitions
@@ -305,7 +301,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 					# fit OLS using the supports from selection module
 					X_boot = X_train[train_boot]
 					y_boot = y_train[train_boot]
-					ols = lm.LinearRegression()
+					ols = lm.LinearRegression(fit_intercept=self.fit_intercept)
 					ols.fit(
 						X_boot[:, support],
 						y_boot - y_boot.mean()
@@ -327,11 +323,6 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 							n_samples=boot_train_split,
 							rss=rss
 						)
-				#else:
-					# if no variables were selected, throw a message
-					# we'll leave the scores array unchanged, so any support
-					# with no selection will be assigned a score of 0.
-				#	print('No variables selected in the support for lambda = %d.' % lamb)
 
 		if verbose:
 			print('(4) Bagging estimates, using bagging option %s.' % self.bagging_options)
@@ -390,7 +381,6 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 			return utils.BIC(n_features=n_features, n_samples=y.shape[0], rss=rss)
 		else:
 			raise ValueError('Incorrect metric specified.')
-
 
 	def lasso_sweep(self, X, y, lambdas, train_frac, n_bootstraps,
 					use_admm=False, seed=None, desc='', verbose=False):
@@ -451,7 +441,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 				# run the Lasso on the training set
 				if not use_admm:
 					# apply coordinate descent through the sklearn Lasso class
-					lasso = lm.Lasso(alpha=lamb, max_iter=10000)
+					lasso = lm.Lasso(alpha=lamb, max_iter=10000, fit_intercept=self.fit_intercept)
 					lasso.fit(X[train], y[train] - y[train].mean())
 					estimates[bootstrap, lamb_idx, :] = lasso.coef_
 				else:
