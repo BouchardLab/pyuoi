@@ -107,7 +107,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 	def __init__(
 		self, n_lambdas=48, 
 		selection_thres_max=1., selection_thres_min=1., n_selection_thres=1,
-		train_frac_sel=0.8, train_frac_est=0.8, train_frac_overall=1., 
+		train_frac_sel=0.8, train_frac_est=0.8, 
 		n_boots_coarse=10, n_boots_sel=48, n_boots_est=48, 
 		bagging_options=1, use_admm=False, estimation_score='BIC', 
 		copy_X=True, fit_intercept=True, normalize=False,
@@ -118,7 +118,6 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		# data split fractions
 		self.train_frac_sel = train_frac_sel
 		self.train_frac_est = train_frac_est
-		self.train_frac_overall = train_frac_overall
 		# number of bootstraps
 		self.n_boots_coarse = n_boots_coarse
 		self.n_boots_sel = n_boots_sel
@@ -137,7 +136,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		self.fit_intercept = fit_intercept
 		self.normalize = normalize
 
-	def fit(self, X, y, groups=None, seed=None, verbose=False, sample_weight=None):
+	def fit(self, X, y, groups=None, seed=None, verbose=False, sample_weight=None, option=True):
 		"""Fit data according to the UoI-Lasso algorithm.
 		Relevant information (fits, residuals, model performance) is stored within object.
 		Thus, nothing is returned by this function.
@@ -196,52 +195,67 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		if verbose:
 			print('(1) Loaded data.\n %s samples with %s features.' % (self.n_samples_, self.n_features_))
 
-		# perform an initial coarse sweep over the lambda parameters
-		lambda_coarse = _alpha_grid(
-			X=X, y=y, 
-			l1_ratio=1.0, 
-			fit_intercept=self.fit_intercept,
-			eps=1e-3,
-			n_alphas=self.n_lambdas,
-			normalize=self.normalize
-		)
-
-		# run the coarse lasso sweep
-		estimates_coarse, scores_coarse = \
-			self.lasso_sweep(
-				X, y, lambda_coarse, self.train_frac_sel, self.n_boots_coarse,
-				self.use_admm, desc='coarse lasso sweep', verbose=verbose
+		if option: 
+			# perform an initial coarse sweep over the lambda parameters
+			lambda_coarse = _alpha_grid(
+				X=X, y=y, 
+				l1_ratio=1.0, 
+				fit_intercept=self.fit_intercept,
+				eps=1e-3,
+				n_alphas=self.n_lambdas,
+				normalize=self.normalize
 			)
-		# deduce the index which maximizes the explained variance over bootstraps
-		lambda_max_idx = np.argmax(np.mean(scores_coarse, axis=0))
-		# obtain the lambda which maximizes the explained variance over bootstraps
-		lambda_max = lambda_coarse[lambda_max_idx]
-		# in our dense sweep, we'll explore lambda values which encompass a
-		# range that's one order of magnitude less than lambda_max itself
-		d_lambda = 10 ** (np.floor(np.log10(lambda_max)) - 1)
 
-		# now that we've narrowed down the regularization parameters, 
-		# we'll run a dense sweep which begins the model selection module of UoI
+			# run the coarse lasso sweep
+			estimates_coarse, scores_coarse = \
+				self.lasso_sweep(
+					X, y, lambda_coarse, self.train_frac_sel, self.n_boots_coarse,
+					self.use_admm, desc='coarse lasso sweep', verbose=verbose
+				)
+			# deduce the index which maximizes the explained variance over bootstraps
+			lambda_max_idx = np.argmax(np.mean(scores_coarse, axis=0))
+			# obtain the lambda which maximizes the explained variance over bootstraps
+			lambda_max = lambda_coarse[lambda_max_idx]
+			# in our dense sweep, we'll explore lambda values which encompass a
+			# range that's one order of magnitude less than lambda_max itself
+			d_lambda = 10 ** (np.floor(np.log10(lambda_max)) - 1)
 
-		#######################
-		### Model Selection ###
-		#######################
-		if verbose:
-			print('(2) Beginning model selection. Exploring penalty region centered at %g.' % lambda_max)
+			# now that we've narrowed down the regularization parameters, 
+			# we'll run a dense sweep which begins the model selection module of UoI
 
-		# create the final lambda set based on the coarse sweep
-		if self.n_lambdas == 1:
-			self.lambdas = np.array([lambda_max])
+			#######################
+			### Model Selection ###
+			#######################
+			if verbose:
+				print('(2) Beginning model selection. Exploring penalty region centered at %g.' % lambda_max)
+
+			# create the final lambda set based on the coarse sweep
+			if self.n_lambdas == 1:
+				self.lambdas = np.array([lambda_max])
+			else:
+				self.lambdas = np.linspace(lambda_max - 5 * d_lambda,
+									lambda_max + 5 * d_lambda, self.n_lambdas,
+									dtype=np.float64)
+			# run the lasso sweep with new lambda set
+			estimates_dense, scores_dense = \
+				self.lasso_sweep(
+					X, y, self.lambdas, self.train_frac_sel, self.n_boots_sel,  
+					self.use_admm, desc='fine lasso sweep', verbose=verbose
+				)
 		else:
-			self.lambdas = np.linspace(lambda_max - 5 * d_lambda,
-								lambda_max + 5 * d_lambda, self.n_lambdas,
-								dtype=np.float64)
-		# run the lasso sweep with new lambda set
-		estimates_dense, scores_dense = \
-			self.lasso_sweep(
-				X, y, self.lambdas, self.train_frac_sel, self.n_boots_sel,  
-				self.use_admm, desc='fine lasso sweep', verbose=verbose
+			self.lambdas = _alpha_grid(
+				X=X, y=y, 
+				l1_ratio=1.0, 
+				fit_intercept=self.fit_intercept,
+				eps=1e-3,
+				n_alphas=self.n_lambdas,
+				normalize=self.normalize
 			)
+			estimates_dense, scores_dense = \
+				self.lasso_sweep(
+					X, y, self.lambdas, self.train_frac_sel, self.n_boots_sel,  
+					self.use_admm, desc='fine lasso sweep', verbose=verbose
+				)
 
 		# choose selection fraction threshold values to use
 		selection_frac_thresholds = np.linspace(self.selection_thres_min, self.selection_thres_max, self.n_selection_thres)
@@ -267,55 +281,51 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 
 		# create or overwrite arrays to collect final results
 		self.coef_ = np.zeros(self.n_features_, dtype=np.float32)
-		self.scores_ = np.zeros(1, dtype=np.float32)
-		# determine how many samples will be used for overall training
-		train_split = int(round(self.train_frac_overall * self.n_samples_))
 		# determine how many samples will be used for training within a bootstrap
-		boot_train_split = int(round(self.train_frac_est * train_split))
+		boot_train_split = int(round(self.train_frac_est * self.n_samples_))
 
 		# set up data arrays
 		estimates = np.zeros((self.n_boots_est, self.n_lambdas, self.n_features_), dtype=np.float32)
 		scores = np.zeros((self.n_boots_est, self.n_lambdas), dtype=np.float32)
-		# either we plan on using a test set, or we'll use the entire dataset for training
-		if self.train_frac_overall < 1:
-			# generate indices for the global training and testing blocks
-			train, test = utils.leveled_randomized_ids(self.groups_, self.train_frac_overall)
-			# compile the training and test sets
-			X_train = X[train]
-			y_train = y[train]
-			X_test = X[test]
-			y_test = y[test]
-		else:
-			train = np.arange(self.n_samples_)
-			X_train = X
-			y_train = y
 
 		# iterate over bootstrap samples
 		for bootstrap in trange(self.n_boots_est, desc='Model Estimation', disable=not verbose):
+
 			# extract the bootstrap indices, keeping a fraction of the data available for testing
-			train_boot, test_boot = utils.leveled_randomized_ids(self.groups_[train], self.train_frac_est)
+			train_idx, test_idx = utils.leveled_randomized_ids(self.groups_, self.train_frac_est)
+
 			# iterate over the regularization parameters
 			for lamb_idx, lamb in enumerate(self.lambdas):
+
 				support = self.supports_[lamb_idx]
+
 				if np.any(support):
-					# fit OLS using the supports from selection module
-					X_boot = X_train[train_boot]
-					y_boot = y_train[train_boot]
-					ols = lm.LinearRegression(fit_intercept=self.fit_intercept)
+					# split up into train and test arrays
+					X_train = X[train_idx][:, support]
+					y_train = y[train_idx]
+					X_test = X[test_idx][:, support]
+					y_test = y[test_idx]
+					ols = lm.LinearRegression()
+					#ols.fit(
+					#	X_boot[:, support],
+					#	y_boot - y_boot.mean()
+					#)
 					ols.fit(
-						X_boot[:, support],
-						y_boot - y_boot.mean()
+						X_train, y_train
 					)
 					# store the fitted coefficients
 					estimates[bootstrap, lamb_idx, support] = ols.coef_
 					# calculate and store the performance on the test set
-					y_hat_boot = np.dot(X_train[test_boot], estimates[bootstrap, lamb_idx, :])
-					y_true_boot = y_train[test_boot] - y_train[test_boot].mean()
+					#y_hat_boot = np.dot(X_train[test_boot], estimates[bootstrap, lamb_idx, :])
+					#y_hat_test = ols.predict(X_boot[test_boot][:, support])
+					#y_true_boot = y_train[test_boot] - y_train[test_boot].mean()
+					#y_true_boot = y_train[test_boot]
 					# calculate sum of squared residuals
-					rss = np.sum((y_hat_boot - y_true_boot)**2)
+					#rss = np.sum((y_hat_boot - y_true_boot)**2)
 					# calculate BIC as our scoring function
 					if self.estimation_score == 'r2':
-						scores[bootstrap, lamb_idx] = r2_score(y_true_boot, y_hat_boot)
+						#scores[bootstrap, lamb_idx] = r2_score(y_true_boot, y_hat_boot)
+						scores[bootstrap, lamb_idx] = ols.score(X_test, y_test)
 					elif self.estimation_score == 'BIC':
 						n_selected_features = np.count_nonzero(support)
 						scores[bootstrap, lamb_idx] = -utils.BIC(
@@ -329,29 +339,20 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 
 		if self.bagging_options == 1:
 			# bagging option 1: for each bootstrap sample, find the regularization parameter that gave the best results
-			lambda_max_idx = np.argmax(scores, axis=1)
+			self.lambda_max_idx = np.argmax(scores, axis=1)
 			# extract the estimates over bootstraps from the model with best lambda
-			best_estimates = estimates[np.arange(self.n_boots_est), lambda_max_idx, :]
+			best_estimates = estimates[np.arange(self.n_boots_est), self.lambda_max_idx, :]
 			# take the median across estimates for the final, bagged estimate
 			self.coef_ = np.median(best_estimates, axis=0)
 		elif self.bagging_options == 2:
 			# bagging option 2: average estimates across bootstraps, and then find the regularization parameter that gives the best results
 			mean_scores = np.mean(scores, axis=0)
-			lambda_max_idx = np.argmax(mean_scores)
-			self.coef_ = np.median(estimates[:, lambda_max_idx, :], 0)
+			self.lambda_max_idx = np.argmax(mean_scores)
+			self.coef_ = np.median(estimates[:, self.lambda_max_idx, :], 0)
 		else:
 			raise ValueError(
 				'Bagging option %d is not available.' % self.bagging_options
 			)
-		# if we extracted a test set, evaluate the model
-		if self.train_frac_overall < 1:
-			# finally, see how the bagged estimates perform on the test set
-			y_hat = np.dot(X_test, self.coef_)
-			y_true = y_test - y_test.mean()
-			# calculate and store performance of the final UoI_Lasso estimator over test set
-			self.scores_ = r2_score(y_true, y_hat)
-		else:
-			self.scores_ = None
 
 		if verbose:
 			print("---> UoI Lasso complete.")
