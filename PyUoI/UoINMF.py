@@ -2,6 +2,7 @@ from sklearn.base import TransformerMixin, BaseEstimator
 from sklearn.decomposition import NMF
 from sklearn.cluster import DBSCAN
 from sklearn.preprocessing import normalize
+from sklearn.linear_model import Lasso
 
 from sklearn.utils.validation import check_non_negative
 
@@ -12,8 +13,8 @@ import numpy as np
 class UoINMF(BaseEstimator, TransformerMixin):
 
     def __init__(self, n_bootstraps=10,
-                 random_state=None,
-                 ranks=None, nmf=None, dbscan=None, lasso=None):
+                 random_state=None, cons_meth=None,
+                 ranks=None, nmf=None, dbscan=None, nnreg=None):
         """
         Union of Intersections Nonnegative Matrix Factorization
 
@@ -26,7 +27,9 @@ class UoINMF(BaseEstimator, TransformerMixin):
                                     the argument *n_components* as an argument
             dbscan:                 the DBSCAN object to use.  By default use sklearn.cluster.DBSCAN
                                     with MinPts=3 and epsilon=0.2
-            lasso:                  the lasso object to use.
+            nnreg:                  the Non-negative regressor to use. default uses scipy.optimize.nnls
+            cons_meth:              the method for computing consensus bases after clustering,
+                                    default uses np.median
         """
 
         self.__initialize(
@@ -35,6 +38,8 @@ class UoINMF(BaseEstimator, TransformerMixin):
             nmf = nmf,
             dbscan = dbscan,
             random_state = random_state,
+            nnreg = nnreg,
+            cons_meth = cons_meth,
         )
 
     def set_params(self, **kwargs):
@@ -46,6 +51,8 @@ class UoINMF(BaseEstimator, TransformerMixin):
         nmf = kwargs['nmf']
         dbscan = kwargs['dbscan']
         random_state = kwargs['random_state']
+        nnreg = kwargs['nnreg']
+        cons_meth = kwargs['cons_meth']
         self.n_bootstraps = n_bootstraps
         self.components_ = None
         if ranks is not None:
@@ -60,13 +67,13 @@ class UoINMF(BaseEstimator, TransformerMixin):
                 raise ValueError('nmf must be an instance, not a class')
             self.nmf = nmf
         else:
-            self.nmf = NMF(beta_loss='kullback-leibler', solver='mu', max_iter=400)
+            self.nmf = NMF(beta_loss='kullback-leibler', solver='mu', max_iter=400, init='random')
         if dbscan is not None:
             if isinstance(dbscan, type):
                 raise ValueError('dbscan must be an instance, not a class')
             self.dbscan = dbscan
         else:
-            self.dbscan = DBSCAN()
+            self.dbscan = DBSCAN(min_samples=self.n_bootstraps/2)
 
         if random_state is None:
             self._rand = np.random
@@ -76,9 +83,22 @@ class UoINMF(BaseEstimator, TransformerMixin):
             elif isinstance(random_state, np.random.RandomState):
                 self._rand = random_state
             self.nmf.set_params(random_state=self._rand)
-        self.cons_meth = np.mean              # the method for computing consensus H bases after clustering
+        if cons_meth is None:
+            self.cons_meth = np.median              # the method for computing consensus H bases after clustering
+        else:
+            self.cons_meth = cons_meth
+
+        if nnreg is None:
+            self.nnreg = lambda A, b: spo.nnls(A, b)[0]
+        else:
+            if isinstance(nnreg, ):
+                self.nnreg = lambda A, B: nnreg.fit(A, B).coef_
+            else:
+                raise ValueError("unrecognized regressor")
+
         self.components_ = None
         self.bases_samples_ = None
+        self.bases_samples_labels_ = None
         self.boostraps_ = None
 
     def fit(self, X, y=None):
@@ -122,6 +142,7 @@ class UoINMF(BaseEstimator, TransformerMixin):
         H_cons = normalize(H_cons)                                          # normalize by 2-norm
         self.components_ = H_cons
         self.bases_samples_ = H_samples
+        self.bases_samples_labels_ = labels
         self.boostraps_ = rep_idx
         self.reconstruction_err_ = None
         return self
@@ -143,7 +164,7 @@ class UoINMF(BaseEstimator, TransformerMixin):
         H_t = self.components_.T
         ret = np.zeros((X.shape[0], self.components_.shape[0]), dtype=X.dtype)
         for i in range(X.shape[0]):
-            ret[i] = spo.nnls(H_t, X[i])[0]
+            ret[i] = self.nnreg(H_t, X[i])
         if reconstruction_err:
             self.reconstruction_err_ = np.linalg.norm(X-self.inverse_transform(ret))
         return ret
