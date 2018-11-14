@@ -28,6 +28,19 @@ def BIC(n_features, n_samples, rss):
 	BIC = n_samples * np.log(rss/n_samples) + n_features * np.log(n_samples)
 	return BIC
 
+def AIC(y_true, y_pred, n_features):
+	n_samples = y_true.size
+	rss = np.sum((y_true - y_pred)**2)
+	AIC = n_samples * np.log(rss/n_samples) + n_features * 2
+	return AIC
+
+def AICc(y_true, y_pred, n_features):
+	n_samples = y_true.size
+	rss = np.sum((y_true - y_pred)**2)
+	AICc = n_samples * np.log(rss/n_samples) + n_features * 2 \
+		+ 2 * (n_features**2 + n_features)/(n_samples - n_features - 1)
+	return AICc
+
 def leveled_randomized_ids(groups, fraction):
 	"""Grab bootstrap indices that are leveled across groups.
 

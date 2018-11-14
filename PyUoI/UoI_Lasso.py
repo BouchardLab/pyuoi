@@ -179,12 +179,8 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 
 		# extract model dimensions from design matrix
 		self.n_samples_, self.n_features_ = X.shape
-
-		# edge case
-		if np.all(y == 0):
-			self.coef_ = np.zeros(self.n_features_)
-			self.intercept_ = 0
-			return self
+		# create or overwrite arrays to collect final results
+		self.coef_ = np.zeros(self.n_features_, dtype=np.float32)
 			
 		# group leveling 
 		if groups is None:
@@ -195,80 +191,24 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		if verbose:
 			print('(1) Loaded data.\n %s samples with %s features.' % (self.n_samples_, self.n_features_))
 
-		if option: 
-			# perform an initial coarse sweep over the lambda parameters
-			lambda_coarse = _alpha_grid(
-				X=X, y=y, 
-				l1_ratio=1.0, 
-				fit_intercept=self.fit_intercept,
-				eps=1e-3,
-				n_alphas=self.n_lambdas,
-				normalize=self.normalize
+		self.lambdas = _alpha_grid(
+			X=X, y=y, 
+			l1_ratio=1.0, 
+			fit_intercept=self.fit_intercept,
+			eps=1e-3,
+			n_alphas=self.n_lambdas,
+			normalize=self.normalize
+		)
+
+		# sweep over the grid of regularization strengths
+		estimates_selection, _ = \
+			self.lasso_sweep(
+				X, y, self.lambdas, self.train_frac_sel, self.n_boots_sel,  
+				self.use_admm, desc='fine lasso sweep', verbose=verbose
 			)
 
-			# run the coarse lasso sweep
-			estimates_coarse, scores_coarse = \
-				self.lasso_sweep(
-					X, y, lambda_coarse, self.train_frac_sel, self.n_boots_coarse,
-					self.use_admm, desc='coarse lasso sweep', verbose=verbose
-				)
-			# deduce the index which maximizes the explained variance over bootstraps
-			lambda_max_idx = np.argmax(np.mean(scores_coarse, axis=0))
-			# obtain the lambda which maximizes the explained variance over bootstraps
-			lambda_max = lambda_coarse[lambda_max_idx]
-			# in our dense sweep, we'll explore lambda values which encompass a
-			# range that's one order of magnitude less than lambda_max itself
-			d_lambda = 10 ** (np.floor(np.log10(lambda_max)) - 1)
-
-			# now that we've narrowed down the regularization parameters, 
-			# we'll run a dense sweep which begins the model selection module of UoI
-
-			#######################
-			### Model Selection ###
-			#######################
-			if verbose:
-				print('(2) Beginning model selection. Exploring penalty region centered at %g.' % lambda_max)
-
-			# create the final lambda set based on the coarse sweep
-			if self.n_lambdas == 1:
-				self.lambdas = np.array([lambda_max])
-			else:
-				self.lambdas = np.linspace(lambda_max - 5 * d_lambda,
-									lambda_max + 5 * d_lambda, self.n_lambdas,
-									dtype=np.float64)
-			# run the lasso sweep with new lambda set
-			estimates_dense, scores_dense = \
-				self.lasso_sweep(
-					X, y, self.lambdas, self.train_frac_sel, self.n_boots_sel,  
-					self.use_admm, desc='fine lasso sweep', verbose=verbose
-				)
-		else:
-			self.lambdas = _alpha_grid(
-				X=X, y=y, 
-				l1_ratio=1.0, 
-				fit_intercept=self.fit_intercept,
-				eps=1e-3,
-				n_alphas=self.n_lambdas,
-				normalize=self.normalize
-			)
-			estimates_dense, scores_dense = \
-				self.lasso_sweep(
-					X, y, self.lambdas, self.train_frac_sel, self.n_boots_sel,  
-					self.use_admm, desc='fine lasso sweep', verbose=verbose
-				)
-
-		# choose selection fraction threshold values to use
-		selection_frac_thresholds = np.linspace(self.selection_thres_min, self.selection_thres_max, self.n_selection_thres)
-		# calculate the actual number of thresholds, but delete any repetitions
-		selection_thresholds = np.sort(np.unique((self.n_boots_sel * selection_frac_thresholds).astype('int')))
-		# create support matrix
-		self.supports_ = np.zeros((self.n_selection_thres, self.n_lambdas, self.n_features_), dtype=bool)
-		# iterate over each stability selection threshold
-		for thres_idx, threshold in enumerate(selection_thresholds):
-			# calculate the support given the specific selection threshold
-			self.supports_[thres_idx, :] = np.count_nonzero(estimates_dense, axis=0) >= threshold
-		# reshape support matrix so that first axis consists of all combinations of hyperparameters
-		self.supports_ = np.reshape(self.supports_, (self.n_selection_thres * self.n_lambdas, self.n_features_))
+		# perform the intersection step
+		self.intersection(estimates_selection)
 
 		########################
 		### Model Estimation ###
@@ -277,12 +217,10 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		# bagged OLS estimates over bootstraps
 
 		if verbose:
-			print('(3) Model selection complete. Beginning model estimation, with %s bootstraps.' % self.n_boots_est)
+			print('(3) Beginning model estimation, with %s bootstraps.' % self.n_boots_est)
 
-		# create or overwrite arrays to collect final results
-		self.coef_ = np.zeros(self.n_features_, dtype=np.float32)
-		# determine how many samples will be used for training within a bootstrap
-		boot_train_split = int(round(self.train_frac_est * self.n_samples_))
+		# compute number of samples per bootstrap
+		n_samples_bootstrap = int(round(self.train_frac_est * self.n_samples_))
 
 		# set up data arrays
 		estimates = np.zeros((self.n_boots_est, self.n_lambdas, self.n_features_), dtype=np.float32)
@@ -299,69 +237,129 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 
 				support = self.supports_[lamb_idx]
 
+				# if nothing was selected, we won't bother running OLS
 				if np.any(support):
-					# split up into train and test arrays
+					# get design matrices
 					X_train = X[train_idx][:, support]
-					y_train = y[train_idx]
 					X_test = X[test_idx][:, support]
-					y_test = y[test_idx]
+
+					# compute ols estimate
 					ols = lm.LinearRegression()
-					#ols.fit(
-					#	X_boot[:, support],
-					#	y_boot - y_boot.mean()
-					#)
-					ols.fit(
-						X_train, y_train
-					)
+					ols.fit(X_train, y_train)
+					
 					# store the fitted coefficients
 					estimates[bootstrap, lamb_idx, support] = ols.coef_
-					# calculate and store the performance on the test set
-					#y_hat_boot = np.dot(X_train[test_boot], estimates[bootstrap, lamb_idx, :])
-					#y_hat_test = ols.predict(X_boot[test_boot][:, support])
-					#y_true_boot = y_train[test_boot] - y_train[test_boot].mean()
-					#y_true_boot = y_train[test_boot]
-					# calculate sum of squared residuals
-					#rss = np.sum((y_hat_boot - y_true_boot)**2)
-					# calculate BIC as our scoring function
+
+					# calculate estimation score
 					if self.estimation_score == 'r2':
-						#scores[bootstrap, lamb_idx] = r2_score(y_true_boot, y_hat_boot)
 						scores[bootstrap, lamb_idx] = ols.score(X_test, y_test)
 					elif self.estimation_score == 'BIC':
-						n_selected_features = np.count_nonzero(support)
+						y_pred = ols.predict(X_test)
+						n_features = np.count_nonzero(support)
 						scores[bootstrap, lamb_idx] = -utils.BIC(
-							n_features=n_selected_features,
-							n_samples=boot_train_split,
-							rss=rss
+							y_true=y_test,
+							y_pred=y_pred,
+							n_features=n_features
 						)
+					elif self.estimation_score == 'AIC':
+						y_pred = ols.predict(X_test)
+						n_features = np.count_nonzero(support)
+						scores[bootstrap, lamb_idx] = -utils.AIC(
+							y_true=y_test,
+							y_pred=y_pred,
+							n_features=n_features
+						)
+					elif self.estimation_score == 'AICc':
+						y_pred = ols.predict(X_test)
+						n_features = np.count_nonzero(support)
+						scores[bootstrap, lamb_idx] = -utils.AICc(
+							y_true=y_test,
+							y_pred=y_pred,
+							n_features=n_features
+						)
+					else:
+						raise ValueError(str(self.estimation_score) + ' is not a valid option.')
+				else:
+					if self.estimation_score == 'r2':
+						scores[bootstrap, lamb_idx] = r2_score(
+							y_true=y_test, 
+							y_pred=np.zeros(y_test.size)
+						)
+					elif self.estimation_score == 'BIC':
+						n_features = 0
+						scores[bootstrap, lamb_idx] = -utils.BIC(
+							y_true=y_test,
+							y_pred=np.zeros(y_test.size),
+							n_features=n_features
+						)
+					elif self.estimation_score == 'AIC':
+						n_features = 0
+						scores[bootstrap, lamb_idx] = -utils.AIC(
+							y_true=y_test,
+							y_pred=np.zeros(y_test.size),
+							n_features=n_features
+						)
+					elif self.estimation_score == 'AICc':
+						n_features = 0
+						scores[bootstrap, lamb_idx] = -utils.AICc(
+							y_true=y_test,
+							y_pred=np.zeros(y_test.size),
+							n_features=n_features
+						)
+					else:
+						raise ValueError(str(self.estimation_score) + ' is not a valid option.')
 
 		if verbose:
 			print('(4) Bagging estimates, using bagging option %s.' % self.bagging_options)
 
+		# bagging option 1: 
+		#	for each bootstrap sample, find the regularization parameter that gave the best results
 		if self.bagging_options == 1:
-			# bagging option 1: for each bootstrap sample, find the regularization parameter that gave the best results
 			self.lambda_max_idx = np.argmax(scores, axis=1)
 			# extract the estimates over bootstraps from the model with best lambda
 			best_estimates = estimates[np.arange(self.n_boots_est), self.lambda_max_idx, :]
 			# take the median across estimates for the final, bagged estimate
 			self.coef_ = np.median(best_estimates, axis=0)
+
+		# bagging option 2: 
+		#	average estimates across bootstraps, and then find the regularization parameter that gives the best results
 		elif self.bagging_options == 2:
-			# bagging option 2: average estimates across bootstraps, and then find the regularization parameter that gives the best results
 			mean_scores = np.mean(scores, axis=0)
 			self.lambda_max_idx = np.argmax(mean_scores)
 			self.coef_ = np.median(estimates[:, self.lambda_max_idx, :], 0)
+
 		else:
 			raise ValueError(
-				'Bagging option %d is not available.' % self.bagging_options
+				'Bagging option %d is not available.' %self.bagging_options
 			)
 
 		if verbose:
 			print("---> UoI Lasso complete.")
 
-		if y.ndim == 1:
-			self.coef_ = np.ravel(self.coef_)
 		self._set_intercept(X_offset, y_offset, X_scale)
 
 		return self
+
+	def intersection(self, estimates):
+		# create support matrix
+		self.supports_ = np.zeros((self.n_selection_thres, self.n_lambdas, self.n_features_), dtype=bool)
+
+		# choose selection fraction threshold values to use
+		selection_frac_thresholds = np.linspace(self.selection_thres_min, self.selection_thres_max, self.n_selection_thres)
+		# calculate the actual number of thresholds, but delete any repetitions
+		selection_thresholds = np.sort(np.unique((self.n_boots_sel * selection_frac_thresholds).astype('int')))
+
+		# iterate over each stability selection threshold
+		for thres_idx, threshold in enumerate(selection_thresholds):
+			# calculate the support given the specific selection threshold
+			self.supports_[thres_idx, :] = np.count_nonzero(estimates, axis=0) >= threshold
+
+		self.supports_ = np.reshape(
+			self.supports_, 
+			(self.n_selection_thres * self.n_lambdas, self.n_features_)
+		)
+
+		return self.supports_
 
 	def score(self, X, y, metric='r2'):
 		# make predictions
@@ -426,7 +424,7 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 		# if a seed is provided, seed the random number generator
 		if seed is not None:
 			np.random.seed(seed)
-		#
+
 		n_lambdas = len(lambdas)
 		n_samples, n_features = X.shape
 		n_train_samples = int(round(train_frac * n_samples))
@@ -442,8 +440,14 @@ class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
 				# run the Lasso on the training set
 				if not use_admm:
 					# apply coordinate descent through the sklearn Lasso class
-					lasso = lm.Lasso(alpha=lamb, max_iter=10000, fit_intercept=self.fit_intercept)
-					lasso.fit(X[train], y[train] - y[train].mean())
+					lasso = lm.Lasso(
+						alpha=lamb, 
+						max_iter=10000, 
+						fit_intercept=self.fit_intercept
+					)
+					lasso.fit(
+						X[train], y[train] - y[train].mean()
+					)
 					estimates[bootstrap, lamb_idx, :] = lasso.coef_
 				else:
 					# apply ADMM using our utility function
