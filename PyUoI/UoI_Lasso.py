@@ -2,455 +2,522 @@ import numpy as np
 
 from tqdm import trange
 
-import sklearn.linear_model as lm
-from sklearn.linear_model.base import (_preprocess_data, _rescale_data,
-									   SparseCoefMixin)
+from sklearn.linear_model import LinearRegression, Lasso
+from sklearn.linear_model.base import (
+    LinearModel, _preprocess_data, SparseCoefMixin)
 from sklearn.linear_model.coordinate_descent import _alpha_grid
 from sklearn.metrics import r2_score
+from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
 
 from PyUoI import utils
 
-class UoI_Lasso(lm.base.LinearModel, SparseCoefMixin):
-	"""Class modeled after scikit-learn's linear_model suite of regression solvers.
-	This class performs UoI-Lasso, developed by Bouchard et al. (2017).
-
-	Attributes ending in an underscore should be read-only, not changed by the user.
-
-	Parameters
-	----------
-	n_lambdas_ : int
-		number of L1 penalty values to compare across (effectively sets the
-		hyperparameter sweep)
-
-	selection_thres_frac : float
-		used for soft thresholding in the selection step. normally, UoI-Lasso
-		requires regressors to be selected in _all_ bootstraps to be selected
-		for use in the estimation module. this requirement can be softened with
-		this variable, by requiring that a regressor appear in
-		selection_thres_frac of the bootstraps.
-
-	train_frac_sel : float
-		fraction of dataset to be used for training in the selection module.
-
-	train_frac_est : float
-		fraction of dataset to be used for training in each bootstrap in the
-		estimation module.
-
-	train_frac_overall : float
-		fraction of dataset to be used for training in the overall estimation module.
-
-	n_boots_coarse : int
-		number of bootstraps to use in the coarse lasso sweep.
-
-	n_boots_sel : int
-		number of bootstraps to use in the selection module (dense lasso sweep).
-
-	n_boots_est : int
-		number of bootstraps to use in the estimation module.
-
-	bagging_options : int
-		equal to 1: for each bootstrap sample, find the regularization
-			parameter that gave the best results
-		equal to 2: average estimates across bootstraps, and then find the
-			regularization parameter that gives the best results
-
-	n_minibatch : int
-		number of minibatches to use in case SGD is used for Lasso (selection)
-		or OLS (estimation).
-
-	use_admm : boolean
-		flag indicating whether to use the ADMM algorithm.
-
-	n_samples_ : int
-		number of samples in the dataset
-
-	n_features_ : int
-		number of features in the dataset
-
-	fit_intercept : boolean, optional, default True
-		whether to calculate the intercept for this model. If set
-		to False, no intercept will be used in calculations
-		(e.g. data is expected to be already centered).
-
-	normalize : boolean, optional, default False
-		This parameter is ignored when ``fit_intercept`` is set to False.
-		If True, the regressors X will be normalized before regression by
-		subtracting the mean and dividing by the l2-norm.
-		If you wish to standardize, please use
-		:class:`sklearn.preprocessing.StandardScaler` before calling ``fit`` on
-		an estimator with ``normalize=False``.
-
-	copy_X : boolean, optional, default True
-		If True, X will be copied; else, it may be overwritten.
-
-
-	Attributes
-	----------
-	coef_ : array, shape (n_features, ) or (n_targets, n_features)
-		Estimated coefficients for the linear regression problem.
-		If multiple targets are passed during the fit (y 2D), this
-		is a 2D array of shape (n_targets, n_features), while if only
-		one target is passed, this is a 1D array of length n_features.
-
-	intercept_ : array
-		Independent term in the linear model.
-
-	scores_ : float
-		contains the performance of each UoI-Lasso fit on a held out test set
-
-	supports_ : np array of booleans, shape = (number of lambdas) x (number of features)
-		boolean array indicating whether a given regressor (column) is selected for estimation
-		for a given lambda (row).
-	"""
-
-	def __init__(
-		self, n_lambdas=48, 
-		selection_thres_max=1., selection_thres_min=1., n_selection_thres=1,
-		train_frac_sel=0.8, train_frac_est=0.8, train_frac_overall=1., 
-		n_boots_coarse=10, n_boots_sel=48, n_boots_est=48, 
-		bagging_options=1, use_admm=False, estimation_score='BIC', 
-		copy_X=True, fit_intercept=True, normalize=False,
-		random_state=None
-	):
-		# hyperparameters
-		self.n_lambdas = n_lambdas
-		# data split fractions
-		self.train_frac_sel = train_frac_sel
-		self.train_frac_est = train_frac_est
-		self.train_frac_overall = train_frac_overall
-		# number of bootstraps
-		self.n_boots_coarse = n_boots_coarse
-		self.n_boots_sel = n_boots_sel
-		self.n_boots_est = n_boots_est
-		# backup options and switches
-		self.bagging_options = bagging_options
-		self.use_admm = use_admm
-		# selection thresholds
-		self.selection_thres_max = selection_thres_max
-		self.selection_thres_min = selection_thres_min
-		self.n_selection_thres = n_selection_thres
-		# scoring 
-		self.estimation_score = estimation_score
-		# mimics sklearn.LinearModel.base.LinearRegression
-		self.copy_X = copy_X
-		self.fit_intercept = fit_intercept
-		self.normalize = normalize
-
-	def fit(self, X, y, groups=None, seed=None, verbose=False, sample_weight=None):
-		"""Fit data according to the UoI-Lasso algorithm.
-		Relevant information (fits, residuals, model performance) is stored within object.
-		Thus, nothing is returned by this function.
-
-		Parameters
-		----------
-		X : np array (2d)
-			the design matrix, containing the predictors.
-			its shape is assumed to be (number of samples, number of features).
-
-		y : np array (1d)
-			the vector of dependent variables.
-			its length is assumed to be (number of samples,).
-
-		seed : int
-			a seed for the random number generator. this number is relevant
-			for the choosing bootstraps and dividing the data into training and test sets.
-
-		verbose : boolean
-			a boolean switch indicating whether the fitting should print out its progress.
-		"""
-		# initialize the seed, if it's provided
-		if seed is not None:
-			np.random.seed(seed)
-
-		X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
-						 y_numeric=True, multi_output=True)
-
-		# preprocess data through centering and normalization
-		X, y, X_offset, y_offset, X_scale = _preprocess_data(
-			X, y, fit_intercept=self.fit_intercept, normalize=self.normalize,
-			copy=self.copy_X)
-
-		if sample_weight is not None and np.atleast_1d(sample_weight).ndim > 1:
-			raise ValueError("Sample weights must be 1D array or scalar")
-
-		if sample_weight is not None:
-			# Sample weight can be implemented via a simple rescaling.
-			X, y = _rescale_data(X, y, sample_weight)
-
-		# extract model dimensions from design matrix
-		self.n_samples_, self.n_features_ = X.shape
-
-		# edge case
-		if np.all(y == 0):
-			self.coef_ = np.zeros(self.n_features_)
-			self.intercept_ = 0
-			return self
-			
-		# group leveling 
-		if groups is None:
-			self.groups_ = np.ones(self.n_samples_)
-		else:
-			self.groups_ = np.array(groups)
-
-		if verbose:
-			print('(1) Loaded data.\n %s samples with %s features.' % (self.n_samples_, self.n_features_))
-
-		# perform an initial coarse sweep over the lambda parameters
-		lambda_coarse = _alpha_grid(
-			X=X, y=y, 
-			l1_ratio=1.0, 
-			fit_intercept=self.fit_intercept,
-			eps=1e-3,
-			n_alphas=self.n_lambdas,
-			normalize=self.normalize
-		)
-
-		# run the coarse lasso sweep
-		estimates_coarse, scores_coarse = \
-			self.lasso_sweep(
-				X, y, lambda_coarse, self.train_frac_sel, self.n_boots_coarse,
-				self.use_admm, desc='coarse lasso sweep', verbose=verbose
-			)
-		# deduce the index which maximizes the explained variance over bootstraps
-		lambda_max_idx = np.argmax(np.mean(scores_coarse, axis=0))
-		# obtain the lambda which maximizes the explained variance over bootstraps
-		lambda_max = lambda_coarse[lambda_max_idx]
-		# in our dense sweep, we'll explore lambda values which encompass a
-		# range that's one order of magnitude less than lambda_max itself
-		d_lambda = 10 ** (np.floor(np.log10(lambda_max)) - 1)
-
-		# now that we've narrowed down the regularization parameters, 
-		# we'll run a dense sweep which begins the model selection module of UoI
-
-		#######################
-		### Model Selection ###
-		#######################
-		if verbose:
-			print('(2) Beginning model selection. Exploring penalty region centered at %g.' % lambda_max)
-
-		# create the final lambda set based on the coarse sweep
-		if self.n_lambdas == 1:
-			self.lambdas = np.array([lambda_max])
-		else:
-			self.lambdas = np.linspace(lambda_max - 5 * d_lambda,
-								lambda_max + 5 * d_lambda, self.n_lambdas,
-								dtype=np.float64)
-		# run the lasso sweep with new lambda set
-		estimates_dense, scores_dense = \
-			self.lasso_sweep(
-				X, y, self.lambdas, self.train_frac_sel, self.n_boots_sel,  
-				self.use_admm, desc='fine lasso sweep', verbose=verbose
-			)
-
-		# choose selection fraction threshold values to use
-		selection_frac_thresholds = np.linspace(self.selection_thres_min, self.selection_thres_max, self.n_selection_thres)
-		# calculate the actual number of thresholds, but delete any repetitions
-		selection_thresholds = np.sort(np.unique((self.n_boots_sel * selection_frac_thresholds).astype('int')))
-		# create support matrix
-		self.supports_ = np.zeros((self.n_selection_thres, self.n_lambdas, self.n_features_), dtype=bool)
-		# iterate over each stability selection threshold
-		for thres_idx, threshold in enumerate(selection_thresholds):
-			# calculate the support given the specific selection threshold
-			self.supports_[thres_idx, :] = np.count_nonzero(estimates_dense, axis=0) >= threshold
-		# reshape support matrix so that first axis consists of all combinations of hyperparameters
-		self.supports_ = np.reshape(self.supports_, (self.n_selection_thres * self.n_lambdas, self.n_features_))
-
-		########################
-		### Model Estimation ###
-		########################
-		# we'll use the supports obtained in the selection module to calculate
-		# bagged OLS estimates over bootstraps
-
-		if verbose:
-			print('(3) Model selection complete. Beginning model estimation, with %s bootstraps.' % self.n_boots_est)
-
-		# create or overwrite arrays to collect final results
-		self.coef_ = np.zeros(self.n_features_, dtype=np.float32)
-		self.scores_ = np.zeros(1, dtype=np.float32)
-		# determine how many samples will be used for overall training
-		train_split = int(round(self.train_frac_overall * self.n_samples_))
-		# determine how many samples will be used for training within a bootstrap
-		boot_train_split = int(round(self.train_frac_est * train_split))
-
-		# set up data arrays
-		estimates = np.zeros((self.n_boots_est, self.n_lambdas, self.n_features_), dtype=np.float32)
-		scores = np.zeros((self.n_boots_est, self.n_lambdas), dtype=np.float32)
-		# either we plan on using a test set, or we'll use the entire dataset for training
-		if self.train_frac_overall < 1:
-			# generate indices for the global training and testing blocks
-			train, test = utils.leveled_randomized_ids(self.groups_, self.train_frac_overall)
-			# compile the training and test sets
-			X_train = X[train]
-			y_train = y[train]
-			X_test = X[test]
-			y_test = y[test]
-		else:
-			train = np.arange(self.n_samples_)
-			X_train = X
-			y_train = y
-
-		# iterate over bootstrap samples
-		for bootstrap in trange(self.n_boots_est, desc='Model Estimation', disable=not verbose):
-			# extract the bootstrap indices, keeping a fraction of the data available for testing
-			train_boot, test_boot = utils.leveled_randomized_ids(self.groups_[train], self.train_frac_est)
-			# iterate over the regularization parameters
-			for lamb_idx, lamb in enumerate(self.lambdas):
-				support = self.supports_[lamb_idx]
-				if np.any(support):
-					# fit OLS using the supports from selection module
-					X_boot = X_train[train_boot]
-					y_boot = y_train[train_boot]
-					ols = lm.LinearRegression(fit_intercept=self.fit_intercept)
-					ols.fit(
-						X_boot[:, support],
-						y_boot - y_boot.mean()
-					)
-					# store the fitted coefficients
-					estimates[bootstrap, lamb_idx, support] = ols.coef_
-					# calculate and store the performance on the test set
-					y_hat_boot = np.dot(X_train[test_boot], estimates[bootstrap, lamb_idx, :])
-					y_true_boot = y_train[test_boot] - y_train[test_boot].mean()
-					# calculate sum of squared residuals
-					rss = np.sum((y_hat_boot - y_true_boot)**2)
-					# calculate BIC as our scoring function
-					if self.estimation_score == 'r2':
-						scores[bootstrap, lamb_idx] = r2_score(y_true_boot, y_hat_boot)
-					elif self.estimation_score == 'BIC':
-						n_selected_features = np.count_nonzero(support)
-						scores[bootstrap, lamb_idx] = -utils.BIC(
-							n_features=n_selected_features,
-							n_samples=boot_train_split,
-							rss=rss
-						)
-
-		if verbose:
-			print('(4) Bagging estimates, using bagging option %s.' % self.bagging_options)
-
-		if self.bagging_options == 1:
-			# bagging option 1: for each bootstrap sample, find the regularization parameter that gave the best results
-			lambda_max_idx = np.argmax(scores, axis=1)
-			# extract the estimates over bootstraps from the model with best lambda
-			best_estimates = estimates[np.arange(self.n_boots_est), lambda_max_idx, :]
-			# take the median across estimates for the final, bagged estimate
-			self.coef_ = np.median(best_estimates, axis=0)
-		elif self.bagging_options == 2:
-			# bagging option 2: average estimates across bootstraps, and then find the regularization parameter that gives the best results
-			mean_scores = np.mean(scores, axis=0)
-			lambda_max_idx = np.argmax(mean_scores)
-			self.coef_ = np.median(estimates[:, lambda_max_idx, :], 0)
-		else:
-			raise ValueError(
-				'Bagging option %d is not available.' % self.bagging_options
-			)
-		# if we extracted a test set, evaluate the model
-		if self.train_frac_overall < 1:
-			# finally, see how the bagged estimates perform on the test set
-			y_hat = np.dot(X_test, self.coef_)
-			y_true = y_test - y_test.mean()
-			# calculate and store performance of the final UoI_Lasso estimator over test set
-			self.scores_ = r2_score(y_true, y_hat)
-		else:
-			self.scores_ = None
-
-		if verbose:
-			print("---> UoI Lasso complete.")
-
-		if y.ndim == 1:
-			self.coef_ = np.ravel(self.coef_)
-		self._set_intercept(X_offset, y_offset, X_scale)
-
-		return self
-
-	def score(self, X, y, metric='r2'):
-		# make predictions
-		if self.fit_intercept:
-			y_hat = np.dot(X, self.coef_) + self.intercept_
-		else:
-			y_hat = np.dot(X, self.coef_)
-
-		if metric == 'r2':
-			return r2_score(y, y_hat)
-		elif metric == 'BIC':
-			if self.fit_intercept:
-				n_features = np.count_nonzero(self.coef_) + 1
-			else:
-				n_features = np.count_nonzero(self.coef_)
-
-			rss = np.sum((y - y_hat)**2)
-			return utils.BIC(n_features=n_features, n_samples=y.shape[0], rss=rss)
-		else:
-			raise ValueError('Incorrect metric specified.')
-
-	def lasso_sweep(self, X, y, lambdas, train_frac, n_bootstraps,
-					use_admm=False, seed=None, desc='', verbose=False):
-		"""Perform Lasso regression across bootstraps of a dataset for a sweep
-		of L1 penalty values.
-
-		Parameters
-		----------
-		X : np.array
-			data array containing regressors; assumed to be 2-d array with
-			shape n_samples x n_features
-
-		y : np.array
-			data array containing dependent variable; assumed to be a 1-d array
-			with length n_samples
-
-		lambdas : np.array
-			the set of regularization parameters to run boostraps over
-
-		train_frac : float
-			float between 0 and 1; the fraction of data to use for training
-
-		n_bootstraps : int
-			the number of bootstraps to obtain from the dataset; each bootstrap
-			will undergo a Lasso regression
-
-		use_admm: bool
-			switch to use the alternating direction method of multipliers (
-			ADMM) algorithm
-
-		Returns
-		-------
-		estimates : np.array
-			predicted regressors for each bootstrap and lambda value; shape is
-			(n_bootstraps, n_lambdas, n_features)
-
-		scores : np.array
-			scores by the model for each bootstrap and lambda
-			value; shape is (n_bootstraps, n_lambdas)
-		"""
-
-		# if a seed is provided, seed the random number generator
-		if seed is not None:
-			np.random.seed(seed)
-		#
-		n_lambdas = len(lambdas)
-		n_samples, n_features = X.shape
-		n_train_samples = int(round(train_frac * n_samples))
-		# create arrays to collect results
-		estimates = np.zeros((n_bootstraps, n_lambdas, n_features), dtype=np.float32)
-		scores = np.zeros((n_bootstraps, n_lambdas), dtype=np.float32)
-		# apply the Lasso to bootstrapped datasets
-		for bootstrap in trange(n_bootstraps, desc=desc, disable=not verbose):
-			# for each bootstrap, we'll split the data into a randomly assigned training and test set
-			train, test = utils.leveled_randomized_ids(self.groups_, train_frac)
-			# iterate over the provided L1 penalty values
-			for lamb_idx, lamb in enumerate(lambdas):
-				# run the Lasso on the training set
-				if not use_admm:
-					# apply coordinate descent through the sklearn Lasso class
-					lasso = lm.Lasso(alpha=lamb, max_iter=10000, fit_intercept=self.fit_intercept)
-					lasso.fit(X[train], y[train] - y[train].mean())
-					estimates[bootstrap, lamb_idx, :] = lasso.coef_
-				else:
-					# apply ADMM using our utility function
-					estimates[bootstrap, lamb_idx, :] = utils.lasso_admm(X[train], (y[train] - y[train].mean()), lamb=lamb)
-				# run trained Lasso on the test set and obtain predictions
-				y_hat = X[test].dot(estimates[bootstrap, lamb_idx, :])
-				y_true = y[test] - y[test].mean()
-				# calculate the explained variance using the predicted values
-				scores[bootstrap, lamb_idx] = r2_score(y_true, y_hat)
-
-		return estimates, scores
+
+class UoI_Lasso(LinearModel, SparseCoefMixin):
+    """The UoI-Lasso algorithm.
+
+    See Bouchard et al., NIPS, 2017, for more details on UoI-Lasso and the
+    Union of Intersections framework.
+
+    Parameters
+    ----------
+    n_lambdas : int, default 48
+        The number of L1 penalties to sweep across. For each lambda value,
+        UoI-Lasso will fit that model over many bootstraps of the data. A
+        larger set of L1 penalties will consider a more diverse set of supports
+        while increasing compute time.
+
+    n_boots_sel : int, default 48
+        The number of data bootstraps to use in the selection module.
+        Increasing this number will make selection more strict.
+
+    n_boots_est : int, default 48
+        The number of data bootstraps to use in the estimation module.
+        Increasing this number will relax selection and decrease variance.
+
+    selection_frac : float, default 0.9
+        The fraction of the dataset to use for training in each resampled
+        bootstrap, during the selection module. Small values of this parameter
+        imply larger "perturbations" to the dataset.
+
+    estimation_frac : float, default 0.9
+        The fraction of the dataset to use for training in each resampled
+        bootstrap, during the estimation module. The remaining data is used
+        to obtain validation scores. Small values of this parameters imply
+        larger "perturbations" to the dataset.
+
+    stability_selection : int, float, or array-like, default 1
+        If int, treated as the number of bootstraps that a feature must
+        appear in to guarantee placement in selection profile. If float,
+        must be between 0 and 1, and is instead the proportion of
+        bootstraps. If array-like, must consist of either ints or floats
+        between 0 and 1. In this case, each entry in the array-like object
+        will act as a separate threshold for placement in the selection
+        profile.
+
+    copy_X : boolean, default True
+        If True, X will be copied; else, it may be overwritten.
+
+    fit_intercept : boolean, default True
+        Whether to calculate the intercept for this model. If set
+        to False, no intercept will be used in calculations
+        (e.g. data is expected to be already centered).
+
+    normalize : boolean, default False
+        This parameter is ignored when ``fit_intercept`` is set to False.
+        If True, the regressors X will be normalized before regression by
+        subtracting the mean and dividing by the l2-norm.
+
+    random_state : int, RandomState instance or None, default None
+        The seed of the pseudo random number generator that selects a random
+        feature to update.  If int, random_state is the seed used by the random
+        number generator; If RandomState instance, random_state is the random
+        number generator; If None, the random number generator is the
+        RandomState instance used by `np.random`.
+
+    Attributes
+    ----------
+    coef_ : array, shape (n_features, ) or (n_targets, n_features)
+        Estimated coefficients for the linear regression problem.
+
+    intercept_ : float
+        Independent term in the linear model.
+
+    supports_ : array, shape (n_fea)
+        boolean array indicating whether a given regressor (column) is selected
+        for estimation for a given lambda (row).
+    """
+
+    def __init__(
+        self,
+        n_boots_sel=48, n_boots_est=48,
+        selection_frac=0.9, estimation_frac=0.9,
+        n_lambdas=48, stability_selection=1., eps=1e-3, warm_start=True,
+        estimation_score='r2',
+        copy_X=True, fit_intercept=True, normalize=True, random_state=None
+    ):
+        # data split fractions
+        self.selection_frac = selection_frac
+        self.estimation_frac = estimation_frac
+        # number of bootstraps
+        self.n_boots_sel = n_boots_sel
+        self.n_boots_est = n_boots_est
+        # other hyperparameters
+        self.n_lambdas = n_lambdas
+        self.stability_selection = stability_selection
+        self.eps = eps
+        self.estimation_score = estimation_score
+        self.warm_start = warm_start
+        # preprocessing
+        self.copy_X = copy_X
+        self.fit_intercept = fit_intercept
+        self.normalize = normalize
+        self.random_state = random_state
+
+    def fit(
+        self, X, y, stratify=None, verbose=False
+    ):
+        """Fit data according to the UoI-Lasso algorithm.
+
+        Parameters
+        ----------
+        X : ndarray or scipy.sparse matrix, (n_samples, n_features)
+            The design matrix.
+
+        y : ndarray, shape (n_samples,)
+            Response vector. Will be cast to X's dtype if necessary.
+            Currently, this implementation does not handle multiple response
+            variables.
+
+        stratify : array-like or None, default None
+            Ensures groups of samples are alloted to training/test sets
+            proportionally. Labels for each group must be an int greater
+            than zero. Must be of size equal to the number of samples, with
+            further restrictions on the number of groups.
+
+        verbose : boolean
+            A switch indicating whether the fitting should print out messages
+            displaying progress. Utilizes tqdm to indicate progress on
+            bootstraps.
+        """
+
+        # perform checks
+        X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
+                         y_numeric=True, multi_output=True)
+
+        # preprocess data
+        X, y, X_offset, y_offset, X_scale = _preprocess_data(
+            X, y, fit_intercept=self.fit_intercept, normalize=self.normalize,
+            copy=self.copy_X
+        )
+
+        # extract model dimensions
+        self.n_samples, self.n_features = X.shape
+
+        ####################
+        # Selection Module #
+        ####################
+        # choose the lamba parameters for selection sweep
+        self.lambdas = _alpha_grid(
+            X=X, y=y,
+            l1_ratio=1.0,
+            fit_intercept=self.fit_intercept,
+            eps=self.eps,
+            n_alphas=self.n_lambdas,
+            normalize=self.normalize
+        )
+
+        # initialize selection
+        selection_coefs = np.zeros(
+            (self.n_boots_sel, self.n_lambdas, self.n_features),
+            dtype=np.float32
+        )
+
+        # iterate over bootstraps
+        for bootstrap in trange(
+            self.n_boots_sel, desc='Model Selection', disable=not verbose
+        ):
+            # draw a resampled bootstrap
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y,
+                train_size=self.selection_frac,
+                stratify=stratify,
+                random_state=self.random_state
+            )
+
+            # perform a sweep over the regularization strengths
+            selection_coefs[bootstrap, :, :] = self.lasso_sweep(
+                X=X, y=y,
+                lambdas=self.lambdas,
+                warm_start=self.warm_start,
+                random_state=self.random_state
+            )
+
+        # perform the intersection step
+        self.intersection(selection_coefs)
+
+        #####################
+        # Estimation Module #
+        #####################
+        # set up data arrays
+        estimates = np.zeros(
+            (
+                self.n_boots_est,
+                self.n_selection_thresholds * self.n_lambdas,
+                self.n_features
+            ),
+            dtype=np.float32
+        )
+        self.scores = np.zeros(
+            (
+                self.n_boots_est,
+                self.n_selection_thresholds * self.n_lambdas
+            ),
+            dtype=np.float32
+        )
+
+        # iterate over bootstrap samples
+        for bootstrap in trange(
+            self.n_boots_est, desc='Model Estimation', disable=not verbose
+        ):
+
+            # draw a resampled bootstrap
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y,
+                train_size=self.selection_frac,
+                stratify=stratify,
+                random_state=self.random_state
+            )
+
+            # iterate over the regularization parameters
+            for lamb_idx, lamb in enumerate(self.lambdas):
+                # extract current support set
+                support = self.supports[lamb_idx]
+                # if nothing was selected, we won't bother running OLS
+                if np.any(support):
+                    # compute ols estimate
+                    ols = LinearRegression()
+                    ols.fit(
+                        X_train[:, support],
+                        y_train
+                    )
+
+                    # store the fitted coefficients
+                    estimates[bootstrap, lamb_idx, support] = ols.coef_.ravel()
+
+                    # obtain predictions for scoring
+                    y_pred = ols.predict(X_test[:, support])
+                else:
+                    # no prediction since nothing was selected
+                    y_pred = np.zeros(y_test.size)
+
+                # only negate if we're using an information criterion
+                negate = (
+                    self.estimation_score == 'BIC' or
+                    self.estimation_score == 'AIC' or
+                    self.estimation_score == 'AICc'
+                )
+
+                # calculate estimation score
+                self.scores[bootstrap, lamb_idx] = self.score_predictions(
+                    y_true=y_test,
+                    y_pred=y_pred,
+                    n_features=np.count_nonzero(support),
+                    metric=self.estimation_score,
+                    negate=negate
+                )
+
+        self.lambda_max_idx = np.argmax(self.scores, axis=1)
+        # extract the estimates over bootstraps from model with best lambda
+        best_estimates = estimates[
+            np.arange(self.n_boots_est), self.lambda_max_idx, :
+        ]
+        # take the median across estimates for the final, bagged estimate
+        self.coef_ = np.median(best_estimates, axis=0)
+
+        self._set_intercept(X_offset, y_offset, X_scale)
+
+        return self
+
+    def stability_selection_to_threshold(self, stability_selection):
+        """Converts user inputted stability selection to an array of
+        thresholds. These thresholds correspond to the number of bootstraps
+        that a feature must appear in to guarantee placement in the selection
+        profile.
+
+        Parameters
+        ----------
+        stability_selection : int, float, or array-like
+            If int, treated as the number of bootstraps that a feature must
+            appear in to guarantee placement in selection profile. If float,
+            must be between 0 and 1, and is instead the proportion of
+            bootstraps. If array-like, must consist of either ints or floats
+            between 0 and 1. In this case, each entry in the array-like object
+            will act as a separate threshold for placement in the selection
+            profile.
+        """
+
+        # single float, indicating proportion of bootstraps
+        if isinstance(self.stability_selection, float):
+            selection_thresholds = np.array([int(
+                stability_selection * self.n_boots_sel
+            )])
+
+        # single int, indicating number of bootstraps
+        elif isinstance(stability_selection, int):
+            selection_thresholds = np.array([int(
+                stability_selection
+            )])
+
+        # list, to be converted into numpy array
+        elif isinstance(stability_selection, list):
+            # list of floats
+            if all(isinstance(idx, float) for idx in stability_selection):
+                selection_thresholds = \
+                    self.n_boots_sel * np.array(stability_selection)
+
+            # list of ints
+            elif all(isinstance(idx, int) for idx in stability_selection):
+                selection_thresholds = np.array(stability_selection)
+
+            else:
+                raise ValueError("Stability selection list must consist of "
+                                 "floats or ints.")
+
+        # numpy array
+        elif isinstance(stability_selection, np.ndarray):
+            # np array of floats
+            if np.issubdtype(stability_selection.dtype.type, np.floating):
+                selection_thresholds = self.n_boots_sel * stability_selection
+
+            # np array of ints
+            elif np.issubdtype(stability_selection.dtype.type, np.integer):
+                selection_thresholds = stability_selection
+
+            else:
+                raise ValueError("Stability selection array must consist of "
+                                 "floats or ints.")
+
+        else:
+            raise ValueError("Stability selection must be a valid float, int "
+                             "or array.")
+
+        # ensure that ensuing list of selection thresholds satisfies
+        # the correct bounds
+        if not (
+            np.all(selection_thresholds <= self.n_boots_sel) and
+            np.all(selection_thresholds > 1)
+        ):
+            raise ValueError("Stability selection thresholds must be within "
+                             "the correct bounds.")
+
+        return selection_thresholds
+
+    def intersection(self, coefs):
+        """Performs the intersection operation on selection coefficients
+        using stability selection criteria.
+
+        Parameters
+        ----------
+        coefs : np.ndarray, shape (# bootstraps, # lambdas, # features)
+            The coefficients obtain from the selection sweep, corresponding to
+            each bootstrap and choice of L1 regularization strength.
+        """
+
+        # extract selection thresholds from user provided stability selection
+        self.selection_thresholds = self.stability_selection_to_threshold(
+            stability_selection=self.stability_selection
+        )
+
+        # create support matrix
+        self.n_selection_thresholds = self.selection_thresholds.size
+        self.supports = np.zeros(
+            (self.n_selection_thresholds, self.n_lambdas, self.n_features),
+            dtype=bool
+        )
+
+        # iterate over each stability selection threshold
+        for thresh_idx, threshold in enumerate(self.selection_thresholds):
+            # calculate the support given the specific selection threshold
+            self.supports[thresh_idx, ...] = \
+                np.count_nonzero(coefs, axis=0) >= threshold
+
+        # unravel the dimension corresponding to selection thresholds
+        self.supports = np.squeeze(np.reshape(
+            self.supports,
+            (self.n_selection_thresholds * self.n_lambdas, self.n_features)
+        ))
+
+        return
+
+    def score_predictions(
+        self, y_true, y_pred, metric='r2', negate=False, **kwargs
+    ):
+        """Score, according to some metric, predictions provided by a model.
+
+        Parameters
+        ----------
+        y_true : array-like
+            The true response variables.
+
+        y_pred : array-like
+            The predicted response variables.
+
+        metric : string
+            The type of score to run on the prediction. Valid options include
+            'r2' (explained variance), 'BIC' (Bayesian information criterion),
+            'AIC' (Akaike information criterion), and 'AICc' (corrected AIC).
+
+        negate : bool
+            Whether to negate the score. Useful in cases like AIC and BIC,
+            where minimum score is preferable.
+
+        Returns
+        -------
+        score : float
+            The score.
+        """
+
+        if metric == 'r2':
+            score = r2_score(
+                y_true=y_true,
+                y_pred=y_pred
+            )
+        elif self.estimation_score == 'BIC':
+            score = utils.BIC(
+                y_true=y_true,
+                y_pred=y_pred,
+                n_features=kwargs.get('n_features')
+            )
+        elif self.estimation_score == 'AIC':
+            score = utils.AIC(
+                y_true=y_true,
+                y_pred=y_pred,
+                n_features=kwargs.get('n_features')
+            )
+        elif self.estimation_score == 'AICc':
+            score = utils.AICc(
+                y_true=y_true,
+                y_pred=y_pred,
+                n_features=kwargs.get('n_features')
+            )
+        else:
+            raise ValueError(
+                metric + ' is not a valid option.'
+            )
+
+        # negate score
+        if negate:
+            score = -score
+
+        return score
+
+    @staticmethod
+    def lasso_sweep(
+        X, y, lambdas, normalize=True, max_iter=10000, warm_start=True,
+        random_state=None
+    ):
+        """Perform Lasso regression on a dataset over a sweep
+        of L1 penalty values.
+
+        Parameters
+        ----------
+        X : ndarray or scipy.sparse matrix, (n_samples, n_features)
+            The design matrix.
+
+        y : ndarray, shape (n_samples,)
+            Response vector.
+
+        lambdas : ndarray, shape (n_lambdas)
+            The set of regularization parameters over which to run lasso fits.
+
+        normalize : boolean, default False
+            If True, the regressors X will be normalized before regression by
+            subtracting the mean and dividing by the l2-norm.
+
+        max_iter : int, default 10000
+            The maximum number of iterations.
+
+        warm_start : bool, optional
+            When set to True, reuse the solution of the previous call to fit as
+            initialization, otherwise, just erase the previous solution.
+
+        random_state : int, RandomState instance or None, default None
+            The seed of the pseudo random number generator that selects a
+            random feature to update.  If int, random_state is the seed used by
+            the random number generator; If RandomState instance, random_state
+            is the random number generator; If None, the random number
+            generator is the RandomState instance used by `np.random`.
+
+        Returns
+        -------
+        coefs : nd.array, shape (n_lambdas, n_features)
+            Predicted parameter values for each regularization strength.
+        """
+
+        n_lambdas = len(lambdas)
+        n_features = X.shape[1]
+
+        coefs = np.zeros(
+            (n_lambdas, n_features),
+            dtype=np.float32
+        )
+
+        # initialize lasso fit object
+        lasso = Lasso(
+            normalize=normalize,
+            max_iter=max_iter,
+            warm_start=warm_start,
+            random_state=random_state
+        )
+
+        # apply the Lasso to bootstrapped datasets
+        for lamb_idx, lamb in enumerate(lambdas):
+            # reset the regularization parameter
+            lasso.set_params(alpha=lamb)
+            # rerun fit
+            lasso.fit(X, y)
+            # store coefficients
+            coefs[lamb_idx, :] = lasso.coef_
+
+        return coefs
