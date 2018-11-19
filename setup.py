@@ -16,7 +16,7 @@ setup(
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='0.0.13',
+    version='0.1.02',
 
     description='union of intersection sparse model fitting algorithm',
     long_description=long_description,
@@ -60,7 +60,7 @@ setup(
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
     packages=find_packages(),
-    package_data = {'PyUoI': ['data/*']},
+    package_data={'PyUoI': ['data/*']},
 
     # Alternatively, if you want to distribute just a my_module.py, uncomment
     # this:
@@ -86,9 +86,9 @@ setup(
     # To provide executable scripts, use entry points in preference to the
     # "scripts" keyword. Entry points provide cross-platform support and allow
     # pip to create the appropriate form of executable for the target platform.
-    #entry_points={
+    # entry_points={
     #    'console_scripts': [
     #        'sample=sample:main',
     #    ],
-    #},
+    # },
 )

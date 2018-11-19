@@ -10,7 +10,7 @@ from sklearn.metrics import r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
 
-from PyUoI import utils
+import utils
 
 
 class UoI_Lasso(LinearModel, SparseCoefMixin):
@@ -298,7 +298,7 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
         """
 
         # single float, indicating proportion of bootstraps
-        if isinstance(self.stability_selection, float):
+        if isinstance(stability_selection, float):
             selection_thresholds = np.array([int(
                 stability_selection * self.n_boots_sel
             )])
@@ -344,6 +344,7 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
 
         # ensure that ensuing list of selection thresholds satisfies
         # the correct bounds
+        selection_thresholds = selection_thresholds.astype('int')
         if not (
             np.all(selection_thresholds <= self.n_boots_sel) and
             np.all(selection_thresholds > 1)
