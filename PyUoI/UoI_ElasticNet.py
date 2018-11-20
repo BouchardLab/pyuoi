@@ -2,7 +2,7 @@ import numpy as np
 
 from tqdm import trange
 
-from sklearn.linear_model import LinearRegression, Lasso
+from sklearn.linear_model import LinearRegression, ElasticNet
 from sklearn.linear_model.base import (
     LinearModel, _preprocess_data, SparseCoefMixin)
 from sklearn.linear_model.coordinate_descent import _alpha_grid
@@ -13,10 +13,10 @@ from sklearn.utils import check_X_y
 import utils
 
 
-class UoI_Lasso(LinearModel, SparseCoefMixin):
-    """The UoI-Lasso algorithm.
+class UoI_ElasticNet(LinearModel, SparseCoefMixin):
+    """The UoI-ElasticNet algorithm.
 
-    See Bouchard et al., NIPS, 2017, for more details on UoI-Lasso and the
+    See Bouchard et al., NIPS, 2017, for more details on the
     Union of Intersections framework.
 
     Parameters
@@ -77,7 +77,7 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
 
     Attributes
     ----------
-    coef_ : array, shape (n_features,) or (n_targets, n_features)
+    coef_ : array, shape (n_features, ) or (n_targets, n_features)
         Estimated coefficients for the linear regression problem.
 
     intercept_ : float
@@ -92,7 +92,8 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
         self,
         n_boots_sel=48, n_boots_est=48,
         selection_frac=0.9, estimation_frac=0.9,
-        n_lambdas=48, stability_selection=1., eps=1e-3, warm_start=True,
+        n_lambdas=48, alphas=np.array([1., 0.99, 0.95, 0.9, 0.5, 0.3, 0.1]),
+        stability_selection=1., eps=1e-3, warm_start=True,
         estimation_score='r2',
         copy_X=True, fit_intercept=True, normalize=True, random_state=None
     ):
@@ -104,6 +105,8 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
         self.n_boots_est = n_boots_est
         # other hyperparameters
         self.n_lambdas = n_lambdas
+        self.alphas = alphas
+        self.n_alphas = len(alphas)
         self.stability_selection = stability_selection
         self.eps = eps
         self.estimation_score = estimation_score
@@ -157,19 +160,22 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
         ####################
         # Selection Module #
         ####################
-        # choose the lamba parameters for selection sweep
-        self.lambdas = _alpha_grid(
-            X=X, y=y,
-            l1_ratio=1.0,
-            fit_intercept=self.fit_intercept,
-            eps=self.eps,
-            n_alphas=self.n_lambdas,
-            normalize=self.normalize
-        )
+        # iterate over penalty ratios, choosing the L1 penalizers
+        self.lambdas = np.zeros((self.n_alphas, self.n_lambdas))
+
+        for alpha_idx, alpha in enumerate(self.alphas):
+            self.lambdas[alpha_idx, :] = _alpha_grid(
+                X=X, y=y,
+                l1_ratio=alpha,
+                fit_intercept=self.fit_intercept,
+                eps=self.eps,
+                n_alphas=self.n_lambdas,
+                normalize=self.normalize
+            )
 
         # initialize selection
         selection_coefs = np.zeros(
-            (self.n_boots_sel, self.n_lambdas, self.n_features),
+            (self.n_boots_sel, self.n_alphas, self.n_lambdas, self.n_features),
             dtype=np.float32
         )
 
@@ -186,8 +192,9 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
             )
 
             # perform a sweep over the regularization strengths
-            selection_coefs[bootstrap, :, :] = self.lasso_sweep(
+            selection_coefs[bootstrap, :, :] = self.selection_sweep(
                 X=X, y=y,
+                alphas=self.alphas,
                 lambdas=self.lambdas,
                 warm_start=self.warm_start,
                 random_state=self.random_state
@@ -267,10 +274,10 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
                     negate=negate
                 )
 
-        self.lambda_max_idx = np.argmax(self.scores, axis=1)
+        self.hparam_max_idx = np.argmax(self.scores, axis=1)
         # extract the estimates over bootstraps from model with best lambda
         best_estimates = estimates[
-            np.arange(self.n_boots_est), self.lambda_max_idx, :
+            np.arange(self.n_boots_est), self.hparam_max_idx, :
         ]
         # take the median across estimates for the final, bagged estimate
         self.coef_ = np.median(best_estimates, axis=0)
@@ -373,7 +380,8 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
         # create support matrix
         self.n_selection_thresholds = self.selection_thresholds.size
         self.supports = np.zeros(
-            (self.n_selection_thresholds, self.n_lambdas, self.n_features),
+            (self.n_selection_thresholds, self.n_alphas, self.n_lambdas,
+                self.n_features),
             dtype=bool
         )
 
@@ -386,7 +394,8 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
         # unravel the dimension corresponding to selection thresholds
         self.supports = np.squeeze(np.reshape(
             self.supports,
-            (self.n_selection_thresholds * self.n_lambdas, self.n_features)
+            (self.n_selection_thresholds * self.n_alphas * self.n_lambas,
+                self.n_features)
         ))
 
         return
@@ -453,10 +462,9 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
 
         return score
 
-    @staticmethod
-    def lasso_sweep(
-        X, y, lambdas, normalize=True, max_iter=10000, warm_start=True,
-        random_state=None
+    def selection_sweep(
+        self, X, y, alphas, lambdas, normalize=True, max_iter=10000,
+        warm_start=True, random_state=None
     ):
         """Perform Lasso regression on a dataset over a sweep
         of L1 penalty values.
@@ -496,29 +504,27 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
             Predicted parameter values for each regularization strength.
         """
 
-        n_lambdas = len(lambdas)
-        n_features = X.shape[1]
-
         coefs = np.zeros(
-            (n_lambdas, n_features),
+            (self.n_alphas, self.n_lambdas, self.n_features),
             dtype=np.float32
         )
 
         # initialize lasso fit object
-        lasso = Lasso(
+        enet = ElasticNet(
             normalize=normalize,
             max_iter=max_iter,
             warm_start=warm_start,
             random_state=random_state
         )
 
-        # apply the Lasso to bootstrapped datasets
-        for lamb_idx, lamb in enumerate(lambdas):
-            # reset the regularization parameter
-            lasso.set_params(alpha=lamb)
-            # rerun fit
-            lasso.fit(X, y)
-            # store coefficients
-            coefs[lamb_idx, :] = lasso.coef_
+        # apply the ElasticNet to bootstrapped datasets
+        for alpha_idx, alpha in enumerate(alphas):
+            for lamb_idx, lamb in enumerate(lambdas):
+                # reset the regularization parameter
+                enet.set_params(alpha=lamb, l1_ratio=alpha)
+                # rerun fit
+                enet.fit(X, y)
+                # store coefficients
+                coefs[alpha_idx, lamb_idx, :] = enet.coef_
 
         return coefs
