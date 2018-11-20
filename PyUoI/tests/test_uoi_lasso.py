@@ -1,7 +1,7 @@
 import numpy as np
 from numpy.testing import assert_array_equal
 
-from UoI_Lasso import UoI_Lasso
+from PyUoI.UoI_Lasso import UoI_Lasso
 
 
 def test_stability_selection_to_threshold():
