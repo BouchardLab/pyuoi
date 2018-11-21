@@ -202,6 +202,7 @@ class UoI_ElasticNet(LinearModel, SparseCoefMixin):
 
         # perform the intersection step
         self.intersection(selection_coefs)
+        self.n_supports = self.supports.shape[0]
 
         #####################
         # Estimation Module #
@@ -210,7 +211,7 @@ class UoI_ElasticNet(LinearModel, SparseCoefMixin):
         estimates = np.zeros(
             (
                 self.n_boots_est,
-                self.n_selection_thresholds * self.n_lambdas,
+                self.n_supports,
                 self.n_features
             ),
             dtype=np.float32
@@ -218,7 +219,7 @@ class UoI_ElasticNet(LinearModel, SparseCoefMixin):
         self.scores = np.zeros(
             (
                 self.n_boots_est,
-                self.n_selection_thresholds * self.n_lambdas
+                self.n_supports
             ),
             dtype=np.float32
         )
@@ -237,9 +238,8 @@ class UoI_ElasticNet(LinearModel, SparseCoefMixin):
             )
 
             # iterate over the regularization parameters
-            for lamb_idx, lamb in enumerate(self.lambdas):
-                # extract current support set
-                support = self.supports[lamb_idx]
+            for support_idx, support in enumerate(self.supports):
+
                 # if nothing was selected, we won't bother running OLS
                 if np.any(support):
                     # compute ols estimate
@@ -250,7 +250,8 @@ class UoI_ElasticNet(LinearModel, SparseCoefMixin):
                     )
 
                     # store the fitted coefficients
-                    estimates[bootstrap, lamb_idx, support] = ols.coef_.ravel()
+                    estimates[bootstrap, support_idx, support] = \
+                        ols.coef_.ravel()
 
                     # obtain predictions for scoring
                     y_pred = ols.predict(X_test[:, support])
@@ -266,7 +267,7 @@ class UoI_ElasticNet(LinearModel, SparseCoefMixin):
                 )
 
                 # calculate estimation score
-                self.scores[bootstrap, lamb_idx] = self.score_predictions(
+                self.scores[bootstrap, support_idx] = self.score_predictions(
                     y_true=y_test,
                     y_pred=y_pred,
                     n_features=np.count_nonzero(support),
@@ -394,7 +395,7 @@ class UoI_ElasticNet(LinearModel, SparseCoefMixin):
         # unravel the dimension corresponding to selection thresholds
         self.supports = np.squeeze(np.reshape(
             self.supports,
-            (self.n_selection_thresholds * self.n_alphas * self.n_lambas,
+            (self.n_selection_thresholds * self.n_alphas * self.n_lambdas,
                 self.n_features)
         ))
 
@@ -519,7 +520,7 @@ class UoI_ElasticNet(LinearModel, SparseCoefMixin):
 
         # apply the ElasticNet to bootstrapped datasets
         for alpha_idx, alpha in enumerate(alphas):
-            for lamb_idx, lamb in enumerate(lambdas):
+            for lamb_idx, lamb in enumerate(lambdas[alpha_idx]):
                 # reset the regularization parameter
                 enet.set_params(alpha=lamb, l1_ratio=alpha)
                 # rerun fit
