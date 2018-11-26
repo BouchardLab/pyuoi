@@ -15,4 +15,12 @@ pip install PyUoI
 
 ## Current Implementations of UoI
 
-We have currently implemented UoI-Lasso. See `demo.ipynb` for an example of how to run it.
+Our current implementations include:
+
+* UoI<sub>Lasso</sub>
+
+* UoI<sub>ElasticNet</sub>
+
+* UoI<sub>NMF</sub>
+
+See the `notebooks` folder for Jupyter notebooks detailing use cases of these algorithms.
