@@ -15,7 +15,8 @@ from PyUoI import utils
 _np2mpi = {np.dtype(np.float32): MPI.FLOAT,
            np.dtype(np.float64): MPI.DOUBLE,
            np.dtype(np.int): MPI.LONG,
-           np.dtype(np.intc): MPI.INT}
+           np.dtype(np.intc): MPI.INT,
+           np.dtype(np.bool): MPI.BOOL}
 
 
 def load_data_MPI(h5_name, X_key, y_key):
