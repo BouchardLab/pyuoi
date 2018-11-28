@@ -187,7 +187,7 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
 
             # perform a sweep over the regularization strengths
             selection_coefs[bootstrap, :, :] = self.lasso_sweep(
-                X=X, y=y,
+                X=X_train, y=y_train,
                 lambdas=self.lambdas,
                 warm_start=self.warm_start,
                 random_state=self.random_state
@@ -215,7 +215,7 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
             ),
             dtype=np.float32
         )
-
+        print('woof')
         # iterate over bootstrap samples
         for bootstrap in trange(
             self.n_boots_est, desc='Model Estimation', disable=not verbose

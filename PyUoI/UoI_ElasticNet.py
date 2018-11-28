@@ -193,7 +193,7 @@ class UoI_ElasticNet(LinearModel, SparseCoefMixin):
 
             # perform a sweep over the regularization strengths
             selection_coefs[bootstrap, :, :] = self.selection_sweep(
-                X=X, y=y,
+                X=X_train, y=y_train,
                 alphas=self.alphas,
                 lambdas=self.lambdas,
                 warm_start=self.warm_start,
