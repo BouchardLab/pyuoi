@@ -1,1 +1,1 @@
-name = "PyUoI"
+name = "pyuoi"

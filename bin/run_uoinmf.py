@@ -1,4 +1,4 @@
-from PyUoI.UoINMF import UoINMF
+from pyuoi.UoINMF import UoINMF
 
 from sklearn.decomposition import NMF
 from hdbscan import HDBSCAN
