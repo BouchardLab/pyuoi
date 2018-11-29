@@ -4,4 +4,4 @@ python:
 install:
     - pip install -r requirements.txt
 script:
-    - python -m pytest PyUoI/tests/
+    - python -m pytest pyuoi/tests/
