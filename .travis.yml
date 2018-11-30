@@ -6,6 +6,6 @@ install:
     - pip install codecov
 script:
     - python -m pytest PyUoI/tests/
-    - coverage run tests.py
+    - coverage run PyUoI/tests/tests.py
 after_success:
     - codecov
