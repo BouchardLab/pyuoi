@@ -10,7 +10,7 @@ from sklearn.metrics import r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
 
-from PyUoI import utils
+from pyuoi import utils
 
 
 class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, SparseCoefMixin)):
@@ -204,7 +204,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             )
 
         # perform the intersection step
-        self.intersection(selection_coefs)
+        self.supports_ = self.intersection(selection_coefs)
 
         #####################
         # Estimation Module #
@@ -431,7 +431,9 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         return coefs
 
 
-class AbstractUoILinearRegressor(with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
+class AbstractUoILinearRegressor(_six.with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
+
+    __valid_estimation_metrics = ('r2', 'AIC', 'AICc', 'BIC')
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
         stability_selection=1., warm_start=True,
@@ -447,6 +449,10 @@ class AbstractUoILinearRegressor(with_metaclass(_abc.ABCMeta, AbstractUoILinearM
         self.fit_intercept = fit_intercept
         self.normalize = normalize
         self.copy_X = copy_X
+
+        if estimation_score not in self.__valid_estimation_metrics:
+            raise ValueError("invalid estimation metric: '%s'" % estimation_score)
+
         self.__estimation_score = estimation_score
 
     @staticmethod
@@ -469,8 +475,10 @@ class AbstractUoILinearRegressor(with_metaclass(_abc.ABCMeta, AbstractUoILinearM
 
         Parameters
         ----------
-        metric : str
-            The scoring metric to use. Acceptible options are 'AIC', 'AICc', 'BIC', and 'r2'
+        metric : string
+            The type of score to run on the prediction. Valid options include
+            'r2' (explained variance), 'BIC' (Bayesian information criterion),
+            'AIC' (Akaike information criterion), and 'AICc' (corrected AIC).
 
         y_true : array-like
             The true response variables.
@@ -478,14 +486,8 @@ class AbstractUoILinearRegressor(with_metaclass(_abc.ABCMeta, AbstractUoILinearM
         y_pred : array-like
             The predicted response variables.
 
-        metric : string
-            The type of score to run on the prediction. Valid options include
-            'r2' (explained variance), 'BIC' (Bayesian information criterion),
-            'AIC' (Akaike information criterion), and 'AICc' (corrected AIC).
-
-        negate : bool
-            Whether to negate the score. Useful in cases like AIC and BIC,
-            where minimum score is preferable.
+        supports: array-like
+            The value of the supports for the model that was used to generate *y_pred*
 
         Returns
         -------
@@ -540,5 +542,38 @@ class AbstractUoILinearRegressor(with_metaclass(_abc.ABCMeta, AbstractUoILinearM
         return self
 
 
-class AbstractUoILinearClassifier(with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
-    pass
+class AbstractUoILinearClassifier(_six.with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
+
+    __valid_estimation_metrics = ('acc',)
+
+    def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
+        stability_selection=1., warm_start=True,
+        estimation_score='acc',
+        multi_class='ovr',
+        copy_X=True, fit_intercept=True, normalize=True, random_state=None, max_iter=1000
+    ):
+        super(UoI_Lasso, self).__init__(
+            n_boots_sel=n_boos_sel,
+            n_boots_est=n_boos_est,
+            selection_frac=selection_frac,
+            stability_selection=stability_selection,
+        )
+        self.fit_intercept = fit_intercept
+        self.normalize = normalize
+        self.copy_X = copy_X
+
+        if estimation_score not in self.__valid_estimation_metrics:
+            raise ValueError("invalid estimation metric: '%s'" % estimation_score)
+        self.__estimation_score = estimation_score
+
+    @staticmethod
+    def preprocess_data(self, X, y):
+        return _preprocess_data(
+            X, y, fit_intercept=self.fit_intercept, normalize=self.normalize,
+            copy=self.copy_X
+        )
+
+    @property
+    def estimation_score(self):
+        return self.__estimation_score
+
