@@ -13,7 +13,7 @@ from sklearn.utils import check_X_y
 from PyUoI import utils
 
 
-class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, SparseCoefMixin))
+class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, SparseCoefMixin)):
     """An abstract base class for UoI linear model classes
 
     See Bouchard et al., NIPS, 2017, for more details on UoI-Lasso and the
@@ -94,8 +94,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         n_boots_sel=48, n_boots_est=48,
         selection_frac=0.9,
         stability_selection=1.,
-        estimation_score='r2',
-        copy_X=True, fit_intercept=True, normalize=True, random_state=None
+        random_state=None
     ):
         # data split fractions
         self.selection_frac = selection_frac
@@ -104,11 +103,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         self.n_boots_est = n_boots_est
         # other hyperparameters
         self.stability_selection = stability_selection
-        self.estimation_score = estimation_score
         # preprocessing
-        self.copy_X = copy_X
-        self.fit_intercept = fit_intercept
-        self.normalize = normalize
         self.random_state = random_state
 
         # extract selection thresholds from user provided stability selection
@@ -124,8 +119,23 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
     def estimation_lm(self):
         pass
 
+    @_abc.abstractproperty
+    def estimation_score(self):
+        pass
+
     @_abc.abstractmethod
     def get_reg_params(self):
+        pass
+
+    @_abc.abstractstaticmethod
+    def score_predictions(metric, y_true, y_pred, supports):
+        pass
+
+    @_abc.abstractmethod
+    def preprocess_data(self, X, y):
+        """
+
+        """
         pass
 
     def fit(
@@ -154,16 +164,6 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             displaying progress. Utilizes tqdm to indicate progress on
             bootstraps.
         """
-
-        # perform checks
-        X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
-                         y_numeric=True, multi_output=True)
-
-        # preprocess data
-        X, y, X_offset, y_offset, X_scale = _preprocess_data(
-            X, y, fit_intercept=self.fit_intercept, normalize=self.normalize,
-            copy=self.copy_X
-        )
 
         # extract model dimensions
         self.n_samples, self.n_features = X.shape
@@ -263,13 +263,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
 
 
                 # calculate estimation score
-                self.scores_[bootstrap, lamb_idx] = self.score_predictions(
-                    score=self.estimation_score,
-                    y_true=y_test,
-                    y_pred=y_pred,
-                    n_features=np.count_nonzero(support),
-                    metric=self.estimation_score,
-                )
+                self.scores_[bootstrap, lamb_idx] = self.score_predictions(self.estimation_score, y_test, y_pred, support)
 
         self.lambda_max_idx = np.argmax(self.scores_, axis=1)
         # extract the estimates over bootstraps from model with best lambda
@@ -278,8 +272,6 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         ]
         # take the median across estimates for the final, bagged estimate
         self.coef_ = np.median(best_estimates, axis=0)
-
-        self._set_intercept(X_offset, y_offset, X_scale)
 
         return self
 
@@ -394,72 +386,6 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         # # TODO: collapse duplicate supports
         return supports
 
-    @staticmethod
-    def score_predictions(metric, y_true, y_pred, metric='r2', negate=False, **kwargs):
-        """Score, according to some metric, predictions provided by a model.
-
-        the resulting score will be negated if an information criterion is
-        specified
-
-        Parameters
-        ----------
-        metric : str
-            The scoring metric to use. Acceptible options are 'AIC', 'AICc', 'BIC', and 'r2'
-
-        y_true : array-like
-            The true response variables.
-
-        y_pred : array-like
-            The predicted response variables.
-
-        metric : string
-            The type of score to run on the prediction. Valid options include
-            'r2' (explained variance), 'BIC' (Bayesian information criterion),
-            'AIC' (Akaike information criterion), and 'AICc' (corrected AIC).
-
-        negate : bool
-            Whether to negate the score. Useful in cases like AIC and BIC,
-            where minimum score is preferable.
-
-        Returns
-        -------
-        score : float
-            The score.
-        """
-
-        if metric == 'r2':
-            score = r2_score(
-                y_true=y_true,
-                y_pred=y_pred
-            )
-        elif metric == 'BIC':
-            score = utils.BIC(
-                y_true=y_true,
-                y_pred=y_pred,
-                n_features=kwargs.get('n_features')
-            )
-        elif metric == 'AIC':
-            score = utils.AIC(
-                y_true=y_true,
-                y_pred=y_pred,
-                n_features=kwargs.get('n_features')
-            )
-        elif metric == 'AICc':
-            score = utils.AICc(
-                y_true=y_true,
-                y_pred=y_pred,
-                n_features=kwargs.get('n_features')
-            )
-        else:
-            raise ValueError(
-                metric + ' is not a valid option.'
-            )
-
-        if metric in ('BIC', 'AIC', 'AICc'):
-            score = -score
-
-        return score
-
     def uoi_selection_sweep(self, X, y, reg_param_values):
         """Perform Lasso regression on a dataset over a sweep
         of L1 penalty values.
@@ -503,3 +429,116 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             coefs[reg_param_idx, :] = lm.coef_
 
         return coefs
+
+
+class AbstractUoILinearRegressor(with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
+
+    def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
+        stability_selection=1., warm_start=True,
+        estimation_score='r2',
+        copy_X=True, fit_intercept=True, normalize=True, random_state=None, max_iter=1000
+    ):
+        super(UoI_Lasso, self).__init__(
+            n_boots_sel=n_boos_sel,
+            n_boots_est=n_boos_est,
+            selection_frac=selection_frac,
+            stability_selection=stability_selection,
+        )
+        self.fit_intercept = fit_intercept
+        self.normalize = normalize
+        self.copy_X = copy_X
+        self.__estimation_score = estimation_score
+
+    @staticmethod
+    def preprocess_data(self, X, y):
+        return _preprocess_data(
+            X, y, fit_intercept=self.fit_intercept, normalize=self.normalize,
+            copy=self.copy_X
+        )
+
+    @property
+    def estimation_score(self):
+        return self.__estimation_score
+
+    @staticmethod
+    def score_predictions(metric, y_true, y_pred, supports):
+        """Score, according to some metric, predictions provided by a model.
+
+        the resulting score will be negated if an information criterion is
+        specified
+
+        Parameters
+        ----------
+        metric : str
+            The scoring metric to use. Acceptible options are 'AIC', 'AICc', 'BIC', and 'r2'
+
+        y_true : array-like
+            The true response variables.
+
+        y_pred : array-like
+            The predicted response variables.
+
+        metric : string
+            The type of score to run on the prediction. Valid options include
+            'r2' (explained variance), 'BIC' (Bayesian information criterion),
+            'AIC' (Akaike information criterion), and 'AICc' (corrected AIC).
+
+        negate : bool
+            Whether to negate the score. Useful in cases like AIC and BIC,
+            where minimum score is preferable.
+
+        Returns
+        -------
+        score : float
+            The score.
+        """
+        if metric == 'r2':
+            score = r2_score(y_true, y_pred)
+        else:
+            n_features=np.count_nonzero(supports)
+            if metric == 'BIC':
+                score = utils.BIC(y_true, y_pred, n_features)
+            elif metric == 'AIC':
+                score = utils.AIC(y_true, y_pred, n_features)
+            elif metric == 'AICc':
+                score = utils.AICc(y_true, y_pred, n_features)
+            else:
+                raise ValueError(metric + ' is not a valid option.')
+            score = -score
+        return score
+
+    def fit(self, X, y, stratify=None, verbose=None):
+        """Fit data according to the UoI-Lasso algorithm.
+
+        Parameters
+        ----------
+        X : ndarray or scipy.sparse matrix, (n_samples, n_features)
+            The design matrix.
+
+        y : ndarray, shape (n_samples,)
+            Response vector. Will be cast to X's dtype if necessary.
+            Currently, this implementation does not handle multiple response
+            variables.
+
+        stratify : array-like or None, default None
+            Ensures groups of samples are alloted to training/test sets
+            proportionally. Labels for each group must be an int greater
+            than zero. Must be of size equal to the number of samples, with
+            further restrictions on the number of groups.
+
+        verbose : boolean
+            A switch indicating whether the fitting should print out messages
+            displaying progress. Utilizes tqdm to indicate progress on
+            bootstraps.
+        """
+        # perform checks
+        X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'], y_numeric=True, multi_output=True)
+        # preprocess data
+        X, y, X_offset, y_offset, X_scale = self.preprocess_data(X, y)
+        super(AbstractUoILinearRegressor).fit(X, y, stratify=stratify, verbose=verbose)
+        self._set_intercept(X_offset, y_offset, X_scale)
+        return self
+
+
+class AbstractUoILinearClassifier(with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
+    pass

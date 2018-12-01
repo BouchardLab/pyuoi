@@ -1,10 +1,10 @@
-from . import AbstractUoILinearModel
+from .base import AbstractUoILinearRegressor
 
 from sklearn.linear_model import Lasso, LinearRegression
 from sklearn.linear_model.coordinate_descent import _alpha_grid
 
 
-class UoI_Lasso(AbstractUoILinearModel):
+class UoI_Lasso(AbstractUoILinearRegressor):
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
         n_lambdas=48, stability_selection=1., eps=1e-3, warm_start=True,
@@ -28,7 +28,7 @@ class UoI_Lasso(AbstractUoILinearModel):
             warm_start=warm_start,
             random_state=random_state
         )
-        self.__estimation_lm = LinearRegression()
+        self.__estimation_lm = LinearRegression(random_state=random_state)
 
     @property
     def estimation_lm(self):
