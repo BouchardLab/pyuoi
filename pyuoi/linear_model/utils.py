@@ -16,6 +16,9 @@ def stability_selection_to_threshold(stability_selection, n_boots):
         between 0 and 1. In this case, each entry in the array-like object
         will act as a separate threshold for placement in the selection
         profile.
+
+    n_boots: int
+        The number of bootstraps that will be used for selection
     """
 
     # single float, indicating proportion of bootstraps
@@ -75,7 +78,7 @@ def stability_selection_to_threshold(stability_selection, n_boots):
 
     return selection_thresholds
 
-def intersection(coefs, selection_thresholds):
+def intersection(coefs, selection_thresholds=None):
     """Performs the intersection operation on selection coefficients
     using stability selection criteria.
 
@@ -84,7 +87,14 @@ def intersection(coefs, selection_thresholds):
     coefs : np.ndarray, shape (# bootstraps, # lambdas, # features)
         The coefficients obtain from the selection sweep, corresponding to
         each bootstrap and choice of L1 regularization strength.
+
+    selection_thresholds: array-like, int
+        The selection thresholds to perform intersection across. By default,
+        use *coefs.shape[0]*
     """
+
+    if selection_thresholds is None:
+        selection_thresholds = np.array([coefs.shape[0]])
 
     n_selection_thresholds = len(selection_thresholds)
     n_reg_params = coefs.shape[1]
