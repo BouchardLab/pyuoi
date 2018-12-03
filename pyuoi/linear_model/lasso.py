@@ -12,8 +12,8 @@ class UoI_Lasso(AbstractUoILinearRegressor):
         copy_X=True, fit_intercept=True, normalize=True, random_state=None, max_iter=1000
     ):
         super(UoI_Lasso, self).__init__(
-            n_boots_sel = n_boos_sel,
-            n_boots_est = n_boos_est,
+            n_boots_sel = n_boots_sel,
+            n_boots_est = n_boots_est,
             selection_frac=selection_frac,
             stability_selection=stability_selection,
             copy_X=copy_X,
@@ -28,7 +28,7 @@ class UoI_Lasso(AbstractUoILinearRegressor):
             warm_start=warm_start,
             random_state=random_state
         )
-        self.__estimation_lm = LinearRegression(random_state=random_state)
+        self.__estimation_lm = LinearRegression()
 
     @property
     def estimation_lm(self):
@@ -39,7 +39,7 @@ class UoI_Lasso(AbstractUoILinearRegressor):
         return self.__selection_lm
 
     def get_reg_params(self, X, y):
-        return _alpha_grid(
+        alphas = _alpha_grid(
             X=X, y=y,
             l1_ratio=1.0,
             fit_intercept=self.fit_intercept,
@@ -47,3 +47,4 @@ class UoI_Lasso(AbstractUoILinearRegressor):
             n_alphas=self.n_lambdas,
             normalize=self.normalize
         )
+        return [{'alpha': a} for a in alphas]

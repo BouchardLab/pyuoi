@@ -86,7 +86,7 @@ def intersection(coefs, selection_thresholds):
         each bootstrap and choice of L1 regularization strength.
     """
 
-    n_selection_thresholds = selection_thresholds
+    n_selection_thresholds = len(selection_thresholds)
     n_reg_params = coefs.shape[1]
     n_features = coefs.shape[2]
     supports = np.zeros(

@@ -91,13 +91,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         for estimation for a given lambda (row).
     """
 
-    def __init__(
-        self,
-        n_boots_sel=48, n_boots_est=48,
-        selection_frac=0.9,
-        stability_selection=1.,
-        random_state=None
-    ):
+    def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9, stability_selection=1., random_state=None):
         # data split fractions
         self.selection_frac = selection_frac
         # number of bootstraps
@@ -140,9 +134,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         """
         pass
 
-    def fit(
-        self, X, y, stratify=None, verbose=False
-    ):
+    def fit(self, X, y, stratify=None, verbose=False):
         """Fit data according to the UoI-Lasso algorithm.
 
         Parameters
@@ -188,16 +180,19 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             self.n_boots_sel, desc='Model Selection', disable=not verbose
         ):
             # draw a resampled bootstrap
-            X_train, X_test, y_train, y_test = train_test_split(
+            X_rep, X_test, y_rep, y_test = train_test_split(
                 X, y,
                 train_size=self.selection_frac,
                 stratify=stratify,
                 random_state=self.random_state
             )
 
-            ## This should be the same as the above code
-            # X_rep, y_rep = resample(X, y, replace=False, n_samples=int(self.selection_frac*self.n_samples))
+            # TODO: consider using this way intsead, since
+            # this is the real way to do a bootstrap
             # X_rep, y_rep = resample(X, y)
+
+            ## This should be the same as the above call to train_test_split
+            # X_rep, y_rep = resample(X, y, replace=False, n_samples=int(self.selection_frac*self.n_samples))
 
             # perform a sweep over the regularization strengths
             selection_coefs[bootstrap, :, :] = self.uoi_selection_sweep(
@@ -206,7 +201,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             )
 
         # perform the intersection step
-        self.supports_ = intersection(selection_coefs)
+        self.supports_ = intersection(selection_coefs, self.selection_thresholds)
 
         #####################
         # Estimation Module #
@@ -240,10 +235,9 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
                 stratify=stratify,
                 random_state=self.random_state
             )
-            X_rep, y_rep = resample(X, y)
 
             # iterate over the regularization parameters
-            for rp_idx, lamb in enumerate(self.reg_params_):
+            for rp_idx, reg_param in enumerate(self.reg_params_):
                 # extract current support set
                 support = self.supports_[rp_idx]
                 # if nothing was selected, we won't bother running OLS
@@ -265,12 +259,12 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
 
 
                 # calculate estimation score
-                self.scores_[bootstrap, lamb_idx] = self.score_predictions(self.estimation_score, y_test, y_pred, support)
+                self.scores_[bootstrap, rp_idx] = self.score_predictions(self.estimation_score, y_test, y_pred, support)
 
-        self.lambda_max_idx = np.argmax(self.scores_, axis=1)
+        self.rp_max_idx_ = np.argmax(self.scores_, axis=1)
         # extract the estimates over bootstraps from model with best lambda
         best_estimates = estimates[
-            np.arange(self.n_boots_est), self.lambda_max_idx, :
+            np.arange(self.n_boots_est), self.rp_max_idx_, :
         ]
         # take the median across estimates for the final, bagged estimate
         self.coef_ = np.median(best_estimates, axis=0)
@@ -317,7 +311,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             # rerun fit
             self.selection_lm.fit(X, y)
             # store coefficients
-            coefs[reg_param_idx, :] = lm.coef_
+            coefs[reg_param_idx, :] = self.selection_lm.coef_
 
         return coefs
 
@@ -331,9 +325,9 @@ class AbstractUoILinearRegressor(_six.with_metaclass(_abc.ABCMeta, AbstractUoILi
         estimation_score='r2',
         copy_X=True, fit_intercept=True, normalize=True, random_state=None, max_iter=1000
     ):
-        super(UoI_Lasso, self).__init__(
-            n_boots_sel=n_boos_sel,
-            n_boots_est=n_boos_est,
+        super(AbstractUoILinearRegressor, self).__init__(
+            n_boots_sel=n_boots_sel,
+            n_boots_est=n_boots_est,
             selection_frac=selection_frac,
             stability_selection=stability_selection,
         )
@@ -346,7 +340,6 @@ class AbstractUoILinearRegressor(_six.with_metaclass(_abc.ABCMeta, AbstractUoILi
 
         self.__estimation_score = estimation_score
 
-    @staticmethod
     def preprocess_data(self, X, y):
         return _preprocess_data(
             X, y, fit_intercept=self.fit_intercept, normalize=self.normalize,
@@ -428,7 +421,7 @@ class AbstractUoILinearRegressor(_six.with_metaclass(_abc.ABCMeta, AbstractUoILi
         X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'], y_numeric=True, multi_output=True)
         # preprocess data
         X, y, X_offset, y_offset, X_scale = self.preprocess_data(X, y)
-        super(AbstractUoILinearRegressor).fit(X, y, stratify=stratify, verbose=verbose)
+        super(AbstractUoILinearRegressor, self).fit(X, y, stratify=stratify, verbose=verbose)
         self._set_intercept(X_offset, y_offset, X_scale)
         return self
 
@@ -443,9 +436,9 @@ class AbstractUoILinearClassifier(_six.with_metaclass(_abc.ABCMeta, AbstractUoIL
         multi_class='ovr',
         copy_X=True, fit_intercept=True, normalize=True, random_state=None, max_iter=1000
     ):
-        super(UoI_Lasso, self).__init__(
-            n_boots_sel=n_boos_sel,
-            n_boots_est=n_boos_est,
+        super(AbstractUoILinearClassifier, self).__init__(
+            n_boots_sel=n_boots_sel,
+            n_boots_est=n_boots_est,
             selection_frac=selection_frac,
             stability_selection=stability_selection,
         )
