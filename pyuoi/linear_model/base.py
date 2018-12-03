@@ -81,7 +81,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
 
     supports_ : array, shape
         boolean array indicating whether a given regressor (column) is selected
-        for estimation for a given lambda (row).
+        for estimation for a given regularization parameter value (row).
     """
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9, stability_selection=1., random_state=None):
@@ -255,7 +255,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
                 self.scores_[bootstrap, rp_idx] = self.score_predictions(self.estimation_score, y_test, y_pred, support)
 
         self.rp_max_idx_ = np.argmax(self.scores_, axis=1)
-        # extract the estimates over bootstraps from model with best lambda
+        # extract the estimates over bootstraps from model with best regularization parameter value
         best_estimates = estimates[
             np.arange(self.n_boots_est), self.rp_max_idx_, :
         ]
@@ -265,7 +265,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         return self
 
     def uoi_selection_sweep(self, X, y, reg_param_values):
-        """Perform model training on a dataset over a sweep of regularization
+        """Perform selection regression on a dataset over a sweep of regularization
         parameter values.
 
         Parameters
@@ -297,7 +297,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         # initialize Linear model fit object
         params = dict()
 
-        # apply the linear model to bootstrapped datasets
+        # apply the selection regression to bootstrapped datasets
         for reg_param_idx, reg_params in enumerate(reg_param_values):
             # reset the regularization parameter
             self.selection_lm.set_params(**reg_params)
