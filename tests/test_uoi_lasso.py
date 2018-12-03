@@ -2,6 +2,7 @@ import numpy as np
 from numpy.testing import assert_array_equal
 
 from pyuoi.linear_model.utils import stability_selection_to_threshold
+from pyuoi import UoI_Lasso
 
 
 def test_stability_selection_to_threshold_float():
@@ -24,3 +25,12 @@ def test_stability_selection_to_threshold_floats():
     test_floats = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
     selection_thresholds = stability_selection_to_threshold(test_floats, n_boots_sel)
     assert_array_equal(selection_thresholds, [24, 28, 33, 38, 43, 48])
+
+def test_variable_selection():
+    from sklearn.datasets import make_regression
+    X, y, w = make_regression(coef=True, random_state=1)
+    lasso = UoI_Lasso()
+    lasso.fit(X, y)
+    true_coef = np.nonzero(w)[0]
+    fit_coef = np.nonzero(lasso.coef_)[0]
+    assert_array_equal(true_coef, fit_coef)
