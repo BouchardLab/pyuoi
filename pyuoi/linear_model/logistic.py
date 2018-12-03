@@ -1,6 +1,7 @@
 from .base import AbstractUoILinearRegressor
 
 from sklearn.linear_model import LogisticRegression
+from sklearn.svm import l1_min_c
 
 import numpy as np
 
@@ -22,8 +23,10 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
             normalize=normalize
         )
         self.n_C = n_C
+        self.Cs = None
         self.__selection_lm = LogisticRegression(
             penalty='l1',
+            solver='saga',
             normalize=normalize,
             max_iter=max_iter,
             warm_start=warm_start,
@@ -43,5 +46,9 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
         return self.__selection_lm
 
     def get_reg_params(self, X, y):
-        #TODO: implement me
-        pass
+        if self.Cs is None:
+            self.Cs = l1_min_c(X, y, loss='log') * np.logspace(0, 7, self.n_C)
+        ret = list()
+        for c in self.Cs:
+            ret.append(dict(C=c))
+        return ret
