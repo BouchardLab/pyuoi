@@ -18,17 +18,10 @@ from .utils import stability_selection_to_threshold, intersection
 class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, SparseCoefMixin)):
     """An abstract base class for UoI linear model classes
 
-    See Bouchard et al., NIPS, 2017, for more details on UoI-Lasso and the
-    Union of Intersections framework.
+    See Bouchard et al., NIPS, 2017, for more details on the Union of Intersections framework.
 
     Parameters
     ----------
-    n_lambdas : int, default 48
-        The number of L1 penalties to sweep across. For each lambda value,
-        UoI-Lasso will fit that model over many bootstraps of the data. A
-        larger set of L1 penalties will consider a more diverse set of supports
-        while increasing compute time.
-
     n_boots_sel : int, default 48
         The number of data bootstraps to use in the selection module.
         Increasing this number will make selection more strict.
@@ -135,7 +128,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         pass
 
     def fit(self, X, y, stratify=None, verbose=False):
-        """Fit data according to the UoI-Lasso algorithm.
+        """Fit data according to the UoI algorithm.
 
         Parameters
         ----------
@@ -272,8 +265,8 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         return self
 
     def uoi_selection_sweep(self, X, y, reg_param_values):
-        """Perform Lasso regression on a dataset over a sweep
-        of L1 penalty values.
+        """Perform model training on a dataset over a sweep of regularization
+        parameter values.
 
         Parameters
         ----------
@@ -304,7 +297,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         # initialize Linear model fit object
         params = dict()
 
-        # apply the Lasso to bootstrapped datasets
+        # apply the linear model to bootstrapped datasets
         for reg_param_idx, reg_params in enumerate(reg_param_values):
             # reset the regularization parameter
             self.selection_lm.set_params(**reg_params)
@@ -393,8 +386,10 @@ class AbstractUoILinearRegressor(_six.with_metaclass(_abc.ABCMeta, AbstractUoILi
             score = -score
         return score
 
-    def fit(self, X, y, stratify=None, verbose=None):
-        """Fit data according to the UoI-Lasso algorithm.
+    def fit(self, X, y, stratify=None, verbose=False):
+        """Fit data according to the UoI algorithm.
+
+        Additionaly, perform X-y checks, data preprocessing, and setting interecept
 
         Parameters
         ----------
