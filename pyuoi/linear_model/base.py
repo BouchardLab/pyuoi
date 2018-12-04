@@ -456,3 +456,37 @@ class AbstractUoILinearClassifier(_six.with_metaclass(_abc.ABCMeta, AbstractUoIL
     def estimation_score(self):
         return self.__estimation_score
 
+    @staticmethod
+    def score_predictions(metric, y_true, y_pred, supports):
+        """Score, according to some metric, predictions provided by a model.
+
+        the resulting score will be negated if an information criterion is
+        specified
+
+        Parameters
+        ----------
+        metric : string
+            The type of score to run on the prediction. Valid options include
+            'r2' (explained variance), 'BIC' (Bayesian information criterion),
+            'AIC' (Akaike information criterion), and 'AICc' (corrected AIC).
+
+        y_true : array-like
+            The true response variables.
+
+        y_pred : array-like
+            The predicted response variables.
+
+        supports: array-like
+            The value of the supports for the model that was used to generate *y_pred*
+
+        Returns
+        -------
+        score : float
+            The score.
+        """
+        if metric == 'acc':
+            score = r2_score(y_true, y_pred)
+        else:
+            raise ValueError(metric + ' is not a valid option.')
+        return score
+
