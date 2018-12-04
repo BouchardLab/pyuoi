@@ -1,4 +1,4 @@
-from .base import AbstractUoILinearRegressor
+from .base import AbstractUoILinearClassifier
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import l1_min_c
@@ -14,8 +14,8 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
         copy_X=True, fit_intercept=True, normalize=True, random_state=None, max_iter=1000
     ):
         super(UoI_L1Logistic, self).__init__(
-            n_boots_sel = n_boos_sel,
-            n_boots_est = n_boos_est,
+            n_boots_sel = n_boots_sel,
+            n_boots_est = n_boots_est,
             selection_frac=selection_frac,
             stability_selection=stability_selection,
             copy_X=copy_X,
@@ -27,7 +27,6 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
         self.__selection_lm = LogisticRegression(
             penalty='l1',
             solver='saga',
-            normalize=normalize,
             max_iter=max_iter,
             warm_start=warm_start,
             random_state=random_state
