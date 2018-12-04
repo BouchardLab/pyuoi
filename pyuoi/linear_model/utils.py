@@ -116,6 +116,10 @@ def intersection(coefs, selection_thresholds=None):
         (n_selection_thresholds * n_reg_params, n_features)
     ))
 
-    # # TODO: collapse duplicate supports
+    # # TODO: there might be a faster way to do this
+    uniq = set()
+    for sup in supports:
+        uniq.add(tuple(sup))
+    supports = np.array(list(uniq))
     return supports
 

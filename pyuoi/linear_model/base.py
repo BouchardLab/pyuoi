@@ -96,9 +96,9 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         self.random_state = random_state
 
         # extract selection thresholds from user provided stability selection
-        self.selection_thresholds = stability_selection_to_threshold(self.stability_selection, self.n_boots_sel)
+        self.selection_thresholds_ = stability_selection_to_threshold(self.stability_selection, self.n_boots_sel)
 
-        self.n_selection_thresholds = self.selection_thresholds.size
+        self.n_supports_ = None
 
     @_abc.abstractproperty
     def selection_lm(self):
@@ -194,7 +194,9 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             )
 
         # perform the intersection step
-        self.supports_ = intersection(selection_coefs, self.selection_thresholds)
+        self.supports_ = intersection(selection_coefs, self.selection_thresholds_)
+
+        self.n_supports_ = self.supports_.shape[0]
 
         #####################
         # Estimation Module #
@@ -203,7 +205,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         estimates = np.zeros(               # coef_ for each bootstrap for each support
             (
                 self.n_boots_est,
-                self.n_selection_thresholds * self.n_reg_params_,
+                self.n_supports_,
                 self.n_features
             ),
             dtype=np.float32
@@ -211,7 +213,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         self.scores_ = np.zeros(            # score (r2/AIC/AICc/BIC) for each bootstrap for each support
             (
                 self.n_boots_est,
-                self.n_selection_thresholds * self.n_reg_params_
+                self.n_supports_
             ),
             dtype=np.float32
         )
@@ -230,9 +232,8 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             )
 
             # iterate over the regularization parameters
-            for rp_idx, reg_param in enumerate(self.reg_params_):
+            for supp_idx, support in enumerate(self.supports_):
                 # extract current support set
-                support = self.supports_[rp_idx]
                 # if nothing was selected, we won't bother running OLS
                 if np.any(support):
                     # compute ols estimate
@@ -242,7 +243,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
                     )
 
                     # store the fitted coefficients
-                    estimates[bootstrap, rp_idx, support] = self.estimation_lm.coef_.ravel()
+                    estimates[bootstrap, supp_idx, support] = self.estimation_lm.coef_.ravel()
 
                     # obtain predictions for scoring
                     y_pred = self.estimation_lm.predict(X_test[:, support])
@@ -252,7 +253,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
 
 
                 # calculate estimation score
-                self.scores_[bootstrap, rp_idx] = self.score_predictions(self.estimation_score, y_test, y_pred, support)
+                self.scores_[bootstrap, supp_idx] = self.score_predictions(self.estimation_score, y_test, y_pred, support)
 
         self.rp_max_idx_ = np.argmax(self.scores_, axis=1)
         # extract the estimates over bootstraps from model with best regularization parameter value
