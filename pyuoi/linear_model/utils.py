@@ -120,6 +120,6 @@ def intersection(coefs, selection_thresholds=None):
     uniq = set()
     for sup in supports:
         uniq.add(tuple(sup))
-    supports = np.array(list(uniq))
+    supports = np.array([x for x in uniq if np.any(x)])
     return supports
 
