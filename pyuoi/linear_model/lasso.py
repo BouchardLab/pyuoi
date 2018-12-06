@@ -1,10 +1,10 @@
-from . import AbstractUoILinearModel
+from .base import AbstractUoILinearRegressor
 
 from sklearn.linear_model import Lasso, LinearRegression
 from sklearn.linear_model.coordinate_descent import _alpha_grid
 
 
-class UoI_Lasso(AbstractUoILinearModel):
+class UoI_Lasso(AbstractUoILinearRegressor):
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
         n_lambdas=48, stability_selection=1., eps=1e-3, warm_start=True,
@@ -12,8 +12,8 @@ class UoI_Lasso(AbstractUoILinearModel):
         copy_X=True, fit_intercept=True, normalize=True, random_state=None, max_iter=1000
     ):
         super(UoI_Lasso, self).__init__(
-            n_boots_sel = n_boos_sel,
-            n_boots_est = n_boos_est,
+            n_boots_sel = n_boots_sel,
+            n_boots_est = n_boots_est,
             selection_frac=selection_frac,
             stability_selection=stability_selection,
             copy_X=copy_X,
@@ -39,7 +39,7 @@ class UoI_Lasso(AbstractUoILinearModel):
         return self.__selection_lm
 
     def get_reg_params(self, X, y):
-        return _alpha_grid(
+        alphas = _alpha_grid(
             X=X, y=y,
             l1_ratio=1.0,
             fit_intercept=self.fit_intercept,
@@ -47,3 +47,4 @@ class UoI_Lasso(AbstractUoILinearModel):
             n_alphas=self.n_lambdas,
             normalize=self.normalize
         )
+        return [{'alpha': a} for a in alphas]
