@@ -121,9 +121,24 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         pass
 
     @_abc.abstractmethod
+    def intersect(self, coef, thresholds):
+        """Intersect coefficients accross all thresholds"""
+        pass
+
+    @_abc.abstractmethod
     def preprocess_data(self, X, y):
         """
 
+        """
+        pass
+
+    @_abc.abstractmethod
+    def get_n_coef(self, X, y):
+        """"Return the number of coefficients that will be estimated
+
+        This should return the total number of coefficients estimated,
+        accounting for all coefficients for multi-target regression or
+        multi-class classification.
         """
         pass
 
@@ -153,7 +168,8 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         """
 
         # extract model dimensions
-        self.n_samples, self.n_features = X.shape
+        n_samples, n_coef = self.get_n_coef(X, y)
+        n_features = X.shape[1]
 
         ####################
         # Selection Module #
@@ -164,14 +180,12 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
 
         # initialize selection
         selection_coefs = np.zeros(
-            (self.n_boots_sel, self.n_reg_params_, self.n_features),
+            (self.n_boots_sel, self.n_reg_params_, n_coef),
             dtype=np.float32
         )
 
         # iterate over bootstraps
-        for bootstrap in trange(
-            self.n_boots_sel, desc='Model Selection', disable=not verbose
-        ):
+        for bootstrap in trange(self.n_boots_sel, desc='Model Selection', disable=not verbose):
             # draw a resampled bootstrap
             X_rep, X_test, y_rep, y_test = train_test_split(
                 X, y,
@@ -180,21 +194,16 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
                 random_state=self.random_state
             )
 
-            # TODO: consider using this way intsead, since
-            # this is the real way to do a bootstrap
-            # X_rep, y_rep = resample(X, y)
-
-            ## This should be the same as the above call to train_test_split
-            # X_rep, y_rep = resample(X, y, replace=False, n_samples=int(self.selection_frac*self.n_samples))
-
-            # perform a sweep over the regularization strengths
-            selection_coefs[bootstrap, :, :] = self.uoi_selection_sweep(
-                X=X_rep, y=y_rep,
-                reg_param_values=self.reg_params_
-            )
+            for reg_param_idx, reg_params in enumerate(self.reg_params_):
+                # reset the regularization parameter
+                self.selection_lm.set_params(**reg_params)
+                # rerun fit
+                self.selection_lm.fit(X_rep, y_rep)
+                # store coefficients
+                selection_coefs[bootstrap, reg_param_idx, :] = self.selection_lm.coef_.ravel()
 
         # perform the intersection step
-        self.supports_ = intersection(selection_coefs, self.selection_thresholds_)
+        self.supports_ = self.intersect(selection_coefs, self.selection_thresholds_)
 
         self.n_supports_ = self.supports_.shape[0]
 
@@ -202,26 +211,16 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         # Estimation Module #
         #####################
         # set up data arrays
-        estimates = np.zeros(               # coef_ for each bootstrap for each support
-            (
-                self.n_boots_est,
-                self.n_supports_,
-                self.n_features
-            ),
-            dtype=np.float32
-        )
-        self.scores_ = np.zeros(            # score (r2/AIC/AICc/BIC) for each bootstrap for each support
-            (
-                self.n_boots_est,
-                self.n_supports_
-            ),
-            dtype=np.float32
-        )
 
+        # coef_ for each bootstrap for each support
+        estimates = np.zeros((self.n_boots_est, self.n_supports_, n_coef), dtype=np.float32)
+
+        # score (r2/AIC/AICc/BIC) for each bootstrap for each support
+        self.scores_ = np.zeros((self.n_boots_est, self.n_supports_),dtype=np.float32)
+
+        n_tile = n_coef//n_features
         # iterate over bootstrap samples
-        for bootstrap in trange(
-            self.n_boots_est, desc='Model Estimation', disable=not verbose
-        ):
+        for bootstrap in trange(self.n_boots_est, desc='Model Estimation', disable=not verbose):
 
             # draw a resampled bootstrap
             X_train, X_test, y_train, y_test = train_test_split(
@@ -237,13 +236,10 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
                 # if nothing was selected, we won't bother running OLS
                 if np.any(support):
                     # compute ols estimate
-                    self.estimation_lm.fit(
-                        X_train[:, support],
-                        y_train
-                    )
+                    self.estimation_lm.fit(X_train[:, support], y_train)
 
                     # store the fitted coefficients
-                    estimates[bootstrap, supp_idx, support] = self.estimation_lm.coef_.ravel()
+                    estimates[bootstrap, supp_idx, np.tile(support, n_tile)] = self.estimation_lm.coef_.ravel()
 
                     # obtain predictions for scoring
                     y_pred = self.estimation_lm.predict(X_test[:, support])
@@ -256,12 +252,12 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
                 self.scores_[bootstrap, supp_idx] = self.score_predictions(self.estimation_score, y_test, y_pred, support)
 
         self.rp_max_idx_ = np.argmax(self.scores_, axis=1)
+
         # extract the estimates over bootstraps from model with best regularization parameter value
-        best_estimates = estimates[
-            np.arange(self.n_boots_est), self.rp_max_idx_, :
-        ]
+        best_estimates = estimates[np.arange(self.n_boots_est), self.rp_max_idx_, :]
+
         # take the median across estimates for the final, bagged estimate
-        self.coef_ = np.median(best_estimates, axis=0)
+        self.coef_ = np.median(best_estimates, axis=0).reshape(n_tile, n_features)
 
         return self
 
@@ -295,9 +291,6 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             dtype=np.float32
         )
 
-        # initialize Linear model fit object
-        params = dict()
-
         # apply the selection regression to bootstrapped datasets
         for reg_param_idx, reg_params in enumerate(reg_param_values):
             # reset the regularization parameter
@@ -305,7 +298,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             # rerun fit
             self.selection_lm.fit(X, y)
             # store coefficients
-            coefs[reg_param_idx, :] = self.selection_lm.coef_
+            coefs[reg_param_idx, :] = self.selection_lm.coef_.ravel()
 
         return coefs
 
@@ -339,6 +332,17 @@ class AbstractUoILinearRegressor(_six.with_metaclass(_abc.ABCMeta, AbstractUoILi
             X, y, fit_intercept=self.fit_intercept, normalize=self.normalize,
             copy=self.copy_X
         )
+
+    def get_n_coef(self, X, y):
+        """"Return the number of coefficients that will be estimated
+
+        This should return the shape of X.
+        """
+        return X.shape
+
+    def intersect(self, coef, thresholds):
+        """Intersect coefficients accross all thresholds"""
+        return intersection(coef, thresholds)
 
     @property
     def estimation_score(self):
@@ -419,6 +423,7 @@ class AbstractUoILinearRegressor(_six.with_metaclass(_abc.ABCMeta, AbstractUoILi
         X, y, X_offset, y_offset, X_scale = self.preprocess_data(X, y)
         super(AbstractUoILinearRegressor, self).fit(X, y, stratify=stratify, verbose=verbose)
         self._set_intercept(X_offset, y_offset, X_scale)
+        self.coef_ = self.coef_.squeeze()
         return self
 
 
@@ -445,6 +450,39 @@ class AbstractUoILinearClassifier(_six.with_metaclass(_abc.ABCMeta, AbstractUoIL
         if estimation_score not in self.__valid_estimation_metrics:
             raise ValueError("invalid estimation metric: '%s'" % estimation_score)
         self.__estimation_score = estimation_score
+
+    def get_n_coef(self, X, y):
+        """"Return the number of coefficients that will be estimated
+
+        This should return the shape of X if doing binary classification,
+        else return (X.shape[0], X.shape[1]*n_classes).
+        """
+        n_samples, n_coef = X.shape
+        self._n_classes = len(np.unique(y))
+        if self._n_classes > 2:
+            n_coef = n_coef * self._n_classes
+        return n_samples, n_coef
+
+    def intersect(self, coef, thresholds):
+        """Intersect coefficients accross all thresholds
+
+        This implementation will account for multi-class classification.
+        """
+        supports = intersection(coef, thresholds)
+        ret = supports
+        if self._n_classes > 2:
+            # for each support, figure out which variables
+            # are used
+            ret = list()
+            n_coef = supports[0].shape[0]//self._n_classes
+            shape = (self._n_classes, n_coef)
+            for supp in supports:
+                ret.append(np.logical_or(*supp.reshape(shape)))
+            uniq = set()
+            for sup in ret:
+                uniq.add(tuple(sup))
+            ret = np.array(list(uniq))
+        return ret
 
     @staticmethod
     def preprocess_data(self, X, y):
