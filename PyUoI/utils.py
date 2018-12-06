@@ -1,7 +1,48 @@
 import numpy as np
 import scipy.sparse as sparse
 from numpy.linalg import norm, cholesky
+from mpi4py import MPI
 
+
+_np2mpi = {np.dtype(np.float32): MPI.FLOAT,
+           np.dtype(np.float64): MPI.DOUBLE,
+           np.dtype(np.int): MPI.LONG,
+           np.dtype(np.intc): MPI.INT,
+           np.dtype(np.bool): MPI.BOOL}
+
+def Gatherv_rows(send, comm, root=0):
+    """Concatenate arrays along the first axis using Gatherv.
+    Parameters
+    ----------
+    send : ndarray
+        The arrays to concatenate. All dimensions must be equal except for the
+        first.
+    comm : MPI.COMM_WORLD
+        MPI communicator.
+    root : int, default 0
+        This rank will contain the Gatherv'ed array.
+    """
+
+    rank = comm.rank
+    size = comm.size
+    dtype = send.dtype
+    shape = send.shape
+    tot = np.zeros(1, dtype=int)
+    comm.Reduce(np.array(shape[0], dtype=int), [tot, _np2mpi[tot.dtype]], op=MPI.SUM, root=root)
+    if rank == root:
+        rec_shape = (tot[0],) + shape[1:]
+        rec = np.empty(rec_shape, dtype=dtype)
+        idxs = np.array_split(np.arange(rec_shape[0]), size)
+        sizes = [idx.size * np.prod(rec_shape[1:]) for idx in idxs]
+        disps = np.insert(np.cumsum(sizes), 0, 0)[:-1]
+    else:
+        rec = None
+        idxs = None
+        sizes = None
+        disps = None
+
+    comm.Gatherv(send, [rec, sizes, disps, _np2mpi[dtype]], root=0)
+    return rec
 
 def BIC(y_true, y_pred, n_features):
     """Calculate the Bayesian Information Criterion under the assumption of

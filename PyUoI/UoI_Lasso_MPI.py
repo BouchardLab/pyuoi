@@ -1,3 +1,4 @@
+import h5py
 import numpy as np
 
 from mpi4py import MPI
@@ -9,17 +10,14 @@ from sklearn.linear_model.coordinate_descent import _alpha_grid
 from sklearn.metrics import r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
+import warnings
+warnings.filterwarnings(action='ignore', category=FutureWarning)
 
 from PyUoI import utils
 
-_np2mpi = {np.dtype(np.float32): MPI.FLOAT,
-           np.dtype(np.float64): MPI.DOUBLE,
-           np.dtype(np.int): MPI.LONG,
-           np.dtype(np.intc): MPI.INT,
-           np.dtype(np.bool): MPI.BOOL}
+_np2mpi = utils._np2mpi
 
-
-def load_data_MPI(h5_name, X_key, y_key):
+def load_data_MPI(h5_name, X_key='X', y_key='y'):
     comm = MPI.COMM_WORLD
     rank = comm.rank
     with h5py.File(h5_name, 'r') as f:
@@ -115,7 +113,7 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
         selection_frac=0.9, estimation_frac=0.9,
         n_lambdas=48, stability_selection=1., eps=1e-3, warm_start=True,
         estimation_score='r2',
-        copy_X=True, fit_intercept=True, normalize=True
+        copy_X=True, fit_intercept=True, normalize=True, seed=20181205
     ):
         # data split fractions
         self.selection_frac = selection_frac
@@ -136,7 +134,8 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
         self.comm = MPI.COMM_WORLD
         self.rank = self.comm.rank
         self.size = self.comm.size
-        self.random_state = np.random.RandomState(self.rank)
+        self.random_state = np.random.RandomState(seed + self.rank)
+        self._seed = seed
 
     def fit(
         self, X, y, stratify=None, verbose=False
@@ -194,23 +193,17 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
         # initialize selection
 
         if self.size > self.n_boots_sel:
-            if self.rank == 0:
-                selection_coefs = np.zeros(
-                    (self.n_boots_sel * self.n_lambdas, self.n_features),
-                    dtype=np.float32
-                )
-            else:
-                selection_coefs = None
+            pass
         else:
-            if self.rank == 0:
-                selection_coefs = np.zeros(
-                    (self.n_boots_sel, self.n_lambdas, self.n_features),
-                    dtype=np.float32
-                )
-            else:
-                selection_coefs = None
-            my_boots = np.array_split(np.arange(self.n_boots_sel, self.size))[self.rank]
-            my_selection_coefs = np.zeros((my_boots.shape, self.n_lambdas, self.n_features))
+            # split up bootstraps into processes
+            my_boots = np.array_split(
+                np.arange(self.n_boots_sel), self.size
+            )[self.rank]
+
+            my_selection_coefs = np.zeros(
+                (my_boots.size, self.n_lambdas, self.n_features)
+            )
+
             # iterate over bootstraps
             for ii in range(my_boots.size):
                 # draw a resampled bootstrap
@@ -222,104 +215,118 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
                 )
 
                 # perform a sweep over the regularization strengths
-                selection_coefs[ii] = self.lasso_sweep(
+                my_selection_coefs[ii] = self.lasso_sweep(
                     X=X_train, y=y_train,
                     lambdas=self.lambdas,
                     warm_start=self.warm_start,
                     random_state=self.random_state
                 )
-            self.comm.Gatherv(selection_coefs, my_selection_coefs, root=0)
+
+            selection_coefs = utils.Gatherv_rows(
+                send=my_selection_coefs,
+                comm=self.comm,
+                root=0)
 
         # perform the intersection step
         if self.rank == 0:
             self.intersection(selection_coefs)
+            self.supports = self.supports.astype('int32')
+            supports_shape = self.supports.shape
         else:
             self.supports = None
-            self.n_selection_thresholds = None
-        # TODO get bool dtype
-        self.Bcast([self.supports, _np2mpi[np.dtype(X.dtype)]], root=0)
-        self.bcast(self.n_selection_thresholds, root=0)
-        # TODO broadcast
+            supports_shape = None
+        supports_shape = self.comm.bcast(supports_shape, root=0)
+        if self.rank != 0:
+            self.supports = np.empty(supports_shape, dtype=np.intc)
 
+        self.comm.Bcast(
+            [self.supports, _np2mpi[np.dtype(np.intc)]],
+            root=0)
+
+        self.comm.Barrier()
+        self.supports = self.supports.astype(bool)
         #####################
         # Estimation Module #
         #####################
         # set up data arrays
-        estimates = np.zeros(
-            (
-                self.n_boots_est,
-                self.n_selection_thresholds * self.n_lambdas,
-                self.n_features
-            ),
-            dtype=np.float32
-        )
-        self.scores = np.zeros(
-            (
-                self.n_boots_est,
-                self.n_selection_thresholds * self.n_lambdas
-            ),
-            dtype=np.float32
-        )
-        print('woof')
+        n_supports = self.supports.shape[0]
+        my_estimate_idxs = np.array_split(
+            np.arange(self.n_boots_est * n_supports), self.size
+        )[self.rank]
+        my_estimates = np.zeros((my_estimate_idxs.size, self.n_features))
+        my_scores = np.zeros((my_estimate_idxs.size))
         # iterate over bootstrap samples
-        for bootstrap in trange(
-            self.n_boots_est, desc='Model Estimation', disable=not verbose
-        ):
+        for ii, my_estimate_idx in enumerate(my_estimate_idxs):
+            our_seed = my_estimate_idx // n_supports
+            support_idx = my_estimate_idx % n_supports
+            support = self.supports[support_idx]
 
+            rng = np.random.RandomState(self._seed - 1 - our_seed)
             # draw a resampled bootstrap
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y,
                 train_size=self.selection_frac,
                 stratify=stratify,
-                random_state=self.random_state
+                random_state=rng
             )
 
-            # iterate over the regularization parameters
-            for lamb_idx, lamb in enumerate(self.lambdas):
-                # extract current support set
-                support = self.supports[lamb_idx]
-                # if nothing was selected, we won't bother running OLS
-                if np.any(support):
-                    # compute ols estimate
-                    ols = LinearRegression()
-                    ols.fit(
-                        X_train[:, support],
-                        y_train
-                    )
-
-                    # store the fitted coefficients
-                    estimates[bootstrap, lamb_idx, support] = ols.coef_.ravel()
-
-                    # obtain predictions for scoring
-                    y_pred = ols.predict(X_test[:, support])
-                else:
-                    # no prediction since nothing was selected
-                    y_pred = np.zeros(y_test.size)
-
-                # only negate if we're using an information criterion
-                negate = (
-                    self.estimation_score == 'BIC' or
-                    self.estimation_score == 'AIC' or
-                    self.estimation_score == 'AICc'
+            if np.any(support):
+                # compute ols estimate
+                ols = LinearRegression()
+                ols.fit(
+                    X_train[:, support],
+                    y_train
                 )
 
-                # calculate estimation score
-                self.scores[bootstrap, lamb_idx] = self.score_predictions(
-                    y_true=y_test,
-                    y_pred=y_pred,
-                    n_features=np.count_nonzero(support),
-                    metric=self.estimation_score,
-                    negate=negate
-                )
+                # store the fitted coefficients
+                my_estimates[ii, support] = ols.coef_.ravel()
 
-        self.lambda_max_idx = np.argmax(self.scores, axis=1)
-        # extract the estimates over bootstraps from model with best lambda
-        best_estimates = estimates[
-            np.arange(self.n_boots_est), self.lambda_max_idx, :
-        ]
-        # take the median across estimates for the final, bagged estimate
-        self.coef_ = np.median(best_estimates, axis=0)
+                # obtain predictions for scoring
+                y_pred = ols.predict(X_test[:, support])
+            else:
+                # no prediction since nothing was selected
+                y_pred = np.zeros(y_test.size)
 
+            # only negate if we're using an information criterion
+            negate = (
+                self.estimation_score == 'BIC' or
+                self.estimation_score == 'AIC' or
+                self.estimation_score == 'AICc'
+            )
+
+            # calculate estimation score
+            my_scores[ii] = self.score_predictions(
+                y_true=y_test,
+                y_pred=y_pred,
+                n_features=np.count_nonzero(support),
+                metric=self.estimation_score,
+                negate=negate
+            )
+
+        estimation_coefs = utils.Gatherv_rows(
+            send=my_estimates,
+            comm=self.comm,
+            root=0)
+
+        self.scores = utils.Gatherv_rows(
+            send=my_scores,
+            comm=self.comm,
+            root=0)
+
+        if self.rank == 0:
+            self.scores = self.scores.reshape(self.n_boots_est, n_supports)
+            estimation_coefs = estimation_coefs.reshape(self.n_boots_est, n_supports, -1)
+            self.lambda_max_idx = np.argmax(self.scores, axis=1)
+            # extract the estimates over bootstraps from model with best lambda
+            best_estimates = estimation_coefs[
+                np.arange(self.n_boots_est), self.lambda_max_idx, :
+            ]
+            # take the median across estimates for the final, bagged estimate
+            self.coef_ = np.median(best_estimates, axis=0)
+        else:
+            self.coef_ = np.empty(self.n_features, dtype=X.dtype)
+
+        self.comm.Bcast([self.coef_, _np2mpi[np.dtype(X.dtype)]], root=0)
         self._set_intercept(X_offset, y_offset, X_scale)
 
         return self
