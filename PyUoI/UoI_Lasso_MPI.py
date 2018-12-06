@@ -163,7 +163,7 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
             displaying progress. Utilizes tqdm to indicate progress on
             bootstraps.
         """
-
+        print(self.rank)
         # perform checks
         X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
                          y_numeric=True, multi_output=True)
@@ -193,7 +193,42 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
         # initialize selection
 
         if self.size > self.n_boots_sel:
-            pass
+            my_boots = np.array_split(
+                np.arange(self.n_boots_sel * self.n_lambdas), self.size
+            )[self.rank]
+            my_selection_coefs = np.zeros(
+                (my_boots.size, self.n_features))
+
+            # iterate over bootstrap samples
+            for ii, my_selection_idx in enumerate(my_boots):
+                our_seed = my_selection_idx // self.n_lambdas
+                lambda_idx = my_selection_idx % self.n_lambdas
+
+                rng = np.random.RandomState(self._seed + our_seed)
+                # draw a resampled bootstrap
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y,
+                    train_size=self.selection_frac,
+                    stratify=stratify,
+                    random_state=rng
+                )
+
+                lamb = self.lambdas[lambda_idx]
+
+                # perform a sweep over the regularization strengths
+                my_selection_coefs[ii] = np.squeeze(self.lasso_sweep(
+                    X=X_train, y=y_train,
+                    lambdas=np.array([lamb]),
+                    warm_start=self.warm_start,
+                    random_state=self.random_state))
+
+            selection_coefs = utils.Gatherv_rows(
+                send=my_selection_coefs,
+                comm=self.comm,
+                root=0)
+            if self.rank == 0:
+                selection_coefs.reshape(
+                    (self.n_boots_sel, self.n_lambdas, self.n_features))
         else:
             # split up bootstraps into processes
             my_boots = np.array_split(
@@ -265,7 +300,7 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
             # draw a resampled bootstrap
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y,
-                train_size=self.selection_frac,
+                train_size=self.estimation_frac,
                 stratify=stratify,
                 random_state=rng
             )
