@@ -9,7 +9,8 @@ class UoI_Lasso(AbstractUoILinearRegressor):
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
         n_lambdas=48, stability_selection=1., eps=1e-3, warm_start=True,
         estimation_score='r2',
-        copy_X=True, fit_intercept=True, normalize=True, random_state=None, max_iter=1000
+        copy_X=True, fit_intercept=True, normalize=True, random_state=None, max_iter=1000,
+        comm=None
     ):
         super(UoI_Lasso, self).__init__(
             n_boots_sel = n_boots_sel,
@@ -18,7 +19,8 @@ class UoI_Lasso(AbstractUoILinearRegressor):
             stability_selection=stability_selection,
             copy_X=copy_X,
             fit_intercept=fit_intercept,
-            normalize=normalize
+            normalize=normalize,
+            comm=comm
         )
         self.n_lambdas = n_lambdas
         self.eps = eps
