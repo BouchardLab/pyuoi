@@ -163,7 +163,6 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
             displaying progress. Utilizes tqdm to indicate progress on
             bootstraps.
         """
-        print(self.rank)
         # perform checks
         X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
                          y_numeric=True, multi_output=True)
@@ -227,7 +226,8 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
                 comm=self.comm,
                 root=0)
             if self.rank == 0:
-                selection_coefs.reshape(
+                initial = selection_coefs[:self.n_lambdas]
+                selection_coefs = selection_coefs.reshape(
                     (self.n_boots_sel, self.n_lambdas, self.n_features))
         else:
             # split up bootstraps into processes
