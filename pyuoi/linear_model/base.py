@@ -1,6 +1,7 @@
 import abc as _abc
 import six as _six
 import numpy as np
+import math
 
 from tqdm import trange
 
@@ -11,6 +12,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
 
 from pyuoi import utils
+from pyuoi.mpi_utils import get_chunk_size, get_buffer_mask
 
 from .utils import stability_selection_to_threshold, intersection
 
@@ -93,8 +95,14 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         # other hyperparameters
         self.stability_selection = stability_selection
         # preprocessing
-        self.random_state = random_state
         self.comm = comm
+        if isinstance(random_state, int):
+            # make sure ranks use different seed
+            if self.comm is not None:
+                random_state += self.comm.rank
+            self.random_state = np.random.RandomState(random_state)
+        else:
+            self.random_state = random_state
 
         # extract selection thresholds from user provided stability selection
         self.selection_thresholds_ = stability_selection_to_threshold(self.stability_selection, self.n_boots_sel)
@@ -184,10 +192,10 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         if self.comm is not None:
             rank = self.comm.rank
             size = self.comm.size
-        chunk_size = len(range(*slice(rank, self.n_boots_sel, size).indices(self.n_boots_sel)))
+        chunk_size, buf_len = get_chunk_size(rank, size, self.n_boots_sel)
 
         # initialize selection
-        selection_coefs = np.zeros((chunk_size, self.n_reg_params_, n_coef), dtype=np.float32)
+        selection_coefs = np.zeros((buf_len, self.n_reg_params_, n_coef), dtype=np.float32)
 
         # iterate over bootstraps
         for bootstrap in range(chunk_size):
@@ -207,14 +215,29 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
                 # store coefficients
                 selection_coefs[bootstrap, reg_param_idx, :] = self.selection_lm.coef_.ravel()
 
+
+        ## if distributed, gather selection coefficients to 0,
+        ## perform intersection, and broadcast results
         if self.comm is not None:
             self.comm.Barrier()
-            recv = np.zeros((self.n_boots_sel, self.n_reg_params_, n_coef), dtype=np.float32)
-            self.comm.Alltoall(selection_coefs, recv)
-            selection_coefs = recv
-
-        # perform the intersection step
-        self.supports_ = self.intersect(selection_coefs, self.selection_thresholds_)
+            recv = None
+            if rank == 0:
+                recv = np.zeros((buf_len*size, self.n_reg_params_, n_coef), dtype=np.float32)
+            self.comm.Gather(selection_coefs, recv, root=0)
+            supports = None
+            shape = None
+            if rank == 0:
+                mask = get_buffer_mask(size, self.n_boots_sel)
+                recv = recv[mask]
+                supports = self.intersect(recv, self.selection_thresholds_)
+                shape = supports.shape
+            shape = self.comm.bcast(shape, root=0)
+            if rank != 0:
+                supports = np.zeros(shape, dtype=np.float32)
+            supports = self.comm.bcast(supports, root = 0)
+            self.supports_ = supports
+        else:
+            self.supports_ = self.intersect(selection_coefs, self.selection_thresholds_)
 
         self.n_supports_ = self.supports_.shape[0]
 
@@ -223,13 +246,13 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         #####################
         # set up data arrays
 
-        chunk_size = len(range(*slice(rank, self.n_boots_est, size).indices(self.n_boots_sel)))
+        chunk_size, buf_len = get_chunk_size(rank, size, self.n_boots_est)
 
         # coef_ for each bootstrap for each support
-        self.estimates_ = np.zeros((chunk_size, self.n_supports_, n_coef), dtype=np.float32)
+        self.estimates_ = np.zeros((buf_len, self.n_supports_, n_coef), dtype=np.float32)
 
         # score (r2/AIC/AICc/BIC) for each bootstrap for each support
-        self.scores_ = np.zeros((chunk_size, self.n_supports_),dtype=np.float32)
+        self.scores_ = np.zeros((buf_len, self.n_supports_),dtype=np.float32)
 
         ## coef_ for each bootstrap for each support
         #estimates = np.zeros((self.n_boots_est, self.n_supports_, n_coef), dtype=np.float32)
@@ -273,17 +296,27 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
 
         if self.comm is not None:
             self.comm.Barrier()
-            recv = np.zeros((self.n_boots_est, self.n_reg_params_, n_coef), dtype=np.float32)
-            self.comm.Alltoall(scores, recv)
-            self.scores_ = recv
-            recv = np.zeros((self.n_boots_est, self.n_supports_, n_coef), dtype=np.float32)
-            self.comm.Alltoall(self.estimates_, recv)
-            self.estimates_ = recv
-
-        self.rp_max_idx_ = np.argmax(self.scores_, axis=1)
-
-        # extract the estimates over bootstraps from model with best regularization parameter value
-        best_estimates = self.estimates_[np.arange(self.n_boots_est), self.rp_max_idx_, :]
+            est_recv = None
+            scores_recv = None
+            self.rp_max_idx_ = None
+            best_estimates = None
+            if rank == 0:
+                est_recv = np.zeros((buf_len*size, self.n_supports_, n_coef), dtype=np.float32)
+                scores_recv = np.zeros((buf_len*size, self.n_supports_),dtype=np.float32)
+            self.comm.Gather(self.scores_, scores_recv, root=0)
+            self.comm.Gather(self.estimates_, est_recv, root=0)
+            if rank == 0:
+                mask = get_buffer_mask(size, self.n_boots_est)
+                self.estimates_ = est_recv[mask]
+                self.scores_ = scores_recv[mask]
+                self.rp_max_idx_ = np.argmax(self.scores_, axis=1)
+                best_estimates = self.estimates_[np.arange(self.n_boots_est), self.rp_max_idx_, :]
+            self.rp_max_idx_ = self.comm.bcast(self.rp_max_idx_, root=0)
+            best_estimates = self.comm.bcast(best_estimates, root=0)
+        else:
+            self.rp_max_idx_ = np.argmax(self.scores_, axis=1)
+            # extract the estimates over bootstraps from model with best regularization parameter value
+            best_estimates = self.estimates_[np.arange(self.n_boots_est), self.rp_max_idx_, :]
 
         # take the median across estimates for the final, bagged estimate
         self.coef_ = np.median(best_estimates, axis=0).reshape(n_tile, n_features)
