@@ -254,15 +254,8 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         # score (r2/AIC/AICc/BIC) for each bootstrap for each support
         self.scores_ = np.zeros((buf_len, self.n_supports_),dtype=np.float32)
 
-        ## coef_ for each bootstrap for each support
-        #estimates = np.zeros((self.n_boots_est, self.n_supports_, n_coef), dtype=np.float32)
-
-        ## score (r2/AIC/AICc/BIC) for each bootstrap for each support
-        #self.scores_ = np.zeros((self.n_boots_est, self.n_supports_),dtype=np.float32)
-
         n_tile = n_coef//n_features
         # iterate over bootstrap samples
-        #for bootstrap in trange(self.n_boots_est, desc='Model Estimation', disable=not verbose):
         for bootstrap in range(chunk_size):
 
             # draw a resampled bootstrap
