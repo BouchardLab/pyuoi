@@ -8,7 +8,7 @@ def test_variable_selection():
     """Test basic functionality of UoI_Lasso and that it finds the write model"""
     from sklearn.datasets import make_regression
     X, y, w = make_regression(coef=True, random_state=1)
-    lasso = UoI_Lasso(comm=MPI.comm)
+    lasso = UoI_Lasso(comm=MPI.COMM_WORLD, random_state=1)
     lasso.fit(X, y)
     true_coef = np.nonzero(w)[0]
     fit_coef = np.nonzero(lasso.coef_)[0]
