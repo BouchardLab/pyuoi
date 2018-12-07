@@ -71,7 +71,7 @@ def stability_selection_to_threshold(stability_selection, n_boots):
     selection_thresholds = selection_thresholds.astype('int')
     if not (
         np.all(selection_thresholds <= n_boots) and
-        np.all(selection_thresholds > 1)
+        np.all(selection_thresholds >= 1)
     ):
         raise ValueError("Stability selection thresholds must be within "
                          "the correct bounds.")
@@ -111,15 +111,9 @@ def intersection(coefs, selection_thresholds=None):
             np.count_nonzero(coefs, axis=0) >= threshold
 
     # unravel the dimension corresponding to selection thresholds
-    supports = np.squeeze(np.reshape(
+    supports = np.unique(np.squeeze(np.reshape(
         supports,
         (n_selection_thresholds * n_reg_params, n_features)
-    ))
+    )), axis=0)
 
-    # # TODO: there might be a faster way to do this
-    uniq = set()
-    for sup in supports:
-        uniq.add(tuple(sup))
-    supports = np.array([x for x in uniq if np.any(x)])
     return supports
-

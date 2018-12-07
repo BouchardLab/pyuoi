@@ -216,9 +216,9 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         estimates = np.zeros((self.n_boots_est, self.n_supports_, n_coef), dtype=np.float32)
 
         # score (r2/AIC/AICc/BIC) for each bootstrap for each support
-        self.scores_ = np.zeros((self.n_boots_est, self.n_supports_),dtype=np.float32)
+        self.scores_ = np.zeros((self.n_boots_est, self.n_supports_), dtype=np.float32)
 
-        n_tile = n_coef//n_features
+        n_tile = n_coef // n_features
         # iterate over bootstrap samples
         for bootstrap in trange(self.n_boots_est, desc='Model Estimation', disable=not verbose):
 
@@ -379,7 +379,7 @@ class AbstractUoILinearRegressor(_six.with_metaclass(_abc.ABCMeta, AbstractUoILi
         if metric == 'r2':
             score = r2_score(y_true, y_pred)
         else:
-            n_features=np.count_nonzero(supports)
+            n_features = np.count_nonzero(supports)
             if metric == 'BIC':
                 score = utils.BIC(y_true, y_pred, n_features)
             elif metric == 'AIC':
@@ -474,7 +474,7 @@ class AbstractUoILinearClassifier(_six.with_metaclass(_abc.ABCMeta, AbstractUoIL
             # for each support, figure out which variables
             # are used
             ret = list()
-            n_coef = supports[0].shape[0]//self._n_classes
+            n_coef = supports[0].shape[0] // self._n_classes
             shape = (self._n_classes, n_coef)
             for supp in supports:
                 ret.append(np.logical_or(*supp.reshape(shape)))
@@ -528,4 +528,3 @@ class AbstractUoILinearClassifier(_six.with_metaclass(_abc.ABCMeta, AbstractUoIL
         else:
             raise ValueError(metric + ' is not a valid option.')
         return score
-

@@ -12,8 +12,8 @@ class UoI_Lasso(AbstractUoILinearRegressor):
         copy_X=True, fit_intercept=True, normalize=True, random_state=None, max_iter=1000
     ):
         super(UoI_Lasso, self).__init__(
-            n_boots_sel = n_boots_sel,
-            n_boots_est = n_boots_est,
+            n_boots_sel=n_boots_sel,
+            n_boots_est=n_boots_est,
             selection_frac=selection_frac,
             stability_selection=stability_selection,
             copy_X=copy_X,
