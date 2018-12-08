@@ -28,7 +28,7 @@ class UoI_Lasso(AbstractUoILinearRegressor):
             normalize=normalize,
             max_iter=max_iter,
             warm_start=warm_start,
-            random_state=random_state
+            random_state=self.random_state
         )
         self.__estimation_lm = LinearRegression()
 

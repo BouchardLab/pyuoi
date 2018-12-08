@@ -373,6 +373,7 @@ class AbstractUoILinearRegressor(_six.with_metaclass(_abc.ABCMeta, AbstractUoILi
             n_boots_est=n_boots_est,
             selection_frac=selection_frac,
             stability_selection=stability_selection,
+            random_state=random_state,
             comm=comm,
         )
         self.fit_intercept = fit_intercept
@@ -500,6 +501,7 @@ class AbstractUoILinearClassifier(_six.with_metaclass(_abc.ABCMeta, AbstractUoIL
             n_boots_est=n_boots_est,
             selection_frac=selection_frac,
             stability_selection=stability_selection,
+            random_state=random_state,
             comm=comm,
         )
         self.fit_intercept = fit_intercept
