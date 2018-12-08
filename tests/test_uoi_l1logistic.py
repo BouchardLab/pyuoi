@@ -13,15 +13,13 @@ def test_l1logistic_binary():
                                  n_clusters_per_class=1, random_state=19)
 
 
-    l1log = UoI_L1Logistic(max_iter=1500, random_state=5).fit(X1, Y1)
+    l1log = UoI_L1Logistic(max_iter=1500, random_state=7).fit(X1, Y1)
 
 
     # ensure shape conforms to sklearn convention
     assert l1log.coef_.shape == (1, 4)
     nonzero = np.nonzero(l1log.coef_)
-    # AJTRITT: this was failing locally, depending on the conda environment
-    #assert_array_equal(nonzero, (np.array([0, 0]), np.array([0, 1])))
-    assert np.abs(np.sum(l1log.coef_[:, :2])) > 0.0
+    assert_array_equal(nonzero, (np.array([0, 0]), np.array([0, 1])))
 
 def test_l1logistic_multiclass():
     """Test that multiclass L1 Logistic runs in the UoI framework"""
