@@ -10,7 +10,7 @@ from sklearn.metrics import r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
 
-from PyUoI import utils
+from pyuoi import utils
 
 
 class UoI_Lasso(LinearModel, SparseCoefMixin):
@@ -215,7 +215,6 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
             ),
             dtype=np.float32
         )
-        print('woof')
         # iterate over bootstrap samples
         for bootstrap in trange(
             self.n_boots_est, desc='Model Estimation', disable=not verbose

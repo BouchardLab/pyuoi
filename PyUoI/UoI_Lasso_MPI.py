@@ -13,7 +13,7 @@ from sklearn.utils import check_X_y
 import warnings
 warnings.filterwarnings(action='ignore', category=FutureWarning)
 
-from PyUoI import utils
+from pyuoi import utils
 
 _np2mpi = utils._np2mpi
 
@@ -192,75 +192,52 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
         # initialize selection
 
         if self.size > self.n_boots_sel:
-            my_boots = np.array_split(
-                np.arange(self.n_boots_sel * self.n_lambdas), self.size
-            )[self.rank]
-            my_selection_coefs = np.zeros(
-                (my_boots.size, self.n_features))
-
-            # iterate over bootstrap samples
-            for ii, my_selection_idx in enumerate(my_boots):
-                our_seed = my_selection_idx // self.n_lambdas
-                lambda_idx = my_selection_idx % self.n_lambdas
-
-                rng = np.random.RandomState(self._seed + our_seed)
-                # draw a resampled bootstrap
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X, y,
-                    train_size=self.selection_frac,
-                    stratify=stratify,
-                    random_state=rng
-                )
-
-                lamb = self.lambdas[lambda_idx]
-
-                # perform a sweep over the regularization strengths
-                my_selection_coefs[ii] = np.squeeze(self.lasso_sweep(
-                    X=X_train, y=y_train,
-                    lambdas=np.array([lamb]),
-                    warm_start=self.warm_start,
-                    random_state=self.random_state))
-
-            selection_coefs = utils.Gatherv_rows(
-                send=my_selection_coefs,
-                comm=self.comm,
-                root=0)
-            if self.rank == 0:
-                initial = selection_coefs[:self.n_lambdas]
-                selection_coefs = selection_coefs.reshape(
-                    (self.n_boots_sel, self.n_lambdas, self.n_features))
+            my_tasks = np.array_split(np.arange(self.n_boots_sel * self.n_lambdas),
+                                      self.size)[self.rank]
+            my_selection_coefs = np.zeros((my_tasks.size, self.n_features))
         else:
             # split up bootstraps into processes
-            my_boots = np.array_split(
-                np.arange(self.n_boots_sel), self.size
-            )[self.rank]
+            my_tasks = np.array_split(np.arange(self.n_boots_sel),
+                                      self.size)[self.rank]
+            my_selection_coefs = np.zeros((my_tasks.size, self.n_lambdas,
+                                          self.n_features))
 
-            my_selection_coefs = np.zeros(
-                (my_boots.size, self.n_lambdas, self.n_features)
-            )
+            # iterate over bootstrap samples (and lambdas)
+        for ii, my_task_idx in enumerate(my_tasks):
+            if self.size > self.n_boots_sel:
+                boot_seed = my_task_idx // self.n_lambdas
+                lambda_idx = my_task_idx % self.n_lambdas
+                lambdas = [self.lambdas[lambda_idx]]
+            else:
+                boot_seed = my_task_idx
+                lambdas = self.lambdas
 
-            # iterate over bootstraps
-            for ii in range(my_boots.size):
-                # draw a resampled bootstrap
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X, y,
-                    train_size=self.selection_frac,
-                    stratify=stratify,
-                    random_state=self.random_state
-                )
+            rng = np.random.RandomState(self._seed + boot_seed)
 
-                # perform a sweep over the regularization strengths
-                my_selection_coefs[ii] = self.lasso_sweep(
-                    X=X_train, y=y_train,
-                    lambdas=self.lambdas,
-                    warm_start=self.warm_start,
-                    random_state=self.random_state
-                )
+            # draw a resampled bootstrap
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y,
+                train_size=self.selection_frac,
+                stratify=stratify,
+                random_state=rng)
 
-            selection_coefs = utils.Gatherv_rows(
-                send=my_selection_coefs,
-                comm=self.comm,
-                root=0)
+            # perform a sweep over the regularization strengths
+            my_selection_coefs[ii] = np.squeeze(self.lasso_sweep(
+                X=X_train, y=y_train,
+                lambdas=lambdas,
+                warm_start=self.warm_start,
+                random_state=self.random_state))
+
+        selection_coefs = utils.Gatherv_rows(
+            send=my_selection_coefs,
+            comm=self.comm,
+            root=0)
+
+        if (self.size > self.n_boots_sel) and (self.rank == 0):
+            selection_coefs = selection_coefs.reshape(self.n_boots_sel,
+                                                      self.n_lambdas,
+                                                      self.n_features)
+
 
         # perform the intersection step
         if self.rank == 0:
@@ -268,17 +245,11 @@ class UoI_Lasso(LinearModel, SparseCoefMixin):
             self.supports = self.supports.astype('int32')
             supports_shape = self.supports.shape
         else:
-            self.supports = None
             supports_shape = None
         supports_shape = self.comm.bcast(supports_shape, root=0)
         if self.rank != 0:
             self.supports = np.empty(supports_shape, dtype=np.intc)
-
-        self.comm.Bcast(
-            [self.supports, _np2mpi[np.dtype(np.intc)]],
-            root=0)
-
-        self.comm.Barrier()
+        self.comm.Bcast([self.supports, _np2mpi[np.dtype(np.intc)]], root=0)
         self.supports = self.supports.astype(bool)
         #####################
         # Estimation Module #
