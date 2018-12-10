@@ -51,6 +51,6 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
         if self.Cs is None:
             self.Cs = l1_min_c(X, y, loss='log') * np.logspace(0, 7, self.n_C)
         ret = list()
-        for c in self.Cs:
+        for c in reversed(self.Cs):
             ret.append(dict(C=c))
         return ret

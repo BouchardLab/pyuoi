@@ -176,6 +176,8 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             bootstraps.
         """
 
+        if verbose:
+            print("getting model dimensions")
         # extract model dimensions
         n_samples, n_coef = self.get_n_coef(X, y)
         n_features = X.shape[1]
@@ -184,6 +186,8 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         # Selection Module #
         ####################
         # choose the regularization parameters for selection sweep
+        if verbose:
+            print("getting regularization parameters")
         self.reg_params_ = self.get_reg_params(X, y)
         self.n_reg_params_ = len(self.reg_params_)
 
@@ -199,6 +203,9 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
 
         # iterate over bootstraps
         for bootstrap in range(chunk_size):
+            if verbose:
+                print("running selection bootstrap", bootstrap)
+
             # draw a resampled bootstrap
             X_rep, X_test, y_rep, y_test = train_test_split(
                 X, y,
@@ -213,6 +220,11 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
                 # rerun fit
                 self.selection_lm.fit(X_rep, y_rep)
                 # store coefficients
+
+                # TODO: this breaks when not all classes end up in the bootstrap replicate
+                #if selection_coefs.shape[-1] != len(self.selection_lm.coef_.ravel()):
+                #    import pdb
+                #    pdb.set_trace()
                 selection_coefs[bootstrap, reg_param_idx, :] = self.selection_lm.coef_.ravel()
 
 
@@ -257,6 +269,9 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         n_tile = n_coef//n_features
         # iterate over bootstrap samples
         for bootstrap in range(chunk_size):
+            if verbose:
+                print("running estimation bootstrap", bootstrap)
+
 
             # draw a resampled bootstrap
             X_train, X_test, y_train, y_test = train_test_split(
