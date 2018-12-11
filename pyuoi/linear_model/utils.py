@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def stability_selection_to_threshold(stability_selection, n_boots):
     """Converts user inputted stability selection to an array of
     thresholds. These thresholds correspond to the number of bootstraps
@@ -78,6 +79,7 @@ def stability_selection_to_threshold(stability_selection, n_boots):
 
     return selection_thresholds
 
+
 def intersection(coefs, selection_thresholds=None):
     """Performs the intersection operation on selection coefficients
     using stability selection criteria.
@@ -122,4 +124,3 @@ def intersection(coefs, selection_thresholds=None):
         uniq.add(tuple(sup))
     supports = np.array([x for x in uniq if np.any(x)])
     return supports
-
