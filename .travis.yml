@@ -8,3 +8,4 @@ install:
 script:
     - flake8 .
     - pytest tests
+    - flake8 pyuoi
