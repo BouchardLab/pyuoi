@@ -202,7 +202,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             # draw a resampled bootstrap
             X_rep, X_test, y_rep, y_test = train_test_split(
                 X, y,
-                train_size=self.selection_frac,
+                test_size=1 - self.selection_frac,
                 stratify=stratify,
                 random_state=self.random_state
             )
@@ -261,7 +261,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             # draw a resampled bootstrap
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y,
-                train_size=self.selection_frac,
+                test_size=1 - self.selection_frac,
                 stratify=stratify,
                 random_state=self.random_state
             )
