@@ -1,8 +1,6 @@
 # PyUoI
 
-<img src="https://travis-ci.org/BouchardLab/PyUoI.svg?branch=master">
-
-[![codecov](https://codecov.io/gh/BouchardLab/PyUoI/branch/master/graph/badge.svg)](https://codecov.io/gh/BouchardLab/PyUoI)
+<img src="https://travis-ci.org/BouchardLab/PyUoI.svg?branch=master"> [![codecov](https://codecov.io/gh/BouchardLab/PyUoI/branch/master/graph/badge.svg)](https://codecov.io/gh/BouchardLab/PyUoI)
 
 
 
