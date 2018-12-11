@@ -19,12 +19,16 @@ formatter = logging.Formatter('%(asctime)s - %(message)s')
 ch.setFormatter(formatter)
 root.addHandler(ch)
 
+
 def log(msg):
     root.info(msg)
 
+
 def h5_path(string):
     if ':' not in string:
-        raise argparse.ArgumentTypeError("please provide a path to an HDF5 file and the path to the datast in the file")
+        raise argparse.ArgumentTypeError(
+            "please provide a path to an HDF5 file and the path to the " +
+            "dataset in the file.")
     fpath, dset_path = string.split(":")
     ret = None
     with h5py.File(fpath, 'r') as f:

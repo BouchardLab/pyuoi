@@ -9,14 +9,14 @@ import numpy as np
 class UoI_L1Logistic(AbstractUoILinearClassifier):
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
-        n_C=48, stability_selection=1., warm_start=True,
-        estimation_score='acc',
-        copy_X=True, fit_intercept=True, normalize=True, random_state=None, max_iter=1000,
-        comm=None
-    ):
+                 n_C=48, stability_selection=1., warm_start=True,
+                 estimation_score='acc',
+                 copy_X=True, fit_intercept=True, normalize=True,
+                 random_state=None, max_iter=1000,
+                 comm=None):
         super(UoI_L1Logistic, self).__init__(
-            n_boots_sel = n_boots_sel,
-            n_boots_est = n_boots_est,
+            n_boots_sel=n_boots_sel,
+            n_boots_est=n_boots_est,
             selection_frac=selection_frac,
             stability_selection=stability_selection,
             copy_X=copy_X,
@@ -33,9 +33,9 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
             warm_start=warm_start,
             random_state=random_state
         )
-        # sklearn cannot do LogisticRegression without penalization, due to the ill-posed nature
-        # of the problem. We may want to set C=np.inf for no penalization, but
-        # we risk no convergence.
+        # sklearn cannot do LogisticRegression without penalization, due to the
+        # ill-posed nature of the problem. We may want to set C=np.inf for no
+        # penalization, but we risk no convergence.
         self.__estimation_lm = LogisticRegression(random_state=random_state)
 
     @property

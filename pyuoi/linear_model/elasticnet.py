@@ -7,14 +7,16 @@ from sklearn.linear_model.coordinate_descent import _alpha_grid
 class UoI_ElasticNet(AbstractUoILinearRegressor):
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
-        n_lambdas=48, alphas=np.array([1., 0.99, 0.95, 0.9, 0.5, 0.3, 0.1]),
-        stability_selection=1., eps=1e-3, warm_start=True, estimation_score='r2',
-        copy_X=True, fit_intercept=True, normalize=True, random_state=None, max_iter=1000,
-        comm=None
-    ):
+                 n_lambdas=48,
+                 alphas=np.array([1., 0.99, 0.95, 0.9, 0.5, 0.3, 0.1]),
+                 stability_selection=1., eps=1e-3, warm_start=True,
+                 estimation_score='r2',
+                 copy_X=True, fit_intercept=True, normalize=True,
+                 random_state=None, max_iter=1000,
+                 comm=None):
         super(UoI_ElasticNet, self).__init__(
-            n_boots_sel = n_boos_sel,
-            n_boots_est = n_boos_est,
+            n_boots_sel=n_boos_sel,
+            n_boots_est=n_boos_est,
             selection_frac=selection_frac,
             stability_selection=stability_selection,
             copy_X=copy_X,
