@@ -1,4 +1,4 @@
 [flake8]
 ignore = E401
 max-line-length = 80
-exclude = pyuoi/linear_model/base.py,pyuoi/linear_model/lasso.py,pyuoi/linear_model/logistic.py,pyuoi/linear_model/elasticnet.py,pyuoi/linear_model/utils.py,pyuoi/linear_model/__init__.py,pyuoi/UoINMF.py,pyuoi/__init__.py,pyuoi/mpi_utils.py,bin/run_uoinmf.py,tests/
+exclude = pyuoi/linear_model/base.py,pyuoi/linear_model/lasso.py,pyuoi/linear_model/logistic.py,pyuoi/linear_model/elasticnet.py,pyuoi/linear_model/utils.py,pyuoi/linear_model/__init__.py,pyuoi/UoINMF.py,pyuoi/__init__.py,pyuoi/mpi_utils.py,bin/run_uoinmf.py,tests/,lib/
