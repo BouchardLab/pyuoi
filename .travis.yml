@@ -7,3 +7,4 @@ install:
     - python setup.py install
 script:
     - pytest tests
+    - flake8 pyuoi
