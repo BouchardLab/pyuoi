@@ -2,6 +2,10 @@
 
 <img src="https://travis-ci.org/BouchardLab/PyUoI.svg?branch=master">
 
+[![codecov](https://codecov.io/gh/BouchardLab/PyUoI/branch/master/graph/badge.svg)](https://codecov.io/gh/BouchardLab/PyUoI)
+
+
+
 This repo contains the currently developed implementations of the Union of Intersection
 (UoI) framework. See the NIPS paper (<a href="https://papers.nips.cc/paper/6708-union-of-intersections-uoi-for-interpretable-data-driven-discovery-and-prediction">Bouchard et al., 2017</a>) for more details.
 
