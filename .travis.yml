@@ -6,8 +6,9 @@ install:
     - pip install codecov
     - python setup.py build
     - python setup.py install
+    - pip install pytest-cov
 script:
     - flake8 pyuoi bin tests
-    - pytest tests
+    - pytest --cov=./ tests
 after_success:
     - codecov
