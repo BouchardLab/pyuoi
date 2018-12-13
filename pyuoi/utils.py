@@ -1,3 +1,5 @@
+"""Utility functions for pyuoi package.
+"""
 import numpy as np
 import scipy.sparse as sparse
 from numpy.linalg import norm, cholesky

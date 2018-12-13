@@ -1,4 +1,3 @@
-import numpy as np
 from numpy.testing import assert_array_equal
 
 from pyuoi.mpi_utils import get_buffer_mask, get_chunk_size
