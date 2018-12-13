@@ -1,8 +1,9 @@
 import numpy as np
 from numpy.testing import assert_array_equal, assert_array_almost_equal_nulp
+from numpy.testing import assert_almost_equal
 
 from pyuoi.linear_model.utils import stability_selection_to_threshold
-
+from pyuoi.utils import BIC, AIC, AICc
 
 def test_stability_selection_to_threshold_int():
     n_boots_sel = 48
@@ -69,15 +70,35 @@ def test_intersection_duplicates():
 
 
 def test_bic():
-    # TODO: Test the Bayesian information criterion utility function by hand.
-    pass
+    n = 20
+    k = 10
+    np.random.seed(15)
+    y_true = np.random.normal(0, 1, n)
+    y_pred = y_true + np.sqrt(np.e**(1/n))
+    expected = 1 + k*np.log(n)
+    assert_almost_equal(expected, BIC(y_true, y_pred, k))
 
 
 def test_aic():
-    # TODO: Test the Akaike information criterion utility function by hand.
-    pass
+    n = 20
+    k = 10
+    np.random.seed(15)
+    y_true = np.random.normal(0, 1, n)
+    y_pred = y_true + np.sqrt(np.e**(1/n))
+    expected = 1 + 2*k
+    assert_almost_equal(expected, AIC(y_true, y_pred, k))
 
 
 def test_aicc():
-    # TODO: Test the corrected Akaike information criterion utility function by hand.
-    pass
+    n = 20
+    k = 10
+    np.random.seed(15)
+    y_true = np.random.normal(0, 1, n)
+    y_pred = y_true + np.sqrt(np.e**(1/n))
+    expected = 1 + 2*k + (2*k**2 + 2*k)/(n - k - 1)
+    assert_almost_equal(expected, AICc(y_true, y_pred, k))
+
+
+
+
+
