@@ -10,6 +10,11 @@ Welcome to PyUoI's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+   pyuoi/pyuoi
+   pyuoi/utils
+   pyuoi/mpi_utils
+   pyuoi/linear_model/linear_model
+
 
 
 Indices and tables
