@@ -2,7 +2,6 @@ import numpy as np
 from numpy.testing import assert_array_equal, assert_array_almost_equal_nulp, assert_equal
 from sklearn.datasets import make_regression
 from pyuoi import UoI_Lasso
-import pdb
 
 def test_variable_selection():
     """Test basic functionality of UoI_Lasso and that it finds right model"""
@@ -14,10 +13,11 @@ def test_variable_selection():
     assert_array_equal(true_coef, fit_coef)
     assert_array_almost_equal_nulp(true_coef, fit_coef)
 
-def test_est_score_usage():
+def test_estimation_score_usage():
     """Test the ability to change the estimation score in UoI Lasso"""
     methods = ('r2', 'AIC', 'AICc', 'BIC')
     N = 10
+    np.random.seed(17)
     X = np.random.normal(0, 1, (N, N))
     beta = np.random.normal(0, 1, N)
     noise = np.random.normal(0, 0.1, N)
