@@ -6,9 +6,13 @@ from os import path
 
 here = path.abspath(path.dirname(__file__))
 
-
 with open(path.join(here, 'README.md'), encoding='utf-8') as f:
     long_description = f.read()
+with open(path.join(here, 'requirements.txt'), encoding='utf-8') as f:
+    requirements = f.read().splitlines()
+with open(path.join(here, 'requirements-dev.txt'), encoding='utf-8') as f:
+    dev_requirements = f.read().splitlines()
+    dev_requirements = dev_requirements[1:] # Throw away the first line which is not a package.
 
 setup(
     name='pyuoi',
@@ -70,7 +74,7 @@ setup(
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['numpy', 'tqdm', 'h5py', 'scikit-learn'],
+    install_requires=requirements,
 
     # List additional groups of dependencies here (e.g. development
     # dependencies). You can install these using the following syntax,
@@ -78,6 +82,7 @@ setup(
     # $ pip install -e .[dev,test]
     extras_require={
         'MPI': ['mpi4py'],
+        'dev': dev_requirements
     },
 
     url='https://github.com/BouchardLab/pyuoi'
