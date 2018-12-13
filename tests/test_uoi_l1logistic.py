@@ -1,8 +1,7 @@
 import numpy as np
 from sklearn.datasets import make_classification
-from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 from sklearn.preprocessing import normalize
-from sklearn.svm import l1_min_c
+
 from pyuoi import UoI_L1Logistic
 
 
