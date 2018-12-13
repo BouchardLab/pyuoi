@@ -1,7 +1,10 @@
+import numpy as np
+
 from .base import AbstractUoILinearRegressor
 
-from sklearn.linear_model import Lasso, LinearRegression
+from sklearn.linear_model import LinearRegression
 from sklearn.linear_model.coordinate_descent import _alpha_grid
+from sklearn.linear_model import ElasticNet
 
 
 class UoI_ElasticNet(AbstractUoILinearRegressor):
@@ -15,8 +18,8 @@ class UoI_ElasticNet(AbstractUoILinearRegressor):
                  random_state=None, max_iter=1000,
                  comm=None):
         super(UoI_ElasticNet, self).__init__(
-            n_boots_sel=n_boos_sel,
-            n_boots_est=n_boos_est,
+            n_boots_sel=n_boots_sel,
+            n_boots_est=n_boots_est,
             selection_frac=selection_frac,
             stability_selection=stability_selection,
             copy_X=copy_X,
@@ -58,7 +61,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor):
                     normalize=self.normalize
                 )
         ret = list()
-        for alpha_idx, alpha in enumerate(alphas):
+        for alpha_idx, alpha in enumerate(self.alphas):
             for lamb_idx, lamb in enumerate(self.lambdas[alpha_idx]):
                 # reset the regularization parameter
                 ret.append(dict(alpha=lamb, l1_ratio=alpha))
