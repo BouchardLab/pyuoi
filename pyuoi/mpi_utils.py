@@ -1,9 +1,9 @@
+"""
+Helper functions for working with MPI.
+"""
 import math
 import numpy as np
 
-"""
-This module contains some helper functions for working with MPI.
-"""
 
 
 def get_chunk_size(rank, size, n):
