@@ -146,5 +146,6 @@ def test_aic():
 
 
 def test_aicc():
-    # TODO: Test the corrected Akaike information criterion utility function by hand.
+    # TODO: Test the corrected Akaike information criterion utility
+    # function by hand.
     pass

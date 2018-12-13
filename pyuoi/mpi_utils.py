@@ -5,7 +5,6 @@ import math
 import numpy as np
 
 
-
 def get_chunk_size(rank, size, n):
     """
     This functions computes two quantities that are useful when distributing
