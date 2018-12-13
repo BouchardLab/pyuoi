@@ -2,6 +2,8 @@ import abc as _abc
 import six as _six
 import numpy as np
 import math
+import logging
+from datetime import datetime
 
 from tqdm import trange
 
@@ -86,7 +88,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         for estimation for a given regularization parameter value (row).
     """
 
-    def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9, stability_selection=1., random_state=None, comm=None):
+    def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9, stability_selection=1., random_state=None, comm=None, logger=None):
         # data split fractions
         self.selection_frac = selection_frac
         # number of bootstraps
@@ -108,6 +110,16 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         self.selection_thresholds_ = stability_selection_to_threshold(self.stability_selection, self.n_boots_sel)
 
         self.n_supports_ = None
+
+        if logger is None:
+            logger = logging.getLogger()
+            logger.setLevel(logging.DEBUG)
+
+            handler = logging.StreamHandler(sys.stdout)
+            handler.setLevel(logging.DEBUG)
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+        self.logger = logger
 
     @_abc.abstractproperty
     def selection_lm(self):
@@ -151,6 +163,9 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         """
         pass
 
+    def __log(self, *msg):
+        self.logger.info("%s - %s" % (datetime.now().isoformat(), " ".join(msg)))
+
     def fit(self, X, y, stratify=None, verbose=False):
         """Fit data according to the UoI algorithm.
 
@@ -177,7 +192,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         """
 
         if verbose:
-            print("getting model dimensions")
+            self.__log("getting model dimensions")
         # extract model dimensions
         n_samples, n_coef = self.get_n_coef(X, y)
         n_features = X.shape[1]
@@ -187,8 +202,10 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         ####################
         # choose the regularization parameters for selection sweep
         if verbose:
-            print("getting regularization parameters")
+            self.__log("getting regularization parameters")
         self.reg_params_ = self.get_reg_params(X, y)
+        if verbose:
+            self.__log("using the following parameters :", str(self.reg_params_))
         self.n_reg_params_ = len(self.reg_params_)
 
         rank = 0
@@ -204,7 +221,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         # iterate over bootstraps
         for bootstrap in range(chunk_size):
             if verbose:
-                print("running selection bootstrap", bootstrap)
+                self.__log("running selection bootstrap %s" % bootstrap)
 
             # draw a resampled bootstrap
             X_rep, X_test, y_rep, y_test = train_test_split(
@@ -215,6 +232,8 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             )
 
             for reg_param_idx, reg_params in enumerate(self.reg_params_):
+                if verbose:
+                    self.__log("selection bootstrap %d - %s" % (bootstrap, str(reg_params)))
                 # reset the regularization parameter
                 self.selection_lm.set_params(**reg_params)
                 # rerun fit
@@ -270,7 +289,7 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         # iterate over bootstrap samples
         for bootstrap in range(chunk_size):
             if verbose:
-                print("running estimation bootstrap", bootstrap)
+                self.__log("running estimation bootstrap %s" % bootstrap)
 
 
             # draw a resampled bootstrap
@@ -381,6 +400,7 @@ class AbstractUoILinearRegressor(_six.with_metaclass(_abc.ABCMeta, AbstractUoILi
         stability_selection=1., warm_start=True,
         estimation_score='r2',
         copy_X=True, fit_intercept=True, normalize=True, random_state=None, max_iter=1000,
+        logger=None,
         comm=None
     ):
         super(AbstractUoILinearRegressor, self).__init__(
@@ -389,6 +409,7 @@ class AbstractUoILinearRegressor(_six.with_metaclass(_abc.ABCMeta, AbstractUoILi
             selection_frac=selection_frac,
             stability_selection=stability_selection,
             random_state=random_state,
+            logger=logger,
             comm=comm,
         )
         self.fit_intercept = fit_intercept
@@ -509,6 +530,7 @@ class AbstractUoILinearClassifier(_six.with_metaclass(_abc.ABCMeta, AbstractUoIL
         estimation_score='acc',
         multi_class='ovr',
         copy_X=True, fit_intercept=True, normalize=True, random_state=None, max_iter=1000,
+        logger=None,
         comm=None
     ):
         super(AbstractUoILinearClassifier, self).__init__(
@@ -517,6 +539,7 @@ class AbstractUoILinearClassifier(_six.with_metaclass(_abc.ABCMeta, AbstractUoIL
             selection_frac=selection_frac,
             stability_selection=stability_selection,
             random_state=random_state,
+            logger=logger,
             comm=comm,
         )
         self.fit_intercept = fit_intercept
