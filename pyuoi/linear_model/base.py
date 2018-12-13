@@ -1,9 +1,7 @@
 import abc as _abc
 import six as _six
 import numpy as np
-import math
 
-from tqdm import trange
 
 from sklearn.linear_model.base import (
     LinearModel, _preprocess_data, SparseCoefMixin)
