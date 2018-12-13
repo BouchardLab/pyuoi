@@ -51,14 +51,18 @@ class UoI_ElasticNet(AbstractUoILinearRegressor):
         return self.__selection_lm
 
     def get_reg_params(self, X, y):
-        """Calculates the regularization parameters (alpha and lambda) to bbe
+        """Calculates the regularization parameters (alpha and lambda) to be
         used for the provided data.
 
-        Note that the Elastic Net has two regularization parameters: alpha,
-        which specifies the ratio between the L1 and L2 penalties, and lambda,
-        which specifies the penalty on both regularization terms. We adhere to
-        these variable names, but scikit-learn uses l1_ratio for alpha and
-        alpha for lambda, which can become confusing.
+        Note that the Elastic Net penalty is given by
+
+                1 / (2 * n_samples) * ||y - Xb||^2_2
+            + lambda * (alpha * |b|_1 + 0.5 * (1 - alpha) * |b|^2_2)
+
+        where lambda and alpha are regularization parameters.
+
+        Note that scikit-learn does not use these names. Instead, scitkit-learn
+        denotes alpha by 'l1_ratio' and lambda by 'alpha'.
 
         Parameters
         ----------
