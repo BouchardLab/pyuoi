@@ -1,7 +1,7 @@
 # PyUoI
 
 <img src="https://travis-ci.org/BouchardLab/PyUoI.svg?branch=master"> [![codecov](https://codecov.io/gh/BouchardLab/PyUoI/branch/master/graph/badge.svg)](https://codecov.io/gh/BouchardLab/PyUoI)
-
+[![Documentation Status](https://readthedocs.org/projects/pyuoi/badge/?version=latest)](https://pyuoi.readthedocs.io/en/latest/?badge=latest)
 
 
 This repo contains the currently developed implementations of the Union of Intersection
