@@ -17,10 +17,12 @@ from pyuoi.mpi_utils import get_chunk_size, get_buffer_mask
 from .utils import stability_selection_to_threshold, intersection
 
 
-class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, SparseCoefMixin)):
+class AbstractUoILinearModel(
+        _six.with_metaclass(_abc.ABCMeta, LinearModel, SparseCoefMixin)):
     """An abstract base class for UoI linear model classes
 
-    See Bouchard et al., NIPS, 2017, for more details on the Union of Intersections framework.
+    See Bouchard et al., NIPS, 2017, for more details on the Union of
+    Intersections framework.
 
     Parameters
     ----------
@@ -86,7 +88,8 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         for estimation for a given regularization parameter value (row).
     """
 
-    def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9, stability_selection=1., random_state=None, comm=None):
+    def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
+                 stability_selection=1., random_state=None, comm=None):
         # data split fractions
         self.selection_frac = selection_frac
         # number of bootstraps
@@ -105,7 +108,8 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             self.random_state = random_state
 
         # extract selection thresholds from user provided stability selection
-        self.selection_thresholds_ = stability_selection_to_threshold(self.stability_selection, self.n_boots_sel)
+        self.selection_thresholds_ = stability_selection_to_threshold(
+            self.stability_selection, self.n_boots_sel)
 
         self.n_supports_ = None
 
@@ -195,14 +199,15 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         chunk_size, buf_len = get_chunk_size(rank, size, self.n_boots_sel)
 
         # initialize selection
-        selection_coefs = np.zeros((buf_len, self.n_reg_params_, n_coef), dtype=np.float32)
+        selection_coefs = np.zeros((buf_len, self.n_reg_params_, n_coef),
+                                   dtype=np.float32)
 
         # iterate over bootstraps
         for bootstrap in range(chunk_size):
             # draw a resampled bootstrap
             X_rep, X_test, y_rep, y_test = train_test_split(
                 X, y,
-                train_size=self.selection_frac,
+                test_size=1 - self.selection_frac,
                 stratify=stratify,
                 random_state=self.random_state
             )
@@ -213,16 +218,17 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
                 # rerun fit
                 self.selection_lm.fit(X_rep, y_rep)
                 # store coefficients
-                selection_coefs[bootstrap, reg_param_idx, :] = self.selection_lm.coef_.ravel()
+                selection_coefs[bootstrap, reg_param_idx, :] = \
+                    self.selection_lm.coef_.ravel()
 
-
-        ## if distributed, gather selection coefficients to 0,
-        ## perform intersection, and broadcast results
+        # if distributed, gather selection coefficients to 0,
+        # perform intersection, and broadcast results
         if self.comm is not None:
             self.comm.Barrier()
             recv = None
             if rank == 0:
-                recv = np.zeros((buf_len*size, self.n_reg_params_, n_coef), dtype=np.float32)
+                recv = np.zeros((buf_len * size, self.n_reg_params_, n_coef),
+                                dtype=np.float32)
             self.comm.Gather(selection_coefs, recv, root=0)
             supports = None
             shape = None
@@ -234,10 +240,11 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             shape = self.comm.bcast(shape, root=0)
             if rank != 0:
                 supports = np.zeros(shape, dtype=np.float32)
-            supports = self.comm.bcast(supports, root = 0)
+            supports = self.comm.bcast(supports, root=0)
             self.supports_ = supports
         else:
-            self.supports_ = self.intersect(selection_coefs, self.selection_thresholds_)
+            self.supports_ = self.intersect(selection_coefs,
+                                            self.selection_thresholds_)
 
         self.n_supports_ = self.supports_.shape[0]
 
@@ -249,19 +256,20 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         chunk_size, buf_len = get_chunk_size(rank, size, self.n_boots_est)
 
         # coef_ for each bootstrap for each support
-        self.estimates_ = np.zeros((buf_len, self.n_supports_, n_coef), dtype=np.float32)
+        self.estimates_ = np.zeros((buf_len, self.n_supports_, n_coef),
+                                   dtype=np.float32)
 
         # score (r2/AIC/AICc/BIC) for each bootstrap for each support
-        self.scores_ = np.zeros((buf_len, self.n_supports_),dtype=np.float32)
+        self.scores_ = np.zeros((buf_len, self.n_supports_), dtype=np.float32)
 
-        n_tile = n_coef//n_features
+        n_tile = n_coef // n_features
         # iterate over bootstrap samples
         for bootstrap in range(chunk_size):
 
             # draw a resampled bootstrap
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y,
-                train_size=self.selection_frac,
+                test_size=1 - self.selection_frac,
                 stratify=stratify,
                 random_state=self.random_state
             )
@@ -275,7 +283,9 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
                     self.estimation_lm.fit(X_train[:, support], y_train)
 
                     # store the fitted coefficients
-                    self.estimates_[bootstrap, supp_idx, np.tile(support, n_tile)] = self.estimation_lm.coef_.ravel()
+                    self.estimates_[
+                        bootstrap, supp_idx, np.tile(support, n_tile)] = \
+                        self.estimation_lm.coef_.ravel()
 
                     # obtain predictions for scoring
                     y_pred = self.estimation_lm.predict(X_test[:, support])
@@ -283,9 +293,9 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
                     # no prediction since nothing was selected
                     y_pred = np.zeros(y_test.size)
 
-
                 # calculate estimation score
-                self.scores_[bootstrap, supp_idx] = self.score_predictions(self.estimation_score, y_test, y_pred, support)
+                self.scores_[bootstrap, supp_idx] = self.score_predictions(
+                    self.estimation_score, y_test, y_pred, support)
 
         if self.comm is not None:
             self.comm.Barrier()
@@ -294,8 +304,10 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             self.rp_max_idx_ = None
             best_estimates = None
             if rank == 0:
-                est_recv = np.zeros((buf_len*size, self.n_supports_, n_coef), dtype=np.float32)
-                scores_recv = np.zeros((buf_len*size, self.n_supports_),dtype=np.float32)
+                est_recv = np.zeros((buf_len * size, self.n_supports_, n_coef),
+                                    dtype=np.float32)
+                scores_recv = np.zeros((buf_len * size, self.n_supports_),
+                                       dtype=np.float32)
             self.comm.Gather(self.scores_, scores_recv, root=0)
             self.comm.Gather(self.estimates_, est_recv, root=0)
             if rank == 0:
@@ -303,16 +315,20 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
                 self.estimates_ = est_recv[mask]
                 self.scores_ = scores_recv[mask]
                 self.rp_max_idx_ = np.argmax(self.scores_, axis=1)
-                best_estimates = self.estimates_[np.arange(self.n_boots_est), self.rp_max_idx_, :]
+                best_estimates = self.estimates_[np.arange(self.n_boots_est),
+                                                 self.rp_max_idx_, :]
             self.rp_max_idx_ = self.comm.bcast(self.rp_max_idx_, root=0)
             best_estimates = self.comm.bcast(best_estimates, root=0)
         else:
             self.rp_max_idx_ = np.argmax(self.scores_, axis=1)
-            # extract the estimates over bootstraps from model with best regularization parameter value
-            best_estimates = self.estimates_[np.arange(self.n_boots_est), self.rp_max_idx_, :]
+            # extract the estimates over bootstraps from model with best
+            # regularization parameter value
+            best_estimates = self.estimates_[np.arange(self.n_boots_est),
+                                             self.rp_max_idx_, :]
 
         # take the median across estimates for the final, bagged estimate
-        self.coef_ = np.median(best_estimates, axis=0).reshape(n_tile, n_features)
+        self.coef_ = (np.median(best_estimates, axis=0)
+                      .reshape(n_tile, n_features))
 
         return self
 
@@ -329,8 +345,8 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
             Response vector.
 
         reg_param_values: list of dicts
-            A list of dictionaries containing the regularization parameter values
-            to iterate over.
+            A list of dictionaries containing the regularization parameter
+            values to iterate over.
 
         Returns
         -------
@@ -358,16 +374,22 @@ class AbstractUoILinearModel(_six.with_metaclass(_abc.ABCMeta, LinearModel, Spar
         return coefs
 
 
-class AbstractUoILinearRegressor(_six.with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
+class AbstractUoILinearRegressor(
+        _six.with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
+    """An abstract base class for UoI linear regression classes.
+
+    See Bouchard et al., NIPS, 2017, for more details on the Union of
+    Intersections framework.
+    """
 
     __valid_estimation_metrics = ('r2', 'AIC', 'AICc', 'BIC')
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
-        stability_selection=1., warm_start=True,
-        estimation_score='r2',
-        copy_X=True, fit_intercept=True, normalize=True, random_state=None, max_iter=1000,
-        comm=None
-    ):
+                 stability_selection=1., warm_start=True,
+                 estimation_score='r2',
+                 copy_X=True, fit_intercept=True, normalize=True,
+                 random_state=None, max_iter=1000,
+                 comm=None):
         super(AbstractUoILinearRegressor, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -380,7 +402,8 @@ class AbstractUoILinearRegressor(_six.with_metaclass(_abc.ABCMeta, AbstractUoILi
         self.copy_X = copy_X
 
         if estimation_score not in self.__valid_estimation_metrics:
-            raise ValueError("invalid estimation metric: '%s'" % estimation_score)
+            raise ValueError(
+                "invalid estimation metric: '%s'" % estimation_score)
 
         self.__estimation_score = estimation_score
 
@@ -426,7 +449,8 @@ class AbstractUoILinearRegressor(_six.with_metaclass(_abc.ABCMeta, AbstractUoILi
             The predicted response variables.
 
         supports: array-like
-            The value of the supports for the model that was used to generate *y_pred*
+            The value of the supports for the model that was used to generate
+            *y_pred*.
 
         Returns
         -------
@@ -436,7 +460,7 @@ class AbstractUoILinearRegressor(_six.with_metaclass(_abc.ABCMeta, AbstractUoILi
         if metric == 'r2':
             score = r2_score(y_true, y_pred)
         else:
-            n_features=np.count_nonzero(supports)
+            n_features = np.count_nonzero(supports)
             if metric == 'BIC':
                 score = utils.BIC(y_true, y_pred, n_features)
             elif metric == 'AIC':
@@ -451,7 +475,8 @@ class AbstractUoILinearRegressor(_six.with_metaclass(_abc.ABCMeta, AbstractUoILi
     def fit(self, X, y, stratify=None, verbose=False):
         """Fit data according to the UoI algorithm.
 
-        Additionaly, perform X-y checks, data preprocessing, and setting interecept
+        Additionaly, perform X-y checks, data preprocessing, and setting
+        intercept.
 
         Parameters
         ----------
@@ -475,26 +500,34 @@ class AbstractUoILinearRegressor(_six.with_metaclass(_abc.ABCMeta, AbstractUoILi
             bootstraps.
         """
         # perform checks
-        X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'], y_numeric=True, multi_output=True)
+        X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
+                         y_numeric=True, multi_output=True)
         # preprocess data
         X, y, X_offset, y_offset, X_scale = self.preprocess_data(X, y)
-        super(AbstractUoILinearRegressor, self).fit(X, y, stratify=stratify, verbose=verbose)
+        super(AbstractUoILinearRegressor, self).fit(X, y, stratify=stratify,
+                                                    verbose=verbose)
         self._set_intercept(X_offset, y_offset, X_scale)
         self.coef_ = self.coef_.squeeze()
         return self
 
 
-class AbstractUoILinearClassifier(_six.with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
+class AbstractUoILinearClassifier(
+        _six.with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
+    """An abstract base class for UoI linear regression classes.
+
+    See Bouchard et al., NIPS, 2017, for more details on the Union of
+    Intersections framework.
+    """
 
     __valid_estimation_metrics = ('acc',)
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
-        stability_selection=1., warm_start=True,
-        estimation_score='acc',
-        multi_class='ovr',
-        copy_X=True, fit_intercept=True, normalize=True, random_state=None, max_iter=1000,
-        comm=None
-    ):
+                 stability_selection=1., warm_start=True,
+                 estimation_score='acc',
+                 multi_class='ovr',
+                 copy_X=True, fit_intercept=True, normalize=True,
+                 random_state=None, max_iter=1000,
+                 comm=None):
         super(AbstractUoILinearClassifier, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -507,7 +540,8 @@ class AbstractUoILinearClassifier(_six.with_metaclass(_abc.ABCMeta, AbstractUoIL
         self.copy_X = copy_X
 
         if estimation_score not in self.__valid_estimation_metrics:
-            raise ValueError("invalid estimation metric: '%s'" % estimation_score)
+            raise ValueError(
+                "invalid estimation metric: '%s'" % estimation_score)
         self.__estimation_score = estimation_score
 
     def get_n_coef(self, X, y):
@@ -533,7 +567,7 @@ class AbstractUoILinearClassifier(_six.with_metaclass(_abc.ABCMeta, AbstractUoIL
             # for each support, figure out which variables
             # are used
             ret = list()
-            n_coef = supports[0].shape[0]//self._n_classes
+            n_coef = supports[0].shape[0] // self._n_classes
             shape = (self._n_classes, n_coef)
             for supp in supports:
                 ret.append(np.logical_or(*supp.reshape(shape)))
@@ -575,7 +609,8 @@ class AbstractUoILinearClassifier(_six.with_metaclass(_abc.ABCMeta, AbstractUoIL
             The predicted response variables.
 
         supports: array-like
-            The value of the supports for the model that was used to generate *y_pred*
+            The value of the supports for the model that was used to generate
+            *y_pred*.
 
         Returns
         -------
@@ -587,4 +622,3 @@ class AbstractUoILinearClassifier(_six.with_metaclass(_abc.ABCMeta, AbstractUoIL
         else:
             raise ValueError(metric + ' is not a valid option.')
         return score
-

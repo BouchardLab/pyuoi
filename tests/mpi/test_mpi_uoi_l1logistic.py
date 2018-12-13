@@ -22,6 +22,7 @@ def test_l1logistic_binary():
     # check that we have weights on at least one of the informative features
     assert np.abs(np.sum(l1log.coef_[:, :n_inf])) > 0.0
 
+
 def test_l1logistic_multiclass():
     """Test that multiclass L1 Logistic runs in the UoI framework"""
     n_inf = 3
