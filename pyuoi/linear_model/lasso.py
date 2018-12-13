@@ -20,7 +20,8 @@ class UoI_Lasso(AbstractUoILinearRegressor):
             copy_X=copy_X,
             fit_intercept=fit_intercept,
             normalize=normalize,
-            comm=comm
+            comm=comm,
+            estimation_score=estimation_score
         )
         self.n_lambdas = n_lambdas
         self.eps = eps
