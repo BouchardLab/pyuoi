@@ -4,6 +4,7 @@ import numpy as np
 
 from numpy.testing import assert_array_equal, assert_allclose, assert_equal
 from sklearn.preprocessing import normalize
+from sklearn.metrics import hamming_loss
 
 from pyuoi import UoI_L1Logistic
 
@@ -19,7 +20,8 @@ def sigmoid(x):
 
 
 def make_classification(n_samples=100, n_features=20, n_informative=2,
-                        n_classes=2, shared_support=False, random_state=None):
+                        n_classes=2, shared_support=False, random_state=None,
+                        w_scale=1.):
     if isinstance(random_state, int):
         rng = np.random.RandomState(random_state)
     else:
@@ -45,6 +47,7 @@ def make_classification(n_samples=100, n_features=20, n_informative=2,
         if n_not_informative > 0:
             idxs = rng.permutation(n_features)[:n_not_informative]
             w[idxs] = 0.
+    w *= w_scale
 
     log_p = X.dot(w)
     if n_classes > 2:
@@ -67,6 +70,27 @@ def test_l1logistic_binary():
                                   n_features=6)
 
     l1log = UoI_L1Logistic(random_state=10).fit(X, y)
+    assert_array_equal(np.sign(w), np.sign(l1log.coef_))
+    assert_allclose(w, l1log.coef_, atol=.5)
+
+
+@pytest.mark.skip(reason="Logistic is not currently finished")
+def test_l1logistic_multiclass():
+    """Test that multiclass L1 Logistic runs in the UoI framework when all
+       classes share a support."""
+    n_features = 4
+    n_inf = 3
+    X, y, w = make_classification(n_samples=1000,
+                                  random_state=6,
+                                  n_classes=3,
+                                  n_informative=n_inf,
+                                  n_features=n_features,
+                                  shared_support=True)
+    X = normalize(X, axis=0)
+    l1log = UoI_L1Logistic().fit(X, y)
+    print()
+    print(w)
+    print(l1log.coef_)
     assert_array_equal(np.sign(w), np.sign(l1log.coef_))
     assert_allclose(w, l1log.coef_, atol=.5)
 
@@ -112,20 +136,3 @@ def test_set_random_state():
     l1log_0.fit(X, y)
     l1log_1.fit(X, y)
     assert not np.array_equal(l1log_0.coef_, l1log_1.coef_)
-
-
-@pytest.mark.skip(reason="Logistic is not currently finished")
-def test_l1logistic_multiclass():
-    """Test that multiclass L1 Logistic runs in the UoI framework"""
-    n_inf = 3
-    X, y, w = make_classification(n_samples=100,
-                                  random_state=6,
-                                  n_classes=3,
-                                  n_informative=n_inf,
-                                  n_features=4)
-    X = normalize(X, axis=0)
-    l1log = UoI_L1Logistic().fit(X, y)
-    # ensure shape conforms to sklearn convention
-    assert l1log.coef_.shape == (3, 4)
-    # check that we have weights on at least one of the informative features
-    assert np.abs(np.sum(l1log.coef_[:, :n_inf])) > 0.0
