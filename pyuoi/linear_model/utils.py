@@ -72,7 +72,7 @@ def stability_selection_to_threshold(stability_selection, n_boots):
     selection_thresholds = selection_thresholds.astype('int')
     if not (
         np.all(selection_thresholds <= n_boots) and
-        np.all(selection_thresholds > 1)
+        np.all(selection_thresholds >= 1)
     ):
         raise ValueError("Stability selection thresholds must be within "
                          "the correct bounds.")
@@ -84,15 +84,36 @@ def intersection(coefs, selection_thresholds=None):
     """Performs the intersection operation on selection coefficients
     using stability selection criteria.
 
+    The coefficients must be provided in the shape
+        bootstraps x lambdas x features.
+    The intersection operation finds, for each lambda, the features that
+    exist in all bootstraps (hard intersection) or in some subset of them
+    (the exact subset is provided by selection_thresholds).
+
+    This parameter selection_thresholds provides the number of bootstraps
+    that a feature must exist in to pass the intersection. Importantly,
+    this function can take intersections with multiple selection_thresholds
+    (thus, selection_thresholds is array-like).
+
+    This function then outputs an array of supports, each as a binary mask.
+    Only unique supports are provided, so duplicates are tossed out.
+
     Parameters
     ----------
     coefs : np.ndarray, shape (# bootstraps, # lambdas, # features)
-        The coefficients obtain from the selection sweep, corresponding to
+        The coefficients obtained from the selection sweep, corresponding to
         each bootstrap and choice of L1 regularization strength.
 
     selection_thresholds: array-like, int
         The selection thresholds to perform intersection across. By default,
-        use *coefs.shape[0]*
+        use *coefs.shape[0]*.
+
+    Returns
+    -------
+    supports : np.ndarray, shape (# supports, # features), bool
+        A list of supports (each as a binary mask with size n_features)
+        obtained by performing the intersection across the coefficients. Each
+        support is unique.
     """
 
     if selection_thresholds is None:
@@ -113,14 +134,16 @@ def intersection(coefs, selection_thresholds=None):
             np.count_nonzero(coefs, axis=0) >= threshold
 
     # unravel the dimension corresponding to selection thresholds
+
     supports = np.squeeze(np.reshape(
         supports,
         (n_selection_thresholds * n_reg_params, n_features)
     ))
 
-    # # TODO: there might be a faster way to do this
+    # TODO: there might be a faster way to do this
     uniq = set()
     for sup in supports:
         uniq.add(tuple(sup))
     supports = np.array([x for x in uniq if np.any(x)])
+
     return supports
