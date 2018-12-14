@@ -125,8 +125,6 @@ def test_l1logistic_multiclass():
                                   n_features=4)
     X = normalize(X, axis=0)
     l1log = UoI_L1Logistic().fit(X, y)
-    print(w)
-    print(l1log.coef_)
     # ensure shape conforms to sklearn convention
     assert l1log.coef_.shape == (3, 4)
     # check that we have weights on at least one of the informative features
