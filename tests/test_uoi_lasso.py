@@ -17,14 +17,10 @@ def test_variable_selection():
 
 
 def test_estimation_score_usage():
-    """Test the ability to change the estimation score in UoI Lasso"""
+    """Test the ability to change the estimation score in UoI Lasso."""
     methods = ('r2', 'AIC', 'AICc', 'BIC')
-    N = 10
-    np.random.seed(17)
-    X = np.random.normal(0, 1, (N, N))
-    beta = np.random.normal(0, 1, N)
-    noise = np.random.normal(0, 0.1, N)
-    y = np.dot(X, beta) + noise
+    X, y = make_regression(n_features=10, n_informative=3,
+                           random_state=10)
     scores = []
     for method in methods:
         lasso = UoI_Lasso(estimation_score=method)
@@ -33,6 +29,30 @@ def test_estimation_score_usage():
         score = np.max(lasso.scores_)
         scores.append(score)
     assert_equal(len(np.unique(scores)), len(methods))
+
+
+def test_set_random_state():
+    """Tests whether random states are handled correctly."""
+    X, y = make_regression(n_features=5, n_informative=3,
+                           random_state=16, noise=.5)
+    # same state
+    l1log_0 = UoI_Lasso(random_state=13)
+    l1log_1 = UoI_Lasso(random_state=13)
+    l1log_0.fit(X, y)
+    l1log_1.fit(X, y)
+    assert_array_equal(l1log_0.coef_, l1log_1.coef_)
+
+    # different state
+    l1log_1 = UoI_Lasso(random_state=14)
+    l1log_1.fit(X, y)
+    assert not np.array_equal(l1log_0.coef_, l1log_1.coef_)
+
+    # different state, not set
+    l1log_0 = UoI_Lasso()
+    l1log_1 = UoI_Lasso()
+    l1log_0.fit(X, y)
+    l1log_1.fit(X, y)
+    assert not np.array_equal(l1log_0.coef_, l1log_1.coef_)
 
 
 def test_uoi_lasso_small():

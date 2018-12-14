@@ -392,6 +392,7 @@ class AbstractUoILinearRegressor(
             n_boots_est=n_boots_est,
             selection_frac=selection_frac,
             stability_selection=stability_selection,
+            random_state=random_state,
             comm=comm,
         )
         self.copy_X = copy_X

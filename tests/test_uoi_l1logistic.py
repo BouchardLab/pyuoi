@@ -1,12 +1,11 @@
+import pytest
+
 import numpy as np
 
-from numpy.testing import assert_array_equal, assert_allclose
-
+from numpy.testing import assert_array_equal, assert_allclose, assert_equal
 from sklearn.preprocessing import normalize
 
 from pyuoi import UoI_L1Logistic
-
-import pytest
 
 
 def softmax(y, axis=-1):
@@ -70,6 +69,49 @@ def test_l1logistic_binary():
     l1log = UoI_L1Logistic(random_state=10).fit(X, y)
     assert_array_equal(np.sign(w), np.sign(l1log.coef_))
     assert_allclose(w, l1log.coef_, atol=.5)
+
+
+def test_estimation_score_usage():
+    """Test the ability to change the estimation score in UoI L1Logistic"""
+    methods = ('acc', 'log')
+    X, y, w = make_classification(n_samples=100,
+                                  random_state=6,
+                                  n_informative=2,
+                                  n_features=6)
+    scores = []
+    for method in methods:
+        l1log = UoI_L1Logistic(random_state=12, estimation_score=method)
+        assert_equal(l1log.estimation_score, method)
+        l1log.fit(X, y)
+        score = np.max(l1log.scores_)
+        scores.append(score)
+    assert_equal(len(set(scores)), len(methods))
+
+
+def test_set_random_state():
+    """Tests whether random states are handled correctly."""
+    X, y, w = make_classification(n_samples=100,
+                                  random_state=60,
+                                  n_informative=3,
+                                  n_features=5)
+    # same state
+    l1log_0 = UoI_L1Logistic(random_state=13)
+    l1log_1 = UoI_L1Logistic(random_state=13)
+    l1log_0.fit(X, y)
+    l1log_1.fit(X, y)
+    assert_array_equal(l1log_0.coef_, l1log_1.coef_)
+
+    # different state
+    l1log_1 = UoI_L1Logistic(random_state=14)
+    l1log_1.fit(X, y)
+    assert not np.array_equal(l1log_0.coef_, l1log_1.coef_)
+
+    # different state, not set
+    l1log_0 = UoI_L1Logistic()
+    l1log_1 = UoI_L1Logistic()
+    l1log_0.fit(X, y)
+    l1log_1.fit(X, y)
+    assert not np.array_equal(l1log_0.coef_, l1log_1.coef_)
 
 
 @pytest.mark.skip(reason="Logistic is not currently finished")

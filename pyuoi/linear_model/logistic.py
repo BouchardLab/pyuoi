@@ -19,6 +19,7 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
             n_boots_est=n_boots_est,
             selection_frac=selection_frac,
             stability_selection=stability_selection,
+            estimation_score=estimation_score,
             random_state=random_state,
             copy_X=copy_X,
             fit_intercept=fit_intercept,
