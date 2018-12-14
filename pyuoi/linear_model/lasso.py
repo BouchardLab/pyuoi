@@ -20,6 +20,7 @@ class UoI_Lasso(AbstractUoILinearRegressor):
             copy_X=copy_X,
             fit_intercept=fit_intercept,
             normalize=normalize,
+            random_state=random_state,
             comm=comm,
             estimation_score=estimation_score
         )

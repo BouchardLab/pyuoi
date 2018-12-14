@@ -5,7 +5,7 @@ import numpy as np
 
 from sklearn.linear_model.base import (
     LinearModel, _preprocess_data, SparseCoefMixin)
-from sklearn.metrics import r2_score
+from sklearn.metrics import r2_score, accuracy_score, log_loss
 from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
 
@@ -392,6 +392,7 @@ class AbstractUoILinearRegressor(
             n_boots_est=n_boots_est,
             selection_frac=selection_frac,
             stability_selection=stability_selection,
+            random_state=random_state,
             comm=comm,
         )
         self.copy_X = copy_X
@@ -516,7 +517,7 @@ class AbstractUoILinearClassifier(
     Intersections framework.
     """
 
-    __valid_estimation_metrics = ('acc',)
+    __valid_estimation_metrics = ('acc', 'log')
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  stability_selection=1., estimation_score='acc',
@@ -529,6 +530,7 @@ class AbstractUoILinearClassifier(
             n_boots_est=n_boots_est,
             selection_frac=selection_frac,
             stability_selection=stability_selection,
+            random_state=random_state,
             comm=comm,
         )
         self.fit_intercept = fit_intercept
@@ -614,7 +616,9 @@ class AbstractUoILinearClassifier(
             The score.
         """
         if metric == 'acc':
-            score = r2_score(y_true, y_pred)
+            score = accuracy_score(y_true, y_pred)
+        elif metric == 'log':
+            score = log_loss(y_true, y_pred)
         else:
             raise ValueError(metric + ' is not a valid option.')
         return score

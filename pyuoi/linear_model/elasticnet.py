@@ -25,6 +25,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor):
             copy_X=copy_X,
             fit_intercept=fit_intercept,
             normalize=normalize,
+            random_state=random_state,
             comm=comm
         )
         self.n_lambdas = n_lambdas
