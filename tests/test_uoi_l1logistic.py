@@ -4,7 +4,6 @@ import numpy as np
 
 from numpy.testing import assert_array_equal, assert_allclose, assert_equal
 from sklearn.preprocessing import normalize
-from sklearn.metrics import hamming_loss
 
 from pyuoi import UoI_L1Logistic
 
