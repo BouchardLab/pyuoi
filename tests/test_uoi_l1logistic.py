@@ -60,7 +60,7 @@ def make_classification(n_samples=100, n_features=20, n_informative=2,
 
 
 def test_l1logistic_binary():
-    """Test that binary L1 Logistic runs in the UoI framework"""
+    """Test that binary L1 Logistic runs in the UoI framework."""
     n_inf = 4
     X, y, w = make_classification(n_samples=1000,
                                   random_state=6,
@@ -68,7 +68,6 @@ def test_l1logistic_binary():
                                   n_features=6)
 
     l1log = UoI_L1Logistic(random_state=10).fit(X, y)
-    # ensure shape conforms to sklearn convention
     assert_array_equal(np.sign(w), np.sign(l1log.coef_))
     assert_allclose(w, l1log.coef_, atol=.5)
 
