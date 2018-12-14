@@ -19,11 +19,11 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
             n_boots_est=n_boots_est,
             selection_frac=selection_frac,
             stability_selection=stability_selection,
+            random_state=random_state,
             copy_X=copy_X,
             fit_intercept=fit_intercept,
             normalize=normalize,
-            comm=comm
-        )
+            comm=comm)
         self.n_C = n_C
         self.Cs = None
         self.__selection_lm = LogisticRegression(
