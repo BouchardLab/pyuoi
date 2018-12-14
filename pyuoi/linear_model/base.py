@@ -383,8 +383,7 @@ class AbstractUoILinearRegressor(
     __valid_estimation_metrics = ('r2', 'AIC', 'AICc', 'BIC')
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
-                 stability_selection=1., warm_start=True,
-                 estimation_score='r2',
+                 stability_selection=1., estimation_score='r2',
                  copy_X=True, fit_intercept=True, normalize=True,
                  random_state=None, max_iter=1000,
                  comm=None):
@@ -395,9 +394,9 @@ class AbstractUoILinearRegressor(
             stability_selection=stability_selection,
             comm=comm,
         )
+        self.copy_X = copy_X
         self.fit_intercept = fit_intercept
         self.normalize = normalize
-        self.copy_X = copy_X
 
         if estimation_score not in self.__valid_estimation_metrics:
             raise ValueError(
@@ -520,8 +519,7 @@ class AbstractUoILinearClassifier(
     __valid_estimation_metrics = ('acc',)
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
-                 stability_selection=1., warm_start=True,
-                 estimation_score='acc',
+                 stability_selection=1., estimation_score='acc',
                  multi_class='ovr',
                  copy_X=True, fit_intercept=True, normalize=True,
                  random_state=None, max_iter=1000,

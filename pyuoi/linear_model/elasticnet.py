@@ -9,11 +9,10 @@ from sklearn.linear_model import ElasticNet
 
 class UoI_ElasticNet(AbstractUoILinearRegressor):
 
-    def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
-                 n_lambdas=48,
-                 alphas=np.array([1., 0.99, 0.95, 0.9, 0.5, 0.3, 0.1]),
-                 stability_selection=1., eps=1e-3, warm_start=True,
-                 estimation_score='r2',
+    def __init__(self, n_lambdas=48, alphas=np.array([0.5]),
+                 n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
+                 stability_selection=1., estimation_score='r2',
+                 warm_start=True, eps=1e-3,
                  copy_X=True, fit_intercept=True, normalize=True,
                  random_state=None, max_iter=1000,
                  comm=None):
@@ -22,6 +21,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor):
             n_boots_est=n_boots_est,
             selection_frac=selection_frac,
             stability_selection=stability_selection,
+            estimation_score=estimation_score,
             copy_X=copy_X,
             fit_intercept=fit_intercept,
             normalize=normalize,
@@ -30,14 +30,16 @@ class UoI_ElasticNet(AbstractUoILinearRegressor):
         self.n_lambdas = n_lambdas
         self.alphas = alphas
         self.n_alphas = len(alphas)
+        self.warm_start = warm_start
         self.eps = eps
         self.lambdas = None
         self.__selection_lm = ElasticNet(
+            fit_intercept=fit_intercept,
             normalize=normalize,
             max_iter=max_iter,
+            copy_X=copy_X,
             warm_start=warm_start,
-            random_state=random_state
-        )
+            random_state=random_state)
         self.__estimation_lm = LinearRegression()
 
     @property
@@ -49,8 +51,40 @@ class UoI_ElasticNet(AbstractUoILinearRegressor):
         return self.__selection_lm
 
     def get_reg_params(self, X, y):
+        """Calculates the regularization parameters (alpha and lambda) to be
+        used for the provided data.
+
+        Note that the Elastic Net penalty is given by
+
+                1 / (2 * n_samples) * ||y - Xb||^2_2
+            + lambda * (alpha * |b|_1 + 0.5 * (1 - alpha) * |b|^2_2)
+
+        where lambda and alpha are regularization parameters.
+
+        Note that scikit-learn does not use these names. Instead, scitkit-learn
+        denotes alpha by 'l1_ratio' and lambda by 'alpha'.
+
+        Parameters
+        ----------
+        X : array-like, shape (n_samples, n_features)
+            The design matrix.
+
+        y : array-like, shape (n_samples)
+            The response vector.
+
+        Returns
+        -------
+        reg_params : a list of dictionaries
+            A list containing dictionaries with the value of each
+            (lambda, alpha) describing the type of regularization to impose.
+            The keys adhere to scikit-learn's terminology (lambda->alpha,
+            alpha->l1_ratio). This allows easy passing into the ElasticNet
+            object.
+        """
         if self.lambdas is None:
             self.lambdas = np.zeros((self.n_alphas, self.n_lambdas))
+            # a set of lambdas are generated for each alpha value (l1_ratio in
+            # sci-kit learn parlance)
             for alpha_idx, alpha in enumerate(self.alphas):
                 self.lambdas[alpha_idx, :] = _alpha_grid(
                     X=X, y=y,
@@ -58,11 +92,13 @@ class UoI_ElasticNet(AbstractUoILinearRegressor):
                     fit_intercept=self.fit_intercept,
                     eps=self.eps,
                     n_alphas=self.n_lambdas,
-                    normalize=self.normalize
-                )
-        ret = list()
+                    normalize=self.normalize)
+
+        # place the regularization parameters into a list of dictionaries
+        reg_params = list()
         for alpha_idx, alpha in enumerate(self.alphas):
             for lamb_idx, lamb in enumerate(self.lambdas[alpha_idx]):
                 # reset the regularization parameter
-                ret.append(dict(alpha=lamb, l1_ratio=alpha))
-        return ret
+                reg_params.append(dict(alpha=lamb, l1_ratio=alpha))
+
+        return reg_params
