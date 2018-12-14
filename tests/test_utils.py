@@ -1,7 +1,9 @@
 import numpy as np
-from numpy.testing import assert_array_equal, assert_raises
+from numpy.testing import assert_array_equal
+from numpy.testing import assert_raises
 
 from pyuoi.linear_model.utils import stability_selection_to_threshold
+from pyuoi.linear_model.utils import intersection
 
 
 def test_stability_selection_to_threshold_int():
@@ -87,7 +89,6 @@ def test_stability_selection_to_threshold_floats_np():
     assert_array_equal(
         selection_thresholds,
         np.array([24, 28, 33, 38, 43, 48]))
-    pass
 
 
 def test_stability_selection_to_threshold_exceeds_n_bootstraps():
@@ -113,26 +114,130 @@ def test_stability_selection_to_threshold_exceeds_n_bootstraps():
         n_boots_sel)
 
 
-def test_stability_selection_edge_case():
-    # TODO: check that stability selection passes the edge case where
-    # stability_selection = 1 and n_boots = 1
-    pass
+def test_stability_selection_to_threshold_one_bootstrap():
+    """Tests whether stability_selection_to_threshold correctly handles the
+    edge case where one bootstrap is requested."""
+
+    n_boots_sel = 1
+    # stability selection can only be one value
+    threshold = 1
+
+    selection_thresholds = stability_selection_to_threshold(
+        n_boots_sel,
+        threshold)
+
+    assert_array_equal(
+        selection_thresholds,
+        np.array([1]))
+
+
+def test_stability_selection_reject_negative_numbers():
+    """Tests whether stability_selection_to_threshold correctly rejects
+    negative thresholds."""
+
+    n_boots_sel = 48
+
+    # stability selection is a list of floats
+    test_negative = -1 * np.array([24, 28, 33, 38, 43, 48, 52])
+
+    assert_raises(
+        ValueError,
+        stability_selection_to_threshold,
+        test_negative,
+        n_boots_sel)
 
 
 def test_intersection():
-    # TODO: test the intersection function for linear models by hand
-    pass
+    """Tests whether intersection correctly performs a hard intersection."""
+
+    coefs = np.array([
+        [[2, 1, -1, 0, 4],
+         [4, 0, 2, -1, 5],
+         [1, 2, 3, 4, 5]],
+        [[2, 0, 0, 0, 0],
+         [3, 1, 1, 0, 3],
+         [6, 7, 8, 9, 10]],
+        [[2, 0, 0, 0, 0],
+         [2, -1, 3, 0, 2],
+         [2, 4, 6, 8, 9]]])
+
+    true_intersection = np.array([
+        [True, False, False, False, False],
+        [True, False, True, False, True],
+        [True, True, True, True, True]])
+
+    selection_thresholds = np.array([3])
+    estimated_intersection = intersection(
+        coefs=coefs,
+        selection_thresholds=selection_thresholds)
+
+    # we sort the supports since they might not be in the same order
+    assert_array_equal(
+        np.sort(true_intersection, axis=0),
+        np.sort(estimated_intersection, axis=0))
 
 
-def test_intersection_with_stability_selection():
-    # TODO: test the intersection function using stability selection
-    pass
+def test_intersection_with_stability_selection_one_threshold():
+    """Tests whether intersection correctly performs a soft intersection."""
+
+    coefs = np.array([
+        [[2, 1, -1, 0, 4],
+         [4, 0, 2, -1, 5],
+         [1, 2, 3, 4, 5]],
+        [[2, 0, 0, 0, 0],
+         [3, 1, 1, 0, 3],
+         [6, 7, 8, 9, 10]],
+        [[2, 0, 0, 0, 0],
+         [2, -1, 3, 0, 2],
+         [2, 4, 6, 8, 9]]])
+
+    true_intersection = np.array([
+        [True, False, False, False, False],
+        [True, True, True, False, True],
+        [True, True, True, True, True]])
+
+    selection_thresholds = np.array([2])
+    estimated_intersection = intersection(
+        coefs=coefs,
+        selection_thresholds=selection_thresholds)
+
+    # we sort the supports since they might not be in the same order
+    assert_array_equal(
+        np.sort(true_intersection, axis=0),
+        np.sort(estimated_intersection, axis=0))
 
 
-def test_intersection_duplicates():
-    # TODO: test the intersection function specifically to ensure duplicate
-    # supports are not outputted.
-    pass
+def test_intersection_with_stability_selection_multiple_thresholds():
+    """Tests whether intersection correctly performs an intersection with
+    multiple thresholds. This test also covers the case when there are
+    duplicates."""
+
+    coefs = np.array([
+        [[2, 1, -1, 0, 4],
+         [4, 0, 2, -1, 5],
+         [1, 2, 3, 4, 5]],
+        [[2, 0, 0, 0, 0],
+         [3, 1, 1, 0, 3],
+         [6, 7, 8, 9, 10]],
+        [[2, 0, 0, 0, 0],
+         [2, -1, 3, 0, 2],
+         [2, 4, 6, 8, 9]]])
+
+    true_intersection = np.array([
+        [True, False, False, False, False],
+        [True, True, True, False, True],
+        [True, True, True, True, True],
+        [True, False, True, False, True]])
+
+    selection_thresholds = np.array([2, 3])
+    estimated_intersection = intersection(
+        coefs=coefs,
+        selection_thresholds=selection_thresholds)
+
+    # we sort the supports since they might not be in the same order
+    assert_array_equal(
+        np.sort(true_intersection, axis=0),
+        np.sort(estimated_intersection, axis=0))
 
 
 def test_bic():
