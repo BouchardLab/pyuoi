@@ -55,45 +55,81 @@ def test_set_random_state():
     assert not np.array_equal(l1log_0.coef_, l1log_1.coef_)
 
 
-def test_uoi_lasso_small():
-    # TODO: test uoi lasso on a tiny, noiseless dataset.
-    pass
+def test_uoi_lasso_toy():
+    """Test UoI Lasso on a toy example."""
+
+    X = np.array([
+        [-1, 2],
+        [4, 1],
+        [1, 3],
+        [4, 3],
+        [8, 11]])
+    beta = np.array([1, 4])
+    y = np.dot(X, beta)
+
+    # choose selection_frac to be slightly smaller to ensure that we get
+    # good test sets
+    lasso = UoI_Lasso(
+        fit_intercept=False,
+        selection_frac=0.75
+    )
+    lasso.fit(X, y)
+
+    assert_array_equal(lasso.coef_, beta)
 
 
-def test_uoi_lasso_to_lassoCV():
-    # TODO: UoI Lasso and LassoCV are equivalent under a certain set of
-    # hyperparameters. Test for this condition.
-    pass
+def test_get_reg_params():
+    """Tests whether get_reg_params works correctly for UoI Lasso."""
 
+    X = np.array([
+        [-1, 2],
+        [0, 1],
+        [1, 3],
+        [4, 3]])
+    y = np.array([7, 4, 13, 16])
 
-def test_lambdas():
-    # TODO: test that UoI Lasso obtains the correct set of lambda parameters
-    # to sweep over.
-    pass
+    # calculate regularization parameters manually
+    alpha_max = np.max(np.dot(X.T, y) / 4)
+    alphas = [{'alpha': alpha_max}, {'alpha': alpha_max / 10.}]
+
+    # calculate regularization parameters with UoI_Lasso object
+    lasso = UoI_Lasso(
+        n_lambdas=2,
+        normalize=False,
+        fit_intercept=False,
+        eps=0.1)
+    reg_params = lasso.get_reg_params(X, y)
+
+    # check each regularization parameter and key
+    for estimate, true in zip(reg_params, alphas):
+        assert estimate.keys() == true.keys()
+        assert np.allclose(list(estimate.values()), list(true.values()))
 
 
 def test_intercept():
-    # TODO: test that UoI Lasso properly calculates the intercept when
-    # fit_intercept = True.
-    pass
+    """Test that UoI Lasso properly calculates the intercept when centering
+    the response variable."""
 
+    X = np.array([
+        [-1, 2],
+        [0, 1],
+        [1, 3],
+        [4, 3]])
+    y = np.array([8, 5, 14, 17])
 
-def test_bootstraps():
-    # TODO: test that UoI Lasso is properly taking samples of the data when
-    # a RandomState is provided.
-    pass
+    lasso = UoI_Lasso(
+        normalize=False,
+        fit_intercept=True)
+    lasso.fit(X, y)
+
+    assert lasso.intercept_ == np.mean(y) - np.dot(X.mean(axis=0), lasso.coef_)
 
 
 def test_lasso_selection_sweep():
-    # TODO: test the lasso selection sweep.
+    # can't do this until selection_frac is separate from estimation_frac
     pass
 
 
 def test_score_predictions():
     # TODO: test the score_predictions function.
-    pass
-
-
-def test_get_n_coef():
-    # TODO: test the get_n_coef function.
     pass
