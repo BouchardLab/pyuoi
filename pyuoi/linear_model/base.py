@@ -233,22 +233,6 @@ class AbstractUoILinearModel(
         for ii, task_idx in enumerate(tasks):
             # reset the coef between bootstraps
             if hasattr(self.selection_lm, 'coef_'):
-<<<<<<< HEAD
-                self.selection_lm.coef_ *= 0.
-=======
-                self.selection_lm.coef_ = np.zeros_like(
-                    self.selection_lm.coef_,
-                    dtype=X.dtype,
-                    order='F')
-            if size > self.n_boots_sel:
-                boot_idx = task_idx // self.n_reg_params_
-                reg_idx = task_idx % self.n_reg_params_
-                my_reg_params = [self.reg_params_[reg_idx]]
-            else:
-                boot_idx = task_idx
-                my_reg_params = self.reg_params_
-
->>>>>>> bf8d841... adds mpi across bootstraps and reg_params or supports
             # draw a resampled bootstrap
             if self.comm is not None:
                 boot_comm = self.comm.Split(color=boot_idx, key=rank)

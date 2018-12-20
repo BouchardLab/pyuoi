@@ -13,6 +13,27 @@ from pyuoi.utils import sigmoid, softmax
 def make_classification(n_samples=100, n_features=20, n_informative=2,
                         n_classes=2, shared_support=False, random_state=None,
                         w_scale=1., include_intercept=False):
+    """Make a linear classification dataset.
+
+    Parameters
+    ----------
+    n_samples : int
+        The number of samples to make.
+    n_features : int
+        The number of feature to use.
+    n_informative : int
+        The number of feature with non-zero weights.
+    n_classes : int
+        The number of classes.
+    shared_support : bool
+        If True, all classes will share the same random support. If False, they
+        will each have randomly chooses support.
+    random_state : int or np.random.RandomState instance
+        Random number seed or state.
+    w_scale : float
+        The model parameter matrix, w, will be drawn from a normal distribution
+        with std=w_scale.
+    """
     if isinstance(random_state, int):
         rng = np.random.RandomState(random_state)
     else:
@@ -139,7 +160,6 @@ def test_estimation_score_usage():
     for method in methods:
         l1log = UoI_L1Logistic(random_state=12, estimation_score=method)
         assert_equal(l1log.estimation_score, method)
-        print(y)
         l1log.fit(X, y)
         score = np.max(l1log.scores_)
         scores.append(score)
