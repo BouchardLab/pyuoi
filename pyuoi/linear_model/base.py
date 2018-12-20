@@ -222,37 +222,52 @@ class AbstractUoILinearModel(
             tasks = np.array_split(np.arange(self.n_boots_sel *
                                              self.n_reg_params_), size)[rank]
             selection_coefs = np.empty((tasks.size, n_coef))
+            my_boots = dict((task_idx // self.n_reg_params_, None)
+                            for task_idx in tasks)
         else:
             # split up bootstraps into processes
             tasks = np.array_split(np.arange(self.n_boots_sel),
                                    size)[rank]
             selection_coefs = np.empty((tasks.size, self.n_reg_params_,
                                         n_coef))
+            my_boots = dict((task_idx, None) for task_idx in tasks)
 
-        # iterate over bootstraps
-        for ii, task_idx in enumerate(tasks):
-            # reset the coef between bootstraps
-            if hasattr(self.selection_lm, 'coef_'):
-            # draw a resampled bootstrap
+        for boot in range(self.n_boots_sel):
             if self.comm is not None:
-                boot_comm = self.comm.Split(color=boot_idx, key=rank)
-                if boot_comm.rank == 0:
-                    rvals = train_test_split(X, y,
+                if rank == 0:
+                    rvals = train_test_split(np.arange(X.shape[0]),
                                              test_size=1 - self.selection_frac,
                                              stratify=stratify,
                                              random_state=self.random_state)
                 else:
-                    rvals = [None] * 4
-                boot_comm.Free()
+                    rvals = [None] * 2
                 rvals = [Bcast_from_root(rval, self.comm, root=0)
                          for rval in rvals]
-                X_rep, X_test, y_rep, y_test = rvals
+                if boot in my_boots.keys():
+                    my_boots[boot] = rvals
             else:
-                X_rep, X_test, y_rep, y_test = train_test_split(
-                    X, y,
+                my_boots[boot] = train_test_split(
+                    np.arange(X.shape[0]),
                     test_size=1 - self.selection_frac,
                     stratify=stratify,
                     random_state=self.random_state)
+
+        # iterate over bootstraps
+        for ii, task_idx in enumerate(tasks):
+            if size > self.n_boots_sel:
+                boot_idx = task_idx // self.n_reg_params_
+                reg_idx = task_idx % self.n_reg_params_
+                my_reg_params = [self.reg_params_[reg_idx]]
+            else:
+                boot_idx = task_idx
+                my_reg_params = self.reg_params_
+
+            # draw a resampled bootstrap
+            idxs_train, idxs_test = my_boots[boot_idx]
+            X_rep = X[idxs_train]
+            X_test = X[idxs_test]
+            y_rep = y[idxs_train]
+            y_test = y[idxs_test]
 
             # fit the coefficients
             selection_coefs[ii] = np.squeeze(
@@ -265,7 +280,7 @@ class AbstractUoILinearModel(
             if rank == 0:
                 if size > self.n_boots_sel:
                     selection_coefs = selection_coefs.reshape(
-                        tasks.size,
+                        self.n_boots_sel,
                         self.n_reg_params_,
                         n_coef)
                 supports = self.intersect(
@@ -287,7 +302,29 @@ class AbstractUoILinearModel(
         # set up data arrays
         tasks = np.array_split(np.arange(self.n_boots_est *
                                          self.n_supports_), size)[rank]
+        my_boots = dict((task_idx // self.n_supports_, None)
+                        for task_idx in tasks)
         estimates = np.zeros((tasks.size, n_coef))
+
+        for boot in range(self.n_boots_est):
+            if self.comm is not None:
+                if rank == 0:
+                    rvals = train_test_split(np.arange(X.shape[0]),
+                                             test_size=1 - self.selection_frac,
+                                             stratify=stratify,
+                                             random_state=self.random_state)
+                else:
+                    rvals = [None] * 2
+                rvals = [Bcast_from_root(rval, self.comm, root=0)
+                         for rval in rvals]
+                if boot in my_boots.keys():
+                    my_boots[boot] = rvals
+            else:
+                my_boots[boot] = train_test_split(
+                    np.arange(X.shape[0]),
+                    test_size=1 - self.selection_frac,
+                    stratify=stratify,
+                    random_state=self.random_state)
 
         # score (r2/AIC/AICc/BIC) for each bootstrap for each support
         scores = np.zeros(tasks.size)
@@ -300,47 +337,29 @@ class AbstractUoILinearModel(
             support = self.supports_[support_idx]
             if np.any(support):
                 # draw a resampled bootstrap
-                if self.comm is not None:
-                    boot_comm = self.comm.Split(color=boot_idx, key=rank)
-                    if boot_comm.rank == 0:
-                        rvals = train_test_split(
-                            X, y,
-                            test_size=1 - self.selection_frac,
-                            stratify=stratify,
-                            random_state=self.random_state)
-                    else:
-                        rvals = [None] * 4
-                    boot_comm.Free()
-                    rvals = [Bcast_from_root(rval, self.comm, root=0)
-                             for rval in rvals]
-                    X_rep, X_test, y_rep, y_test = rvals
-                else:
-                    fitter = self._fit_intercept_no_features(y_train)
-                    self.scores_[bootstrap, supp_idx] = self.score_predictions(
-                        metric=self.estimation_score,
-                        fitter=fitter,
-                        X=np.zeros_like(X_test), y=y_test,
-                        support=np.zeros(X_test.shape[1], dtype=bool))
+                idxs_train, idxs_test = my_boots[boot_idx]
+                X_rep = X[idxs_train]
+                X_test = X[idxs_test]
+                y_rep = y[idxs_train]
+                y_test = y[idxs_test]
 
                 # compute ols estimate
                 self.estimation_lm.fit(X_rep[:, support], y_rep)
-
                 # store the fitted coefficients
                 estimates[ii, np.tile(support, n_tile)] = \
                     self.estimation_lm.coef_.ravel()
-
-                # obtain predictions for scoring
-                y_pred = self.estimation_lm.predict(X_test[:, support])
+                self.scores_[bootstrap, supp_idx] = self.score_predictions(
+                    metric=self.estimation_score,
+                    fitter=self.estimation_lm,
+                    X=X_test, y=y_test,
+                    support=support)
             else:
-                # no prediction since nothing was selected
-                y_pred = np.tile(y_rep.mean(axis=0, keepdims=True),
-                                 (X_test.shape[0], 1))
-                y_pred = np.zeros_like(y_test)
-                print(y_test, y_pred)
-
-            # calculate estimation score
-            scores[ii] = self.score_predictions(
-                self.estimation_score, y_test, y_pred, support)
+                fitter = self._fit_intercept_no_features(y_train)
+                self.scores_[bootstrap, supp_idx] = self.score_predictions(
+                    metric=self.estimation_score,
+                    fitter=fitter,
+                    X=np.zeros_like(X_test), y=y_test,
+                    support=np.zeros(X_test.shape[1], dtype=bool))
 
         if self.comm is not None:
             estimates = Gatherv_rows(send=estimates, comm=self.comm,
@@ -379,8 +398,8 @@ class AbstractUoILinearModel(
         return self
 
     def uoi_selection_sweep(self, X, y, reg_param_values):
-        """Perform selection regression on a dataset over a sweep of regularization
-        parameter values.
+        """Perform selection regression on a dataset over a sweep of
+        regularization parameter values.
 
         Parameters
         ----------
@@ -620,6 +639,7 @@ class AbstractUoILinearClassifier(
         """
         n_samples, n_coef = X.shape
         self._n_classes = len(np.unique(y))
+        self._labels = np.unique(y)
         if self._n_classes > 2:
             n_coef = n_coef * self._n_classes
         return n_samples, n_coef

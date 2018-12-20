@@ -15,6 +15,25 @@ except ModuleNotFoundError:
 
 
 def load_data_MPI(h5_name, X_key='X', y_key='y'):
+    """Load data from an h5 file and broadcast it across MPI ranks.
+
+    Parameters
+    ----------
+    h5_name : str
+        Path to h5 file.
+    X_key : str
+        Key for the features dataset. (default: 'X')
+    y_key : str
+        Key for the targets dataset. (default: 'y')
+
+    Returns
+    -------
+    X : ndarray
+        Features on all MPI ranks.
+    y : ndarray
+        Targets on all MPI ranks.
+    """
+
     comm = MPI.COMM_WORLD
     rank = comm.rank
     with h5py.File(h5_name, 'r') as f:
@@ -30,6 +49,18 @@ def load_data_MPI(h5_name, X_key='X', y_key='y'):
 
 
 def Bcast_from_root(send, comm, root=0):
+    """Broadcast an array from root to all MPI ranks.
+
+    Parameters
+    ----------
+    send : ndarray
+        The arrays to concatenate. All dimensions must be equal except for the
+        first.
+    comm : MPI.COMM_WORLD
+        MPI communicator.
+    root : int, default 0
+        This rank contains the array to send.
+    """
     rank = comm.rank
     if rank == 0:
         dtype = send.dtype
@@ -47,6 +78,7 @@ def Bcast_from_root(send, comm, root=0):
 
 def Gatherv_rows(send, comm, root=0):
     """Concatenate arrays along the first axis using Gatherv.
+
     Parameters
     ----------
     send : ndarray
