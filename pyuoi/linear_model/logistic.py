@@ -9,8 +9,8 @@ import numpy as np
 class UoI_L1Logistic(AbstractUoILinearClassifier):
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
-                 n_C=48, stability_selection=1., warm_start=True,
-                 estimation_score='acc',
+                 estimation_frac=0.9, n_C=48, stability_selection=1.,
+                 warm_start=True, estimation_score='acc',
                  copy_X=True, fit_intercept=True, normalize=True,
                  random_state=None, max_iter=1000,
                  comm=None):
@@ -18,6 +18,7 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
             selection_frac=selection_frac,
+            estimation_frac=estimation_frac,
             stability_selection=stability_selection,
             estimation_score=estimation_score,
             random_state=random_state,

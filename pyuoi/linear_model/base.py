@@ -87,9 +87,11 @@ class AbstractUoILinearModel(
     """
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
-                 stability_selection=1., random_state=None, comm=None):
+                 estimation_frac=0.9, stability_selection=1.,
+                 random_state=None, comm=None):
         # data split fractions
         self.selection_frac = selection_frac
+        self.estimation_frac = estimation_frac
         # number of bootstraps
         self.n_boots_sel = n_boots_sel
         self.n_boots_est = n_boots_est
@@ -267,7 +269,7 @@ class AbstractUoILinearModel(
             # draw a resampled bootstrap
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y,
-                test_size=1 - self.selection_frac,
+                test_size=1 - self.estimation_frac,
                 stratify=stratify,
                 random_state=self.random_state
             )
@@ -383,14 +385,15 @@ class AbstractUoILinearRegressor(
     __valid_estimation_metrics = ('r2', 'AIC', 'AICc', 'BIC')
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
-                 stability_selection=1., estimation_score='r2',
-                 copy_X=True, fit_intercept=True, normalize=True,
-                 random_state=None, max_iter=1000,
+                 estimation_frac=0.9, stability_selection=1.,
+                 estimation_score='r2', copy_X=True, fit_intercept=True,
+                 normalize=True, random_state=None, max_iter=1000,
                  comm=None):
         super(AbstractUoILinearRegressor, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
             selection_frac=selection_frac,
+            estimation_frac=estimation_frac,
             stability_selection=stability_selection,
             random_state=random_state,
             comm=comm,
@@ -511,7 +514,7 @@ class AbstractUoILinearRegressor(
 
 class AbstractUoILinearClassifier(
         _six.with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
-    """An abstract base class for UoI linear regression classes.
+    """An abstract base class for UoI linear classifier classes.
 
     See Bouchard et al., NIPS, 2017, for more details on the Union of
     Intersections framework.
@@ -520,8 +523,8 @@ class AbstractUoILinearClassifier(
     __valid_estimation_metrics = ('acc', 'log')
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
-                 stability_selection=1., estimation_score='acc',
-                 multi_class='ovr',
+                 estimation_frac=0.9, stability_selection=1.,
+                 estimation_score='acc', multi_class='ovr',
                  copy_X=True, fit_intercept=True, normalize=True,
                  random_state=None, max_iter=1000,
                  comm=None):
@@ -529,6 +532,7 @@ class AbstractUoILinearClassifier(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
             selection_frac=selection_frac,
+            estimation_frac=estimation_frac,
             stability_selection=stability_selection,
             random_state=random_state,
             comm=comm,

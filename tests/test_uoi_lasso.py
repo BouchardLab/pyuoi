@@ -2,11 +2,13 @@ import numpy as np
 from numpy.testing import (assert_array_equal, assert_array_almost_equal_nulp,
                            assert_equal)
 from sklearn.datasets import make_regression
+from sklearn.linear_model import Lasso
 from pyuoi import UoI_Lasso
 
 
 def test_variable_selection():
     """Test basic functionality of UoI_Lasso and that it finds right model"""
+
     X, y, w = make_regression(coef=True, random_state=1)
     lasso = UoI_Lasso()
     lasso.fit(X, y)
@@ -18,6 +20,7 @@ def test_variable_selection():
 
 def test_estimation_score_usage():
     """Test the ability to change the estimation score in UoI Lasso."""
+
     methods = ('r2', 'AIC', 'AICc', 'BIC')
     X, y = make_regression(n_features=10, n_informative=3,
                            random_state=10)
@@ -71,7 +74,8 @@ def test_uoi_lasso_toy():
     # good test sets
     lasso = UoI_Lasso(
         fit_intercept=False,
-        selection_frac=0.75
+        selection_frac=0.75,
+        estimation_frac=0.75
     )
     lasso.fit(X, y)
 
@@ -126,10 +130,27 @@ def test_intercept():
 
 
 def test_lasso_selection_sweep():
-    # can't do this until selection_frac is separate from estimation_frac
-    pass
+    """Tests uoi_selection_sweep for UoI_Lasso."""
 
+    # toy data
+    X = np.array([
+        [-1, 2, 3],
+        [4, 1, -7],
+        [1, 3, 1],
+        [4, 3, 12],
+        [8, 11, 2]])
+    beta = np.array([1, 4, 2])
+    y = np.dot(X, beta)
 
-def test_score_predictions():
-    # TODO: test the score_predictions function.
-    pass
+    # toy regularization
+    reg_param_values = [{'alpha': 1.0}, {'alpha': 2.0}]
+    lasso1 = Lasso(alpha=1.0, fit_intercept=True, normalize=True)
+    lasso2 = Lasso(alpha=2.0, fit_intercept=True, normalize=True)
+    lasso = UoI_Lasso(fit_intercept=True, normalize=True)
+
+    coefs = lasso.uoi_selection_sweep(X, y, reg_param_values)
+    lasso1.fit(X, y)
+    lasso2.fit(X, y)
+
+    assert np.allclose(coefs[0], lasso1.coef_)
+    assert np.allclose(coefs[1], lasso2.coef_)
