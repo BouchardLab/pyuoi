@@ -139,6 +139,7 @@ def test_estimation_score_usage():
     for method in methods:
         l1log = UoI_L1Logistic(random_state=12, estimation_score=method)
         assert_equal(l1log.estimation_score, method)
+        print(y)
         l1log.fit(X, y)
         score = np.max(l1log.scores_)
         scores.append(score)

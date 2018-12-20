@@ -10,7 +10,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
 
 from pyuoi import utils
-from pyuoi.mpi_utils import get_chunk_size, get_buffer_mask
+from pyuoi.mpi_utils import (Gatherv_rows, Bcast_from_root)
 
 from .utils import stability_selection_to_threshold, intersection
 
@@ -216,55 +216,81 @@ class AbstractUoILinearModel(
         if self.comm is not None:
             rank = self.comm.rank
             size = self.comm.size
-        chunk_size, buf_len = get_chunk_size(rank, size, self.n_boots_sel)
 
         # initialize selection
-        selection_coefs = np.zeros((buf_len, self.n_reg_params_, n_coef),
-                                   dtype=np.float32)
+        if size > self.n_boots_sel:
+            tasks = np.array_split(np.arange(self.n_boots_sel *
+                                             self.n_reg_params_), size)[rank]
+            selection_coefs = np.empty((tasks.size, n_coef))
+        else:
+            # split up bootstraps into processes
+            tasks = np.array_split(np.arange(self.n_boots_sel),
+                                   size)[rank]
+            selection_coefs = np.empty((tasks.size, self.n_reg_params_,
+                                        n_coef))
 
         # iterate over bootstraps
-        for bootstrap in range(chunk_size):
+        for ii, task_idx in enumerate(tasks):
             # reset the coef between bootstraps
             if hasattr(self.selection_lm, 'coef_'):
+<<<<<<< HEAD
                 self.selection_lm.coef_ *= 0.
-            # draw a resampled bootstrap
-            X_rep, X_test, y_rep, y_test = train_test_split(
-                X, y,
-                test_size=1 - self.selection_frac,
-                stratify=stratify,
-                random_state=self.random_state
-            )
+=======
+                self.selection_lm.coef_ = np.zeros_like(
+                    self.selection_lm.coef_,
+                    dtype=X.dtype,
+                    order='F')
+            if size > self.n_boots_sel:
+                boot_idx = task_idx // self.n_reg_params_
+                reg_idx = task_idx % self.n_reg_params_
+                my_reg_params = [self.reg_params_[reg_idx]]
+            else:
+                boot_idx = task_idx
+                my_reg_params = self.reg_params_
 
-            for reg_param_idx, reg_params in enumerate(self.reg_params_):
-                # reset the regularization parameter
-                self.selection_lm.set_params(**reg_params)
-                # rerun fit
-                self.selection_lm.fit(X_rep, y_rep)
-                # store coefficients
-                selection_coefs[bootstrap, reg_param_idx, :] = \
-                    self.selection_lm.coef_.ravel()
+>>>>>>> bf8d841... adds mpi across bootstraps and reg_params or supports
+            # draw a resampled bootstrap
+            if self.comm is not None:
+                boot_comm = self.comm.Split(color=boot_idx, key=rank)
+                if boot_comm.rank == 0:
+                    rvals = train_test_split(X, y,
+                                             test_size=1 - self.selection_frac,
+                                             stratify=stratify,
+                                             random_state=self.random_state)
+                else:
+                    rvals = [None] * 4
+                boot_comm.Free()
+                rvals = [Bcast_from_root(rval, self.comm, root=0)
+                         for rval in rvals]
+                X_rep, X_test, y_rep, y_test = rvals
+            else:
+                X_rep, X_test, y_rep, y_test = train_test_split(
+                    X, y,
+                    test_size=1 - self.selection_frac,
+                    stratify=stratify,
+                    random_state=self.random_state)
+
+            # fit the coefficients
+            selection_coefs[ii] = np.squeeze(
+                self.uoi_selection_sweep(X_rep, y_rep, my_reg_params))
 
         # if distributed, gather selection coefficients to 0,
         # perform intersection, and broadcast results
         if self.comm is not None:
-            self.comm.Barrier()
-            recv = None
+            selection_coefs = Gatherv_rows(selection_coefs, self.comm, root=0)
             if rank == 0:
-                recv = np.zeros((buf_len * size, self.n_reg_params_, n_coef),
-                                dtype=np.float32)
-            self.comm.Gather(selection_coefs, recv, root=0)
-            supports = None
-            shape = None
-            if rank == 0:
-                mask = get_buffer_mask(size, self.n_boots_sel)
-                recv = recv[mask]
-                supports = self.intersect(recv, self.selection_thresholds_)
-                shape = supports.shape
-            shape = self.comm.bcast(shape, root=0)
-            if rank != 0:
-                supports = np.zeros(shape, dtype=np.float32)
-            supports = self.comm.bcast(supports, root=0)
-            self.supports_ = supports
+                if size > self.n_boots_sel:
+                    selection_coefs = selection_coefs.reshape(
+                        tasks.size,
+                        self.n_reg_params_,
+                        n_coef)
+                supports = self.intersect(
+                    selection_coefs,
+                    self.selection_thresholds_).astype(int)
+            else:
+                supports = None
+            supports = Bcast_from_root(supports, self.comm, root=0)
+            self.supports_ = supports.astype(bool)
         else:
             self.supports_ = self.intersect(selection_coefs,
                                             self.selection_thresholds_)
@@ -275,48 +301,35 @@ class AbstractUoILinearModel(
         # Estimation Module #
         #####################
         # set up data arrays
-
-        chunk_size, buf_len = get_chunk_size(rank, size, self.n_boots_est)
-
-        # coef_ for each bootstrap for each support
-        self.estimates_ = np.zeros((buf_len, self.n_supports_, n_coef),
-                                   dtype=np.float32)
+        tasks = np.array_split(np.arange(self.n_boots_est *
+                                         self.n_supports_), size)[rank]
+        estimates = np.zeros((tasks.size, n_coef))
 
         # score (r2/AIC/AICc/BIC) for each bootstrap for each support
-        self.scores_ = np.zeros((buf_len, self.n_supports_), dtype=np.float32)
+        scores = np.zeros(tasks.size)
 
         n_tile = n_coef // n_features
-        # iterate over bootstrap samples
-        for bootstrap in range(chunk_size):
-
-            # draw a resampled bootstrap
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y,
-                test_size=1 - self.estimation_frac,
-                stratify=stratify,
-                random_state=self.random_state
-            )
-
-            # iterate over the regularization parameters
-            for supp_idx, support in enumerate(self.supports_):
-                # extract current support set
-                # run estimation fit if the support has non-zero entries
-                if np.any(support):
-                    # compute ols estimate
-                    self.estimation_lm.fit(X_train[:, support], y_train)
-
-                    # store the fitted coefficients
-                    self.estimates_[
-                        bootstrap, supp_idx, np.tile(support, n_tile)] = \
-                        self.estimation_lm.coef_.ravel()
-
-                    # calculate estimation score
-                    self.scores_[bootstrap, supp_idx] = self.score_predictions(
-                        metric=self.estimation_score,
-                        fitter=self.estimation_lm,
-                        X=X_test, y=y_test,
-                        support=support)
-                # otherwise, run a fit with an empty model
+        # iterate over bootstrap samples and supports
+        for ii, task_idx in enumerate(tasks):
+            boot_idx = task_idx // self.n_supports_
+            support_idx = task_idx % self.n_supports_
+            support = self.supports_[support_idx]
+            if np.any(support):
+                # draw a resampled bootstrap
+                if self.comm is not None:
+                    boot_comm = self.comm.Split(color=boot_idx, key=rank)
+                    if boot_comm.rank == 0:
+                        rvals = train_test_split(
+                            X, y,
+                            test_size=1 - self.selection_frac,
+                            stratify=stratify,
+                            random_state=self.random_state)
+                    else:
+                        rvals = [None] * 4
+                    boot_comm.Free()
+                    rvals = [Bcast_from_root(rval, self.comm, root=0)
+                             for rval in rvals]
+                    X_rep, X_test, y_rep, y_test = rvals
                 else:
                     fitter = self._fit_intercept_no_features(y_train)
                     self.scores_[bootstrap, supp_idx] = self.score_predictions(
@@ -325,38 +338,59 @@ class AbstractUoILinearModel(
                         X=np.zeros_like(X_test), y=y_test,
                         support=np.zeros(X_test.shape[1], dtype=bool))
 
+                # compute ols estimate
+                self.estimation_lm.fit(X_rep[:, support], y_rep)
+
+                # store the fitted coefficients
+                estimates[ii, np.tile(support, n_tile)] = \
+                    self.estimation_lm.coef_.ravel()
+
+                # obtain predictions for scoring
+                y_pred = self.estimation_lm.predict(X_test[:, support])
+            else:
+                # no prediction since nothing was selected
+                y_pred = np.tile(y_rep.mean(axis=0, keepdims=True),
+                                 (X_test.shape[0], 1))
+                y_pred = np.zeros_like(y_test)
+                print(y_test, y_pred)
+
+            # calculate estimation score
+            scores[ii] = self.score_predictions(
+                self.estimation_score, y_test, y_pred, support)
+
         if self.comm is not None:
-            self.comm.Barrier()
-            est_recv = None
-            scores_recv = None
+            estimates = Gatherv_rows(send=estimates, comm=self.comm,
+                                     root=0)
+            scores = Gatherv_rows(send=scores, comm=self.comm,
+                                  root=0)
             self.rp_max_idx_ = None
             best_estimates = None
+            coef = None
             if rank == 0:
-                est_recv = np.zeros((buf_len * size, self.n_supports_, n_coef),
-                                    dtype=np.float32)
-                scores_recv = np.zeros((buf_len * size, self.n_supports_),
-                                       dtype=np.float32)
-            self.comm.Gather(self.scores_, scores_recv, root=0)
-            self.comm.Gather(self.estimates_, est_recv, root=0)
-            if rank == 0:
-                mask = get_buffer_mask(size, self.n_boots_est)
-                self.estimates_ = est_recv[mask]
-                self.scores_ = scores_recv[mask]
-                self.rp_max_idx_ = np.argmax(self.scores_, axis=1)
-                best_estimates = self.estimates_[np.arange(self.n_boots_est),
-                                                 self.rp_max_idx_, :]
+                estimates = estimates.reshape(self.n_boots_est,
+                                              self.n_supports_, n_coef)
+                scores = scores.reshape(self.n_boots_est, self.n_supports_)
+                self.rp_max_idx_ = np.argmax(scores, axis=1)
+                best_estimates = estimates[np.arange(self.n_boots_est),
+                                           self.rp_max_idx_]
+                # take the median across estimates for the final estimate
+                coef = np.median(best_estimates, axis=0).reshape(n_tile, n_coef)
+            self.estimates_ = Bcast_from_root(estimates, self.comm, root=0)
+            self.scores_ = Bcast_from_root(scores, self.comm, root=0)
+            self.coef_ = Bcast_from_root(coef, self.comm, root=0)
             self.rp_max_idx_ = self.comm.bcast(self.rp_max_idx_, root=0)
-            best_estimates = self.comm.bcast(best_estimates, root=0)
         else:
+            self.estimates_ = estimates.reshape(self.n_boots_est,
+                                                self.n_supports_, n_coef)
+            self.scores_ = scores.reshape(self.n_boots_est, self.n_supports_)
             self.rp_max_idx_ = np.argmax(self.scores_, axis=1)
             # extract the estimates over bootstraps from model with best
             # regularization parameter value
             best_estimates = self.estimates_[np.arange(self.n_boots_est),
                                              self.rp_max_idx_, :]
-
-        # take the median across estimates for the final, bagged estimate
-        self.coef_ = (np.median(best_estimates, axis=0)
-                      .reshape(n_tile, n_features))
+            # take the median across estimates for the final, bagged estimate
+            self.coef_ = np.median(best_estimates,
+                                   axis=0).reshape(n_tile, n_coef)
 
         return self
 
@@ -385,10 +419,7 @@ class AbstractUoILinearModel(
         n_param_values = len(reg_param_values)
         n_features = X.shape[1]
 
-        coefs = np.zeros(
-            (n_param_values, n_features),
-            dtype=np.float32
-        )
+        coefs = np.zeros((n_param_values, n_features))
 
         # apply the selection regression to bootstrapped datasets
         for reg_param_idx, reg_params in enumerate(reg_param_values):
@@ -397,7 +428,7 @@ class AbstractUoILinearModel(
             # rerun fit
             self.selection_lm.fit(X, y)
             # store coefficients
-            coefs[reg_param_idx, :] = self.selection_lm.coef_.ravel()
+            coefs[reg_param_idx] = self.selection_lm.coef_.ravel()
 
         return coefs
 

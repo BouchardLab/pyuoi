@@ -1,8 +1,84 @@
 """
 Helper functions for working with MPI.
 """
-import math
+import math, h5py
 import numpy as np
+
+try:
+    from mpi4py import MPI
+    _np2mpi = {np.dtype(np.float32): MPI.FLOAT,
+               np.dtype(np.float64): MPI.DOUBLE,
+               np.dtype(np.int): MPI.LONG,
+               np.dtype(np.intc): MPI.INT}
+except ModuleNotFoundError:
+    _np2mpi = None
+
+
+def load_data_MPI(h5_name, X_key='X', y_key='y'):
+    comm = MPI.COMM_WORLD
+    rank = comm.rank
+    with h5py.File(h5_name, 'r') as f:
+        if rank == 0:
+            X = f[X_key].value
+            y = f[y_key].value
+        else:
+            X = np.empty(f[X_key].shape, dtype=f[X_key].dtype)
+            y = np.empty(f[y_key].shape, dtype=f[y_key].dtype)
+    comm.Bcast([X, _np2mpi[np.dtype(X.dtype)]], root=0)
+    comm.Bcast([y, _np2mpi[np.dtype(y.dtype)]], root=0)
+    return X, y
+
+
+def Bcast_from_root(send, comm, root=0):
+    rank = comm.rank
+    if rank == 0:
+        dtype = send.dtype
+        shape = send.shape
+    else:
+        dtype = None
+        shape = None
+    shape = comm.bcast(shape, root=root)
+    dtype = comm.bcast(dtype, root=root)
+    if rank != 0:
+        send = np.empty(shape, dtype=dtype)
+    comm.Bcast([send, _np2mpi[np.dtype(dtype)]], root=root)
+    return send
+
+
+def Gatherv_rows(send, comm, root=0):
+    """Concatenate arrays along the first axis using Gatherv.
+    Parameters
+    ----------
+    send : ndarray
+        The arrays to concatenate. All dimensions must be equal except for the
+        first.
+    comm : MPI.COMM_WORLD
+        MPI communicator.
+    root : int, default 0
+        This rank will contain the Gatherv'ed array.
+    """
+
+    rank = comm.rank
+    size = comm.size
+    dtype = send.dtype
+    shape = send.shape
+    tot = np.zeros(1, dtype=int)
+    comm.Reduce(np.array(shape[0], dtype=int),
+                [tot, _np2mpi[tot.dtype]], op=MPI.SUM, root=root)
+    if rank == root:
+        rec_shape = (tot[0],) + shape[1:]
+        rec = np.empty(rec_shape, dtype=dtype)
+        idxs = np.array_split(np.arange(rec_shape[0]), size)
+        sizes = [idx.size * np.prod(rec_shape[1:]) for idx in idxs]
+        disps = np.insert(np.cumsum(sizes), 0, 0)[:-1]
+    else:
+        rec = None
+        idxs = None
+        sizes = None
+        disps = None
+
+    comm.Gatherv(send, [rec, sizes, disps, _np2mpi[dtype]], root=0)
+    return rec
 
 
 def get_chunk_size(rank, size, n):
