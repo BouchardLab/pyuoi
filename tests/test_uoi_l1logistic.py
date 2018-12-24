@@ -3,7 +3,6 @@ import pytest
 import numpy as np
 
 from numpy.testing import assert_array_equal, assert_allclose, assert_equal
-from sklearn.preprocessing import normalize
 
 from pyuoi import UoI_L1Logistic
 from pyuoi.linear_model.logistic import fit_intercept_fixed_coef
@@ -140,7 +139,6 @@ def test_l1logistic_multiclass():
                                   n_informative=n_inf,
                                   n_features=n_features,
                                   shared_support=True)
-    X = normalize(X, axis=0)
     l1log = UoI_L1Logistic().fit(X, y)
     print()
     print(w)
@@ -160,7 +158,6 @@ def test_estimation_score_usage():
     for method in methods:
         l1log = UoI_L1Logistic(random_state=12, estimation_score=method)
         assert_equal(l1log.estimation_score, method)
-        print(y)
         l1log.fit(X, y)
         score = np.max(l1log.scores_)
         scores.append(score)

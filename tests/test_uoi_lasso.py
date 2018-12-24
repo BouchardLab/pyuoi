@@ -1,6 +1,6 @@
 import numpy as np
 from numpy.testing import (assert_array_equal, assert_array_almost_equal_nulp,
-                           assert_equal)
+                           assert_equal, assert_allclose)
 from sklearn.datasets import make_regression
 from sklearn.linear_model import Lasso
 from pyuoi import UoI_Lasso
@@ -79,7 +79,7 @@ def test_uoi_lasso_toy():
     )
     lasso.fit(X, y)
 
-    assert_array_equal(lasso.coef_, beta)
+    assert_allclose(lasso.coef_, beta)
 
 
 def test_get_reg_params():
@@ -107,7 +107,7 @@ def test_get_reg_params():
     # check each regularization parameter and key
     for estimate, true in zip(reg_params, alphas):
         assert estimate.keys() == true.keys()
-        assert np.allclose(list(estimate.values()), list(true.values()))
+        assert_allclose(list(estimate.values()), list(true.values()))
 
 
 def test_intercept():

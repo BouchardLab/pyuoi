@@ -348,7 +348,8 @@ class AbstractUoILinearModel(
                 # store the fitted coefficients
                 estimates[ii, np.tile(support, n_tile)] = \
                     self.estimation_lm.coef_.ravel()
-                self.scores_[bootstrap, supp_idx] = self.score_predictions(
+
+                scores[ii] = self.score_predictions(
                     metric=self.estimation_score,
                     fitter=self.estimation_lm,
                     X=X_test, y=y_test,
