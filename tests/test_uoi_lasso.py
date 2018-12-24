@@ -66,8 +66,8 @@ def test_uoi_lasso_toy():
         [4, 1],
         [1, 3],
         [4, 3],
-        [8, 11]])
-    beta = np.array([1, 4])
+        [8, 11]], dtype=float)
+    beta = np.array([1, 4], dtype=float)
     y = np.dot(X, beta)
 
     # choose selection_frac to be slightly smaller to ensure that we get
