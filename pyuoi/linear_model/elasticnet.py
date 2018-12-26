@@ -11,8 +11,8 @@ class UoI_ElasticNet(AbstractUoILinearRegressor):
 
     def __init__(self, n_lambdas=48, alphas=np.array([0.5]),
                  n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
-                 stability_selection=1., estimation_score='r2',
-                 warm_start=True, eps=1e-3,
+                 estimation_frac=0.9, stability_selection=1.,
+                 estimation_score='r2', warm_start=True, eps=1e-3,
                  copy_X=True, fit_intercept=True, normalize=True,
                  random_state=None, max_iter=1000,
                  comm=None):
@@ -20,6 +20,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor):
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
             selection_frac=selection_frac,
+            estimation_frac=estimation_frac,
             stability_selection=stability_selection,
             estimation_score=estimation_score,
             copy_X=copy_X,
