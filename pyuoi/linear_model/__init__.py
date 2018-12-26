@@ -7,6 +7,7 @@ from .base import (AbstractUoILinearModel, AbstractUoILinearRegressor,
                    AbstractUoILinearClassifier)
 from .lasso import UoI_Lasso
 from .logistic import UoI_L1Logistic
+from .poisson import Poisson
 from . import utils
 
 
@@ -16,3 +17,4 @@ __all__ = ["AbstractUoILinearClassifier",
            "UoI_L1Logistic",
            "UoI_Lasso",
            "utils"]
+from .poisson import Poisson
