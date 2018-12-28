@@ -69,26 +69,27 @@ def test_adjusted_response():
 def test_cd_sweep():
     """Test one pass through the coordinate sweep function."""
 
-    poisson = Poisson()
+    poisson = Poisson(fit_intercept=False)
 
     w, z = Poisson.adjusted_response(X, y, beta)
     active_idx = np.argwhere(beta != 0).ravel()
-    beta_new = poisson.cd_sweep(beta, X, w, z, active_idx)
+    beta_new, intercept_new = poisson.cd_sweep(beta, X, w, z, active_idx)
 
     beta_new_true = np.array([
         2.922553187460584, 0.909849302128083, 0, -1.850644198436912, 0])
 
     assert np.allclose(beta_new_true, beta_new)
+    assert intercept_new == 0
 
 
 def test_fit():
     """Test the entire fitting procedure for the Poisson GLM."""
 
     # compare after 50 iterations
-    poisson = Poisson(max_iter=50)
-    beta_new = poisson.fit(X, y, beta_init=0.5 * np.ones(beta.size))
+    poisson = Poisson(max_iter=50, fit_intercept=False)
+    poisson.fit(X, y, init=0.5 * np.ones(beta.size))
     beta_new_true = np.array([
         -3.865910169523823, 6.243915946623266, -0.728804736275411,
         -0.463706073765083, -3.622620769371424])
 
-    assert np.allclose(beta_new_true, beta_new)
+    assert np.allclose(beta_new_true, poisson.coef_)
