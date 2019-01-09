@@ -206,7 +206,10 @@ class AbstractUoILinearModel(
         for bootstrap in range(chunk_size):
             # reset the coef between bootstraps
             if hasattr(self.selection_lm, 'coef_'):
-                self.selection_lm.coef_ = np.zeros(
+                self.selection_lm.coef_ = np.zeros_like(
+                    self.selection_lm.coef_,
+                    dtype=X.dtype,
+                    order='F')
                     self.selection_lm.coef_.shape,
                     dtype=X.dtype,
                     order='F')
