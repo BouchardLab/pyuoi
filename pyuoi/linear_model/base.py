@@ -204,6 +204,12 @@ class AbstractUoILinearModel(
 
         # iterate over bootstraps
         for bootstrap in range(chunk_size):
+            # reset the coef between bootstraps
+            if hasattr(self.selection_lm, 'coef_'):
+                self.selection_lm.coef_ = np.zeros_like(
+                    self.selection_lm.coef_,
+                    dtype=X.dtype,
+                    order='F')
             # draw a resampled bootstrap
             X_rep, X_test, y_rep, y_test = train_test_split(
                 X, y,
