@@ -18,10 +18,10 @@ X = np.array([
     [0.54, 0.21, 0.98, 0.26, 0.01]])
 
 # true parameters
-beta = np.array([3., 1.,  0.,  -2.,  0.])
+beta = np.array([3., 1., 0., -2., 0.])
 
 # response variable
-y = np.array([2,  6,  0,  4,  6,  3,  0, 16,  8,  7])
+y = np.array([2, 6, 0, 4, 6, 3, 0, 16, 8, 7])
 
 
 def test_soft_threshold():

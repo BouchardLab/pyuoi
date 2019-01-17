@@ -283,7 +283,7 @@ class AbstractUoILinearModel(
             # iterate over the regularization parameters
             for supp_idx, support in enumerate(self.supports_):
                 # extract current support set
-                # if nothing was selected, we won't bother running OLS
+                # run estimation fit if the support has non-zero entries
                 if np.any(support):
                     # compute ols estimate
                     self.estimation_lm.fit(X_train[:, support], y_train)
@@ -299,14 +299,21 @@ class AbstractUoILinearModel(
                         fitter=self.estimation_lm,
                         X=X_test, y=y_test,
                         support=support)
+                # otherwise, run a fit with an empty model
                 else:
+                    # reset the coef
+                    if hasattr(self.selection_lm, 'coef_'):
+                        self.selection_lm.coef_ = np.zeros_like(
+                            self.selection_lm.coef_,
+                            dtype=X_test.dtype,
+                            order='F')
                     # predict by fitting an empty design matrix
                     self.selection_lm.fit(np.zeros_like(X_test), y_test)
                     self.scores_[bootstrap, supp_idx] = self.score_predictions(
                         metric=self.estimation_score,
                         fitter=self.selection_lm,
                         X=X_test, y=y_test,
-                        support=support)
+                        support=np.arange(X_test.shape[1]))
 
         if self.comm is not None:
             self.comm.Barrier()
@@ -642,7 +649,7 @@ class AbstractUoILinearClassifier(
         else:
             y_pred = fitter.predict_proba(X[:, support])
             ll = log_loss(y, y_pred)
-            if metric == 'll':
+            if metric == 'log':
                 score = ll
             else:
                 n_features = np.count_nonzero(support)

@@ -17,5 +17,5 @@ __all__ = ["AbstractUoILinearClassifier",
            "UoI_L1Logistic",
            "UoI_Lasso",
            "Poisson",
+           "UoI_Poisson",
            "utils"]
-from .poisson import Poisson

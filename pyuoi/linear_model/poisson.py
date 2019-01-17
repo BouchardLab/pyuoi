@@ -12,12 +12,12 @@ from sklearn.utils import check_X_y
 class UoI_Poisson(AbstractUoILinearRegressor):
 
     _AbstractUoILinearRegressor__valid_estimation_metrics = \
-        ('ll', 'AIC', 'AICc', 'BIC')
+        ('log', 'AIC', 'AICc', 'BIC')
 
     def __init__(self, n_lambdas=48, alphas=np.array([0.5]),
                  n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
-                 estimation_score='ll', warm_start=True, eps=1e-3,
+                 estimation_score='log', warm_start=True, eps=1e-3,
                  tol=1e-5, copy_X=True, fit_intercept=True,
                  normalize=True, random_state=None, max_iter=1000,
                  comm=None):
@@ -186,7 +186,7 @@ class UoI_Poisson(AbstractUoILinearRegressor):
         """
         y_pred = fitter.predict_mean(X[:, support])
         ll = utils.log_likelihood_glm(model='poisson', y_true=y, y_pred=y_pred)
-        if metric == 'll':
+        if metric == 'log':
             score = ll
         else:
             n_features = np.count_nonzero(support)
@@ -284,7 +284,7 @@ class Poisson(LinearModel):
         if self.warm_start and hasattr(self, 'coef_'):
             coef = self.coef_
         else:
-            coef = np.random.zeros(size=(self.n_features))
+            coef = np.zeros(shape=(self.n_features))
 
         if init is not None:
             coef = init

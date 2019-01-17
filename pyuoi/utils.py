@@ -89,6 +89,9 @@ def AICc(ll, n_features, n_samples):
     """Calculate the corrected Akaike Information Criterion. This criterion is
     useful in cases when the number of samples is small.
 
+    If the number of features is equal to the number of samples plus one, then
+    the AIC is returned (the AICc is undefined in this case).
+
     Parameters
     ----------
     ll : float
@@ -105,6 +108,7 @@ def AICc(ll, n_features, n_samples):
     AIC : float
         Akaike Information Criterion
     """
-    AICc = AIC(ll, n_features) + \
-        2 * (n_features**2 + n_features) / (n_samples - n_features - 1)
+    AICc = AIC(ll, n_features)
+    if n_samples > (n_features + 1):
+        AICc += 2 * (n_features**2 + n_features) / (n_samples - n_features - 1)
     return AICc
