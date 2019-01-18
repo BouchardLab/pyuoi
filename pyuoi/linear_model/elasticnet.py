@@ -63,7 +63,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor):
 
         where lambda and alpha are regularization parameters.
 
-        Note that scikit-learn does not use these names. Instead, scitkit-learn
+        Scikit-learn does not use these names. Instead, scitkit-learn
         denotes alpha by 'l1_ratio' and lambda by 'alpha'.
 
         Parameters

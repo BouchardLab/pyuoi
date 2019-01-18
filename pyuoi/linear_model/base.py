@@ -283,7 +283,7 @@ class AbstractUoILinearModel(
             # iterate over the regularization parameters
             for supp_idx, support in enumerate(self.supports_):
                 # extract current support set
-                # if nothing was selected, we won't bother running OLS
+                # run estimation fit if the support has non-zero entries
                 if np.any(support):
                     # compute ols estimate
                     self.estimation_lm.fit(X_train[:, support], y_train)
@@ -293,15 +293,27 @@ class AbstractUoILinearModel(
                         bootstrap, supp_idx, np.tile(support, n_tile)] = \
                         self.estimation_lm.coef_.ravel()
 
-                    # obtain predictions for scoring
-                    y_pred = self.estimation_lm.predict(X_test[:, support])
+                    # calculate estimation score
+                    self.scores_[bootstrap, supp_idx] = self.score_predictions(
+                        metric=self.estimation_score,
+                        fitter=self.estimation_lm,
+                        X=X_test, y=y_test,
+                        support=support)
+                # otherwise, run a fit with an empty model
                 else:
-                    # no prediction since nothing was selected
-                    y_pred = np.zeros(y_test.size)
-
-                # calculate estimation score
-                self.scores_[bootstrap, supp_idx] = self.score_predictions(
-                    self.estimation_score, y_test, y_pred, support)
+                    # reset the coef
+                    if hasattr(self.selection_lm, 'coef_'):
+                        self.selection_lm.coef_ = np.zeros_like(
+                            self.selection_lm.coef_,
+                            dtype=X_test.dtype,
+                            order='F')
+                    # predict by fitting an empty design matrix
+                    self.selection_lm.fit(np.zeros_like(X_test), y_test)
+                    self.scores_[bootstrap, supp_idx] = self.score_predictions(
+                        metric=self.estimation_score,
+                        fitter=self.selection_lm,
+                        X=X_test, y=y_test,
+                        support=np.arange(X_test.shape[1]))
 
         if self.comm is not None:
             self.comm.Barrier()
@@ -436,7 +448,7 @@ class AbstractUoILinearRegressor(
         return self.__estimation_score
 
     @staticmethod
-    def score_predictions(metric, y_true, y_pred, supports):
+    def score_predictions(metric, fitter, X, y, support):
         """Score, according to some metric, predictions provided by a model.
 
         the resulting score will be negated if an information criterion is
@@ -464,18 +476,24 @@ class AbstractUoILinearRegressor(
         score : float
             The score.
         """
+        y_pred = fitter.predict(X[:, support])
         if metric == 'r2':
-            score = r2_score(y_true, y_pred)
+            score = r2_score(y, y_pred)
         else:
-            n_features = np.count_nonzero(supports)
+            ll = utils.log_likelihood_glm(model='normal',
+                                          y_true=y,
+                                          y_pred=y_pred)
+            n_features = np.count_nonzero(support)
+            n_samples = y.size
             if metric == 'BIC':
-                score = utils.BIC(y_true, y_pred, n_features)
+                score = utils.BIC(ll, n_features, n_samples)
             elif metric == 'AIC':
-                score = utils.AIC(y_true, y_pred, n_features)
+                score = utils.AIC(ll, n_features)
             elif metric == 'AICc':
-                score = utils.AICc(y_true, y_pred, n_features)
+                score = utils.AICc(ll, n_features, n_samples)
             else:
                 raise ValueError(metric + ' is not a valid option.')
+            # negate the score since lower information criterion is preferable
             score = -score
         return score
 
@@ -597,7 +615,7 @@ class AbstractUoILinearClassifier(
         return self.__estimation_score
 
     @staticmethod
-    def score_predictions(metric, y_true, y_pred, supports):
+    def score_predictions(metric, fitter, X, y, support):
         """Score, according to some metric, predictions provided by a model.
 
         the resulting score will be negated if an information criterion is
@@ -626,9 +644,26 @@ class AbstractUoILinearClassifier(
             The score.
         """
         if metric == 'acc':
-            score = accuracy_score(y_true, y_pred)
-        elif metric == 'log':
-            score = log_loss(y_true, y_pred)
+            y_pred = fitter.predict(X[:, support])
+            score = accuracy_score(y, y_pred)
         else:
-            raise ValueError(metric + ' is not a valid option.')
+            y_pred = fitter.predict_proba(X[:, support])
+            ll = log_loss(y, y_pred)
+            if metric == 'log':
+                score = ll
+            else:
+                n_features = np.count_nonzero(support)
+                n_samples = y.size
+                if metric == 'BIC':
+                    score = utils.BIC(ll, n_features, n_samples)
+                elif metric == 'AIC':
+                    score = utils.AIC(ll, n_features)
+                elif metric == 'AICc':
+                    score = utils.AICc(ll, n_features, n_samples)
+                else:
+                    raise ValueError(metric + ' is not a valid metric.')
+                # negate the score since lower information criterion is
+                # preferable
+                score = -score
+
         return score
