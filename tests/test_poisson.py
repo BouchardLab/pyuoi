@@ -1,6 +1,9 @@
 import numpy as np
 
-from pyuoi.linear_model.poisson import Poisson
+from numpy.testing import assert_almost_equal
+
+from pyuoi.linear_model import Poisson
+from pyuoi.linear_model import UoI_Poisson
 
 # poisson GLM model by hand
 
@@ -93,3 +96,26 @@ def test_fit():
         -0.463706073765083, -3.622620769371424])
 
     assert np.allclose(beta_new_true, poisson.coef_)
+
+
+# UoI Poisson tests
+def test_score_predictions():
+    """Test the score predictions function in UoI Poisson."""
+    X = np.array([[np.log(2), -1, -3],
+                  [np.log(3), -2, -4],
+                  [np.log(4), -3, -5],
+                  [np.log(5), -4, -6]])
+    y = 1. / np.log([2., 3., 4., 5.])
+    support = np.array([True, False, False])
+
+    # create fitter by hand
+    fitter = Poisson()
+    fitter.coef_ = np.array([1])
+    fitter.intercept_ = 0
+
+    score = UoI_Poisson.score_predictions(
+        metric='log',
+        fitter=fitter,
+        X=X, y=y, support=support)
+
+    assert_almost_equal(score, -2.5)

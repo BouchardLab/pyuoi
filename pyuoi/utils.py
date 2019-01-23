@@ -34,7 +34,7 @@ def log_likelihood_glm(model, y_true, y_pred):
     elif model == 'poisson':
         ll = np.mean(y_true * np.log(y_pred) - y_pred)
     else:
-        raise ValueError('Model %g is not available.' % model)
+        raise ValueError('Model is not available.')
     return ll
 
 

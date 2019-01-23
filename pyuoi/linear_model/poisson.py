@@ -159,8 +159,8 @@ class UoI_Poisson(AbstractUoILinearRegressor):
     def score_predictions(metric, fitter, X, y, support):
         """Score, according to some metric, predictions provided by a model.
 
-        the resulting score will be negated if an information criterion is
-        specified
+        The resulting score will be negated if an information criterion is
+        specified.
 
         Parameters
         ----------
@@ -169,25 +169,31 @@ class UoI_Poisson(AbstractUoILinearRegressor):
             'r2' (explained variance), 'BIC' (Bayesian information criterion),
             'AIC' (Akaike information criterion), and 'AICc' (corrected AIC).
 
-        y_true : array-like
-            The true response variables.
+        fitter : Poisson object
+            The Poisson object that has been fit to the data with the
+            respective hyperparameters.
 
-        y_pred : array-like
-            The predicted response variables.
+        X : nd-array
+            The design matrix.
 
-        supports: array-like
-            The value of the supports for the model that was used to generate
-            *y_pred*.
+        y : nd-array
+            The response vector.
+
+        support: array-like
+            The indices of the non-zero features.
 
         Returns
         -------
         score : float
             The score.
         """
+        # for Poisson, use predict_mean to calculate the "predicted" values
         y_pred = fitter.predict_mean(X[:, support])
+        # calculate the log-likelihood
         ll = utils.log_likelihood_glm(model='poisson', y_true=y, y_pred=y_pred)
         if metric == 'log':
             score = ll
+        # information criteria
         else:
             n_features = np.count_nonzero(support)
             n_samples = y.size
@@ -334,12 +340,32 @@ class Poisson(LinearModel):
 
         Returns
         -------
+        mode : array_like, shape (n_samples)
+            The predicted response values, i.e. the modes.
+        """
+        if hasattr(self, 'coef_') and hasattr(self, 'intercept_'):
+            mu = np.exp(self.intercept_ + np.dot(X, self.coef_))
+            mode = np.floor(mu)
+            return mode
+        else:
+            raise NotFittedError('Poisson model is not fit.')
+    
+    def predict_mean(self, X):
+        """Calculates the mean response variable given a design matrix.
+
+        Parameters
+        ----------
+        X : array_like, shape (n_samples, n_features)
+            Design matrix to predict on.
+
+        Returns
+        -------
         mu : array_like, shape (n_samples)
             The predicted response values, i.e. the conditional means.
         """
         if hasattr(self, 'coef_') and hasattr(self, 'intercept_'):
             mu = np.exp(self.intercept_ + np.dot(X, self.coef_))
-            return np.floor(mu)
+            return mu
         else:
             raise NotFittedError('Poisson model is not fit.')
 
