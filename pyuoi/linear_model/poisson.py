@@ -196,6 +196,8 @@ class UoI_Poisson(AbstractUoILinearRegressor):
         # information criteria
         else:
             n_features = np.count_nonzero(support)
+            if fitter.intercept_ != 0:
+                n_features += 1
             n_samples = y.size
             if metric == 'BIC':
                 score = utils.BIC(ll, n_features, n_samples)

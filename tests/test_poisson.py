@@ -1,9 +1,12 @@
 import numpy as np
 
 from numpy.testing import assert_almost_equal
+from numpy.testing import assert_raises
 
 from pyuoi.linear_model import Poisson
 from pyuoi.linear_model import UoI_Poisson
+
+from sklearn.exceptions import NotFittedError
 
 # poisson GLM model by hand
 
@@ -98,6 +101,52 @@ def test_fit():
     assert np.allclose(beta_new_true, poisson.coef_)
 
 
+def test_predict():
+    """Test the predict function in the Poisson class"""
+    # design matrix
+    X = np.array([[np.log(2.5), -1, -3],
+                  [np.log(3.5), -2, -4],
+                  [np.log(4.5), -3, -5],
+                  [np.log(5.5), -4, -6]])
+
+    poisson = Poisson()
+
+    # test for NotFittedError
+    assert_raises(NotFittedError, poisson.predict, X)
+
+    # create "fit"
+    poisson.coef_ = np.array([1, 0, 0])
+    poisson.intercept_ = 0
+    y_pred = poisson.predict(X)
+    y_mode = np.array([2, 3, 4, 5])
+
+    # test for predict
+    assert_almost_equal(y_pred, y_mode)
+
+
+def test_predict_mean():
+    """Test the predict function in the Poisson class"""
+    # design matrix
+    X = np.array([[np.log(2.5), -1, -3],
+                  [np.log(3.5), -2, -4],
+                  [np.log(4.5), -3, -5],
+                  [np.log(5.5), -4, -6]])
+
+    poisson = Poisson()
+
+    # test for NotFittedError
+    assert_raises(NotFittedError, poisson.predict_mean, X)
+
+    # create "fit"
+    poisson.coef_ = np.array([1, 0, 0])
+    poisson.intercept_ = 0
+    y_pred = poisson.predict_mean(X)
+    y_mean = np.array([2.5, 3.5, 4.5, 5.5])
+
+    # test for predict
+    assert_almost_equal(y_pred, y_mean)
+
+
 # UoI Poisson tests
 def test_score_predictions():
     """Test the score predictions function in UoI Poisson."""
@@ -113,9 +162,35 @@ def test_score_predictions():
     fitter.coef_ = np.array([1])
     fitter.intercept_ = 0
 
-    score = UoI_Poisson.score_predictions(
+    # test log-likelihood
+    ll = UoI_Poisson.score_predictions(
         metric='log',
         fitter=fitter,
         X=X, y=y, support=support)
+    assert_almost_equal(ll, -2.5)
 
-    assert_almost_equal(score, -2.5)
+    # test information criteria
+    aic = UoI_Poisson.score_predictions(
+        metric='AIC',
+        fitter=fitter,
+        X=X, y=y, support=support)
+    assert_almost_equal(aic, 2 * ll - 2)
+
+    aicc = UoI_Poisson.score_predictions(
+        metric='AICc',
+        fitter=fitter,
+        X=X, y=y, support=support)
+    assert_almost_equal(aicc, aic - 2)
+
+    bic = UoI_Poisson.score_predictions(
+        metric='BIC',
+        fitter=fitter,
+        X=X, y=y, support=support)
+    assert_almost_equal(bic, 2 * ll - np.log(y.size))
+
+    # test invalid metric
+    assert_raises(ValueError,
+                  UoI_Poisson.score_predictions,
+                  'fake',
+                  fitter,
+                  X, y, support)
