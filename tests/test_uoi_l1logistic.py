@@ -76,10 +76,10 @@ def test_l1logistic_intercept():
     """Test that binary L1 Logistic fits an intercept when run."""
     for fi in [True, False]:
         X, y, w, b = make_classification(n_samples=100,
-                                      random_state=11,
-                                      n_features=4,
-                                      w_scale=4.,
-                                      include_intercept=fi)
+                                         random_state=11,
+                                         n_features=4,
+                                         w_scale=4.,
+                                         include_intercept=fi)
         l1log = UoI_L1Logistic(fit_intercept=fi).fit(X, y)
         if not fi:
             assert_array_equal(l1log.intercept_, 0.)
@@ -103,7 +103,6 @@ def test_l1logistic_binary():
                                estimation_score=method).fit(X, y)
         assert (np.sign(w) == np.sign(l1log.coef_)).mean() >= .8
         assert_allclose(w, l1log.coef_, rtol=.5, atol=.5)
-
 
 
 @pytest.mark.skip(reason="Logistic is not currently finished")
@@ -147,10 +146,10 @@ def test_estimation_score_usage():
 def test_set_random_state():
     """Tests whether random states are handled correctly."""
     X, y, w, b = make_classification(n_samples=100,
-                                  random_state=60,
-                                  n_informative=4,
-                                  n_features=5,
-                                  w_scale=4.)
+                                     random_state=60,
+                                     n_informative=4,
+                                     n_features=5,
+                                     w_scale=4.)
     # same state
     l1log_0 = UoI_L1Logistic(random_state=13)
     l1log_1 = UoI_L1Logistic(random_state=13)

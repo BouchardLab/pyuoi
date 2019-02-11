@@ -305,7 +305,8 @@ class AbstractUoILinearModel(
                     if hasattr(self.selection_lm, 'coef_'):
                         self.selection_lm.coef_ *= 0.
                     # predict by fitting an empty design matrix
-                    self.selection_lm.fit(self.random_state.randn(*X_train.shape)/1e10, y_train)
+                    self.selection_lm.fit(
+                        self.random_state.randn(*X_train.shape) / 1e10, y_train)
                     self.scores_[bootstrap, supp_idx] = self.score_predictions(
                         metric=self.estimation_score,
                         fitter=self.selection_lm,
