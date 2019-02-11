@@ -20,7 +20,7 @@ def sigmoid(x):
 
 def make_classification(n_samples=100, n_features=20, n_informative=2,
                         n_classes=2, shared_support=False, random_state=None,
-                        w_scale=1.):
+                        w_scale=1., include_intercept=False):
     if isinstance(random_state, int):
         rng = np.random.RandomState(random_state)
     else:
@@ -33,6 +33,11 @@ def make_classification(n_samples=100, n_features=20, n_informative=2,
 
     if n_classes > 2:
         w = rng.randn(n_features, n_classes)
+        if include_intercept:
+            intercept = rng.randn(1, n_classes)
+            intercept -= intercept.max()
+        else:
+            intercept = np.zeros((1, n_classes))
         if n_not_informative > 0:
             if shared_support:
                 idxs = rng.permutation(n_features)[:n_not_informative]
@@ -43,12 +48,19 @@ def make_classification(n_samples=100, n_features=20, n_informative=2,
                     w[idxs, ii * np.ones_like(idxs, dtype=int)] = 0.
     else:
         w = rng.randn(n_features, 1)
+        if include_intercept:
+            intercept = rng.randn(1, 1)
+        else:
+            intercept = np.zeros((1, 1))
         if n_not_informative > 0:
             idxs = rng.permutation(n_features)[:n_not_informative]
             w[idxs] = 0.
     w *= w_scale
+    intercept *= w_scale * 2.
 
     log_p = X.dot(w)
+    if include_intercept:
+        log_p += intercept
     if n_classes > 2:
         p = softmax(log_p)
         y = np.array([rng.multinomial(1, pi) for pi in p])
@@ -57,20 +69,41 @@ def make_classification(n_samples=100, n_features=20, n_informative=2,
         p = sigmoid(np.squeeze(log_p))
         y = np.array([rng.binomial(1, pi) for pi in p])
 
-    return X, y, w.T
+    return X, y, w.T, intercept
+
+
+def test_l1logistic_intercept():
+    """Test that binary L1 Logistic fits an intercept when run."""
+    for fi in [True, False]:
+        X, y, w, b = make_classification(n_samples=100,
+                                      random_state=11,
+                                      n_features=4,
+                                      w_scale=4.,
+                                      include_intercept=fi)
+        l1log = UoI_L1Logistic(fit_intercept=fi).fit(X, y)
+        if not fi:
+            assert_array_equal(l1log.intercept_, 0.)
+        else:
+            l1log.intercept_
 
 
 def test_l1logistic_binary():
     """Test that binary L1 Logistic runs in the UoI framework."""
     n_inf = 4
-    X, y, w = make_classification(n_samples=1000,
-                                  random_state=6,
-                                  n_informative=n_inf,
-                                  n_features=6)
+    methods = ('acc', 'log')
+    X, y, w, b = make_classification(n_samples=2000,
+                                     random_state=6,
+                                     n_informative=n_inf,
+                                     n_features=10,
+                                     w_scale=4.,
+                                     include_intercept=True)
 
-    l1log = UoI_L1Logistic(random_state=10).fit(X, y)
-    assert_array_equal(np.sign(w), np.sign(l1log.coef_))
-    assert_allclose(w, l1log.coef_, atol=.5)
+    for method in methods:
+        l1log = UoI_L1Logistic(random_state=10,
+                               estimation_score=method).fit(X, y)
+        assert (np.sign(w) == np.sign(l1log.coef_)).mean() >= .8
+        assert_allclose(w, l1log.coef_, rtol=.5, atol=.5)
+
 
 
 @pytest.mark.skip(reason="Logistic is not currently finished")
@@ -97,7 +130,7 @@ def test_l1logistic_multiclass():
 def test_estimation_score_usage():
     """Test the ability to change the estimation score in UoI L1Logistic"""
     methods = ('acc', 'log')
-    X, y, w = make_classification(n_samples=100,
+    X, y, w, b = make_classification(n_samples=100,
                                   random_state=6,
                                   n_informative=2,
                                   n_features=6)
@@ -113,10 +146,11 @@ def test_estimation_score_usage():
 
 def test_set_random_state():
     """Tests whether random states are handled correctly."""
-    X, y, w = make_classification(n_samples=100,
+    X, y, w, b = make_classification(n_samples=100,
                                   random_state=60,
-                                  n_informative=3,
-                                  n_features=5)
+                                  n_informative=4,
+                                  n_features=5,
+                                  w_scale=4.)
     # same state
     l1log_0 = UoI_L1Logistic(random_state=13)
     l1log_1 = UoI_L1Logistic(random_state=13)

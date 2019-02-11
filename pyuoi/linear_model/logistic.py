@@ -34,15 +34,18 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
             max_iter=max_iter,
             warm_start=warm_start,
             random_state=random_state,
-            multi_class='auto'
+            multi_class='auto',
+            fit_intercept=fit_intercept,
         )
         # sklearn cannot do LogisticRegression without penalization, due to the
         # ill-posed nature of the problem. We may want to set C=np.inf for no
         # penalization, but we risk no convergence.
         self.__estimation_lm = LogisticRegression(
+            C=1e10,
             random_state=random_state,
-            solver='saga',
-            multi_class='auto')
+            solver='lbfgs',
+            multi_class='auto',
+            fit_intercept=fit_intercept)
 
     @property
     def estimation_lm(self):

@@ -105,7 +105,10 @@ class AbstractUoILinearModel(
                 random_state += self.comm.rank
             self.random_state = np.random.RandomState(random_state)
         else:
-            self.random_state = random_state
+            if random_state is None:
+                self.random_state = np.random
+            else:
+                self.random_state = random_state
 
         # extract selection thresholds from user provided stability selection
         self.selection_thresholds_ = stability_selection_to_threshold(
@@ -206,10 +209,7 @@ class AbstractUoILinearModel(
         for bootstrap in range(chunk_size):
             # reset the coef between bootstraps
             if hasattr(self.selection_lm, 'coef_'):
-                self.selection_lm.coef_ = np.zeros_like(
-                    self.selection_lm.coef_,
-                    dtype=X.dtype,
-                    order='F')
+                self.selection_lm.coef_ *= 0.
             # draw a resampled bootstrap
             X_rep, X_test, y_rep, y_test = train_test_split(
                 X, y,
@@ -303,16 +303,13 @@ class AbstractUoILinearModel(
                 else:
                     # reset the coef
                     if hasattr(self.selection_lm, 'coef_'):
-                        self.selection_lm.coef_ = np.zeros_like(
-                            self.selection_lm.coef_,
-                            dtype=X_test.dtype,
-                            order='F')
+                        self.selection_lm.coef_ *= 0.
                     # predict by fitting an empty design matrix
-                    self.selection_lm.fit(np.zeros_like(X_test), y_test)
+                    self.selection_lm.fit(self.random_state.randn(*X_train.shape)/1e10, y_train)
                     self.scores_[bootstrap, supp_idx] = self.score_predictions(
                         metric=self.estimation_score,
                         fitter=self.selection_lm,
-                        X=X_test, y=y_test,
+                        X=np.zeros_like(X_test), y=y_test,
                         support=np.arange(X_test.shape[1]))
 
         if self.comm is not None:
@@ -648,7 +645,7 @@ class AbstractUoILinearClassifier(
             score = accuracy_score(y, y_pred)
         else:
             y_pred = fitter.predict_proba(X[:, support])
-            ll = log_loss(y, y_pred)
+            ll = -log_loss(y, y_pred)
             if metric == 'log':
                 score = ll
             else:
