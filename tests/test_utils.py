@@ -295,19 +295,3 @@ def test_intersection_no_thresholds():
     assert_array_equal(
         np.sort(true_intersection, axis=0),
         np.sort(estimated_intersection, axis=0))
-
-
-def test_bic():
-    # TODO: Test the Bayesian information criterion utility function by hand.
-    pass
-
-
-def test_aic():
-    # TODO: Test the Akaike information criterion utility function by hand.
-    pass
-
-
-def test_aicc():
-    # TODO: Test the corrected Akaike information criterion utility
-    # function by hand.
-    pass
