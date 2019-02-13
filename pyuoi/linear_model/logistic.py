@@ -5,6 +5,8 @@ from sklearn.svm import l1_min_c
 
 import numpy as np
 
+from ..utils import sigmoid
+
 
 class UoI_L1Logistic(AbstractUoILinearClassifier):
 
@@ -62,3 +64,24 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
         for c in self.Cs:
             ret.append(dict(C=c))
         return ret
+
+    def _fit_intercept_no_features(self, y):
+        """"Fit a model with only an intercept.
+
+        This is used in cases where the model has no support selected.
+        """
+        return LogisticInterceptFitter(y)
+
+
+class LogisticInterceptFitter(object):
+    def __init__(self, y):
+        p = y.mean()
+        self.intercept_ = np.log(p / (1. - p))
+
+    def predict(self, X):
+        n_samples = X.shape[0]
+        return np.tile(int(self.intercept_ >= 0.), n_samples)
+
+    def predict_proba(self, X):
+        n_samples = X.shape[0]
+        return np.tile(sigmoid(self.intercept_), n_samples)

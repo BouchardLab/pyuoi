@@ -6,16 +6,7 @@ from numpy.testing import assert_array_equal, assert_allclose, assert_equal
 from sklearn.preprocessing import normalize
 
 from pyuoi import UoI_L1Logistic
-
-
-def softmax(y, axis=-1):
-    yp = y - y.max(axis=axis, keepdims=True)
-    epy = np.exp(yp)
-    return epy / np.sum(epy, axis=axis, keepdims=True)
-
-
-def sigmoid(x):
-    return np.exp(-np.logaddexp(0, -x))
+from pyuoi.utils import sigmoid, softmax
 
 
 def make_classification(n_samples=100, n_features=20, n_informative=2,
@@ -130,9 +121,9 @@ def test_estimation_score_usage():
     """Test the ability to change the estimation score in UoI L1Logistic"""
     methods = ('acc', 'log')
     X, y, w, b = make_classification(n_samples=100,
-                                  random_state=6,
-                                  n_informative=2,
-                                  n_features=6)
+                                     random_state=6,
+                                     n_informative=2,
+                                     n_features=6)
     scores = []
     for method in methods:
         l1log = UoI_L1Logistic(random_state=12, estimation_score=method)

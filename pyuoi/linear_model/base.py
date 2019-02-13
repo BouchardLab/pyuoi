@@ -158,6 +158,14 @@ class AbstractUoILinearModel(
         """
         pass
 
+    @_abc.abstractmethod
+    def _fit_intercept_no_features(self, y):
+        """"Fit a model with only an intercept.
+
+        This is used in cases where the model has no support selected.
+        """
+        pass
+
     def fit(self, X, y, stratify=None, verbose=False):
         """Fit data according to the UoI algorithm.
 
@@ -301,17 +309,12 @@ class AbstractUoILinearModel(
                         support=support)
                 # otherwise, run a fit with an empty model
                 else:
-                    # reset the coef
-                    if hasattr(self.selection_lm, 'coef_'):
-                        self.selection_lm.coef_ *= 0.
-                    # predict by fitting an empty design matrix
-                    self.selection_lm.fit(
-                        self.random_state.randn(*X_train.shape) / 1e10, y_train)
+                    fitter = self._fit_intercept_no_features(y_train)
                     self.scores_[bootstrap, supp_idx] = self.score_predictions(
                         metric=self.estimation_score,
-                        fitter=self.selection_lm,
+                        fitter=fitter,
                         X=np.zeros_like(X_test), y=y_test,
-                        support=np.arange(X_test.shape[1]))
+                        support=np.zeros(X_test.shape[1], dtype=bool))
 
         if self.comm is not None:
             self.comm.Barrier()
@@ -532,6 +535,22 @@ class AbstractUoILinearRegressor(
         self._set_intercept(X_offset, y_offset, X_scale)
         self.coef_ = self.coef_.squeeze()
         return self
+
+    def _fit_intercept_no_features(self, y):
+        """"Fit a model with only an intercept.
+
+        This is used in cases where the model has no support selected.
+        """
+        return LinearInterceptFitter(y)
+
+
+class LinearInterceptFitter(object):
+    def __init__(self, y):
+        self.intercept_ = y.mean()
+
+    def predict(self, X):
+        n_samples = X.shape[0]
+        return np.tile(self.intercept_, n_samples)
 
 
 class AbstractUoILinearClassifier(

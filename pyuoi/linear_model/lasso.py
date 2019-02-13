@@ -1,7 +1,9 @@
-from .base import AbstractUoILinearRegressor
+import numpy as np
 
 from sklearn.linear_model import Lasso, LinearRegression
 from sklearn.linear_model.coordinate_descent import _alpha_grid
+
+from .base import AbstractUoILinearRegressor
 
 
 class UoI_Lasso(AbstractUoILinearRegressor):
@@ -53,3 +55,19 @@ class UoI_Lasso(AbstractUoILinearRegressor):
             normalize=self.normalize
         )
         return [{'alpha': a} for a in alphas]
+
+    def _fit_intercept_no_features(self, y):
+        """"Fit a model with only an intercept.
+
+        This is used in cases where the model has no support selected.
+        """
+        return LinearInterceptFitter(y)
+
+
+class LinearInterceptFitter(object):
+    def __init__(self, y):
+        self.intercept_ = y.mean()
+
+    def predict(self, X):
+        n_samples = X.shape[0]
+        return np.tile(self.intercept_, n_samples)

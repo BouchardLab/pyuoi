@@ -142,7 +142,7 @@ class UoI_Poisson(AbstractUoILinearRegressor):
             # sci-kit learn parlance)
             for alpha_idx, alpha in enumerate(self.alphas):
                 self.lambdas[alpha_idx, :] = np.logspace(
-                    start=np.log10(3), 
+                    start=np.log10(3),
                     stop=-3,
                     num=self.n_lambdas)
 
@@ -351,7 +351,7 @@ class Poisson(LinearModel):
             return mode
         else:
             raise NotFittedError('Poisson model is not fit.')
-    
+
     def predict_mean(self, X):
         """Calculates the mean response variable given a design matrix.
 
@@ -494,3 +494,20 @@ class Poisson(LinearModel):
         w = np.exp(Xbeta)
         z = Xbeta + (y / w) - 1
         return w, z
+
+    def _fit_intercept_no_features(self, y):
+        """"Fit a model with only an intercept.
+
+        This is used in cases where the model has no support selected.
+        """
+        return PoissonInterceptFitter(y)
+
+class LogisticInterceptFitter(object):
+    def __init__(self, y):
+        raise NotImplementedError
+
+    def predict(self, X):
+        n_samples = X.shape[0]
+
+    def predict_proba(self, X):
+        n_samples = X.shape[0]
