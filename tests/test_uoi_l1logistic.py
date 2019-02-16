@@ -6,6 +6,7 @@ from numpy.testing import assert_array_equal, assert_allclose, assert_equal
 from sklearn.preprocessing import normalize
 
 from pyuoi import UoI_L1Logistic
+from pyuoi.linear_model.logistic import fit_intercept_fixed_coef
 from pyuoi.utils import sigmoid, softmax
 
 
@@ -61,6 +62,16 @@ def make_classification(n_samples=100, n_features=20, n_informative=2,
         y = np.array([rng.binomial(1, pi) for pi in p])
 
     return X, y, w.T, intercept
+
+
+def test_fit_intercept_fixed_coef():
+    """Test that the intercept in fit correctly for fixed coefficients."""
+    X = np.zeros((6, 5))
+    coef = np.ones((1, 5))
+    y = np.ones(6)
+    y[:3] = 0.
+    b = fit_intercept_fixed_coef(X, coef, y, 2)
+    assert_allclose(b, 0.)
 
 
 def test_l1logistic_intercept():

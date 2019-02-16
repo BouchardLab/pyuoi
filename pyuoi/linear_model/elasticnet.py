@@ -104,3 +104,6 @@ class UoI_ElasticNet(AbstractUoILinearRegressor):
                 reg_params.append(dict(alpha=lamb, l1_ratio=alpha))
 
         return reg_params
+
+    def _fit_intercept(self, X_offset, y_offset, X_scale):
+        self._set_intercept(X_offset, y_offset, X_scale)

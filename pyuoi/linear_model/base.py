@@ -532,8 +532,9 @@ class AbstractUoILinearRegressor(
         X, y, X_offset, y_offset, X_scale = self.preprocess_data(X, y)
         super(AbstractUoILinearRegressor, self).fit(X, y, stratify=stratify,
                                                     verbose=verbose)
-        self._set_intercept(X_offset, y_offset, X_scale)
-        self.coef_ = self.coef_.squeeze()
+
+        self._fit_intercept(X_offset, y_offset, X_scale)
+        self.coef_ = np.squeeze(self.coef_)
         return self
 
     def _fit_intercept_no_features(self, y):
@@ -541,10 +542,10 @@ class AbstractUoILinearRegressor(
 
         This is used in cases where the model has no support selected.
         """
-        return LinearInterceptFitter(y)
+        return LinearInterceptFitterNoFeatures(y)
 
 
-class LinearInterceptFitter(object):
+class LinearInterceptFitterNoFeatures(object):
     def __init__(self, y):
         self.intercept_ = y.mean()
 
@@ -684,3 +685,40 @@ class AbstractUoILinearClassifier(
                 score = -score
 
         return score
+
+    def fit(self, X, y, stratify=None, verbose=False):
+        """Fit data according to the UoI algorithm.
+
+        Additionaly, perform X-y checks, data preprocessing, and setting
+        intercept.
+
+        Parameters
+        ----------
+        X : ndarray or scipy.sparse matrix, (n_samples, n_features)
+            The design matrix.
+
+        y : ndarray, shape (n_samples,)
+            Response vector. Will be cast to X's dtype if necessary.
+            Currently, this implementation does not handle multiple response
+            variables.
+
+        stratify : array-like or None, default None
+            Ensures groups of samples are alloted to training/test sets
+            proportionally. Labels for each group must be an int greater
+            than zero. Must be of size equal to the number of samples, with
+            further restrictions on the number of groups.
+
+        verbose : boolean
+            A switch indicating whether the fitting should print out messages
+            displaying progress. Utilizes tqdm to indicate progress on
+            bootstraps.
+        """
+        # perform checks
+        X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
+                         y_numeric=True, multi_output=True)
+        # preprocess data
+        super(AbstractUoILinearClassifier, self).fit(X, y, stratify=stratify,
+                                                     verbose=verbose)
+
+        self._fit_intercept(X, y)
+        return self

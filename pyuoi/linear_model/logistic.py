@@ -2,6 +2,9 @@ from .base import AbstractUoILinearClassifier
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import l1_min_c
+from sklearn.metrics import log_loss
+
+from scipy.optimize import minimize
 
 import numpy as np
 
@@ -70,10 +73,34 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
 
         This is used in cases where the model has no support selected.
         """
-        return LogisticInterceptFitter(y)
+        return LogisticInterceptFitterNoFeatures(y)
+
+    def _fit_intercept(self, X, y):
+        if self.fit_intercept:
+            self.intercept_ = fit_intercept_fixed_coef(X, self.coef_,
+                                                       y, self._n_classes)
+        else:
+            n = self._n_classes
+            if self._n_classes == 2:
+                n = 1
+            self.intercept_ = np.zeros(n)
 
 
-class LogisticInterceptFitter(object):
+def fit_intercept_fixed_coef(X, coef_, y, n_classes):
+    if n_classes == 2:
+        n_classes = 1
+
+    def f_df(bias):
+        py = sigmoid(X.dot(coef_.T) + bias)
+        dfdb = py.mean() - y.mean()
+        return log_loss(y, py), np.atleast_1d(dfdb)
+
+    opt = minimize(f_df, np.atleast_1d(np.zeros(n_classes)),
+                   method='BFGS', jac=True)
+    return opt.x
+
+
+class LogisticInterceptFitterNoFeatures(object):
     def __init__(self, y):
         p = y.mean()
         self.intercept_ = np.log(p / (1. - p))
