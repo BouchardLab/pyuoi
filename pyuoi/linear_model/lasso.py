@@ -55,4 +55,9 @@ class UoI_Lasso(AbstractUoILinearRegressor):
         return [{'alpha': a} for a in alphas]
 
     def _fit_intercept(self, X_offset, y_offset, X_scale):
+        """"Fit a model with an intercept and fixed coefficients.
+
+        This is used to re-fit the intercept after the coefficients are
+        estimated.
+        """
         self._set_intercept(X_offset, y_offset, X_scale)

@@ -76,6 +76,11 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
         return LogisticInterceptFitterNoFeatures(y)
 
     def _fit_intercept(self, X, y):
+        """"Fit a model with an intercept and fixed coefficients.
+
+        This is used to re-fit the intercept after the coefficients are
+        estimated.
+        """
         if self.fit_intercept:
             self.intercept_ = fit_intercept_fixed_coef(X, self.coef_,
                                                        y, self._n_classes)
@@ -87,11 +92,12 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
 
 
 def fit_intercept_fixed_coef(X, coef_, y, n_classes):
+    """Optimize the likelihood w.r.t. the intercept."""
     if n_classes == 2:
         n_classes = 1
 
-    def f_df(bias):
-        py = sigmoid(X.dot(coef_.T) + bias)
+    def f_df(intercept):
+        py = sigmoid(X.dot(coef_.T) + intercept)
         dfdb = py.mean() - y.mean()
         return log_loss(y, py), np.atleast_1d(dfdb)
 
@@ -101,6 +107,13 @@ def fit_intercept_fixed_coef(X, coef_, y, n_classes):
 
 
 class LogisticInterceptFitterNoFeatures(object):
+    """Intercept-only logistic regression.
+
+    Parameters
+    ----------
+    y : ndarray
+        Class labels.
+    """
     def __init__(self, y):
         p = y.mean()
         self.intercept_ = np.log(p / (1. - p))

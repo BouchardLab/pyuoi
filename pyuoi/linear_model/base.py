@@ -160,6 +160,15 @@ class AbstractUoILinearModel(
 
     @_abc.abstractmethod
     def _fit_intercept_no_features(self, y):
+        """"Fit a model with an intercept and fixed coefficients.
+
+        This is used to re-fit the intercept after the coefficients are
+        estimated.
+        """
+        pass
+
+    @_abc.abstractmethod
+    def _fit_intercept_no_features(self, y):
         """"Fit a model with only an intercept.
 
         This is used in cases where the model has no support selected.

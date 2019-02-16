@@ -212,6 +212,11 @@ class UoI_Poisson(AbstractUoILinearRegressor):
         return score
 
     def _fit_intercept(self, X, y):
+        """"Fit a model with an intercept and fixed coefficients.
+
+        This is used to re-fit the intercept after the coefficients are
+        estimated.
+        """
         if self.fit_intercept:
             mu = np.exp(np.dot(X, self.coef_))
             self.intercept_ = np.log(np.mean(y)/np.mean(mu))
