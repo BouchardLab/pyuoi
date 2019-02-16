@@ -211,7 +211,7 @@ class UoI_Poisson(AbstractUoILinearRegressor):
 
         return score
 
-    def _fit_intercept(self, X, y)
+    def _fit_intercept(self, X, y):
         if self.fit_intercept:
             mu = np.exp(np.dot(X, self.coef_))
             self.intercept_ = np.log(np.mean(y)/np.mean(mu))
