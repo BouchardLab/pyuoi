@@ -421,9 +421,9 @@ class AbstractUoILinearModel(
         """
 
         n_param_values = len(reg_param_values)
-        n_features = X.shape[1]
+        n_samples, n_coef = self.get_n_coef(X, y)
 
-        coefs = np.zeros((n_param_values, n_features))
+        coefs = np.zeros((n_param_values, n_coef))
 
         # apply the selection regression to bootstrapped datasets
         for reg_param_idx, reg_params in enumerate(reg_param_values):

@@ -11,7 +11,7 @@ from pyuoi.utils import make_classification
 def test_l1logistic_binary():
     """Test that binary L1 Logistic runs in the UoI framework."""
     n_inf = 4
-    X, y, w = make_classification(n_samples=1000,
+    X, y, w, b = make_classification(n_samples=1000,
                                   random_state=6,
                                   n_informative=n_inf,
                                   n_features=6)
@@ -27,7 +27,7 @@ def test_l1logistic_multiclass():
        classes share a support."""
     n_features = 4
     n_inf = 3
-    X, y, w = make_classification(n_samples=1000,
+    X, y, w, b = make_classification(n_samples=1000,
                                   random_state=6,
                                   n_classes=3,
                                   n_informative=n_inf,

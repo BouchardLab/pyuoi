@@ -30,7 +30,7 @@ def sigmoid(x):
 
 def make_classification(n_samples=100, n_features=20, n_informative=2,
                         n_classes=2, shared_support=False, random_state=None,
-                        w_scale=1.):
+                        w_scale=1., include_intercept=False):
     """Make a linear classification dataset.
 
     Parameters
@@ -51,6 +51,9 @@ def make_classification(n_samples=100, n_features=20, n_informative=2,
     w_scale : float
         The model parameter matrix, w, will be drawn from a normal distribution
         with std=w_scale.
+    include_intercept : bool
+        If true, includes an intercept in the model, if False, the intercept is
+        set to 0.
     """
     if isinstance(random_state, int):
         rng = np.random.RandomState(random_state)
@@ -64,6 +67,11 @@ def make_classification(n_samples=100, n_features=20, n_informative=2,
 
     if n_classes > 2:
         w = rng.randn(n_features, n_classes)
+        if include_intercept:
+            intercept = rng.randn(1, n_classes)
+            intercept -= intercept.max()
+        else:
+            intercept = np.zeros((1, n_classes))
         if n_not_informative > 0:
             if shared_support:
                 idxs = rng.permutation(n_features)[:n_not_informative]
@@ -74,12 +82,19 @@ def make_classification(n_samples=100, n_features=20, n_informative=2,
                     w[idxs, ii * np.ones_like(idxs, dtype=int)] = 0.
     else:
         w = rng.randn(n_features, 1)
+        if include_intercept:
+            intercept = rng.randn(1, 1)
+        else:
+            intercept = np.zeros((1, 1))
         if n_not_informative > 0:
             idxs = rng.permutation(n_features)[:n_not_informative]
             w[idxs] = 0.
     w *= w_scale
+    intercept *= w_scale * 2.
 
     log_p = X.dot(w)
+    if include_intercept:
+        log_p += intercept
     if n_classes > 2:
         p = softmax(log_p)
         y = np.array([rng.multinomial(1, pi) for pi in p])
@@ -88,7 +103,7 @@ def make_classification(n_samples=100, n_features=20, n_informative=2,
         p = sigmoid(np.squeeze(log_p))
         y = np.array([rng.binomial(1, pi) for pi in p])
 
-    return X, y, w.T
+    return X, y, w.T, intercept
 
 
 def log_likelihood_glm(model, y_true, y_pred):
