@@ -6,9 +6,7 @@ from numpy.testing import assert_array_equal, assert_allclose, assert_equal
 
 from pyuoi import UoI_L1Logistic
 from pyuoi.linear_model.logistic import fit_intercept_fixed_coef
-from pyuoi.utils import sigmoid, softmax, make_classification
-
-
+from pyuoi.utils import make_classification
 
 
 def test_fit_intercept_fixed_coef():
@@ -61,11 +59,11 @@ def test_l1logistic_multiclass():
     n_features = 4
     n_inf = 3
     X, y, w, b = make_classification(n_samples=1000,
-                                  random_state=6,
-                                  n_classes=3,
-                                  n_informative=n_inf,
-                                  n_features=n_features,
-                                  shared_support=True)
+                                     random_state=6,
+                                     n_classes=3,
+                                     n_informative=n_inf,
+                                     n_features=n_features,
+                                     shared_support=True)
     l1log = UoI_L1Logistic().fit(X, y)
     print()
     print(w)
