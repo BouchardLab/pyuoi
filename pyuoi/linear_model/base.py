@@ -335,13 +335,13 @@ class AbstractUoILinearModel(
             boot_idx = task_idx // self.n_supports_
             support_idx = task_idx % self.n_supports_
             support = self.supports_[support_idx]
+            # draw a resampled bootstrap
+            idxs_train, idxs_test = my_boots[boot_idx]
+            X_rep = X[idxs_train]
+            X_test = X[idxs_test]
+            y_rep = y[idxs_train]
+            y_test = y[idxs_test]
             if np.any(support):
-                # draw a resampled bootstrap
-                idxs_train, idxs_test = my_boots[boot_idx]
-                X_rep = X[idxs_train]
-                X_test = X[idxs_test]
-                y_rep = y[idxs_train]
-                y_test = y[idxs_test]
 
                 # compute ols estimate
                 self.estimation_lm.fit(X_rep[:, support], y_rep)
@@ -355,8 +355,8 @@ class AbstractUoILinearModel(
                     X=X_test, y=y_test,
                     support=support)
             else:
-                fitter = self._fit_intercept_no_features(y_train)
-                self.scores_[bootstrap, supp_idx] = self.score_predictions(
+                fitter = self._fit_intercept_no_features(y_rep)
+                scores[ii] = self.score_predictions(
                     metric=self.estimation_score,
                     fitter=fitter,
                     X=np.zeros_like(X_test), y=y_test,

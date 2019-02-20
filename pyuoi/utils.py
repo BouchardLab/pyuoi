@@ -96,7 +96,7 @@ def log_likelihood_glm(model, y_true, y_pred):
     true response variables and the "predicted" response variables. The
     "predicted" response variable varies by the specific generalized linear
     model under consideration.
-    
+
     Parameters
     ----------
     model : string
