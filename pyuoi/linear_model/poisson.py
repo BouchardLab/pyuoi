@@ -100,9 +100,7 @@ class UoI_Poisson(AbstractUoILinearRegressor):
         super(AbstractUoILinearRegressor, self).fit(X, y, stratify=stratify,
                                                     verbose=verbose)
         self.coef_ = self.coef_.squeeze()
-        if self.fit_intercept:
-            mu = np.exp(np.dot(X, self.coef_))
-            self.intercept_ = np.log(np.mean(y)/np.mean(mu))
+        self._fit_intercept(X, y)
         return self
 
     def get_reg_params(self, X, y):
@@ -142,7 +140,7 @@ class UoI_Poisson(AbstractUoILinearRegressor):
             # sci-kit learn parlance)
             for alpha_idx, alpha in enumerate(self.alphas):
                 self.lambdas[alpha_idx, :] = np.logspace(
-                    start=np.log10(3), 
+                    start=np.log10(3),
                     stop=-3,
                     num=self.n_lambdas)
 
@@ -212,6 +210,18 @@ class UoI_Poisson(AbstractUoILinearRegressor):
             score = -score
 
         return score
+
+    def _fit_intercept(self, X, y):
+        """"Fit a model with an intercept and fixed coefficients.
+
+        This is used to re-fit the intercept after the coefficients are
+        estimated.
+        """
+        if self.fit_intercept:
+            mu = np.exp(np.dot(X, self.coef_))
+            self.intercept_ = np.log(np.mean(y)/np.mean(mu))
+        else:
+            self.intercept_ = np.zeros(1)
 
 
 class Poisson(LinearModel):
@@ -351,7 +361,7 @@ class Poisson(LinearModel):
             return mode
         else:
             raise NotFittedError('Poisson model is not fit.')
-    
+
     def predict_mean(self, X):
         """Calculates the mean response variable given a design matrix.
 
@@ -494,3 +504,49 @@ class Poisson(LinearModel):
         w = np.exp(Xbeta)
         z = Xbeta + (y / w) - 1
         return w, z
+
+    def _fit_intercept_no_features(self, y):
+        """"Fit a model with only an intercept.
+
+        This is used in cases where the model has no support selected.
+        """
+        return PoissonInterceptFitterNoFeatures(y)
+
+class PoissonInterceptFitterNoFeatures(object):
+    def __init__(self, y):
+        self.intercept_ = np.log(y.mean())
+        raise NotImplementedError
+
+    def predict(self, X):
+        """Predicts the response variable given a design matrix. The output is
+        the mode of the Poisson distribution.
+
+        Parameters
+        ----------
+        X : array_like, shape (n_samples, n_features)
+            Design matrix to predict on.
+
+        Returns
+        -------
+        mode : array_like, shape (n_samples)
+            The predicted response values, i.e. the modes.
+        """
+        mu = np.exp(self.intercept_)
+        mode = np.floor(mu)
+        return mode
+
+    def predict_mean(self, X):
+        """Calculates the mean response variable given a design matrix.
+
+        Parameters
+        ----------
+        X : array_like, shape (n_samples, n_features)
+            Design matrix to predict on.
+
+        Returns
+        -------
+        mu : array_like, shape (n_samples)
+            The predicted response values, i.e. the conditional means.
+        """
+        mu = np.exp(self.intercept_)
+        return mu

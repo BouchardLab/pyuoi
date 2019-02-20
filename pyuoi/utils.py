@@ -3,6 +3,16 @@
 import numpy as np
 
 
+def softmax(y, axis=-1):
+    yp = y - y.max(axis=axis, keepdims=True)
+    epy = np.exp(yp)
+    return epy / np.sum(epy, axis=axis, keepdims=True)
+
+
+def sigmoid(x):
+    return np.exp(-np.logaddexp(0, -x))
+
+
 def log_likelihood_glm(model, y_true, y_pred):
     """Calculates the log-likelihood of a generalized linear model given the
     true response variables and the "predicted" response variables. The

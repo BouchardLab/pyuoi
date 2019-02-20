@@ -1,7 +1,7 @@
-from .base import AbstractUoILinearRegressor
-
 from sklearn.linear_model import Lasso, LinearRegression
 from sklearn.linear_model.coordinate_descent import _alpha_grid
+
+from .base import AbstractUoILinearRegressor
 
 
 class UoI_Lasso(AbstractUoILinearRegressor):
@@ -53,3 +53,11 @@ class UoI_Lasso(AbstractUoILinearRegressor):
             normalize=self.normalize
         )
         return [{'alpha': a} for a in alphas]
+
+    def _fit_intercept(self, X_offset, y_offset, X_scale):
+        """"Fit a model with an intercept and fixed coefficients.
+
+        This is used to re-fit the intercept after the coefficients are
+        estimated.
+        """
+        self._set_intercept(X_offset, y_offset, X_scale)

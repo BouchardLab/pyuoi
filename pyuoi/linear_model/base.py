@@ -105,7 +105,10 @@ class AbstractUoILinearModel(
                 random_state += self.comm.rank
             self.random_state = np.random.RandomState(random_state)
         else:
-            self.random_state = random_state
+            if random_state is None:
+                self.random_state = np.random
+            else:
+                self.random_state = random_state
 
         # extract selection thresholds from user provided stability selection
         self.selection_thresholds_ = stability_selection_to_threshold(
@@ -152,6 +155,23 @@ class AbstractUoILinearModel(
         This should return the total number of coefficients estimated,
         accounting for all coefficients for multi-target regression or
         multi-class classification.
+        """
+        pass
+
+    @_abc.abstractmethod
+    def _fit_intercept(self, y):
+        """"Fit a model with an intercept and fixed coefficients.
+
+        This is used to re-fit the intercept after the coefficients are
+        estimated.
+        """
+        pass
+
+    @_abc.abstractmethod
+    def _fit_intercept_no_features(self, y):
+        """"Fit a model with only an intercept.
+
+        This is used in cases where the model has no support selected.
         """
         pass
 
@@ -206,10 +226,7 @@ class AbstractUoILinearModel(
         for bootstrap in range(chunk_size):
             # reset the coef between bootstraps
             if hasattr(self.selection_lm, 'coef_'):
-                self.selection_lm.coef_ = np.zeros_like(
-                    self.selection_lm.coef_,
-                    dtype=X.dtype,
-                    order='F')
+                self.selection_lm.coef_ *= 0.
             # draw a resampled bootstrap
             X_rep, X_test, y_rep, y_test = train_test_split(
                 X, y,
@@ -301,19 +318,12 @@ class AbstractUoILinearModel(
                         support=support)
                 # otherwise, run a fit with an empty model
                 else:
-                    # reset the coef
-                    if hasattr(self.selection_lm, 'coef_'):
-                        self.selection_lm.coef_ = np.zeros_like(
-                            self.selection_lm.coef_,
-                            dtype=X_test.dtype,
-                            order='F')
-                    # predict by fitting an empty design matrix
-                    self.selection_lm.fit(np.zeros_like(X_test), y_test)
+                    fitter = self._fit_intercept_no_features(y_train)
                     self.scores_[bootstrap, supp_idx] = self.score_predictions(
                         metric=self.estimation_score,
-                        fitter=self.selection_lm,
-                        X=X_test, y=y_test,
-                        support=np.arange(X_test.shape[1]))
+                        fitter=fitter,
+                        X=np.zeros_like(X_test), y=y_test,
+                        support=np.zeros(X_test.shape[1], dtype=bool))
 
         if self.comm is not None:
             self.comm.Barrier()
@@ -531,9 +541,26 @@ class AbstractUoILinearRegressor(
         X, y, X_offset, y_offset, X_scale = self.preprocess_data(X, y)
         super(AbstractUoILinearRegressor, self).fit(X, y, stratify=stratify,
                                                     verbose=verbose)
-        self._set_intercept(X_offset, y_offset, X_scale)
-        self.coef_ = self.coef_.squeeze()
+
+        self._fit_intercept(X_offset, y_offset, X_scale)
+        self.coef_ = np.squeeze(self.coef_)
         return self
+
+    def _fit_intercept_no_features(self, y):
+        """"Fit a model with only an intercept.
+
+        This is used in cases where the model has no support selected.
+        """
+        return LinearInterceptFitterNoFeatures(y)
+
+
+class LinearInterceptFitterNoFeatures(object):
+    def __init__(self, y):
+        self.intercept_ = y.mean()
+
+    def predict(self, X):
+        n_samples = X.shape[0]
+        return np.tile(self.intercept_, n_samples)
 
 
 class AbstractUoILinearClassifier(
@@ -648,7 +675,7 @@ class AbstractUoILinearClassifier(
             score = accuracy_score(y, y_pred)
         else:
             y_pred = fitter.predict_proba(X[:, support])
-            ll = log_loss(y, y_pred)
+            ll = -log_loss(y, y_pred)
             if metric == 'log':
                 score = ll
             else:
@@ -667,3 +694,40 @@ class AbstractUoILinearClassifier(
                 score = -score
 
         return score
+
+    def fit(self, X, y, stratify=None, verbose=False):
+        """Fit data according to the UoI algorithm.
+
+        Additionaly, perform X-y checks, data preprocessing, and setting
+        intercept.
+
+        Parameters
+        ----------
+        X : ndarray or scipy.sparse matrix, (n_samples, n_features)
+            The design matrix.
+
+        y : ndarray, shape (n_samples,)
+            Response vector. Will be cast to X's dtype if necessary.
+            Currently, this implementation does not handle multiple response
+            variables.
+
+        stratify : array-like or None, default None
+            Ensures groups of samples are alloted to training/test sets
+            proportionally. Labels for each group must be an int greater
+            than zero. Must be of size equal to the number of samples, with
+            further restrictions on the number of groups.
+
+        verbose : boolean
+            A switch indicating whether the fitting should print out messages
+            displaying progress. Utilizes tqdm to indicate progress on
+            bootstraps.
+        """
+        # perform checks
+        X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
+                         y_numeric=True, multi_output=True)
+        # preprocess data
+        super(AbstractUoILinearClassifier, self).fit(X, y, stratify=stratify,
+                                                     verbose=verbose)
+
+        self._fit_intercept(X, y)
+        return self
