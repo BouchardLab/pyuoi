@@ -1,7 +1,7 @@
 """
 Helper functions for working with MPI.
 """
-import math, h5py
+import h5py
 import numpy as np
 
 from mpi4py import MPI
@@ -11,7 +11,7 @@ _np2mpi = {np.dtype(np.float32): MPI.FLOAT,
            np.dtype(np.intc): MPI.INT}
 
 
-def load_data_MPI(h5_name, X_key='X', y_key='y'):
+def load_data_MPI(h5_name, X_key='X', y_key='y', root=0):
     """Load data from an h5 file and broadcast it across MPI ranks.
 
     Parameters
@@ -33,15 +33,27 @@ def load_data_MPI(h5_name, X_key='X', y_key='y'):
 
     comm = MPI.COMM_WORLD
     rank = comm.rank
-    with h5py.File(h5_name, 'r') as f:
-        if rank == 0:
+    Xshape = None
+    Xdtype = None
+    yshape = None
+    ydtype = None
+    if rank == root:
+        with h5py.File(h5_name, 'r') as f:
             X = f[X_key].value
+            Xshape = X.shape
+            Xdtype = X.dtype
             y = f[y_key].value
-        else:
-            X = np.empty(f[X_key].shape, dtype=f[X_key].dtype)
-            y = np.empty(f[y_key].shape, dtype=f[y_key].dtype)
-    comm.Bcast([X, _np2mpi[np.dtype(X.dtype)]], root=0)
-    comm.Bcast([y, _np2mpi[np.dtype(y.dtype)]], root=0)
+            yshape = y.shape
+            ydtype = y.dtype
+    Xshape = comm.bcast(Xshape, root=root)
+    Xdtype = comm.bcast(Xdtype, root=root)
+    yshape = comm.bcast(yshape, root=root)
+    ydtype = comm.bcast(ydtype, root=root)
+    if rank != root:
+            X = np.empty(Xshape, dtype=Xdtype)
+            y = np.empty(yshape, dtype=ydtype)
+    comm.Bcast([X, _np2mpi[np.dtype(X.dtype)]], root=root)
+    comm.Bcast([y, _np2mpi[np.dtype(y.dtype)]], root=root)
     return X, y
 
 
@@ -50,13 +62,18 @@ def Bcast_from_root(send, comm, root=0):
 
     Parameters
     ----------
-    send : ndarray
-        The arrays to concatenate. All dimensions must be equal except for the
-        first.
+    send : ndarray or None
+        Array to send from root to all ranks. send in other ranks
+        has no effect.
     comm : MPI.COMM_WORLD
         MPI communicator.
     root : int, default 0
         This rank contains the array to send.
+
+    Returns
+    -------
+    send : ndarray
+        Each rank will have a copy of the array from root.
     """
     rank = comm.rank
     if rank == 0:
@@ -85,6 +102,11 @@ def Gatherv_rows(send, comm, root=0):
         MPI communicator.
     root : int, default 0
         This rank will contain the Gatherv'ed array.
+
+    Returns
+    -------
+    rec : ndarray or None
+        Gatherv'ed array on root or None on other ranks.
     """
 
     rank = comm.rank
@@ -108,55 +130,3 @@ def Gatherv_rows(send, comm, root=0):
 
     comm.Gatherv(send, [rec, sizes, disps, _np2mpi[dtype]], root=0)
     return rec
-
-
-def get_chunk_size(rank, size, n):
-    """
-    This functions computes two quantities that are useful when distributing
-    work across an MPI group.
-
-    If *n* % *size* == 0, the returned values should be identitical (regardless
-    of rank) otherwise, the difference between *buf_len* and *chunk_size* should
-    be used for padding buffers required for MPI Gather operations.
-
-    Args:
-        rank: the rank of the MPI process
-        size: the size of the MPI group
-        n:    the total number of items to process
-
-    Returns:
-        chunk_size: the size of the chunk for the rank to process
-        buf_len:    the size of the buffer to allocate
-    """
-    chunk_size = int(math.ceil((n - rank) / size))
-    buf_len = int(math.ceil(n / size))
-    return chunk_size, buf_len
-
-
-def get_buffer_mask(size, n):
-    """
-    This functions computes a mask for filtering out extra elements from padding
-    prior to a MPI Gather operation.
-
-    If *n* % *size* == 0 (no padding necessary for a Gather operation), the
-    returned value will be a bool array of length *n* containing all `True`
-    values, otherwise, the returned values should be for filtering out padded
-    elements.
-
-    Args:
-        size: the size of the MPI group
-        n:    the total number of items to process
-
-    Returns:
-        mask: the boolean mask identifying the elements to keep from a receive
-        buffer
-    """
-    buf_len = int(math.ceil(n / size))
-    buf_tot = size * buf_len
-    ret = np.ones(buf_tot, dtype=bool)
-    fpr = n % size                 # first padding rank
-    if fpr > 0:
-        st = (fpr + 1) * buf_len - 1
-        mask = np.arange(st, buf_tot, buf_len)
-        ret[mask] = False
-    return ret
