@@ -53,8 +53,8 @@ def load_data_MPI(h5_name, X_key='X', y_key='y', root=0):
     yshape = comm.bcast(yshape, root=root)
     ydtype = comm.bcast(ydtype, root=root)
     if rank != root:
-            X = np.empty(Xshape, dtype=Xdtype)
-            y = np.empty(yshape, dtype=ydtype)
+        X = np.empty(Xshape, dtype=Xdtype)
+        y = np.empty(yshape, dtype=ydtype)
     comm.Bcast([X, _np2mpi[np.dtype(X.dtype)]], root=root)
     comm.Bcast([y, _np2mpi[np.dtype(y.dtype)]], root=root)
     return X, y
