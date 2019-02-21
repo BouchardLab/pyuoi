@@ -8,7 +8,7 @@ from pyuoi.mpi_utils import (Bcast_from_root, Gatherv_rows,
                              load_data_MPI)
 
 
-def test_load_data_MPI(tmp_path):
+def test_load_data_MPI(tmpdir):
     """Tests loading data from an HDF5 file into all ranks.
     """
     comm = MPI.COMM_WORLD
@@ -17,7 +17,7 @@ def test_load_data_MPI(tmp_path):
     X = np.random.randn(5, 10)
     y = np.random.randint(5, size=5)
 
-    fname = os.path.join(tmp_path, 'temp.h5')
+    fname = os.path.join(tmpdir, 'temp.h5')
     if rank == root:
         with h5py.File(fname, 'w') as f:
             f.create_dataset('X', data=X)
