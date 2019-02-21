@@ -14,6 +14,9 @@ _np2mpi = {np.dtype(np.float32): MPI.FLOAT,
 def load_data_MPI(h5_name, X_key='X', y_key='y', root=0):
     """Load data from an h5 file and broadcast it across MPI ranks.
 
+    This is a helper function. It is also possible to load the data
+    without this function.
+
     Parameters
     ----------
     h5_name : str

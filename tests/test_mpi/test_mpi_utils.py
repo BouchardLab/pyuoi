@@ -24,11 +24,6 @@ def test_load_data_MPI(tmp_path):
             f.create_dataset('Xp', data=X)
             f.create_dataset('y', data=y)
             f.create_dataset('yp', data=y)
-    comm.Barrier()
-    print()
-    print(tmp_path)
-    print(os.listdir(tmp_path))
-    comm.Barrier()
 
     # Default keys
     X_load, y_load = load_data_MPI(fname)
