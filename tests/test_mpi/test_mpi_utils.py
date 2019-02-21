@@ -1,4 +1,4 @@
-import h5py, os
+import h5py
 import numpy as np
 
 from numpy.testing import assert_array_equal
