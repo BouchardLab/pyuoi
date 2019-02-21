@@ -17,9 +17,9 @@ def test_load_data_MPI(tmpdir):
     X = np.random.randn(5, 10)
     y = np.random.randint(5, size=5)
 
-    fname = os.path.join(tmpdir, 'temp.h5')
+    fname = tmpdir.join('temp.h5')
     if rank == root:
-        with h5py.File(fname, 'w') as f:
+        with h5py.File(str(fname), 'w') as f:
             f.create_dataset('X', data=X)
             f.create_dataset('Xp', data=X)
             f.create_dataset('y', data=y)
