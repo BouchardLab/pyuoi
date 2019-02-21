@@ -42,10 +42,10 @@ def load_data_MPI(h5_name, X_key='X', y_key='y', root=0):
     ydtype = None
     if rank == root:
         with h5py.File(h5_name, 'r') as f:
-            X = f[X_key].value
+            X = f[X_key][()]
             Xshape = X.shape
             Xdtype = X.dtype
-            y = f[y_key].value
+            y = f[y_key][()]
             yshape = y.shape
             ydtype = y.dtype
     Xshape = comm.bcast(Xshape, root=root)
