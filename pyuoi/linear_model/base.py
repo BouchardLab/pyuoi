@@ -384,7 +384,8 @@ class AbstractUoILinearModel(
                 best_estimates = estimates[np.arange(self.n_boots_est),
                                            self.rp_max_idx_]
                 # take the median across estimates for the final estimate
-                coef = np.median(best_estimates, axis=0).reshape(n_tile, n_coef)
+                coef = np.median(best_estimates, axis=0).reshape(n_tile,
+                                                                 n_features)
             self.estimates_ = Bcast_from_root(estimates, self.comm, root=0)
             self.scores_ = Bcast_from_root(scores, self.comm, root=0)
             self.coef_ = Bcast_from_root(coef, self.comm, root=0)
@@ -400,7 +401,7 @@ class AbstractUoILinearModel(
                                              self.rp_max_idx_, :]
             # take the median across estimates for the final, bagged estimate
             self.coef_ = np.median(best_estimates,
-                                   axis=0).reshape(n_tile, n_coef)
+                                   axis=0).reshape(n_tile, n_features)
 
         return self
 
@@ -657,20 +658,12 @@ class AbstractUoILinearClassifier(
         This implementation will account for multi-class classification.
         """
         supports = intersection(coef, thresholds)
-        ret = supports
         if self._n_classes > 2:
-            # for each support, figure out which variables
-            # are used
-            ret = list()
-            n_coef = supports[0].shape[0] // self._n_classes
-            shape = (self._n_classes, n_coef)
-            for supp in supports:
-                ret.append(np.logical_or(*supp.reshape(shape)))
-            uniq = set()
-            for sup in ret:
-                uniq.add(tuple(sup))
-            ret = np.array(list(uniq))
-        return ret
+            n_features = supports.shape[-1] // self._n_classes
+            supports = supports.reshape((-1, self._n_classes, n_features))
+            supports = np.sum(supports, axis=-2).astype(bool)
+            supports = np.unique(supports, axis=0)
+        return supports
 
     @staticmethod
     def preprocess_data(self, X, y):

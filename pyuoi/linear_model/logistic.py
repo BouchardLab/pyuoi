@@ -8,7 +8,7 @@ from scipy.optimize import minimize
 
 import numpy as np
 
-from ..utils import sigmoid
+from ..utils import sigmoid, softmax
 
 
 class UoI_L1Logistic(AbstractUoILinearClassifier):
@@ -50,7 +50,8 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
             random_state=random_state,
             solver='lbfgs',
             multi_class='auto',
-            fit_intercept=fit_intercept)
+            fit_intercept=fit_intercept,
+            max_iter=max_iter)
 
     @property
     def estimation_lm(self):
@@ -73,7 +74,7 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
 
         This is used in cases where the model has no support selected.
         """
-        return LogisticInterceptFitterNoFeatures(y)
+        return LogisticInterceptFitterNoFeatures(y, self._n_classes)
 
     def _fit_intercept(self, X, y):
         """"Fit a model with an intercept and fixed coefficients.
@@ -82,8 +83,8 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
         estimated.
         """
         if self.fit_intercept:
-            self.intercept_ = fit_intercept_fixed_coef(X, self.coef_,
-                                                       y, self._n_classes)
+            self.intercept_ = fit_intercept_fixed_coef(X, self.coef_, y,
+                                                       self._n_classes)
         else:
             n = self._n_classes
             if self._n_classes == 2:
@@ -92,36 +93,75 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
 
 
 def fit_intercept_fixed_coef(X, coef_, y, n_classes):
-    """Optimize the likelihood w.r.t. the intercept."""
+    """Optimize the likelihood w.r.t. the intercept for a logistic
+    model."""
     if n_classes == 2:
-        n_classes = 1
+        def f_df(intercept):
+            py = sigmoid(X.dot(coef_.T) + intercept)
+            dfdb = py.mean() - y.mean()
+            return log_loss(y, py), np.atleast_1d(dfdb)
 
-    def f_df(intercept):
-        py = sigmoid(X.dot(coef_.T) + intercept)
-        dfdb = py.mean() - y.mean()
-        return log_loss(y, py), np.atleast_1d(dfdb)
+        opt = minimize(f_df, np.atleast_1d(np.zeros(n_classes - 1)),
+                       method='L-BFGS-B', jac=True)
+        return opt.x
+    else:
+        def f_df(short_intercept):
+            intercept = np.concatenate([np.atleast_1d(1.), short_intercept])
+            py = softmax(X.dot(coef_.T) + intercept)
+            def dlogpi_dintk(ii, pyi):
+                if ii == 0:
+                    return -pyi[1:]
+                else:
+                    rval = np.eye(n_classes - 1)[ii - 1]
+                    rval -= pyi[1:]
+                    return rval
 
-    opt = minimize(f_df, np.atleast_1d(np.zeros(n_classes)),
-                   method='BFGS', jac=True)
-    return opt.x
+            dfdb = np.zeros_like(short_intercept)
+            for yi, pyi in zip(y, py):
+                dfdb -= dlogpi_dintk(yi, pyi) / y.size
+            return log_loss(y, py, labels=np.arange(n_classes)), dfdb
+        opt = minimize(f_df, np.atleast_1d(np.zeros(n_classes - 1)),
+                       method='L-BFGS-B', jac=True)
+        intercept = np.concatenate([np.atleast_1d(1.), opt.x])
+        return intercept - intercept.max()
 
 
 class LogisticInterceptFitterNoFeatures(object):
-    """Intercept-only logistic regression.
+    """Intercept-only bernoulli logistic regression.
 
     Parameters
     ----------
     y : ndarray
         Class labels.
     """
-    def __init__(self, y):
-        p = y.mean()
-        self.intercept_ = np.log(p / (1. - p))
+    def __init__(self, y, n_classes):
+        self._n_classes = n_classes
+        eps = 1e-10
+        if n_classes == 2:
+            p = y.mean(axis=0)
+            p = np.minimum(np.maximum(p, eps), 1 - eps)
+            self.intercept_ = np.log(p / (1. - p))
+        else:
+            py = np.equal(y[:, np.newaxis],
+                          np.arange(self._n_classes)[np.newaxis]).mean(axis=0)
+            n_included = np.count_nonzero(py)
+            if n_included < self._n_classes:
+                new_mass = eps *(self._n_classes - n_included)
+                py *= (1. - new_mass)
+                py[np.equal(py, 0.)] = eps
+            intercept = np.log(py)
+            self.intercept_ = intercept - intercept.max()
 
     def predict(self, X):
         n_samples = X.shape[0]
-        return np.tile(int(self.intercept_ >= 0.), n_samples)
+        if self._n_classes == 2:
+            return np.tile(int(self.intercept_ >= 0.), n_samples)
+        else:
+            return np.tile(int(np.argmax(self.intercept_)), n_samples)
 
     def predict_proba(self, X):
         n_samples = X.shape[0]
-        return np.tile(sigmoid(self.intercept_), n_samples)
+        if self._n_classes == 2:
+            return np.tile(sigmoid(self.intercept_), n_samples)
+        else:
+            return np.tile(softmax(self.intercept_)[np.newaxis], (n_samples, 1))

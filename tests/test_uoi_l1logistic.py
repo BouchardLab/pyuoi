@@ -48,28 +48,34 @@ def test_l1logistic_binary():
     for method in methods:
         l1log = UoI_L1Logistic(random_state=10,
                                estimation_score=method).fit(X, y)
+        print()
+        print(w)
+        print(l1log.coef_)
         assert (np.sign(w) == np.sign(l1log.coef_)).mean() >= .8
         assert_allclose(w, l1log.coef_, rtol=.5, atol=.5)
 
 
-@pytest.mark.skip(reason="Logistic is not currently finished")
 def test_l1logistic_multiclass():
     """Test that multiclass L1 Logistic runs in the UoI framework when all
        classes share a support."""
-    n_features = 4
-    n_inf = 3
+    n_features = 20
+    n_inf = 4
     X, y, w, b = make_classification(n_samples=1000,
-                                     random_state=6,
+                                     random_state=10,
                                      n_classes=3,
                                      n_informative=n_inf,
                                      n_features=n_features,
-                                     shared_support=True)
+                                     shared_support=True,
+                                     w_scale=4.)
     l1log = UoI_L1Logistic().fit(X, y)
     print()
     print(w)
     print(l1log.coef_)
-    assert_array_equal(np.sign(w), np.sign(l1log.coef_))
-    assert_allclose(w, l1log.coef_, atol=.5)
+    print()
+    print(np.sign(w))
+    print(np.sign(l1log.coef_))
+    assert (np.sign(w.ravel()) == np.sign(l1log.coef_.ravel())).mean() >= .8
+    assert_allclose(w, l1log.coef_, rtol=.5, atol=.5)
 
 
 def test_estimation_score_usage():
