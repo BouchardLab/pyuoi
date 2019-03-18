@@ -4,13 +4,106 @@ import numpy as np
 
 
 def softmax(y, axis=-1):
+    """Calculates the softmax distribution.
+
+    Parameters
+    ----------
+    y : ndarray
+        Log-probabilities.
+    """
+
     yp = y - y.max(axis=axis, keepdims=True)
     epy = np.exp(yp)
     return epy / np.sum(epy, axis=axis, keepdims=True)
 
 
 def sigmoid(x):
+    """Calculates the bernoulli distribution.
+
+    Parameters
+    ----------
+    y : ndarray
+        Log-probabilities.
+    """
     return np.exp(-np.logaddexp(0, -x))
+
+
+def make_classification(n_samples=100, n_features=20, n_informative=2,
+                        n_classes=2, shared_support=False, random_state=None,
+                        w_scale=1., include_intercept=False):
+    """Make a linear classification dataset.
+
+    Parameters
+    ----------
+    n_samples : int
+        The number of samples to make.
+    n_features : int
+        The number of feature to use.
+    n_informative : int
+        The number of feature with non-zero weights.
+    n_classes : int
+        The number of classes.
+    shared_support : bool
+        If True, all classes will share the same random support. If False, they
+        will each have randomly chooses support.
+    random_state : int or np.random.RandomState instance
+        Random number seed or state.
+    w_scale : float
+        The model parameter matrix, w, will be drawn from a normal distribution
+        with std=w_scale.
+    include_intercept : bool
+        If true, includes an intercept in the model, if False, the intercept is
+        set to 0.
+    """
+    if isinstance(random_state, int):
+        rng = np.random.RandomState(random_state)
+    else:
+        rng = random_state
+    n_not_informative = n_features - n_informative
+
+    X = rng.randn(n_samples, n_features)
+    X -= X.mean(axis=-1, keepdims=True)
+    X /= X.std(axis=-1, keepdims=True)
+
+    if n_classes > 2:
+        w = rng.randn(n_features, n_classes)
+        if include_intercept:
+            intercept = rng.randn(1, n_classes)
+            intercept -= intercept.max()
+        else:
+            intercept = np.zeros((1, n_classes))
+        if n_not_informative > 0:
+            if shared_support:
+                idxs = rng.permutation(n_features)[:n_not_informative]
+                w[idxs] = 0.
+            else:
+                for ii in range(n_classes):
+                    idxs = rng.permutation(n_features)[:n_not_informative]
+                    w[idxs, ii * np.ones_like(idxs, dtype=int)] = 0.
+    else:
+        w = rng.randn(n_features, 1)
+        if include_intercept:
+            intercept = rng.randn(1, 1)
+        else:
+            intercept = np.zeros((1, 1))
+        if n_not_informative > 0:
+            idxs = rng.permutation(n_features)[:n_not_informative]
+            w[idxs] = 0.
+    w *= w_scale
+    intercept *= w_scale * 2.
+
+    log_p = X.dot(w)
+    if include_intercept:
+        log_p += intercept
+    if n_classes > 2:
+        p = softmax(log_p)
+        y = np.array([rng.multinomial(1, pi) for pi in p])
+        y = y.argmax(axis=-1)
+    else:
+        p = sigmoid(np.squeeze(log_p))
+        y = np.array([rng.binomial(1, pi) for pi in p])
+
+    return X, y, w.T, intercept
 
 
 def log_likelihood_glm(model, y_true, y_pred):
