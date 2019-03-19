@@ -263,9 +263,9 @@ class AbstractUoILinearModel(
                 boot_idx = task_idx
                 my_reg_params = self.reg_params_
             # Never warm start across bootstraps
-            if curr_boot_idx != boot_idx:
-                if hasattr(self.selection_lm, 'coef_'):
-                    self.selection_lm.coef_[:] = 0.
+            if (curr_boot_idx != boot_idx) and hasattr(self.selection_lm,
+                                                       'coef_'):
+                self.selection_lm.coef_[:] = 0.
             curr_boot_idx = boot_idx
 
             # draw a resampled bootstrap
