@@ -253,6 +253,7 @@ class AbstractUoILinearModel(
                     random_state=self.random_state)
 
         # iterate over bootstraps
+        curr_boot_idx = None
         for ii, task_idx in enumerate(tasks):
             if size > self.n_boots_sel:
                 boot_idx = task_idx // self.n_reg_params_
@@ -261,6 +262,11 @@ class AbstractUoILinearModel(
             else:
                 boot_idx = task_idx
                 my_reg_params = self.reg_params_
+            # Never warm start across bootstraps
+            if curr_boot_idx != boot_idx:
+                if hasattr(self.selection_lm, 'coef_'):
+                    self.selection_lm.coef_[:] = 0.
+            curr_boot_idx = boot_idx
 
             # draw a resampled bootstrap
             idxs_train, idxs_test = my_boots[boot_idx]
