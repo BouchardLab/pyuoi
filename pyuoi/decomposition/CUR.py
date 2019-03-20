@@ -155,5 +155,3 @@ class CUR(BaseEstimator):
             p = min(1, c * pi[column])
             # selected column randomly
             column_flags[column] = p > np.random.rand()
-
-        return column_flags
