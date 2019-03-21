@@ -149,7 +149,6 @@ class CUR(BaseEstimator):
 
         # iterate through columns
         column_flags = np.zeros(n_features, dtype=bool)
-
         for column in range(n_features):
             # Mahoney (2009), eqn 3
             p = min(1, c * pi[column])
