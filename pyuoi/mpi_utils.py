@@ -11,8 +11,7 @@ try:
                np.dtype(np.int): MPI.LONG,
                np.dtype(np.intc): MPI.INT}
 except ImportError:
-    import warnings
-    warnings.warn('MPI not installed.')
+    pass
 
 
 def load_data_MPI(h5_name, X_key='X', y_key='y', root=0):
