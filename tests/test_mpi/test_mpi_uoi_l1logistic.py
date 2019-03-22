@@ -1,13 +1,16 @@
 import pytest
-
 import numpy as np
 from numpy.testing import assert_array_equal, assert_allclose
-from mpi4py import MPI
+try:
+    from mpi4py import MPI
+except ImportError:
+    MPI = None
 
 from pyuoi import UoI_L1Logistic
 from pyuoi.utils import make_classification
 
 
+@pytest.mark.skipif(MPI is None, reason='MPI not installed.')
 def test_l1logistic_binary():
     """Test that binary L1 Logistic runs in the UoI framework."""
     n_inf = 4

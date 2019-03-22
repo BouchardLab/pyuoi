@@ -4,11 +4,14 @@ Helper functions for working with MPI.
 import h5py
 import numpy as np
 
-from mpi4py import MPI
-_np2mpi = {np.dtype(np.float32): MPI.FLOAT,
-           np.dtype(np.float64): MPI.DOUBLE,
-           np.dtype(np.int): MPI.LONG,
-           np.dtype(np.intc): MPI.INT}
+try:
+    from mpi4py import MPI
+    _np2mpi = {np.dtype(np.float32): MPI.FLOAT,
+               np.dtype(np.float64): MPI.DOUBLE,
+               np.dtype(np.int): MPI.LONG,
+               np.dtype(np.intc): MPI.INT}
+except ImportError:
+    pass
 
 
 def load_data_MPI(h5_name, X_key='X', y_key='y', root=0):
