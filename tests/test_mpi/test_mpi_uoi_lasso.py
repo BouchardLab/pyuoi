@@ -4,7 +4,7 @@ from numpy.testing import assert_array_equal, assert_array_almost_equal_nulp
 from sklearn.datasets import make_regression
 try:
     from mpi4py import MPI
-except ModuleNotFoundError:
+except ImportError:
     MPI = None
 
 from pyuoi import UoI_Lasso

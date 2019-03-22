@@ -4,7 +4,7 @@ import numpy as np
 from numpy.testing import assert_array_equal
 try:
     from mpi4py import MPI
-except ModuleNotFoundError:
+except ImportFoundError:
     MPI = None
 
 from pyuoi.mpi_utils import (Bcast_from_root, Gatherv_rows,

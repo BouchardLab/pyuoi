@@ -10,7 +10,7 @@ try:
                np.dtype(np.float64): MPI.DOUBLE,
                np.dtype(np.int): MPI.LONG,
                np.dtype(np.intc): MPI.INT}
-except ModuleNotFoundError:
+except ImportError:
     import warnings
     warnings.warn('MPI not installed.')
 

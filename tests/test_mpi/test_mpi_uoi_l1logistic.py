@@ -3,7 +3,7 @@ import numpy as np
 from numpy.testing import assert_array_equal, assert_allclose
 try:
     from mpi4py import MPI
-except ModuleNotFoundError:
+except ImportError:
     MPI = None
 
 from pyuoi import UoI_L1Logistic
