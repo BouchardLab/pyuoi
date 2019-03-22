@@ -1,13 +1,17 @@
-import h5py
+import h5py, pytest
 import numpy as np
 
 from numpy.testing import assert_array_equal
-from mpi4py import MPI
+try:
+    from mpi4py import MPI
+except ModuleNotFoundError:
+    MPI = None
 
 from pyuoi.mpi_utils import (Bcast_from_root, Gatherv_rows,
                              load_data_MPI)
 
 
+@pytest.mark.skipif(MPI is None, reason='MPI not installed.')
 def test_load_data_MPI(tmpdir):
     """Tests loading data from an HDF5 file into all ranks.
     """
@@ -40,6 +44,7 @@ def test_load_data_MPI(tmpdir):
         assert_array_equal(y, y_load)
 
 
+@pytest.mark.skipif(MPI is None, reason='MPI not installed.')
 def test_Bcast_from_root():
     """Test the Bcast_from_root function for broadcasting
     an array from root to all ranks.
@@ -64,6 +69,7 @@ def test_Bcast_from_root():
             assert X.ndim == len(my_dim)
 
 
+@pytest.mark.skipif(MPI is None, reason='MPI not installed.')
 def test_Gatherv_rows():
     """Test the Gatherv_rows function for Gathering and
     concatenating ndarrys along their first axes to root.
