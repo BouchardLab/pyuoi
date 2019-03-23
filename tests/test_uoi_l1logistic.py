@@ -1,5 +1,3 @@
-import pytest
-
 import numpy as np
 
 from numpy.testing import assert_array_equal, assert_allclose, assert_equal
@@ -59,23 +57,17 @@ def test_l1logistic_multiclass():
     """Test that multiclass L1 Logistic runs in the UoI framework when all
        classes share a support."""
     n_features = 20
-    n_inf = 4
-    X, y, w, b = make_classification(n_samples=1000,
+    n_inf = 5
+    X, y, w, b = make_classification(n_samples=2000,
                                      random_state=10,
-                                     n_classes=3,
+                                     n_classes=5,
                                      n_informative=n_inf,
                                      n_features=n_features,
                                      shared_support=True,
                                      w_scale=4.)
     l1log = UoI_L1Logistic().fit(X, y)
-    print()
-    print(w)
-    print(l1log.coef_)
-    print()
-    print(np.sign(w))
-    print(np.sign(l1log.coef_))
     assert (np.sign(w.ravel()) == np.sign(l1log.coef_.ravel())).mean() >= .8
-    assert_allclose(w, l1log.coef_, rtol=.5, atol=.5)
+    assert_allclose(w, l1log.coef_, rtol=.5, atol=3.)
 
 
 def test_estimation_score_usage():

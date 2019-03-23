@@ -17,7 +17,7 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
                  estimation_frac=0.9, n_C=48, stability_selection=1.,
                  warm_start=True, estimation_score='acc',
                  copy_X=True, fit_intercept=True, normalize=True,
-                 random_state=None, max_iter=1000,
+                 random_state=None, max_iter=5000, tol=1e-5,
                  comm=None):
         super(UoI_L1Logistic, self).__init__(
             n_boots_sel=n_boots_sel,
@@ -41,7 +41,7 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
             random_state=random_state,
             multi_class='auto',
             fit_intercept=fit_intercept,
-        )
+            tol=tol)
         # sklearn cannot do LogisticRegression without penalization, due to the
         # ill-posed nature of the problem. We may want to set C=np.inf for no
         # penalization, but we risk no convergence.
@@ -51,7 +51,8 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
             solver='lbfgs',
             multi_class='auto',
             fit_intercept=fit_intercept,
-            max_iter=max_iter)
+            max_iter=max_iter,
+            tol=tol)
 
     @property
     def estimation_lm(self):
@@ -108,6 +109,7 @@ def fit_intercept_fixed_coef(X, coef_, y, n_classes):
         def f_df(short_intercept):
             intercept = np.concatenate([np.atleast_1d(1.), short_intercept])
             py = softmax(X.dot(coef_.T) + intercept)
+
             def dlogpi_dintk(ii, pyi):
                 if ii == 0:
                     return -pyi[1:]
@@ -146,7 +148,7 @@ class LogisticInterceptFitterNoFeatures(object):
                           np.arange(self._n_classes)[np.newaxis]).mean(axis=0)
             n_included = np.count_nonzero(py)
             if n_included < self._n_classes:
-                new_mass = eps *(self._n_classes - n_included)
+                new_mass = eps * (self._n_classes - n_included)
                 py *= (1. - new_mass)
                 py[np.equal(py, 0.)] = eps
             intercept = np.log(py)
