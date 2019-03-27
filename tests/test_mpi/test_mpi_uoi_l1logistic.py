@@ -25,12 +25,13 @@ def test_l1logistic_binary():
     assert_allclose(w, l1log.coef_, atol=.5, rtol=.5)
 
 
+@pytest.mark.skipif(MPI is None, reason='MPI not installed.')
 def test_l1logistic_multiclass():
     """Test that multiclass L1 Logistic runs in the UoI framework when all
        classes share a support."""
     n_features = 20
     n_inf = 5
-    X, y, w, b = make_classification(n_samples=2000,
+    X, y, w, b = make_classification(n_samples=1000,
                                      random_state=10,
                                      n_classes=5,
                                      n_informative=n_inf,

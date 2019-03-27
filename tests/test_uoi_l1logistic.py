@@ -25,7 +25,9 @@ def test_l1logistic_intercept():
                                          n_features=4,
                                          w_scale=4.,
                                          include_intercept=fi)
-        l1log = UoI_L1Logistic(fit_intercept=fi).fit(X, y)
+        l1log = UoI_L1Logistic(fit_intercept=fi,
+                               n_boots_sel=3,
+                               n_boots_est=3).fit(X, y)
         if not fi:
             assert_array_equal(l1log.intercept_, 0.)
         else:
@@ -58,7 +60,7 @@ def test_l1logistic_multiclass():
        classes share a support."""
     n_features = 20
     n_inf = 5
-    X, y, w, b = make_classification(n_samples=2000,
+    X, y, w, b = make_classification(n_samples=1000,
                                      random_state=10,
                                      n_classes=5,
                                      n_informative=n_inf,

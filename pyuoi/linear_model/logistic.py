@@ -17,7 +17,7 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
                  estimation_frac=0.9, n_C=48, stability_selection=1.,
                  warm_start=True, estimation_score='acc',
                  copy_X=True, fit_intercept=True, normalize=True,
-                 random_state=None, max_iter=5000, tol=1e-5,
+                 random_state=None, max_iter=5000, tol=1e-4,
                  comm=None):
         super(UoI_L1Logistic, self).__init__(
             n_boots_sel=n_boots_sel,
