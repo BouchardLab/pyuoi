@@ -61,7 +61,7 @@ class CUR(BaseEstimator):
         self.tol = tol
         self.random_state = random_state
 
-    def fit(self, X, stratify=None):
+    def fit(self, X, c=None, stratify=None):
         """Performs column subset selection in the UoI framework on a provided
         matrix.
 
@@ -107,9 +107,12 @@ class CUR(BaseEstimator):
             # iterate over ranks
             for k_idx, k in enumerate(range(1, self.max_k + 1)):
                 # perform column selection on the subset of singular vectors
-                column_flags = self.column_select(V[:, :k], k + 20)
+                if c is None:
+                    column_flags = self.column_select(V[:, :k], k + 20)
+                else:
+                    column_flags = self.column_select(V[:, :k], c)
                 # convert column flags to set
-                column_indices = set(np.argwhere(column_flags))
+                column_indices = set(np.argwhere(column_flags).ravel())
                 indices[k_idx].append(column_indices)
 
         # calculate intersections
@@ -146,6 +149,7 @@ class CUR(BaseEstimator):
 
         # iterate through columns
         column_flags = np.zeros(n_features, dtype=bool)
+
         for column in range(n_features):
             # Mahoney (2009), eqn 3
             p = min(1, c * pi[column])
