@@ -3,7 +3,8 @@ import numpy as np
 from numpy.testing import assert_array_equal, assert_allclose, assert_equal
 
 from pyuoi import UoI_L1Logistic
-from pyuoi.linear_model.logistic import fit_intercept_fixed_coef
+from pyuoi.linear_model.logistic import (fit_intercept_fixed_coef,
+                                         MaskedCoefLogisticRegression)
 from pyuoi.utils import make_classification
 
 
@@ -67,9 +68,51 @@ def test_l1logistic_multiclass():
                                      n_features=n_features,
                                      shared_support=True,
                                      w_scale=4.)
-    l1log = UoI_L1Logistic().fit(X, y)
+    l1log = UoI_L1Logistic(estimation_score='log').fit(X, y)
     assert (np.sign(w.ravel()) == np.sign(l1log.coef_.ravel())).mean() >= .8
     assert_allclose(w, l1log.coef_, rtol=.5, atol=3.)
+
+
+def test_l1logistic_multiclass_not_shared():
+    """Test that multiclass L1 Logistic runs in the UoI framework when all
+       classes share a support."""
+    n_features = 5
+    n_inf = 4
+    X, y, w, b = make_classification(n_samples=100,
+                                     random_state=10,
+                                     n_classes=3,
+                                     n_informative=n_inf,
+                                     n_features=n_features,
+                                     shared_support=False,
+                                     w_scale=4.)
+    l1log = UoI_L1Logistic(estimation_score='log',
+                           shared_support=False).fit(X, y)
+    print()
+    print(w.ravel())
+    print(l1log.coef_.ravel())
+    assert (np.sign(w.ravel()) == np.sign(l1log.coef_.ravel())).mean() >= .8
+    assert_allclose(w, l1log.coef_, rtol=.5, atol=3.)
+
+
+def test_masked_logistic():
+    """Test the masked logistic regression class."""
+    for shared_support in [True, False]:
+        for n_classes in [2, 3]:
+            n_features = 40
+            n_inf = 5
+            X, y, w, b = make_classification(n_samples=20000,
+                                             random_state=10,
+                                             n_classes=n_classes,
+                                             n_informative=n_inf,
+                                             n_features=n_features,
+                                             shared_support=shared_support,
+                                             w_scale=4.)
+            mask = np.squeeze(np.logical_not(np.equal(w, 0)))
+            lr = MaskedCoefLogisticRegression().fit(X, y, coef_mask=mask)
+            coef_idxs = np.flatnonzero(np.logical_not(np.equal(lr.coef_, 0.)))
+            mask_idxs = np.flatnonzero(np.logical_not(np.equal(mask, 0)))
+            assert set(coef_idxs.tolist()).issubset(set(mask_idxs.tolist()))
+            assert_allclose(w, lr.coef_, rtol=.5, atol=3.)
 
 
 def test_estimation_score_usage():
