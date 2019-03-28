@@ -1,3 +1,4 @@
+import h5py, pytest
 import numpy as np
 
 from numpy.testing import assert_equal
@@ -59,8 +60,27 @@ def test_UoI_CUR_basic():
     uoi_cur = CUR(n_resamples=n_resamples,
                   max_k=max_k,
                   resample_frac=resample_frac)
-    uoi_cur.fit(X, c=2)
+    uoi_cur.fit(X, c=3)
 
     max_col = np.argmax(np.sum(V_subset**2, axis=1))
-    print(uoi_cur.columns_)
+
     assert (max_col in uoi_cur.columns_)
+
+@pytest.mark.skip(reason='Waiting on dataset.')
+def test_UoI_CUR_vs_CUR():
+    with h5py.File('tests/cur.h5', 'r') as data:
+        X = data['X'][:]
+
+    max_k = 50
+
+    uoi_cur = CUR(n_resamples=4,
+                  max_k=max_k,
+                  resample_frac=0.9)
+    uoi_cur.fit(X, c=None)
+    n_uoi = uoi_cur.columns_.size
+    _, _, V = np.linalg.svd(X)
+
+    cur_flags = CUR.column_select(V[:max_k].T, max_k + 20)
+    n_cur = np.count_nonzero(cur_flags)
+
+    assert n_uoi < n_cur

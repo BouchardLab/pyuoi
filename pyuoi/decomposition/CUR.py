@@ -121,7 +121,7 @@ class CUR(BaseEstimator):
         # calculate union of intersections
         union = list(set.union(*intersection))
 
-        self.columns_ = np.array(union)
+        self.columns_ = np.sort(np.array(union))
         return self
 
     @staticmethod
