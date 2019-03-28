@@ -4,6 +4,18 @@ from numpy.testing import assert_equal
 from numpy.testing import assert_array_equal
 from pyuoi.decomposition import CUR
 
+X = np.array([
+    [0, 0, 0, 4, 2],
+    [0, 4, 2, 1, 0],
+    [3, 0, 0, 2, 1],
+    [2, 2, 0, 1, 0],
+    [1, 2, 4, 1, 3],
+    [1, 4, 0, 0, 4],
+    [3, 3, 4, 0, 0],
+    [3, 2, 3, 0, 4],
+    [0, 1, 2, 1, 4],
+    [1, 4, 0, 2, 4]])
+
 
 def test_column_select_all():
     """Test that column select function selects all columns when provided the
@@ -18,12 +30,10 @@ def test_column_select_all():
 def test_column_select():
     """Test that the column select function selects the vector with the highest
     leverage score most often."""
-    n_samples = 10
-    n_features = 5
+    n_samples, n_features = X.shape
     rank = 3
     n_reps = 5000
 
-    X = np.random.randint(low=1, high=5, size=(n_samples, n_features))
     _, _, V = np.linalg.svd(X)
     V_subset = V[:rank].T
     column_flags = np.zeros((n_reps, n_features))
@@ -38,13 +48,11 @@ def test_column_select():
 
 def test_UoI_CUR_basic():
     """Test UoI CUR with no resampling."""
-    n_samples = 10
-    n_features = 5
+    n_samples, n_features = X.shape
     max_k = 3
     n_resamples = 1
     resample_frac = 1
 
-    X = np.random.randint(low=1, high=5, size=(n_samples, n_features))
     _, _, V = np.linalg.svd(X)
     V_subset = V[:max_k].T
 
@@ -54,5 +62,5 @@ def test_UoI_CUR_basic():
     uoi_cur.fit(X, c=2)
 
     max_col = np.argmax(np.sum(V_subset**2, axis=1))
-
+    print(uoi_cur.columns_)
     assert (max_col in uoi_cur.columns_)
