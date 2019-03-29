@@ -7,7 +7,7 @@ import numpy as np
 
 class CUR(BaseEstimator):
     def __init__(
-        self, n_resamples, max_k, resample_frac, algorithm='randomized',
+        self, n_boots, max_k, boots_frac, algorithm='randomized',
         n_iter=5, tol=0.0, random_state=None
     ):
         """Performs column subset selection (CUR decomposition) in the Union
@@ -18,14 +18,14 @@ class CUR(BaseEstimator):
 
         Parameters
         ----------
-        n_resamples : int
-            Number of resamples (bootstraps).
+        n_boots : int
+            Number of bootstraps.
 
         max_k : int
             The maximum rank of the singular value decomposition.
 
-        resample_frac : float
-            The fraction of data to use in the resample.
+        boots_frac : float
+            The fraction of data to use in the bootstrap.
 
         algorithm : string, default = “randomized”
             SVD solver to use. Either “arpack” for the ARPACK wrapper in SciPy
@@ -53,9 +53,9 @@ class CUR(BaseEstimator):
         columns_ : ndarray
             The indices of the columns selected by the algorithm.
         """
-        self.n_resamples = n_resamples
+        self.n_boots = n_boots
         self.max_k = max_k
-        self.resample_frac = resample_frac
+        self.boots_frac = boots_frac
         self.algorithm = algorithm
         self.n_iter = n_iter
         self.tol = tol
@@ -70,8 +70,12 @@ class CUR(BaseEstimator):
         X : ndarray, shape (n_samples, n_features)
             The data matrix.
 
+        c : float
+            The expected number of columns to select. If None, c will vary with
+            the rank k.
+
         stratify : array-like or None, default None
-            Ensures groups of samples are alloted to resamples proportionally.
+            Ensures groups of samples are alloted to bootstraps proportionally.
             Labels for each group must be an int greater than zero. Must be of
             size equal to the number of samples, with further restrictions on
             the number of groups.
@@ -93,13 +97,13 @@ class CUR(BaseEstimator):
                             random_state=self.random_state)
 
         # iterate over bootstraps
-        for bootstrap in range(self.n_resamples):
-            # extract resample
-            X_train, _ = train_test_split(X, test_size=1 - self.resample_frac,
+        for bootstrap in range(self.n_boots):
+            # extract bootstrap
+            X_train, _ = train_test_split(X, test_size=1 - self.boots_frac,
                                           stratify=stratify,
                                           random_state=self.random_state)
 
-            # perform truncated SVD on resample
+            # perform truncated SVD on bootstrap
             tsvd.fit(X_train)
             # extract right singular vectors
             V = tsvd.components_.T
@@ -154,3 +158,5 @@ class CUR(BaseEstimator):
             p = min(1, c * pi[column])
             # selected column randomly
             column_flags[column] = p > np.random.rand()
+
+        return column_flags

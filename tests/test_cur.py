@@ -48,23 +48,24 @@ def test_column_select():
 
 
 def test_UoI_CUR_basic():
-    """Test UoI CUR with no resampling."""
+    """Test UoI CUR with no bootstrapping."""
     n_samples, n_features = X.shape
     max_k = 3
-    n_resamples = 1
-    resample_frac = 1
+    n_boots = 1
+    boots_frac = 1
 
     _, _, V = np.linalg.svd(X)
     V_subset = V[:max_k].T
 
-    uoi_cur = CUR(n_resamples=n_resamples,
+    uoi_cur = CUR(n_boots=n_boots,
                   max_k=max_k,
-                  resample_frac=resample_frac)
+                  boots_frac=boots_frac)
     uoi_cur.fit(X, c=3)
 
     max_col = np.argmax(np.sum(V_subset**2, axis=1))
 
     assert (max_col in uoi_cur.columns_)
+
 
 @pytest.mark.skip(reason='Waiting on dataset.')
 def test_UoI_CUR_vs_CUR():
@@ -73,9 +74,9 @@ def test_UoI_CUR_vs_CUR():
 
     max_k = 50
 
-    uoi_cur = CUR(n_resamples=4,
+    uoi_cur = CUR(n_boots=4,
                   max_k=max_k,
-                  resample_frac=0.9)
+                  boots_frac=0.9)
     uoi_cur.fit(X, c=None)
     n_uoi = uoi_cur.columns_.size
     _, _, V = np.linalg.svd(X)
