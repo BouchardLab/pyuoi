@@ -1,7 +1,11 @@
-from setuptools import setup, find_packages
+from setuptools import setup, find_packages, Extension
+from setuptools.command.build_ext import build_ext
+from distutils.ccompiler import get_default_compiler
 # To use a consistent encoding
 from codecs import open
 from os import path
+
+import numpy as np
 
 
 here = path.abspath(path.dirname(__file__))
@@ -13,6 +17,37 @@ with open(path.join(here, 'requirements.txt'), encoding='utf-8') as f:
 with open(path.join(here, 'requirements-dev.txt'), encoding='utf-8') as f:
     dev_requirements = f.read().splitlines()
     dev_requirements = dev_requirements[1:] # Throw away the first line which is not a package.
+
+# Prepare lbfgs
+try:
+    from Cython.Build import cythonize
+    use_cython = True
+except ImportError:
+    use_cython = False
+
+class custom_build_ext(build_ext):
+    def finalize_options(self):
+        build_ext.finalize_options(self)
+        if self.compiler is None:
+            compiler = get_default_compiler()
+        else:
+            compiler = self.compiler
+
+        if compiler == 'msvc':
+            include_dirs.append('compat/win32')
+
+include_dirs = ['liblbfgs', np.get_include()]
+
+if use_cython:
+    ext_modules = cythonize(
+        [Extension('pyuoi.lbfgs._lowlevel',
+                   ['pyuoi/lbfgs/_lowlevel.pyx', 'liblbfgs/lbfgs.c'],
+                   include_dirs=include_dirs)])
+else:
+    ext_modules = [Extension('pyuoi.lbfgs._lowlevel',
+                             ['pyuoi/lbfgs/_lowlevel.c', 'liblbfgs/lbfgs.c'],
+                             include_dirs=include_dirs)]
+
 
 setup(
     name='pyuoi',
@@ -85,7 +120,9 @@ setup(
         'dev': dev_requirements
     },
 
-    url='https://github.com/BouchardLab/pyuoi'
+    url='https://github.com/BouchardLab/pyuoi',
+    ext_modules=ext_modules,
+    cmdclass={'build_ext': custom_build_ext}
 
 
     # To provide executable scripts, use entry points in preference to the

@@ -1,17 +1,18 @@
-import numbers
+import numbers, warnings
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import LabelEncoder, LabelBinarizer
 from sklearn.svm import l1_min_c
 from sklearn.metrics import log_loss
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.utils._joblib import Parallel, delayed
-from sklearn.utils import check_X_y, check_random_state, compute_class_weight
+from sklearn.utils import (check_X_y, check_random_state, compute_class_weight,
+                           check_consistent_length, check_array)
 from sklearn.utils.multiclass import check_classification_targets
 from sklearn.utils.fixes import _joblib_parallel_args
 from sklearn.utils.extmath import safe_sparse_dot, log_logistic
 from sklearn.linear_model.logistic import (_check_multi_class,
                                            _multinomial_loss,
-                                           _logistic_loss,
                                            _intercept_dot)
 
 from scipy.optimize import minimize
@@ -22,6 +23,7 @@ import numpy as np
 
 from .base import AbstractUoILinearClassifier
 from ..utils import sigmoid, softmax
+from ..lbfgs import fmin_lbfgs
 
 
 class UoI_L1Logistic(AbstractUoILinearClassifier):
@@ -47,9 +49,8 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
             comm=comm)
         self.n_C = n_C
         self.Cs = None
-        self.__selection_lm = LogisticRegression(
+        self.__selection_lm = MaskedCoefLogisticRegression(
             penalty='l1',
-            solver='saga',
             max_iter=max_iter,
             warm_start=warm_start,
             random_state=random_state,
@@ -60,23 +61,13 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
         # ill-posed nature of the problem. We may want to set C=np.inf for no
         # penalization, but we risk no convergence.
 
-        if self.shared_support:
-            self.__estimation_lm = LogisticRegression(
-                C=np.inf,
-                random_state=random_state,
-                solver='lbfgs',
-                multi_class='auto',
-                fit_intercept=fit_intercept,
-                max_iter=max_iter,
-                tol=tol)
-        else:
-            self.__estimation_lm = MaskedCoefLogisticRegression(
-                C=np.inf,
-                random_state=random_state,
-                multi_class='auto',
-                fit_intercept=fit_intercept,
-                max_iter=max_iter,
-                tol=tol)
+        self.__estimation_lm = MaskedCoefLogisticRegression(
+            C=np.inf,
+            random_state=random_state,
+            multi_class='auto',
+            fit_intercept=fit_intercept,
+            max_iter=max_iter,
+            tol=tol)
 
     @property
     def estimation_lm(self):
@@ -193,7 +184,6 @@ class LogisticInterceptFitterNoFeatures(object):
             return np.tile(softmax(self.intercept_)[np.newaxis], (n_samples, 1))
 
 
-
 class MaskedCoefLogisticRegression(LogisticRegression):
     """Logistic regression with a binary mask on the coef.
     Parameters
@@ -254,17 +244,18 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         context. ``-1`` means using all processors.
         See :term:`Glossary <n_jobs>` for more details.
     """
-    def __init__(self, tol=0.0001, C=1e10,
+    def __init__(self, penalty='l2', tol=0.0001, C=1.,
                  fit_intercept=True, class_weight=None,
                  random_state=None, max_iter=100,
                  multi_class='auto', verbose=0, warm_start=False,
                  n_jobs=None):
-        super().__init__(tol=tol, C=C,
-                 fit_intercept=fit_intercept,
-                 class_weight=class_weight,
-                 random_state=random_state, max_iter=max_iter,
-                 multi_class=multi_class, verbose=verbose,
-                 warm_start=warm_start, n_jobs=n_jobs)
+        super().__init__(penalty=penalty, tol=tol, C=C,
+                         fit_intercept=fit_intercept,
+                         class_weight=class_weight,
+                         random_state=random_state, max_iter=max_iter,
+                         multi_class=multi_class, verbose=verbose,
+                         warm_start=warm_start, n_jobs=n_jobs)
+
     def fit(self, X, y, sample_weight=None, coef_mask=None):
         """Fit the model according to the given training data.
         Parameters
@@ -279,7 +270,8 @@ class MaskedCoefLogisticRegression(LogisticRegression):
             If not provided, then each sample is given unit weight.
             .. versionadded:: 0.17
                *sample_weight* support to LogisticRegression.
-        coef_mask : array-like, shape (n_features), (n_classes, n_features) optional
+        coef_mask : array-like, shape (n_features), (n_classes, n_features)
+                    optional
             Masking array for coef.
         Returns
         -------
@@ -353,7 +345,8 @@ class MaskedCoefLogisticRegression(LogisticRegression):
                       fit_intercept=self.fit_intercept,
                       tol=self.tol, verbose=self.verbose,
                       multi_class=multi_class, max_iter=self.max_iter,
-                      class_weight=self.class_weight, check_input=False,
+                      class_weight=self.class_weight, penalty=self.penalty,
+                      check_input=False,
                       random_state=self.random_state, coef=warm_start_coef_,
                       sample_weight=sample_weight, coef_mask=coef_mask)
             for class_, warm_start_coef_ in zip(classes_, warm_start_coef))
@@ -374,9 +367,10 @@ class MaskedCoefLogisticRegression(LogisticRegression):
 
         return self
 
+
 def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
                               max_iter=100, tol=1e-4, verbose=0, coef=None,
-                              class_weight=None,
+                              class_weight=None, penalty='l2',
                               multi_class='warn',
                               random_state=None, check_input=True,
                               sample_weight=None,
@@ -471,7 +465,6 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
         The "copy" parameter was removed.
     """
     solver = 'lbfgs'
-    penalty = 'l2'
     if isinstance(Cs, numbers.Integral):
         Cs = np.logspace(-4, 4, Cs)
 
@@ -513,6 +506,7 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
     # For doing a ovr, we need to mask the labels first. for the
     # multinomial case this is not necessary.
     if multi_class == 'ovr':
+        coef_size = n_features
         w0 = np.zeros(n_features + int(fit_intercept), dtype=X.dtype)
         mask_classes = np.array([-1, 1])
         mask = (y == pos_class)
@@ -526,6 +520,7 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
             sample_weight *= class_weight_[le.fit_transform(y_bin)]
 
     else:
+        coef_size = classes.size * n_features
         lbin = LabelBinarizer()
         Y_multi = lbin.fit_transform(y)
         if Y_multi.shape[1] == 1:
@@ -572,35 +567,72 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
     if multi_class == 'multinomial':
         # fmin_l_bfgs_b and newton-cg accepts only ravelled parameters.
         target = Y_multi
-        w0 = w0.ravel()
-        func = lambda x, *args: _multinomial_loss_grad(x, *args)[0:2]
+        if penalty == 'l2':
+            w0 = w0.ravel()
+
+            def func(x, *args):
+                return _multinomial_loss_grad(x, *args)[0:2]
+        else:
+            w0 = w0.T.ravel()
+
+            def inner_func(x, *args):
+                return _multinomial_loss_grad(x, *args)[0:2]
+
+            def func(x, g, *args):
+                if penalty == 'l1':
+                    x = x.reshape(-1, classes.size).T.ravel()
+                loss, grad = inner_func(x, *args)
+                if penalty == 'l1':
+                    grad = grad.reshape(classes.size, -1).T.ravel()
+                g[:] = grad
+                return loss
     else:
         target = y_bin
-        func = _logistic_loss_and_grad
+        if penalty == 'l2':
+            func = _logistic_loss_and_grad
+        else:
+            def func(x, g, *args):
+                loss, grad = _logistic_loss_and_grad(x, *args)
+                g[:] = grad
+                return loss
 
     coefs = list()
     n_iter = np.zeros(len(Cs), dtype=np.int32)
     for i, C in enumerate(Cs):
         iprint = [-1, 50, 1, 100, 101][
             np.searchsorted(np.array([0, 1, 2, 3]), verbose)]
-        w0, loss, info = optimize.fmin_l_bfgs_b(
-            func, w0, fprime=None,
-            args=(X, target, 1. / C, coef_mask, sample_weight),
-            iprint=iprint, pgtol=tol, maxiter=max_iter)
+        if penalty == 'l2':
+            w0, loss, info = optimize.fmin_l_bfgs_b(
+                func, w0, fprime=None,
+                args=(X, target, 1. / C, coef_mask, sample_weight),
+                iprint=iprint, pgtol=tol, maxiter=max_iter)
+        else:
+            w0 = fmin_lbfgs(func, w0, orthantwise_c=1. / C,
+                            args=(X, target, 0., coef_mask, sample_weight),
+                            max_iterations=max_iter,
+                            line_search='wolfe',
+                            orthantwise_end=coef_size - 1)
+            info = None
         # Mask final array
         if coef_mask is not None:
             if multi_class == 'ovr':
                 w0[:n_features] *= coef_mask
             else:
-                w0 = w0.reshape(classes.size, -1)
+                if penalty == 'l2':
+                    w0 = w0.reshape(classes.size, -1)
+                else:
+                    w0 = w0.reshape(-1, classes.size).T
                 w0[:, :n_features] *= coef_mask
                 w0 = w0.ravel()
-        if info["warnflag"] == 1:
+        if info is not None and info["warnflag"] == 1:
             warnings.warn("lbfgs failed to converge. Increase the number "
                           "of iterations.", ConvergenceWarning)
         # In scipy <= 1.0.0, nit may exceed maxiter.
         # See https://github.com/scipy/scipy/issues/7854.
-        n_iter_i = min(info['nit'], max_iter)
+        if info is None:
+            n_iter_i = -1
+        else:
+            n_iter_i = min(info['nit'], max_iter)
 
         if multi_class == 'multinomial':
             n_classes = max(2, classes.size)
@@ -664,6 +696,7 @@ def _logistic_loss_and_grad(w, X, y, alpha, mask, sample_weight=None):
     if grad.shape[0] > n_features:
         grad[-1] = z0.sum()
     return out, grad
+
 
 def _multinomial_loss_grad(w, X, Y, alpha, mask, sample_weight):
     """Computes the multinomial loss, gradient and class probabilities.

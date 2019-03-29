@@ -42,7 +42,7 @@ def test_l1logistic_binary():
     X, y, w, b = make_classification(n_samples=2000,
                                      random_state=6,
                                      n_informative=n_inf,
-                                     n_features=10,
+                                     n_features=20,
                                      w_scale=4.,
                                      include_intercept=True)
 

@@ -404,7 +404,8 @@ class AbstractUoILinearModel(
             best_estimates = self.estimates_[np.arange(self.n_boots_est),
                                              self.rp_max_idx_, :]
             # take the median across estimates for the final, bagged estimate
-            self.coef_ = np.median(best_estimates, axis=0).reshape(n_tile, n_features)
+            self.coef_ = np.median(best_estimates, axis=0).reshape(n_tile,
+                                                                   n_features)
 
         return self
 
