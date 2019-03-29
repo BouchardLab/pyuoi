@@ -2,11 +2,9 @@ from sklearn.base import TransformerMixin, BaseEstimator
 from sklearn.decomposition import NMF
 from sklearn.cluster import DBSCAN
 from sklearn.preprocessing import normalize
-from sklearn.linear_model import Lasso
 
 from sklearn.utils.validation import check_non_negative
 
-import scipy.linalg as spla
 import scipy.optimize as spo
 import numpy as np
 
@@ -126,11 +124,11 @@ class UoINMF(BaseEstimator, TransformerMixin):
         """
         check_non_negative(X, 'UoINMF')
         n, p = X.shape
-        Wall = list()
+        # Wall = list()
         k_tot = sum(self.ranks)
         n_H_samples = k_tot * self.n_bootstraps
         H_samples = np.zeros((n_H_samples, p), dtype=np.float64)
-        ridx = list()
+        # ridx = list()
         rep_idx = self._rand.randint(n, size=(self.n_bootstraps, n))
         for i in range(self.n_bootstraps):
             # compute NMF bases for k across bootstrap replicates
