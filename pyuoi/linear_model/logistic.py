@@ -30,9 +30,9 @@ class UoI_L1Logistic(AbstractUoILinearClassifier):
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, n_C=48, stability_selection=1.,
-                 warm_start=True, estimation_score='acc',
+                 warm_start=False, estimation_score='acc',
                  copy_X=True, fit_intercept=True, normalize=True,
-                 random_state=None, max_iter=5000, tol=1e-4,
+                 random_state=None, max_iter=10000, tol=1e-3,
                  shared_support=True, comm=None):
         super(UoI_L1Logistic, self).__init__(
             n_boots_sel=n_boots_sel,
@@ -573,17 +573,17 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
             def func(x, *args):
                 return _multinomial_loss_grad(x, *args)[0:2]
         else:
-            w0 = w0.T.ravel()
+            w0 = w0.T.ravel().copy()
+            if coef_mask is not None:
+                coef_mask = coef_mask.T
 
             def inner_func(x, *args):
                 return _multinomial_loss_grad(x, *args)[0:2]
 
             def func(x, g, *args):
-                if penalty == 'l1':
-                    x = x.reshape(-1, classes.size).T.ravel()
+                x = x.reshape(-1, classes.size).T.ravel().copy()
                 loss, grad = inner_func(x, *args)
-                if penalty == 'l1':
-                    grad = grad.reshape(classes.size, -1).T.ravel()
+                grad = grad.reshape(classes.size, -1).T.ravel().copy()
                 g[:] = grad
                 return loss
     else:
@@ -610,8 +610,8 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
             w0 = fmin_lbfgs(func, w0, orthantwise_c=1. / C,
                             args=(X, target, 0., coef_mask, sample_weight),
                             max_iterations=max_iter,
-                            line_search='wolfe',
-                            orthantwise_end=coef_size - 1)
+                            epsilon=tol,
+                            orthantwise_end=coef_size)
             info = None
         # Mask final array
         if coef_mask is not None:
@@ -636,7 +636,10 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
 
         if multi_class == 'multinomial':
             n_classes = max(2, classes.size)
-            multi_w0 = np.reshape(w0, (n_classes, -1))
+            if penalty == 'l2':
+                multi_w0 = np.reshape(w0, (n_classes, -1))
+            else:
+                multi_w0 = np.reshape(w0, (-1, n_classes)).T
             if n_classes == 2:
                 multi_w0 = multi_w0[1][np.newaxis, :]
             coefs.append(multi_w0.copy())
