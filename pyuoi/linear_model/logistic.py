@@ -303,7 +303,7 @@ class MaskedCoefLogisticRegression(LogisticRegression):
                                          len(self.classes_))
 
         n_classes = len(self.classes_)
-        if multi_class == 'multinomial':
+        if multi_class == 'multinomial' and coef_mask is not None:
             coef_mask = coef_mask.reshape(n_classes, -1)
         classes_ = self.classes_
         if n_classes < 2:
