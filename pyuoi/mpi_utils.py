@@ -116,13 +116,12 @@ def Gatherv_rows(send, comm, root=0):
     """
 
     rank = comm.rank
-    size = comm.size
     dtype = send.dtype
     shape = send.shape
     tot = np.zeros(1, dtype=int)
-    
-    # Gather the sizes of the first dimension on root   
-    rank_sizes = comm.gather(shape[0], root = root)
+
+    # Gather the sizes of the first dimension on root
+    rank_sizes = comm.gather(shape[0], root=root)
     comm.Reduce(np.array(shape[0], dtype=int),
                 [tot, _np2mpi[tot.dtype]], op=MPI.SUM, root=root)
     if rank == root:
@@ -132,7 +131,6 @@ def Gatherv_rows(send, comm, root=0):
         disps = np.insert(np.cumsum(sizes), 0, 0)[:-1]
     else:
         rec = None
-        idxs = None
         sizes = None
         disps = None
 
