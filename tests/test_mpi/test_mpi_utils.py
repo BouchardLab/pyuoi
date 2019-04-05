@@ -7,9 +7,6 @@ try:
 except ImportError:
     MPI = None
 
-import sys 
-sys.path.append('../..')
-
 from pyuoi.mpi_utils import (Bcast_from_root, Gatherv_rows,
                              load_data_MPI)
 
