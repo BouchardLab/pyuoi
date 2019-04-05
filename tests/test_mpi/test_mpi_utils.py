@@ -7,9 +7,11 @@ try:
 except ImportError:
     MPI = None
 
+import sys 
+sys.path.append('../..')
+
 from pyuoi.mpi_utils import (Bcast_from_root, Gatherv_rows,
                              load_data_MPI)
-
 
 @pytest.mark.skipif(MPI is None, reason='MPI not installed.')
 def test_load_data_MPI(tmpdir):
@@ -111,3 +113,21 @@ def test_Gatherv_rows():
         if rank == root:
             assert_array_equal(X, Xp)
             assert Xp.dtype == dtype
+
+@pytest.mark.skipif(MPI is None, reason='MPI not installed.')
+def test_Gatherv_random_rows():
+    """Test Gatherv_rows for gathering ndarrays with random
+    shapes along their first axis
+    """
+    
+    comm = MPI.COMM_WORLD
+    root = 0
+    rank = comm.rank
+    
+    data  = np.random.normal(size = (np.random.randint(1, 10), 1000))
+    sizes = comm.gather(data.shape[0], root = root)
+    data = Gatherv_rows(data, comm, root)
+    
+    if rank == root:
+        assert(data.shape[0] == np.sum(sizes))
+    
