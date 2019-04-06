@@ -1,11 +1,13 @@
+import numpy as np
+
 from sklearn.base import BaseEstimator
 from sklearn.decomposition import TruncatedSVD
 from sklearn.model_selection import train_test_split
 
-import numpy as np
+from .utils import column_select
 
 
-class CUR(BaseEstimator):
+class UoI_CUR(BaseEstimator):
     def __init__(
         self, n_boots, max_k, boots_frac, algorithm='randomized',
         n_iter=5, tol=0.0, random_state=None
@@ -112,11 +114,11 @@ class CUR(BaseEstimator):
             for k_idx, k in enumerate(range(1, self.max_k + 1)):
                 # perform column selection on the subset of singular vectors
                 if c is None:
-                    column_flags = self.column_select(V[:, :k], k + 20)
+                    column_indices = column_select(V[:, :k], k + 20)
                 else:
-                    column_flags = self.column_select(V[:, :k], c)
+                    column_indices = column_select(V[:, :k], c)
                 # convert column flags to set
-                column_indices = set(np.argwhere(column_flags).ravel())
+                column_indices = set(column_indices)
                 indices[k_idx].append(column_indices)
 
         # calculate intersections
@@ -128,35 +130,106 @@ class CUR(BaseEstimator):
         self.columns_ = np.sort(np.array(union))
         return self
 
-    @staticmethod
-    def column_select(V, c):
-        """Chooses column indices from a matrix given its SVD.
+
+class CUR(BaseEstimator):
+    def __init__(
+        self, max_k, algorithm='randomized', n_iter=5, tol=0.0,
+        random_state=None
+    ):
+        """Performs ordinary column subset selection through a CUR
+        decomposition.
 
         Parameters
         ----------
-        V : ndarray, shape (n_features, rank)
-            The set of singular vectors.
+        n_boots : int
+            Number of bootstraps.
+
+        max_k : int
+            The maximum rank of the singular value decomposition.
+
+        boots_frac : float
+            The fraction of data to use in the bootstrap.
+
+        algorithm : string, default = “randomized”
+            SVD solver to use. Either “arpack” for the ARPACK wrapper in SciPy
+            (scipy.sparse.linalg.svds), or “randomized” for the randomized
+            algorithm due to Halko (2009).
+
+        n_iter : int, optional (default 5)
+            Number of iterations for randomized SVD solver. Not used by ARPACK.
+            The default is larger than the default in randomized_svd to handle
+            sparse matrices that may have large slowly decaying spectrum.
+
+        random_state : int, RandomState instance or None, optional,
+                        default = None
+            If int, random_state is the seed used by the random number
+            generator; If RandomState instance, random_state is the random
+            number generator; If None, the random number generator is the
+            RandomState instance used by np.random.
+
+        tol : float, optional
+            Tolerance for ARPACK. 0 means machine precision. Ignored by
+            randomized SVD solver.
+
+        Attributes
+        ----------
+        columns_ : ndarray
+            The indices of the columns selected by the algorithm.
+        """
+        self.max_k = max_k
+        self.algorithm = algorithm
+        self.n_iter = n_iter
+        self.tol = tol
+        self.random_state = random_state
+
+
+    def fit(self, X, c=None):
+        """Performs column subset selection in the UoI framework on a provided
+        matrix.
+
+        Parameters
+        ----------
+        X : ndarray, shape (n_samples, n_features)
+            The data matrix.
 
         c : float
-            The expected number of columns to select.
+            The expected number of columns to select. If None, c will vary with
+            the rank k.
+
+        stratify : array-like or None, default None
+            Ensures groups of samples are alloted to bootstraps proportionally.
+            Labels for each group must be an int greater than zero. Must be of
+            size equal to the number of samples, with further restrictions on
+            the number of groups.
 
         Returns
         -------
-        column_flags : ndarray of bools, shape (n_features)
-            A boolean flag array indicating which columns are selected.
+        column_indices : ndarray
+            A numpy array containing the indices of the selected columns.
         """
-        # extract number of samples and rank
-        n_features, k = V.shape
+        n_samples, n_features = X.shape
 
-        # calculate normalized leverage score
-        pi = np.sum(V**2, axis=1) / k
+        # truncated SVD fitter object
+        tsvd = TruncatedSVD(n_components=self.max_k,
+                            algorithm=self.algorithm,
+                            n_iter=self.n_iter,
+                            tol=self.tol,
+                            random_state=self.random_state)
 
-        # iterate through columns
-        column_flags = np.zeros(n_features, dtype=bool)
-        for column in range(n_features):
-            # Mahoney (2009), eqn 3
-            p = min(1, c * pi[column])
-            # selected column randomly
-            column_flags[column] = p > np.random.rand()
+        # perform truncated SVD on bootstrap
+        tsvd.fit(X)
+        # extract right singular vectors
+        V = tsvd.components_.T
 
-        return column_flags
+        # perform column selection on the subset of singular vectors
+        if c is None:
+            column_indices = column_select(V=V[:, :self.max_k],
+                                           c=self.max_k + 20,
+                                           leverage_sort=True)
+        else:
+            column_indices = column_select(V=V[:, :self.max_k],
+                                           c=c,
+                                           leverage_sort=True)
+
+        self.columns_ = column_indices
+        return self

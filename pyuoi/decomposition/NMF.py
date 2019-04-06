@@ -9,7 +9,7 @@ import scipy.optimize as spo
 import numpy as np
 
 
-class NMF(BaseEstimator, TransformerMixin):
+class UoI_NMF(BaseEstimator, TransformerMixin):
     def __init__(
         self, n_boots=10, ranks=None, nmf=None, dbscan=None, nnreg=None,
         cons_meth=None, random_state=None
@@ -31,8 +31,8 @@ class NMF(BaseEstimator, TransformerMixin):
             range(X.shape[1]) will be used.
 
         nmf : NMF object
-            The NMF object to use to perform fitting. Note: this class must
-            take argument *n_components* as an argument.
+            The NMF object to use to perform fitting.
+            Note: this class must take *n_components* as an argument.
 
         dbscan : DBSCAN object
             DBSCAN object to use. By default, use sklearn.cluster.DBSCAN
