@@ -20,6 +20,18 @@ def test_fmin_lbfgs():
 
 class TestOWLQN:
 
+    def test_owl_qn_end(self):
+        def f(x, g, *args):
+            g[:] = 2. * (x - 1.)
+            return np.sum((x - 1.) ** 2)
+
+        xmin = fmin_lbfgs(f, np.zeros(10), orthantwise_c=1.,
+                          orthantwise_end=5)
+        print()
+        print(xmin)
+        assert_array_equal(xmin[5:], 1.)
+        assert np.all(xmin[:5] < 1.)
+
     def test_owl_qn(self):
         def f(x, g, *args):
             g[0] = 2 * x
@@ -28,21 +40,11 @@ class TestOWLQN:
         xmin = fmin_lbfgs(f, 100., orthantwise_c=1, line_search='wolfe')
         assert_array_equal(xmin, [0])
 
-    def test_owl_line_search_default(self):
-        def f(x, g, *args):
-            g[0] = 2 * x
-            return x ** 2
-
-        with pytest.warns(UserWarning, match="OWL-QN"):
-            fmin_lbfgs(f, 100., orthantwise_c=1)
-
     def test_owl_line_search_warning_explicit(self):
         def f(x, g, *args):
             g[0] = 2 * x
             return x ** 2
 
-        with pytest.warns(UserWarning, match="OWL-QN"):
-            fmin_lbfgs(f, 100., orthantwise_c=1, line_search='default')
         with pytest.warns(UserWarning, match="OWL-QN"):
             fmin_lbfgs(f, 100., orthantwise_c=1, line_search='morethuente')
         with pytest.warns(UserWarning, match="OWL-QN"):
