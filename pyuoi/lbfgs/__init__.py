@@ -177,10 +177,12 @@ def fmin_lbfgs(f, x0, progress=None, args=(), orthantwise_c=0,
     # Input validation to make sure defaults with OWL-QN are adapted correctly
     assert orthantwise_c >= 0, "Orthantwise_c cannot be negative"
 
-    if orthantwise_c > 0 and line_search != 'wolfe':
+    if orthantwise_c > 0 and line_search not in ['wolfe', 'default']:
         line_search = 'wolfe'
         warnings.warn("When using OWL-QN, 'wolfe' is the only valid "
                       + "line_search. line_search has been set to 'wolfe'.")
+    elif orthantwise_c > 0 and line_search == 'default':
+        line_search = 'wolfe'
 
     opt = LBFGS()
     opt.orthantwise_c = orthantwise_c

@@ -41,7 +41,7 @@ def test_fit_intercept_no_features():
     yhat = LR.predict(X)
     assert_allclose(yhat, 1)
     py = LR.predict_proba(X)
-    assert np.all(py  > .5)
+    assert np.all(py > .5)
 
     y = np.ones(7, dtype=int)
     y[:3] = 0
@@ -109,7 +109,7 @@ def test_l1logistic_multiclass_not_shared():
     n_inf = 10
     X, y, w, b = make_classification(n_samples=400,
                                      random_state=10,
-                                     n_classes=3,
+                                     n_classes=5,
                                      n_informative=n_inf,
                                      n_features=n_features,
                                      shared_support=False,
