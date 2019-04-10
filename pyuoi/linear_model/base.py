@@ -73,6 +73,14 @@ class AbstractUoILinearModel(
         number generator; If None, the random number generator is the
         RandomState instance used by `np.random`.
 
+    shared_supprt : bool, default True
+        For models with more than one output (multinomial logistic regression)
+        this determines whether all outputs share the same support or can
+        have independent supports.
+
+    comm : MPI communicator, default None
+        If passed, the selection and estimation steps are parallelized.
+
     Attributes
     ----------
     coef_ : array, shape (n_features,) or (n_targets, n_features)
@@ -134,7 +142,7 @@ class AbstractUoILinearModel(
         pass
 
     @_abc.abstractstaticmethod
-    def score_predictions(metric, y_true, y_pred, supports):
+    def score_predictions(self, metric, y_true, y_pred, supports):
         pass
 
     @_abc.abstractmethod
@@ -503,8 +511,7 @@ class AbstractUoILinearRegressor(
     def estimation_score(self):
         return self.__estimation_score
 
-    @staticmethod
-    def score_predictions(metric, fitter, X, y, support):
+    def score_predictions(self, metric, fitter, X, y, support):
         """Score, according to some metric, predictions provided by a model.
 
         the resulting score will be negated if an information criterion is

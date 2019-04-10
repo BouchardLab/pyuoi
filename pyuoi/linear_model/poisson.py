@@ -153,8 +153,7 @@ class UoI_Poisson(AbstractUoILinearRegressor):
 
         return reg_params
 
-    @staticmethod
-    def score_predictions(metric, fitter, X, y, support):
+    def score_predictions(self, metric, fitter, X, y, support):
         """Score, according to some metric, predictions provided by a model.
 
         The resulting score will be negated if an information criterion is

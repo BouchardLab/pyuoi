@@ -188,6 +188,8 @@ class MaskedCoefLogisticRegression(LogisticRegression):
     """Logistic regression with a binary mask on the coef.
     Parameters
     ----------
+    penalty : str
+        Type of regularization: 'l1' or 'l2'.
     tol : float, optional (default=1e-4)
         Tolerance for stopping criteria.
     C : float, optional (default=1.0)
