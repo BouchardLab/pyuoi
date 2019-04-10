@@ -526,7 +526,7 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
         if Y_multi.shape[1] == 1:
             Y_multi = np.hstack([1 - Y_multi, Y_multi])
         w0 = np.zeros((classes.size, n_features + int(fit_intercept)),
-                       dtype=X.dtype)
+                      dtype=X.dtype)
 
     if coef is not None:
         # it must work both giving the bias term and not
