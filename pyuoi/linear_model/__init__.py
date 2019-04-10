@@ -6,6 +6,7 @@ and several concrete implementations.
 from .base import (AbstractUoILinearModel, AbstractUoILinearRegressor,
                    AbstractUoILinearClassifier)
 from .lasso import UoI_Lasso
+from .elasticnet import UoI_ElasticNet
 from .logistic import UoI_L1Logistic
 from .poisson import Poisson
 from .poisson import UoI_Poisson
@@ -16,6 +17,7 @@ __all__ = ["AbstractUoILinearClassifier",
            "AbstractUoILinearRegressor",
            "UoI_L1Logistic",
            "UoI_Lasso",
+           "UoI_ElasticNet",
            "Poisson",
            "UoI_Poisson",
            "utils"]

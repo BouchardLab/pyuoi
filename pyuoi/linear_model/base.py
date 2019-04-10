@@ -73,6 +73,14 @@ class AbstractUoILinearModel(
         number generator; If None, the random number generator is the
         RandomState instance used by `np.random`.
 
+    shared_supprt : bool, default True
+        For models with more than one output (multinomial logistic regression)
+        this determines whether all outputs share the same support or can
+        have independent supports.
+
+    comm : MPI communicator, default None
+        If passed, the selection and estimation steps are parallelized.
+
     Attributes
     ----------
     coef_ : array, shape (n_features,) or (n_targets, n_features)
@@ -88,7 +96,7 @@ class AbstractUoILinearModel(
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
-                 random_state=None, comm=None):
+                 random_state=None, shared_support=True, comm=None):
         # data split fractions
         self.selection_frac = selection_frac
         self.estimation_frac = estimation_frac
@@ -97,8 +105,9 @@ class AbstractUoILinearModel(
         self.n_boots_est = n_boots_est
         # other hyperparameters
         self.stability_selection = stability_selection
-        # preprocessing
+        self.shared_support = shared_support
         self.comm = comm
+        # preprocessing
         if isinstance(random_state, int):
             # make sure ranks use different seed
             if self.comm is not None:
@@ -133,7 +142,7 @@ class AbstractUoILinearModel(
         pass
 
     @_abc.abstractstaticmethod
-    def score_predictions(metric, y_true, y_pred, supports):
+    def score_predictions(self, metric, y_true, y_pred, supports):
         pass
 
     @_abc.abstractmethod
@@ -349,11 +358,14 @@ class AbstractUoILinearModel(
             y_test = y[idxs_test]
             if np.any(support):
 
-                # compute ols estimate
-                self.estimation_lm.fit(X_rep[:, support], y_rep)
-                # store the fitted coefficients
-                estimates[ii, np.tile(support, n_tile)] = \
-                    self.estimation_lm.coef_.ravel()
+                # compute ols estimate and store the fitted coefficients
+                if self.shared_support:
+                    self.estimation_lm.fit(X_rep[:, support], y_rep)
+                    estimates[ii, np.tile(support, n_tile)] = \
+                        self.estimation_lm.coef_.ravel()
+                else:
+                    self.estimation_lm.fit(X_rep, y_rep, coef_mask=support)
+                    estimates[ii] = self.estimation_lm.coef_.ravel()
 
                 scores[ii] = self.score_predictions(
                     metric=self.estimation_score,
@@ -384,7 +396,8 @@ class AbstractUoILinearModel(
                 best_estimates = estimates[np.arange(self.n_boots_est),
                                            self.rp_max_idx_]
                 # take the median across estimates for the final estimate
-                coef = np.median(best_estimates, axis=0).reshape(n_tile, n_coef)
+                coef = np.median(best_estimates, axis=0).reshape(n_tile,
+                                                                 n_features)
             self.estimates_ = Bcast_from_root(estimates, self.comm, root=0)
             self.scores_ = Bcast_from_root(scores, self.comm, root=0)
             self.coef_ = Bcast_from_root(coef, self.comm, root=0)
@@ -399,8 +412,8 @@ class AbstractUoILinearModel(
             best_estimates = self.estimates_[np.arange(self.n_boots_est),
                                              self.rp_max_idx_, :]
             # take the median across estimates for the final, bagged estimate
-            self.coef_ = np.median(best_estimates,
-                                   axis=0).reshape(n_tile, n_coef)
+            self.coef_ = np.median(best_estimates, axis=0).reshape(n_tile,
+                                                                   n_features)
 
         return self
 
@@ -498,8 +511,7 @@ class AbstractUoILinearRegressor(
     def estimation_score(self):
         return self.__estimation_score
 
-    @staticmethod
-    def score_predictions(metric, fitter, X, y, support):
+    def score_predictions(self, metric, fitter, X, y, support):
         """Score, according to some metric, predictions provided by a model.
 
         the resulting score will be negated if an information criterion is
@@ -618,7 +630,7 @@ class AbstractUoILinearClassifier(
                  estimation_frac=0.9, stability_selection=1.,
                  estimation_score='acc', multi_class='ovr',
                  copy_X=True, fit_intercept=True, normalize=True,
-                 random_state=None, max_iter=1000,
+                 random_state=None, max_iter=1000, shared_support=True,
                  comm=None):
         super(AbstractUoILinearClassifier, self).__init__(
             n_boots_sel=n_boots_sel,
@@ -627,6 +639,7 @@ class AbstractUoILinearClassifier(
             estimation_frac=estimation_frac,
             stability_selection=stability_selection,
             random_state=random_state,
+            shared_support=shared_support,
             comm=comm,
         )
         self.fit_intercept = fit_intercept
@@ -657,20 +670,12 @@ class AbstractUoILinearClassifier(
         This implementation will account for multi-class classification.
         """
         supports = intersection(coef, thresholds)
-        ret = supports
-        if self._n_classes > 2:
-            # for each support, figure out which variables
-            # are used
-            ret = list()
-            n_coef = supports[0].shape[0] // self._n_classes
-            shape = (self._n_classes, n_coef)
-            for supp in supports:
-                ret.append(np.logical_or(*supp.reshape(shape)))
-            uniq = set()
-            for sup in ret:
-                uniq.add(tuple(sup))
-            ret = np.array(list(uniq))
-        return ret
+        if self._n_classes > 2 and self.shared_support:
+            n_features = supports.shape[-1] // self._n_classes
+            supports = supports.reshape((-1, self._n_classes, n_features))
+            supports = np.sum(supports, axis=-2).astype(bool)
+            supports = np.unique(supports, axis=0)
+        return supports
 
     @staticmethod
     def preprocess_data(self, X, y):
@@ -683,8 +688,7 @@ class AbstractUoILinearClassifier(
     def estimation_score(self):
         return self.__estimation_score
 
-    @staticmethod
-    def score_predictions(metric, fitter, X, y, support):
+    def score_predictions(self, metric, fitter, X, y, support):
         """Score, according to some metric, predictions provided by a model.
 
         the resulting score will be negated if an information criterion is
@@ -713,11 +717,17 @@ class AbstractUoILinearClassifier(
             The score.
         """
         if metric == 'acc':
-            y_pred = fitter.predict(X[:, support])
+            if self.shared_support:
+                y_pred = fitter.predict(X[:, support])
+            else:
+                y_pred = fitter.predict(X)
             score = accuracy_score(y, y_pred)
         else:
-            y_pred = fitter.predict_proba(X[:, support])
-            ll = -log_loss(y, y_pred)
+            if self.shared_support:
+                y_pred = fitter.predict_proba(X[:, support])
+            else:
+                y_pred = fitter.predict_proba(X)
+            ll = -log_loss(y, y_pred, labels=np.arange(self._n_classes))
             if metric == 'log':
                 score = ll
             else:
