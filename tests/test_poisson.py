@@ -3,8 +3,7 @@ import numpy as np
 from numpy.testing import assert_almost_equal
 from numpy.testing import assert_raises
 
-from pyuoi.linear_model import Poisson
-from pyuoi.linear_model import UoI_Poisson
+from pyuoi.linear_model import Poisson, UoI_Poisson
 
 from sklearn.exceptions import NotFittedError
 
@@ -162,27 +161,29 @@ def test_score_predictions():
     fitter.coef_ = np.array([1])
     fitter.intercept_ = 0
 
+    uoi_fitter = UoI_Poisson()
+
     # test log-likelihood
-    ll = UoI_Poisson.score_predictions(
+    ll = uoi_fitter.score_predictions(
         metric='log',
         fitter=fitter,
         X=X, y=y, support=support)
     assert_almost_equal(ll, -2.5)
 
     # test information criteria
-    aic = UoI_Poisson.score_predictions(
+    aic = uoi_fitter.score_predictions(
         metric='AIC',
         fitter=fitter,
         X=X, y=y, support=support)
     assert_almost_equal(aic, 2 * ll - 2)
 
-    aicc = UoI_Poisson.score_predictions(
+    aicc = uoi_fitter.score_predictions(
         metric='AICc',
         fitter=fitter,
         X=X, y=y, support=support)
     assert_almost_equal(aicc, aic - 2)
 
-    bic = UoI_Poisson.score_predictions(
+    bic = uoi_fitter.score_predictions(
         metric='BIC',
         fitter=fitter,
         X=X, y=y, support=support)
@@ -190,7 +191,7 @@ def test_score_predictions():
 
     # test invalid metric
     assert_raises(ValueError,
-                  UoI_Poisson.score_predictions,
+                  uoi_fitter.score_predictions,
                   'fake',
                   fitter,
                   X, y, support)
