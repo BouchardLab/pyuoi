@@ -244,9 +244,9 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         context. ``-1`` means using all processors.
         See :term:`Glossary <n_jobs>` for more details.
     """
-    def __init__(self, penalty='l2', tol=0.0001, C=1.,
+    def __init__(self, penalty='l2', tol=1e-3, C=1.,
                  fit_intercept=True, class_weight=None,
-                 random_state=None, max_iter=100,
+                 random_state=None, max_iter=10000,
                  multi_class='auto', verbose=0, warm_start=False,
                  n_jobs=None):
         super().__init__(penalty=penalty, tol=tol, C=C,
@@ -526,7 +526,7 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
         if Y_multi.shape[1] == 1:
             Y_multi = np.hstack([1 - Y_multi, Y_multi])
         w0 = np.zeros((classes.size, n_features + int(fit_intercept)),
-                      order='F', dtype=X.dtype)
+                       dtype=X.dtype)
 
     if coef is not None:
         # it must work both giving the bias term and not
@@ -574,16 +574,14 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
                 return _multinomial_loss_grad(x, *args)[0:2]
         else:
             w0 = w0.T.ravel().copy()
-            if coef_mask is not None:
-                coef_mask = coef_mask.T
 
             def inner_func(x, *args):
                 return _multinomial_loss_grad(x, *args)[0:2]
 
             def func(x, g, *args):
-                x = x.reshape(-1, classes.size).T.ravel().copy()
+                x = x.reshape(-1, classes.size).T.ravel()
                 loss, grad = inner_func(x, *args)
-                grad = grad.reshape(classes.size, -1).T.ravel().copy()
+                grad = grad.reshape(classes.size, -1).T.ravel()
                 g[:] = grad
                 return loss
     else:
@@ -613,17 +611,6 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
                             epsilon=tol,
                             orthantwise_end=coef_size)
             info = None
-        # Mask final array
-        if coef_mask is not None:
-            if multi_class == 'ovr':
-                w0[:n_features] *= coef_mask
-            else:
-                if penalty == 'l2':
-                    w0 = w0.reshape(classes.size, -1)
-                else:
-                    w0 = w0.reshape(-1, classes.size).T
-                w0[:, :n_features] *= coef_mask
-                w0 = w0.ravel()
         if info is not None and info["warnflag"] == 1:
             warnings.warn("lbfgs failed to converge. Increase the number "
                           "of iterations.", ConvergenceWarning)
@@ -640,10 +627,14 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
                 multi_w0 = np.reshape(w0, (n_classes, -1))
             else:
                 multi_w0 = np.reshape(w0, (-1, n_classes)).T
+            if coef_mask is not None:
+                multi_w0[:, :n_features] *= coef_mask
             if n_classes == 2:
                 multi_w0 = multi_w0[1][np.newaxis, :]
             coefs.append(multi_w0.copy())
         else:
+            if coef_mask is not None:
+                w0[:n_features] *= coef_mask
             coefs.append(w0.copy())
 
         n_iter[i] = n_iter_i

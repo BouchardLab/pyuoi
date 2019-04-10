@@ -120,23 +120,31 @@ def test_l1logistic_multiclass_not_shared():
 
 def test_masked_logistic():
     """Test the masked logistic regression class."""
+    n_features = 20
+    n_inf = 10
     for shared_support in [True, False]:
         for n_classes in [2, 3]:
-            n_features = 40
-            n_inf = 5
-            X, y, w, b = make_classification(n_samples=20000,
-                                             random_state=10,
-                                             n_classes=n_classes,
-                                             n_informative=n_inf,
-                                             n_features=n_features,
-                                             shared_support=shared_support,
-                                             w_scale=4.)
-            mask = np.squeeze(np.logical_not(np.equal(w, 0)))
-            lr = MaskedCoefLogisticRegression().fit(X, y, coef_mask=mask)
-            coef_idxs = np.flatnonzero(np.logical_not(np.equal(lr.coef_, 0.)))
-            mask_idxs = np.flatnonzero(np.logical_not(np.equal(mask, 0)))
-            assert set(coef_idxs.tolist()).issubset(set(mask_idxs.tolist()))
-            assert_allclose(w, lr.coef_, rtol=.5, atol=3.)
+            for intercept in [True, False]:
+                X, y, w, b = make_classification(n_samples=200,
+                                                 random_state=10,
+                                                 n_classes=n_classes,
+                                                 n_informative=n_inf,
+                                                 n_features=n_features,
+                                                 shared_support=shared_support,
+                                                 include_intercept=intercept,
+                                                 w_scale=4.)
+                mask = np.squeeze(np.logical_not(np.equal(w, 0)))
+                for penalty in ['l1', 'l2']:
+                    lr = MaskedCoefLogisticRegression(penalty=penalty, C=10.,
+                                                      warm_start=True,
+                                                      fit_intercept=intercept)
+                    lr.fit(X, y, coef_mask=mask)
+                    coef_idxs = np.flatnonzero(np.equal(lr.coef_, 0.))
+                    coef_idxs = set(coef_idxs.tolist())
+                    mask_idxs = np.flatnonzero(np.equal(mask, 0))
+                    mask_idxs = set(mask_idxs.tolist())
+                    assert mask_idxs.issubset(coef_idxs)
+                    lr.fit(X, y, coef_mask=mask)
 
 
 def test_estimation_score_usage():
