@@ -1,8 +1,12 @@
 import numpy as np
 
+from .base import AbstractDecompositionModel
+
 from sklearn.base import BaseEstimator
 from sklearn.decomposition import TruncatedSVD
 from sklearn.model_selection import train_test_split
+from sklearn.utils import check_array
+from sklearn.utils.validation import check_is_fitted
 
 from .utils import column_select
 
@@ -131,57 +135,55 @@ class UoI_CUR(BaseEstimator):
         return self
 
 
-class CUR(BaseEstimator):
+class CUR(AbstractDecompositionModel):
+    """Performs ordinary column subset selection through a CUR decomposition.
+
+    Parameters
+    ----------
+    n_boots : int
+        Number of bootstraps.
+
+    max_k : int
+        The maximum rank of the singular value decomposition.
+
+    boots_frac : float
+        The fraction of data to use in the bootstrap.
+
+    algorithm : string, default = “randomized”
+        SVD solver to use. Either “arpack” for the ARPACK wrapper in SciPy
+        (scipy.sparse.linalg.svds), or “randomized” for the randomized
+        algorithm due to Halko (2009).
+
+    n_iter : int, optional (default 5)
+        Number of iterations for randomized SVD solver. Not used by ARPACK.
+        The default is larger than the default in randomized_svd to handle
+        sparse matrices that may have large slowly decaying spectrum.
+
+    random_state : int, RandomState instance or None, optional,
+                   default = None
+        If int, random_state is the seed used by the random number
+        generator; If RandomState instance, random_state is the random
+        number generator; If None, the random number generator is the
+        RandomState instance used by np.random.
+
+    tol : float, optional
+        Tolerance for ARPACK. 0 means machine precision. Ignored by
+        randomized SVD solver.
+
+    Attributes
+    ----------
+    columns_ : ndarray
+        The indices of the columns selected by the algorithm.
+    """
     def __init__(
         self, max_k, algorithm='randomized', n_iter=5, tol=0.0,
         random_state=None
     ):
-        """Performs ordinary column subset selection through a CUR
-        decomposition.
-
-        Parameters
-        ----------
-        n_boots : int
-            Number of bootstraps.
-
-        max_k : int
-            The maximum rank of the singular value decomposition.
-
-        boots_frac : float
-            The fraction of data to use in the bootstrap.
-
-        algorithm : string, default = “randomized”
-            SVD solver to use. Either “arpack” for the ARPACK wrapper in SciPy
-            (scipy.sparse.linalg.svds), or “randomized” for the randomized
-            algorithm due to Halko (2009).
-
-        n_iter : int, optional (default 5)
-            Number of iterations for randomized SVD solver. Not used by ARPACK.
-            The default is larger than the default in randomized_svd to handle
-            sparse matrices that may have large slowly decaying spectrum.
-
-        random_state : int, RandomState instance or None, optional,
-                        default = None
-            If int, random_state is the seed used by the random number
-            generator; If RandomState instance, random_state is the random
-            number generator; If None, the random number generator is the
-            RandomState instance used by np.random.
-
-        tol : float, optional
-            Tolerance for ARPACK. 0 means machine precision. Ignored by
-            randomized SVD solver.
-
-        Attributes
-        ----------
-        columns_ : ndarray
-            The indices of the columns selected by the algorithm.
-        """
         self.max_k = max_k
         self.algorithm = algorithm
         self.n_iter = n_iter
         self.tol = tol
         self.random_state = random_state
-
 
     def fit(self, X, c=None):
         """Performs column subset selection in the UoI framework on a provided
@@ -219,17 +221,48 @@ class CUR(BaseEstimator):
         # perform truncated SVD on bootstrap
         tsvd.fit(X)
         # extract right singular vectors
-        V = tsvd.components_.T
+        V = tsvd.components_.T[:, :self.max_k]
 
         # perform column selection on the subset of singular vectors
         if c is None:
-            column_indices = column_select(V=V[:, :self.max_k],
-                                           c=self.max_k + 20,
-                                           leverage_sort=True)
-        else:
-            column_indices = column_select(V=V[:, :self.max_k],
-                                           c=c,
-                                           leverage_sort=True)
+            c = self.max_k + 20
 
-        self.columns_ = column_indices
+        column_indices = column_select(V=V,
+                                       c=self.max_k + 20,
+                                       leverage_sort=True)
+
+        self.column_indices_ = column_indices
+        self.components_ = X[:, self.column_indices_]
         return self
+
+    def transform(self, X):
+        """Transform the data X according to the fitted selected columns.
+
+        Parameters
+        ----------
+        X : array-like, shape (n_samples, n_features)
+            Data matrix to be decomposed.
+
+        Returns
+        -------
+        X_new : array-like, shape (n_samples, n_components)
+            Transformed data.
+        """
+        check_is_fitted(self, ['components_'])
+        X = check_array(X)
+
+    def fit_transform(self, X, c=None):
+        """Transform the data X according to the fitted decomposition.
+
+        Parameters
+        ----------
+        X : array-like, shape (n_samples, n_features)
+            Data matrix to be decomposed.
+
+        Returns
+        -------
+        X_new : array-like, shape (n_samples, n_components)
+            Transformed data.
+        """
+        self.fit(X, c=c)
+        return self.transform(X)

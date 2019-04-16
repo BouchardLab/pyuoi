@@ -1,15 +1,17 @@
-from sklearn.base import TransformerMixin, BaseEstimator
+import scipy.optimize as spo
+import numpy as np
+
+from .base import AbstractDecompositionModel
+
+from sklearn.base import TransformerMixin
 from sklearn.decomposition import NMF as skNMF
 from sklearn.cluster import DBSCAN
 from sklearn.preprocessing import normalize
 
 from sklearn.utils.validation import check_non_negative
 
-import scipy.optimize as spo
-import numpy as np
 
-
-class UoI_NMF(BaseEstimator, TransformerMixin):
+class UoI_NMF(AbstractDecompositionModel, TransformerMixin):
     def __init__(
         self, n_boots=10, ranks=None, nmf=None, dbscan=None, nnreg=None,
         cons_meth=None, random_state=None
