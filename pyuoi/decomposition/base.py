@@ -1,12 +1,11 @@
 import abc as _abc
 import six as _six
 
-from sklearn.linear_model.base import (BaseEstimator,
-                                       SparseCoefMixin)
+from sklearn.linear_model.base import BaseEstimator
 
 
 class AbstractDecompositionModel(
-    _six.with_metaclass(_abc.ABCMeta, BaseEstimator, SparseCoefMixin)
+    _six.with_metaclass(_abc.ABCMeta, BaseEstimator)
 ):
     @_abc.abstractmethod
     def fit(X):
@@ -22,6 +21,7 @@ class AbstractDecompositionModel(
         self : object
             Returns the instance itself.
         """
+        pass
 
     @_abc.abstractmethod
     def transform(self, X):
@@ -37,6 +37,7 @@ class AbstractDecompositionModel(
         -------
         X_new : array-like, shape (n_samples, n_components)
         """
+        pass
 
     def fit_transform(self, X):
         """Transform the data X according to the fitted decomposition.

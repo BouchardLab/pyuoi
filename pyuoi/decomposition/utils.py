@@ -39,6 +39,7 @@ def column_select(V, c, leverage_sort=False):
 
     column_indices = np.argwhere(column_flags).ravel()
 
+    # if desired, sort by increasing leverage score
     if leverage_sort:
         pi_subset = pi[column_indices]
         column_indices = column_indices[np.argsort(pi_subset)]
