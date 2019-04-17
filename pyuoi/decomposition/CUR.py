@@ -128,7 +128,7 @@ class UoI_CUR(AbstractDecompositionModel):
                 if c is None:
                     c = k + 20
 
-                column_indices = column_select(V[:, :k + 1], c=c,
+                column_indices = column_select(V[:, :k], c=c,
                                                random_state=self.random_state)
                 # convert column flags to set
                 column_indices = set(column_indices)
@@ -136,12 +136,15 @@ class UoI_CUR(AbstractDecompositionModel):
 
         # calculate intersections
         intersection = [set.intersection(*indices[k_idx])
-                        for k_idx in range(self.max_k)]
+                        for k_idx in range(n_ks)]
         # calculate union of intersections
         union = list(set.union(*intersection))
 
         self.column_indices_ = np.sort(np.array(union))
-        self.columns_ = X[:, self.column_indices_]
+        if self.column_indices_.size == 0:
+            self.columns_ = np.array([[]])
+        else:
+            self.columns_ = X[:, self.column_indices_]
         return self
 
     def check_ks(self, ks=None):
@@ -159,7 +162,7 @@ class UoI_CUR(AbstractDecompositionModel):
         """
         # convert ks to a numpy array
         if ks is None:
-            ks = np.arange(self.max_k)
+            ks = 1 + np.arange(self.max_k)
         elif isinstance(ks, int):
             ks = np.array([ks])
         elif isinstance(ks, list):
@@ -169,12 +172,12 @@ class UoI_CUR(AbstractDecompositionModel):
 
         # check that the numpy array contains valid values
         if (
-            (not np.all(ks < self.max_k))
-            or (not np.all(ks >= 0))
+            (not np.all(ks <= self.max_k))
+            or (not np.all(ks > 0))
             or (not np.issubdtype(ks.dtype, np.integer))
         ):
-            raise ValueError('Ranks must be positive, integers, and less than'
-                             ' the max rank.')
+            raise ValueError('Ranks must be positive, integers, and no more'
+                             ' than the max rank.')
 
         return ks
 

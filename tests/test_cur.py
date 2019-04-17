@@ -99,7 +99,7 @@ def test_UoI_CUR_check_ks():
     assert_array_equal(ks, np.array([1, 2, 3]))
 
     ks = uoi_cur.check_ks(None)
-    assert_array_equal(ks, np.arange(max_k))
+    assert_array_equal(ks, 1 + np.arange(max_k))
 
     assert_raises(ValueError, uoi_cur.check_ks, -1)
     assert_raises(ValueError, uoi_cur.check_ks, [11])
@@ -165,6 +165,6 @@ def test_UoI_CUR_vs_CUR():
                       max_k=max_k,
                       boots_frac=boots_frac,
                       random_state=2332)
-    uoi_cur.fit(X, c=3)
+    uoi_cur.fit(X, c=3, ks=3)
 
     assert uoi_cur.column_indices_.size <= cur.column_indices_.size
