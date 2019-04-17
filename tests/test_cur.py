@@ -34,7 +34,7 @@ def test_column_select():
     leverage score most often."""
     n_samples, n_features = X.shape
     rank = 3
-    n_reps = 10000
+    n_reps = 1000
 
     _, _, V = np.linalg.svd(X)
     V_subset = V[:rank].T
@@ -157,7 +157,8 @@ def test_UoI_CUR_vs_CUR():
     n_boots = 10
     boots_frac = 0.90
 
-    cur = CUR(max_k=max_k)
+    cur = CUR(max_k=max_k,
+              random_state=2332)
     cur.fit(X, c=3)
 
     uoi_cur = UoI_CUR(n_boots=n_boots,

@@ -128,7 +128,8 @@ class UoI_CUR(AbstractDecompositionModel):
                 if c is None:
                     c = k + 20
 
-                column_indices = column_select(V[:, :k + 1], c)
+                column_indices = column_select(V[:, :k + 1], c=c,
+                                               random_state=self.random_state)
                 # convert column flags to set
                 column_indices = set(column_indices)
                 indices[k_idx].append(column_indices)
@@ -291,7 +292,8 @@ class CUR(AbstractDecompositionModel):
             c = self.max_k + 20
 
         column_indices = column_select(V=V, c=c,
-                                       leverage_sort=True)
+                                       leverage_sort=True,
+                                       random_state=self.random_state)
 
         self.column_indices_ = column_indices
         self.components_ = X[:, self.column_indices_]

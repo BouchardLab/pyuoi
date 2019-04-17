@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def column_select(V, c, leverage_sort=False):
+def column_select(V, c, leverage_sort=False, random_state=None):
     """Chooses column indices from a matrix given its SVD.
 
     Parameters
@@ -23,6 +23,9 @@ def column_select(V, c, leverage_sort=False):
         leverage_sort was true, this array is arranged by increasing leverage
         score.
     """
+    # random state
+    rng = np.random.RandomState(seed=None)
+
     # extract number of samples and rank
     n_features, k = V.shape
 
@@ -35,7 +38,7 @@ def column_select(V, c, leverage_sort=False):
         # Mahoney (2009), eqn 3
         p = min(1, c * pi[column])
         # selected column randomly
-        column_flags[column] = p > np.random.rand()
+        column_flags[column] = p > rng.rand()
 
     column_indices = np.argwhere(column_flags).ravel()
 

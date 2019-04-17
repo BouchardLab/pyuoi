@@ -11,43 +11,43 @@ from sklearn.preprocessing import normalize
 from sklearn.utils.validation import check_non_negative
 
 
-class UoI_NMF(AbstractDecompositionModel, TransformerMixin):
+class UoI_NMF_Base(AbstractDecompositionModel, TransformerMixin):
+    """Performs non-negative matrix factorization in the Union of
+    Intersection framework.
+
+    See Bouchard et al., NIPS, 2017, for more details on the Union of
+    Intersections framework.
+
+    Parameters
+    ----------
+    n_boots : int
+        The number of bootstraps to use for model selection.
+
+    ranks : int, list, or None, default None
+        The range of k to use. If *ranks* is an int,
+        range(2, ranks + 1) will be used. If not specified,
+        range(X.shape[1]) will be used.
+
+    nmf : NMF object
+        The NMF object to use to perform fitting.
+        Note: this class must take *n_components* as an argument.
+
+    dbscan : DBSCAN object
+        DBSCAN object to use. By default, use sklearn.cluster.DBSCAN
+        with MinPts=3 and epsilon=0.2.
+
+    nnreg : NNLS object
+        Non-negative regressor to use. If None, defaults to
+        scipy.optimize.nnls.
+
+    cons_meth : function
+        The method for computing consensus bases after clustering. If None,
+        uses np.median.
+    """
     def __init__(
         self, n_boots=10, ranks=None, nmf=None, dbscan=None, nnreg=None,
         cons_meth=None, random_state=None
     ):
-        """Performs non-negative matrix factorization in the Union of
-        Intersection framework.
-
-        See Bouchard et al., NIPS, 2017, for more details on the Union of
-        Intersections framework.
-
-        Parameters
-        ----------
-        n_boots : int
-            The number of bootstraps to use for model selection.
-
-        ranks : int, list, or None, default None
-            The range of k to use. If *ranks* is an int,
-            range(2, ranks + 1) will be used. If not specified,
-            range(X.shape[1]) will be used.
-
-        nmf : NMF object
-            The NMF object to use to perform fitting.
-            Note: this class must take *n_components* as an argument.
-
-        dbscan : DBSCAN object
-            DBSCAN object to use. By default, use sklearn.cluster.DBSCAN
-            with MinPts=3 and epsilon=0.2.
-
-        nnreg : NNLS object
-            Non-negative regressor to use. If None, defaults to
-            scipy.optimize.nnls.
-
-        cons_meth : function
-            The method for computing consensus bases after clustering. If None,
-            uses np.median.
-        """
         self.__initialize(
             n_boots=n_boots,
             ranks=ranks,
@@ -262,3 +262,40 @@ class UoI_NMF(AbstractDecompositionModel, TransformerMixin):
                 % (W.shape, self.components_.shape))
 
         return np.matmul(W, self.components_)
+
+
+class UoI_NMF(UoI_NMF_Base):
+    def __init__(
+        self, n_boots, ranks=None,
+        nmf_init='random', nmf_solver='mu', nmf_beta_loss='kullback-leibler',
+        nmf_tol=0.0001, nmf_max_iter=200,
+        db_eps=0.5, db_min_samples=None, db_metric='euclidean',
+        db_metric_params=None, db_algorithm='auto', db_leaf_size=30,
+        random_state=None
+    ):
+        # create NMF solver
+        nmf = skNMF(init=nmf_init,
+                    solver=nmf_solver,
+                    beta_loss=nmf_beta_loss,
+                    tol=nmf_tol,
+                    max_iter=nmf_max_iter)
+
+        # create DBSCAN solver
+        if db_min_samples is None:
+            db_min_samples = n_boots / 2
+
+        dbscan = DBSCAN(eps=db_eps,
+                        min_samples=db_min_samples,
+                        metric=db_metric,
+                        metric_params=db_metric_params,
+                        algorithm=db_algorithm)
+
+        super(UoI_NMF, self).__init__(
+            n_boots=n_boots,
+            ranks=ranks,
+            nmf=nmf,
+            dbscan=dbscan,
+            nnreg=None,
+            cons_meth=np.median,
+            random_state=random_state
+        )
