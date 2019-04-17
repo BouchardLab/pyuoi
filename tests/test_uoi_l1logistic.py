@@ -83,6 +83,8 @@ def test_l1logistic_binary():
                                      include_intercept=True)
 
     l1log = UoI_L1Logistic(random_state=10).fit(X, y)
+    l1log.predict(X)
+    l1log.score(X, y)
     assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .8
 
 
@@ -99,6 +101,8 @@ def test_l1logistic_multiclass():
                                      shared_support=True,
                                      w_scale=4.)
     l1log = UoI_L1Logistic().fit(X, y)
+    l1log.predict(X)
+    l1log.score(X, y)
     assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .8
 
 
