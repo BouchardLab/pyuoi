@@ -27,8 +27,6 @@ class TestOWLQN:
 
         xmin = fmin_lbfgs(f, np.zeros(10), orthantwise_c=1.,
                           orthantwise_end=5)
-        print()
-        print(xmin)
         assert_array_equal(xmin[5:], 1.)
         assert np.all(xmin[:5] < 1.)
 

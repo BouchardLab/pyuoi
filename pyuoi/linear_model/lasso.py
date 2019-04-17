@@ -4,7 +4,7 @@ from sklearn.linear_model.coordinate_descent import _alpha_grid
 from .base import AbstractUoILinearRegressor
 
 
-class UoI_Lasso(AbstractUoILinearRegressor):
+class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, n_lambdas=48, stability_selection=1.,

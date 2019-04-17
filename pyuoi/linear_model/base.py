@@ -16,7 +16,7 @@ from .utils import stability_selection_to_threshold, intersection
 
 
 class AbstractUoILinearModel(
-        _six.with_metaclass(_abc.ABCMeta, LinearModel, SparseCoefMixin)):
+        _six.with_metaclass(_abc.ABCMeta, SparseCoefMixin)):
     """An abstract base class for UoI linear model classes
 
     See Bouchard et al., NIPS, 2017, for more details on the Union of
@@ -777,6 +777,7 @@ class AbstractUoILinearClassifier(
         # perform checks
         X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
                          y_numeric=True, multi_output=True)
+        self.classes_ = np.array(sorted(set(y)))
         # preprocess data
         super(AbstractUoILinearClassifier, self).fit(X, y, stratify=stratify,
                                                      verbose=verbose)

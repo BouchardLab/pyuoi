@@ -7,7 +7,7 @@ from sklearn.linear_model.coordinate_descent import _alpha_grid
 from sklearn.linear_model import ElasticNet
 
 
-class UoI_ElasticNet(AbstractUoILinearRegressor):
+class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
 
     def __init__(self, n_lambdas=48, alphas=np.array([0.5]),
                  n_boots_sel=48, n_boots_est=48, selection_frac=0.9,

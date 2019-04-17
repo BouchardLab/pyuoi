@@ -31,7 +31,7 @@ def test_estimation_score_usage():
         assert_equal(enet.estimation_score, method)
         enet.fit(X, y)
         enet.predict(X)
-        enet.score(X)
+        enet.score(X, y)
         score = np.max(enet.scores_)
         scores.append(score)
     assert_equal(len(np.unique(scores)), len(methods))

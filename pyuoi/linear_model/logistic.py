@@ -26,7 +26,7 @@ from ..utils import sigmoid, softmax
 from ..lbfgs import fmin_lbfgs
 
 
-class UoI_L1Logistic(AbstractUoILinearClassifier):
+class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, n_C=48, stability_selection=1.,

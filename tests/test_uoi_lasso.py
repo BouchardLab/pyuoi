@@ -30,7 +30,7 @@ def test_estimation_score_usage():
         assert_equal(lasso.estimation_score, method)
         lasso.fit(X, y)
         lasso.predict(X)
-        lasso.score(X)
+        lasso.score(X, y)
         score = np.max(lasso.scores_)
         scores.append(score)
     assert_equal(len(np.unique(scores)), len(methods))
