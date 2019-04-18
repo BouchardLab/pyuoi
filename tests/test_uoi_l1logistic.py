@@ -6,6 +6,8 @@ from pyuoi import UoI_L1Logistic
 from pyuoi.linear_model.logistic import (fit_intercept_fixed_coef,
                                          MaskedCoefLogisticRegression,
                                          LogisticInterceptFitterNoFeatures)
+from sklearn.metrics import accuracy_score
+
 from pyuoi.utils import make_classification
 
 
@@ -83,6 +85,8 @@ def test_l1logistic_binary():
                                      include_intercept=True)
 
     l1log = UoI_L1Logistic(random_state=10).fit(X, y)
+    y_hat = l1log.predict(X)
+    assert_equal(accuracy_score(y, y_hat), l1log.score(X, y))
     assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .8
 
 
@@ -99,6 +103,8 @@ def test_l1logistic_multiclass():
                                      shared_support=True,
                                      w_scale=4.)
     l1log = UoI_L1Logistic().fit(X, y)
+    y_hat = l1log.predict(X)
+    assert_equal(accuracy_score(y, y_hat), l1log.score(X, y))
     assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .8
 
 
@@ -115,6 +121,8 @@ def test_l1logistic_multiclass_not_shared():
                                      shared_support=False,
                                      w_scale=4.)
     l1log = UoI_L1Logistic(shared_support=False).fit(X, y)
+    y_hat = l1log.predict(X)
+    assert_equal(accuracy_score(y, y_hat), l1log.score(X, y))
     assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .8
 
 
