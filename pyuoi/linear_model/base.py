@@ -3,8 +3,7 @@ import six as _six
 import numpy as np
 
 
-from sklearn.linear_model.base import (
-    LinearModel, _preprocess_data, SparseCoefMixin)
+from sklearn.linear_model.base import _preprocess_data, SparseCoefMixin
 from sklearn.metrics import r2_score, accuracy_score, log_loss
 from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
