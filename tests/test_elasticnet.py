@@ -1,8 +1,11 @@
 import numpy as np
 from numpy.testing import (assert_array_equal, assert_array_almost_equal_nulp,
                            assert_equal, assert_allclose)
+
 from sklearn.datasets import make_regression
 from sklearn.linear_model import ElasticNet
+from sklearn.metrics import r2_score
+
 from pyuoi import UoI_ElasticNet
 
 
@@ -30,8 +33,8 @@ def test_estimation_score_usage():
         enet = UoI_ElasticNet(estimation_score=method)
         assert_equal(enet.estimation_score, method)
         enet.fit(X, y)
-        enet.predict(X)
-        enet.score(X, y)
+        y_hat = enet.predict(X)
+        assert_equal(r2_score(y, y_hat), enet.score(X, y))
         score = np.max(enet.scores_)
         scores.append(score)
     assert_equal(len(np.unique(scores)), len(methods))

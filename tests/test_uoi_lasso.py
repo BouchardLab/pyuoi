@@ -1,8 +1,11 @@
 import numpy as np
 from numpy.testing import (assert_array_equal, assert_array_almost_equal_nulp,
                            assert_equal, assert_allclose)
+
 from sklearn.datasets import make_regression
 from sklearn.linear_model import Lasso
+from sklearn.metrics import r2_score
+
 from pyuoi import UoI_Lasso
 
 
@@ -29,8 +32,8 @@ def test_estimation_score_usage():
         lasso = UoI_Lasso(estimation_score=method)
         assert_equal(lasso.estimation_score, method)
         lasso.fit(X, y)
-        lasso.predict(X)
-        lasso.score(X, y)
+        y_hat = lasso.predict(X)
+        assert_equal(r2_score(y, y_hat), lasso.score(X, y))
         score = np.max(lasso.scores_)
         scores.append(score)
     assert_equal(len(np.unique(scores)), len(methods))
