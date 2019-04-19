@@ -324,7 +324,7 @@ class AbstractUoILinearModel(
             if self.comm is not None:
                 if rank == 0:
                     rvals = train_test_split(np.arange(X.shape[0]),
-                                             test_size=1 - self.selection_frac,
+                                             test_size=1 - self.estimation_frac,
                                              stratify=stratify,
                                              random_state=self.random_state)
                 else:
@@ -336,7 +336,7 @@ class AbstractUoILinearModel(
             else:
                 my_boots[boot] = train_test_split(
                     np.arange(X.shape[0]),
-                    test_size=1 - self.selection_frac,
+                    test_size=1 - self.estimation_frac,
                     stratify=stratify,
                     random_state=self.random_state)
 
