@@ -106,9 +106,9 @@ class AbstractUoILinearModel(
         # other hyperparameters
         self.stability_selection = stability_selection
         self.fit_intercept = fit_intercept
-        self.standardize=standardize
+        self.standardize = standardize
         self.shared_support = shared_support
-        self.max_iter=max_iter
+        self.max_iter = max_iter
         self.comm = comm
         # preprocessing
         if isinstance(random_state, int):
@@ -145,7 +145,7 @@ class AbstractUoILinearModel(
         pass
 
     @_abc.abstractstaticmethod
-    def score_predictions(self, metric, y_true, y_pred, supports):
+    def _score_predictions(self, metric, y_true, y_pred, supports):
         pass
 
     @_abc.abstractmethod
@@ -204,6 +204,11 @@ class AbstractUoILinearModel(
             displaying progress. Utilizes tqdm to indicate progress on
             bootstraps.
         """
+        X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
+                         y_numeric=True, multi_output=True)
+        if self.standardize:
+            self._X_scaler = StandardScaler()
+            X = self._X_scaler.fit_transform(X)
 
         # extract model dimensions
         n_samples, n_coef = self.get_n_coef(X, y)
@@ -363,14 +368,14 @@ class AbstractUoILinearModel(
                     self.estimation_lm.fit(X_rep, y_rep, coef_mask=support)
                     estimates[ii] = self.estimation_lm.coef_.ravel()
 
-                scores[ii] = self.score_predictions(
+                scores[ii] = self._score_predictions(
                     metric=self.estimation_score,
                     fitter=self.estimation_lm,
                     X=X_test, y=y_test,
                     support=support)
             else:
                 fitter = self._fit_intercept_no_features(y_rep)
-                scores[ii] = self.score_predictions(
+                scores[ii] = self._score_predictions(
                     metric=self.estimation_score,
                     fitter=fitter,
                     X=np.zeros_like(X_test), y=y_test,
@@ -410,6 +415,8 @@ class AbstractUoILinearModel(
             # take the median across estimates for the final, bagged estimate
             self.coef_ = np.median(best_estimates, axis=0).reshape(n_tile,
                                                                    n_features)
+            self._fit_intercept(X, y)
+            self.coef_ = np.squeeze(self.coef_)
 
         return self
 
@@ -457,6 +464,18 @@ class AbstractUoILinearModel(
             X = self._X_scaler.transform(X)
         return super().predict(X)
 
+    def predict_proba(self, X):
+        """Predict the ouput log probabilities."""
+        if self.standardize:
+            X = self._X_scaler.transform(X)
+        raise NotImplementedError
+
+    def predict_log_proba(self, X):
+        """Predict the ouput probabilities."""
+        if self.standardize:
+            X = self._X_scaler.transform(X)
+        raise NotImplementedError
+
 
 class AbstractUoILinearRegressor(
         _six.with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
@@ -481,7 +500,7 @@ class AbstractUoILinearRegressor(
             stability_selection=stability_selection,
             fit_intercept=fit_intercept,
             standardize=standardize,
-            max_iter = max_iter,
+            max_iter=max_iter,
             random_state=random_state,
             comm=comm,
         )
@@ -507,7 +526,7 @@ class AbstractUoILinearRegressor(
     def estimation_score(self):
         return self.__estimation_score
 
-    def score_predictions(self, metric, fitter, X, y, support):
+    def _score_predictions(self, metric, fitter, X, y, support):
         """Score, according to some metric, predictions provided by a model.
 
         the resulting score will be negated if an information criterion is
@@ -556,47 +575,6 @@ class AbstractUoILinearRegressor(
             score = -score
         return score
 
-    def fit(self, X, y, stratify=None, verbose=False):
-        """Fit data according to the UoI algorithm.
-
-        Additionaly, perform X-y checks, data preprocessing, and setting
-        intercept.
-
-        Parameters
-        ----------
-        X : ndarray or scipy.sparse matrix, (n_samples, n_features)
-            The design matrix.
-
-        y : ndarray, shape (n_samples,)
-            Response vector. Will be cast to X's dtype if necessary.
-            Currently, this implementation does not handle multiple response
-            variables.
-
-        stratify : array-like or None, default None
-            Ensures groups of samples are alloted to training/test sets
-            proportionally. Labels for each group must be an int greater
-            than zero. Must be of size equal to the number of samples, with
-            further restrictions on the number of groups.
-
-        verbose : boolean
-            A switch indicating whether the fitting should print out messages
-            displaying progress. Utilizes tqdm to indicate progress on
-            bootstraps.
-        """
-        # perform checks
-        X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
-                         y_numeric=True, multi_output=True)
-        # preprocess data
-        if self.standardize:
-            self._X_scaler = StandardScaler()
-            X = self._X_scaler.fit_transform(X)
-        super(AbstractUoILinearRegressor, self).fit(X, y, stratify=stratify,
-                                                    verbose=verbose)
-
-        self._fit_intercept(X, y)
-        self.coef_ = np.squeeze(self.coef_)
-        return self
-
     def _fit_intercept_no_features(self, y):
         """"Fit a model with only an intercept.
 
@@ -637,10 +615,10 @@ class AbstractUoILinearClassifier(
             estimation_frac=estimation_frac,
             stability_selection=stability_selection,
             random_state=random_state,
-            fit_intercept = fit_intercept,
-            standardize = standardize,
+            fit_intercept=fit_intercept,
+            standardize=standardize,
             shared_support=shared_support,
-            max_iter = max_iter,
+            max_iter=max_iter,
             comm=comm,
         )
 
@@ -650,7 +628,7 @@ class AbstractUoILinearClassifier(
         self.__estimation_score = estimation_score
 
     def get_n_coef(self, X, y):
-        """"Return the number of coefficients that will be estimated
+        """Return the number of coefficients that will be estimated
 
         This should return the shape of X if doing binary classification,
         else return (X.shape[0], X.shape[1]*n_classes).
@@ -661,6 +639,9 @@ class AbstractUoILinearClassifier(
         if self._n_classes > 2:
             n_coef = n_coef * self._n_classes
         return n_samples, n_coef
+
+    def fit(self, X, y, stratify=None, verbose=False):
+        self.classes = np.array(sorted(set(y)))
 
     def intersect(self, coef, thresholds):
         """Intersect coefficients accross all thresholds
@@ -679,7 +660,7 @@ class AbstractUoILinearClassifier(
     def estimation_score(self):
         return self.__estimation_score
 
-    def score_predictions(self, metric, fitter, X, y, support):
+    def _score_predictions(self, metric, fitter, X, y, support):
         """Score, according to some metric, predictions provided by a model.
 
         the resulting score will be negated if an information criterion is
@@ -738,43 +719,14 @@ class AbstractUoILinearClassifier(
 
         return score
 
-    def fit(self, X, y, stratify=None, verbose=False):
-        """Fit data according to the UoI algorithm.
-
-        Additionaly, perform X-y checks, data preprocessing, and setting
-        intercept.
-
-        Parameters
-        ----------
-        X : ndarray or scipy.sparse matrix, (n_samples, n_features)
-            The design matrix.
-
-        y : ndarray, shape (n_samples,)
-            Response vector. Will be cast to X's dtype if necessary.
-            Currently, this implementation does not handle multiple response
-            variables.
-
-        stratify : array-like or None, default None
-            Ensures groups of samples are alloted to training/test sets
-            proportionally. Labels for each group must be an int greater
-            than zero. Must be of size equal to the number of samples, with
-            further restrictions on the number of groups.
-
-        verbose : boolean
-            A switch indicating whether the fitting should print out messages
-            displaying progress. Utilizes tqdm to indicate progress on
-            bootstraps.
-        """
-        # perform checks
-        X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
-                         y_numeric=True, multi_output=True)
-        self.classes_ = np.array(sorted(set(y)))
-        # preprocess data
+    def predict_proba(self, X):
+        """Predict the ouput log probabilities."""
         if self.standardize:
-            self._X_scaler = StandardScaler()
-            X = self._X_scaler.fit_transform(X)
-        super(AbstractUoILinearClassifier, self).fit(X, y, stratify=stratify,
-                                                     verbose=verbose)
+            X = self._X_scaler.transform(X)
+        return super().predict_proba(X)
 
-        self._fit_intercept(X, y)
-        return self
+    def predict_log_proba(self, X):
+        """Predict the ouput probabilities."""
+        if self.standardize:
+            X = self._X_scaler.transform(X)
+        return super().predict_log_proba(X)

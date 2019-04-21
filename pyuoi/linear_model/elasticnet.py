@@ -107,6 +107,6 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
     def _fit_intercept(self, X, y):
         """Fit the intercept."""
         if self.fit_intercept:
-            self.intercept_ = y.mean()
+            self.intercept_ = y.mean() - np.dot(X.mean(axis=0), self.coef_)
         else:
             self.intercept = np.zeros(1)
