@@ -129,14 +129,6 @@ class AbstractUoILinearModel(
         self.n_supports_ = None
 
     @_abc.abstractproperty
-    def selection_lm(self):
-        pass
-
-    @_abc.abstractproperty
-    def estimation_lm(self):
-        pass
-
-    @_abc.abstractproperty
     def estimation_score(self):
         pass
 
@@ -151,16 +143,6 @@ class AbstractUoILinearModel(
     @_abc.abstractmethod
     def intersect(self, coef, thresholds):
         """Intersect coefficients accross all thresholds"""
-        pass
-
-    @_abc.abstractmethod
-    def get_n_coef(self, X, y):
-        """"Return the number of coefficients that will be estimated
-
-        This should return the total number of coefficients estimated,
-        accounting for all coefficients for multi-target regression or
-        multi-class classification.
-        """
         pass
 
     @_abc.abstractmethod
@@ -211,8 +193,9 @@ class AbstractUoILinearModel(
             X = self._X_scaler.fit_transform(X)
 
         # extract model dimensions
-        n_samples, n_coef = self.get_n_coef(X, y)
         n_features = X.shape[1]
+
+        n_coef = self.get_n_coef(X, y)
 
         ####################
         # Selection Module #
@@ -345,7 +328,6 @@ class AbstractUoILinearModel(
         # score (r2/AIC/AICc/BIC) for each bootstrap for each support
         scores = np.zeros(tasks.size)
 
-        n_tile = n_coef // n_features
         # iterate over bootstrap samples and supports
         for ii, task_idx in enumerate(tasks):
             boot_idx = task_idx // self.n_supports_
@@ -362,7 +344,7 @@ class AbstractUoILinearModel(
                 # compute ols estimate and store the fitted coefficients
                 if self.shared_support:
                     self.estimation_lm.fit(X_rep[:, support], y_rep)
-                    estimates[ii, np.tile(support, n_tile)] = \
+                    estimates[ii, np.tile(support, self.output_dim)] = \
                         self.estimation_lm.coef_.ravel()
                 else:
                     self.estimation_lm.fit(X_rep, y_rep, coef_mask=support)
@@ -397,8 +379,8 @@ class AbstractUoILinearModel(
                 best_estimates = estimates[np.arange(self.n_boots_est),
                                            self.rp_max_idx_]
                 # take the median across estimates for the final estimate
-                coef = np.median(best_estimates, axis=0).reshape(n_tile,
-                                                                 n_features)
+                coef = np.median(best_estimates,
+                                 axis=0).reshape(self.output_dim, n_features)
             self.estimates_ = Bcast_from_root(estimates, self.comm, root=0)
             self.scores_ = Bcast_from_root(scores, self.comm, root=0)
             self.coef_ = Bcast_from_root(coef, self.comm, root=0)
@@ -413,10 +395,9 @@ class AbstractUoILinearModel(
             best_estimates = self.estimates_[np.arange(self.n_boots_est),
                                              self.rp_max_idx_, :]
             # take the median across estimates for the final, bagged estimate
-            self.coef_ = np.median(best_estimates, axis=0).reshape(n_tile,
-                                                                   n_features)
+            self.coef_ = np.median(best_estimates,
+                                   axis=0).reshape(self.output_dim, n_features)
             self._fit_intercept(X, y)
-            self.coef_ = np.squeeze(self.coef_)
 
         return self
 
@@ -443,7 +424,7 @@ class AbstractUoILinearModel(
         """
 
         n_param_values = len(reg_param_values)
-        n_samples, n_coef = self.get_n_coef(X, y)
+        n_coef = self.get_n_coef(X, y)
 
         coefs = np.zeros((n_param_values, n_coef))
 
@@ -465,16 +446,23 @@ class AbstractUoILinearModel(
         return super().predict(X)
 
     def predict_proba(self, X):
-        """Predict the ouput log probabilities."""
+        """Predict the output log probabilities."""
         if self.standardize:
             X = self._X_scaler.transform(X)
         raise NotImplementedError
 
     def predict_log_proba(self, X):
-        """Predict the ouput probabilities."""
+        """Predict the output probabilities."""
         if self.standardize:
             X = self._X_scaler.transform(X)
         raise NotImplementedError
+
+    def get_n_coef(self, X, y):
+        """"Return the number of coefficients that will be estimated
+
+        This should return the shape of X.
+        """
+        return X.shape[1] * self.output_dim
 
 
 class AbstractUoILinearRegressor(
@@ -511,12 +499,14 @@ class AbstractUoILinearRegressor(
 
         self.__estimation_score = estimation_score
 
-    def get_n_coef(self, X, y):
-        """"Return the number of coefficients that will be estimated
-
-        This should return the shape of X.
-        """
-        return X.shape
+    def fit(self, X, y, stratify=None, verbose=False):
+        if y.ndim == 2:
+            self.output_dim = y.shape[1]
+        else:
+            self.output_dim = 1
+        super().fit(X, y, stratify=stratify, verbose=verbose)
+        self.coef_ = np.squeeze(self.coef_)
+        return self
 
     def intersect(self, coef, thresholds):
         """Intersect coefficients accross all thresholds"""
@@ -562,7 +552,7 @@ class AbstractUoILinearRegressor(
                                           y_true=y,
                                           y_pred=y_pred)
             n_features = np.count_nonzero(support)
-            n_samples = y.size
+            n_samples = X.shape[0]
             if metric == 'BIC':
                 score = utils.BIC(ll, n_features, n_samples)
             elif metric == 'AIC':
@@ -604,7 +594,7 @@ class AbstractUoILinearClassifier(
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
-                 estimation_score='acc', multi_class='auto',
+                 estimation_score='acc',
                  copy_X=True, fit_intercept=True, standardize=True,
                  random_state=None, max_iter=None, shared_support=True,
                  comm=None):
@@ -627,21 +617,15 @@ class AbstractUoILinearClassifier(
                 "invalid estimation metric: '%s'" % estimation_score)
         self.__estimation_score = estimation_score
 
-    def get_n_coef(self, X, y):
-        """Return the number of coefficients that will be estimated
-
-        This should return the shape of X if doing binary classification,
-        else return (X.shape[0], X.shape[1]*n_classes).
-        """
-        n_samples, n_coef = X.shape
-        self._n_classes = len(np.unique(y))
-        self._labels = np.unique(y)
-        if self._n_classes > 2:
-            n_coef = n_coef * self._n_classes
-        return n_samples, n_coef
-
     def fit(self, X, y, stratify=None, verbose=False):
-        self.classes = np.array(sorted(set(y)))
+        self.classes_ = np.unique(y)
+        if self.classes_.size > 2:
+            self.output_dim = self.classes_.size
+        elif self.multi_class == 'multinomial':
+            self.output_dim = 2
+        else:
+            self.output_dim = 1
+        return super().fit(X, y, stratify=stratify, verbose=verbose)
 
     def intersect(self, coef, thresholds):
         """Intersect coefficients accross all thresholds
@@ -649,9 +633,9 @@ class AbstractUoILinearClassifier(
         This implementation will account for multi-class classification.
         """
         supports = intersection(coef, thresholds)
-        if self._n_classes > 2 and self.shared_support:
-            n_features = supports.shape[-1] // self._n_classes
-            supports = supports.reshape((-1, self._n_classes, n_features))
+        if self.output_dim > 2 and self.shared_support:
+            n_features = supports.shape[-1] // self.output_dim
+            supports = supports.reshape((-1, self.output_dim, n_features))
             supports = np.sum(supports, axis=-2).astype(bool)
             supports = np.unique(supports, axis=0)
         return supports
@@ -699,12 +683,12 @@ class AbstractUoILinearClassifier(
                 y_pred = fitter.predict_proba(X[:, support])
             else:
                 y_pred = fitter.predict_proba(X)
-            ll = -log_loss(y, y_pred, labels=np.arange(self._n_classes))
+            ll = -log_loss(y, y_pred, labels=self.classes_)
             if metric == 'log':
                 score = ll
             else:
                 n_features = np.count_nonzero(support)
-                n_samples = y.size
+                n_samples = X.shape[0]
                 if metric == 'BIC':
                     score = utils.BIC(ll, n_features, n_samples)
                 elif metric == 'AIC':

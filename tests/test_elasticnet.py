@@ -82,6 +82,7 @@ def test_uoi_enet_toy():
         fit_intercept=False,
         selection_frac=0.75,
         estimation_frac=0.75,
+        standardize=False
     )
     enet.fit(X, y)
 
@@ -129,10 +130,11 @@ def test_intercept():
     y = np.array([8, 5, 14, 17])
 
     enet = UoI_ElasticNet(
-        fit_intercept=True)
+        fit_intercept=True,
+        standardize=False)
     enet.fit(X, y)
 
-    assert enet.intercept_ == np.mean(y) - np.dot(X.mean(axis=0), enet.coef_)
+    assert enet.intercept_ == (np.mean(y) - np.dot(X.mean(axis=0), enet.coef_))
 
 
 def test_enet_selection_sweep():
@@ -144,15 +146,16 @@ def test_enet_selection_sweep():
         [4, 1, -7],
         [1, 3, 1],
         [4, 3, 12],
-        [8, 11, 2]])
-    beta = np.array([1, 4, 2])
+        [8, 11, 2]], dtype=float)
+    beta = np.array([1, 4, 2], dtype=float)
     y = np.dot(X, beta)
 
     # toy regularization
     reg_param_values = [{'alpha': 1.0}, {'alpha': 2.0}]
-    enet1 = ElasticNet(alpha=1.0, fit_intercept=True)
-    enet2 = ElasticNet(alpha=2.0, fit_intercept=True)
-    enet = UoI_ElasticNet(fit_intercept=True)
+    enet = UoI_ElasticNet(fit_intercept=True, warm_start=False)
+    enet1 = ElasticNet(alpha=1.0, fit_intercept=True, max_iter=enet.max_iter)
+    enet2 = ElasticNet(alpha=2.0, fit_intercept=True, max_iter=enet.max_iter)
+    enet.output_dim = 1
 
     coefs = enet.uoi_selection_sweep(X, y, reg_param_values)
     enet1.fit(X, y)

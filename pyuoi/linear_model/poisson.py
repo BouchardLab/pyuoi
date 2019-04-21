@@ -12,7 +12,7 @@ from sklearn.utils import check_X_y
 
 class Poisson(LinearModel):
     def __init__(self, alpha=1.0, l1_ratio=0.5, fit_intercept=True,
-                 standardize=False, max_iter=1000, tol=1e-5, warm_start=True):
+                 max_iter=1000, tol=1e-5, warm_start=True):
         """Generalized Linear Model with exponential link function
         (i.e. Poisson) trained with L1/L2 regularizer (i.e. Elastic net
         penalty).
@@ -36,10 +36,6 @@ class Poisson(LinearModel):
         fit_intercept : boolean, default True
             Whether to fit an intercept or not.
 
-        standardize : boolean, optional, default False
-            If True, the regressors X will be standardized before regression by
-            subtracting the mean and dividing by the l2-norm.
-
         tol : float, optional
             The tolerance for the optimization: if the updates are
             smaller than ``tol``, the optimization code checks the
@@ -61,7 +57,6 @@ class Poisson(LinearModel):
         self.alpha = alpha
         self.l1_ratio = l1_ratio
         self.fit_intercept = fit_intercept
-        self.standardize = standardize
         self.max_iter = max_iter
         self.tol = tol
         self.warm_start = warm_start
@@ -97,8 +92,6 @@ class Poisson(LinearModel):
 
         # we will handle the intercept by hand: only preprocess the design
         # matrix
-        X, _, X_offset, _, X_scale = _preprocess_data(
-            X, y, fit_intercept=False, standardize=self.standardize)
 
         # all features are initially active
         active_idx = np.arange(self.n_features)
@@ -125,7 +118,7 @@ class Poisson(LinearModel):
             active_idx = np.argwhere(coef != 0).ravel()
 
         self.intercept_ = intercept
-        self.coef_ = coef_update / X_scale
+        self.coef_ = coef_update
 
     def predict(self, X):
         """Predicts the response variable given a design matrix. The output is
@@ -329,13 +322,13 @@ class UoI_Poisson(AbstractUoILinearRegressor, Poisson):
         self.warm_start = warm_start
         self.eps = eps
         self.lambdas = None
-        self.__selection_lm = Poisson(
+        self.selection_lm = Poisson(
             fit_intercept=fit_intercept,
             max_iter=max_iter,
             tol=tol,
             warm_start=warm_start)
         # estimation is a Poisson regression with no regularization
-        self.__estimation_lm = Poisson(
+        self.estimation_lm = Poisson(
             alpha=0,
             l1_ratio=0,
             fit_intercept=fit_intercept,
@@ -435,7 +428,7 @@ class UoI_Poisson(AbstractUoILinearRegressor, Poisson):
             n_features = np.count_nonzero(support)
             if fitter.intercept_ != 0:
                 n_features += 1
-            n_samples = y.size
+            n_samples = X.shape[0]
             if metric == 'BIC':
                 score = utils.BIC(ll, n_features, n_samples)
             elif metric == 'AIC':

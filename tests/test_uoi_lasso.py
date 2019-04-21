@@ -81,6 +81,7 @@ def test_uoi_lasso_toy():
         fit_intercept=False,
         selection_frac=0.75,
         estimation_frac=0.75,
+        standardize=False
     )
     lasso.fit(X, y)
 
@@ -122,14 +123,16 @@ def test_intercept():
         [-1, 2],
         [0, 1],
         [1, 3],
-        [4, 3]])
-    y = np.array([8, 5, 14, 17])
+        [4, 3]], dtype=float)
+    y = np.array([8, 5, 14, 17], dtype=float)
 
     lasso = UoI_Lasso(
-        fit_intercept=True)
+        fit_intercept=True,
+        standardize=False)
     lasso.fit(X, y)
 
-    assert lasso.intercept_ == np.mean(y) - np.dot(X.mean(axis=0), lasso.coef_)
+    assert lasso.intercept_ == (np.mean(y) -
+                                np.dot(X.mean(axis=0), lasso.coef_))
 
 
 def test_lasso_selection_sweep():
@@ -141,15 +144,16 @@ def test_lasso_selection_sweep():
         [4, 1, -7],
         [1, 3, 1],
         [4, 3, 12],
-        [8, 11, 2]])
-    beta = np.array([1, 4, 2])
+        [8, 11, 2]], dtype=float)
+    beta = np.array([1, 4, 2], dtype=float)
     y = np.dot(X, beta)
 
     # toy regularization
     reg_param_values = [{'alpha': 1.0}, {'alpha': 2.0}]
-    lasso1 = Lasso(alpha=1.0, fit_intercept=True)
-    lasso2 = Lasso(alpha=2.0, fit_intercept=True)
-    lasso = UoI_Lasso(fit_intercept=True)
+    lasso = UoI_Lasso(fit_intercept=True, warm_start=False)
+    lasso1 = Lasso(alpha=1.0, fit_intercept=True, max_iter=lasso.max_iter)
+    lasso2 = Lasso(alpha=2.0, fit_intercept=True, max_iter=lasso.max_iter)
+    lasso.output_dim = 1
 
     coefs = lasso.uoi_selection_sweep(X, y, reg_param_values)
     lasso1.fit(X, y)

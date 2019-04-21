@@ -15,8 +15,8 @@ def test_fit_intercept_fixed_coef():
     """Test that the intercept in fit correctly for fixed coefficients."""
     X = np.zeros((6, 5))
     coef = np.ones((1, 5))
-    y = np.ones(6)
-    y[:3] = 0.
+    y = np.ones(6, dtype=int)
+    y[:3] = 0
     b = fit_intercept_fixed_coef(X, coef, y, 2)
     assert_allclose(b, 0.)
 
@@ -33,13 +33,13 @@ def test_fit_intercept_no_features():
     X = np.zeros((5, 1))
     y = np.ones(6, dtype=int)
     y[:3] = 0
-    LR = LogisticInterceptFitterNoFeatures(y, 2)
+    LR = LogisticInterceptFitterNoFeatures(y, 1)
     b = LR.intercept_
     assert_allclose(b, 0.)
 
     y = np.ones(7, dtype=int)
     y[:3] = 0
-    LR = LogisticInterceptFitterNoFeatures(y, 2)
+    LR = LogisticInterceptFitterNoFeatures(y, 1)
     yhat = LR.predict(X)
     assert_allclose(yhat, 1)
     py = LR.predict_proba(X)

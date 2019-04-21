@@ -30,20 +30,12 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         )
         self.n_lambdas = n_lambdas
         self.eps = eps
-        self.__selection_lm = Lasso(
+        self.selection_lm = Lasso(
             max_iter=max_iter,
             warm_start=warm_start,
             random_state=random_state
         )
-        self.__estimation_lm = LinearRegression()
-
-    @property
-    def estimation_lm(self):
-        return self.__estimation_lm
-
-    @property
-    def selection_lm(self):
-        return self.__selection_lm
+        self.estimation_lm = LinearRegression()
 
     def get_reg_params(self, X, y):
         alphas = _alpha_grid(
@@ -58,6 +50,6 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
     def _fit_intercept(self, X, y):
         """Fit the intercept."""
         if self.fit_intercept:
-            self.intercept_ = y.mean() - np.dot(X.mean(axis=0), self.coef_)
+            self.intercept_ = y.mean() - np.dot(X.mean(axis=0), self.coef_.T)
         else:
             self.intercept = np.zeros(1)
