@@ -19,7 +19,7 @@ class UoI_Poisson(AbstractUoILinearRegressor):
                  estimation_frac=0.9, stability_selection=1.,
                  estimation_score='log', warm_start=True, eps=1e-3,
                  tol=1e-5, copy_X=True, fit_intercept=True,
-                 normalize=True, random_state=None, max_iter=1000,
+                 standardize=True, random_state=None, max_iter=1000,
                  comm=None):
         super(UoI_Poisson, self).__init__(
             n_boots_sel=n_boots_sel,
@@ -30,7 +30,7 @@ class UoI_Poisson(AbstractUoILinearRegressor):
             estimation_score=estimation_score,
             copy_X=copy_X,
             fit_intercept=fit_intercept,
-            normalize=normalize,
+            standardize=standardize,
             random_state=random_state,
             comm=comm)
         self.n_lambdas = n_lambdas
@@ -41,7 +41,7 @@ class UoI_Poisson(AbstractUoILinearRegressor):
         self.lambdas = None
         self.__selection_lm = Poisson(
             fit_intercept=fit_intercept,
-            normalize=normalize,
+            standardize=standardize,
             max_iter=max_iter,
             tol=tol,
             warm_start=warm_start)
@@ -50,7 +50,7 @@ class UoI_Poisson(AbstractUoILinearRegressor):
             alpha=0,
             l1_ratio=0,
             fit_intercept=fit_intercept,
-            normalize=normalize,
+            standardize=standardize,
             max_iter=max_iter,
             tol=tol,
             warm_start=False)
@@ -62,13 +62,6 @@ class UoI_Poisson(AbstractUoILinearRegressor):
     @property
     def selection_lm(self):
         return self.__selection_lm
-
-    def preprocess_data(self, X, y):
-        # ensure that we fit the intercept by hand, but normalize if desired
-        return _preprocess_data(
-            X, y, fit_intercept=False, normalize=self.normalize,
-            copy=self.copy_X
-        )
 
     def fit(self, X, y, stratify=None, verbose=False):
         """Fit data according to the UoI algorithm.
@@ -225,7 +218,7 @@ class UoI_Poisson(AbstractUoILinearRegressor):
 
 class Poisson(LinearModel):
     def __init__(self, alpha=1.0, l1_ratio=0.5, fit_intercept=True,
-                 normalize=False, max_iter=1000, tol=1e-5, warm_start=True):
+                 standardize=False, max_iter=1000, tol=1e-5, warm_start=True):
         """Generalized Linear Model with exponential link function
         (i.e. Poisson) trained with L1/L2 regularizer (i.e. Elastic net
         penalty).
@@ -249,8 +242,8 @@ class Poisson(LinearModel):
         fit_intercept : boolean, default True
             Whether to fit an intercept or not.
 
-        normalize : boolean, optional, default False
-            If True, the regressors X will be normalized before regression by
+        standardize : boolean, optional, default False
+            If True, the regressors X will be standardized before regression by
             subtracting the mean and dividing by the l2-norm.
 
         tol : float, optional
@@ -274,7 +267,7 @@ class Poisson(LinearModel):
         self.alpha = alpha
         self.l1_ratio = l1_ratio
         self.fit_intercept = fit_intercept
-        self.normalize = normalize
+        self.standardize = standardize
         self.max_iter = max_iter
         self.tol = tol
         self.warm_start = warm_start
@@ -311,7 +304,7 @@ class Poisson(LinearModel):
         # we will handle the intercept by hand: only preprocess the design
         # matrix
         X, _, X_offset, _, X_scale = _preprocess_data(
-            X, y, fit_intercept=False, normalize=self.normalize)
+            X, y, fit_intercept=False, standardize=self.standardize)
 
         # all features are initially active
         active_idx = np.arange(self.n_features)

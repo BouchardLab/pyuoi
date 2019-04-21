@@ -80,7 +80,7 @@ def test_uoi_lasso_toy():
     lasso = UoI_Lasso(
         fit_intercept=False,
         selection_frac=0.75,
-        estimation_frac=0.75
+        estimation_frac=0.75,
     )
     lasso.fit(X, y)
 
@@ -104,7 +104,6 @@ def test_get_reg_params():
     # calculate regularization parameters with UoI_Lasso object
     lasso = UoI_Lasso(
         n_lambdas=2,
-        normalize=False,
         fit_intercept=False,
         eps=0.1)
     reg_params = lasso.get_reg_params(X, y)
@@ -127,7 +126,6 @@ def test_intercept():
     y = np.array([8, 5, 14, 17])
 
     lasso = UoI_Lasso(
-        normalize=False,
         fit_intercept=True)
     lasso.fit(X, y)
 
@@ -149,9 +147,9 @@ def test_lasso_selection_sweep():
 
     # toy regularization
     reg_param_values = [{'alpha': 1.0}, {'alpha': 2.0}]
-    lasso1 = Lasso(alpha=1.0, fit_intercept=True, normalize=True)
-    lasso2 = Lasso(alpha=2.0, fit_intercept=True, normalize=True)
-    lasso = UoI_Lasso(fit_intercept=True, normalize=True)
+    lasso1 = Lasso(alpha=1.0, fit_intercept=True)
+    lasso2 = Lasso(alpha=2.0, fit_intercept=True)
+    lasso = UoI_Lasso(fit_intercept=True)
 
     coefs = lasso.uoi_selection_sweep(X, y, reg_param_values)
     lasso1.fit(X, y)

@@ -31,7 +31,7 @@ class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, n_C=48, stability_selection=1.,
                  warm_start=False, estimation_score='acc',
-                 copy_X=True, fit_intercept=True, normalize=True,
+                 copy_X=True, fit_intercept=True, standardize=True,
                  random_state=None, max_iter=10000, tol=1e-3,
                  shared_support=True, comm=None):
         super(UoI_L1Logistic, self).__init__(
@@ -44,11 +44,12 @@ class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
             random_state=random_state,
             copy_X=copy_X,
             fit_intercept=fit_intercept,
-            normalize=normalize,
+            standardize=standardize,
             shared_support=shared_support,
             comm=comm)
         self.n_C = n_C
         self.Cs = None
+        self.tol = tol
         self.__selection_lm = MaskedCoefLogisticRegression(
             penalty='l1',
             max_iter=max_iter,

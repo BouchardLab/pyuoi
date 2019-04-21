@@ -81,7 +81,7 @@ def test_uoi_enet_toy():
     enet = UoI_ElasticNet(
         fit_intercept=False,
         selection_frac=0.75,
-        estimation_frac=0.75
+        estimation_frac=0.75,
     )
     enet.fit(X, y)
 
@@ -107,7 +107,6 @@ def test_get_reg_params():
     # calculate regularization parameters with UoI_ElasticNet object
     enet = UoI_ElasticNet(
         n_lambdas=2,
-        normalize=False,
         fit_intercept=False,
         eps=0.1)
     reg_params = enet.get_reg_params(X, y)
@@ -130,7 +129,6 @@ def test_intercept():
     y = np.array([8, 5, 14, 17])
 
     enet = UoI_ElasticNet(
-        normalize=False,
         fit_intercept=True)
     enet.fit(X, y)
 
@@ -152,9 +150,9 @@ def test_enet_selection_sweep():
 
     # toy regularization
     reg_param_values = [{'alpha': 1.0}, {'alpha': 2.0}]
-    enet1 = ElasticNet(alpha=1.0, fit_intercept=True, normalize=True)
-    enet2 = ElasticNet(alpha=2.0, fit_intercept=True, normalize=True)
-    enet = UoI_ElasticNet(fit_intercept=True, normalize=True)
+    enet1 = ElasticNet(alpha=1.0, fit_intercept=True)
+    enet2 = ElasticNet(alpha=2.0, fit_intercept=True)
+    enet = UoI_ElasticNet(fit_intercept=True)
 
     coefs = enet.uoi_selection_sweep(X, y, reg_param_values)
     enet1.fit(X, y)

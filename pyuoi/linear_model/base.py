@@ -2,11 +2,11 @@ import abc as _abc
 import six as _six
 import numpy as np
 
-
-from sklearn.linear_model.base import _preprocess_data, SparseCoefMixin
+from sklearn.linear_model.base import SparseCoefMixin
 from sklearn.metrics import r2_score, accuracy_score, log_loss
 from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
+from sklearn.preprocessing import StandardScaler
 
 from pyuoi import utils
 from pyuoi.mpi_utils import (Gatherv_rows, Bcast_from_root)
@@ -52,18 +52,22 @@ class AbstractUoILinearModel(
         will act as a separate threshold for placement in the selection
         profile.
 
-    copy_X : boolean, default True
-        If True, X will be copied; else, it may be overwritten.
-
     fit_intercept : boolean, default True
         Whether to calculate the intercept for this model. If set
         to False, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
 
-    normalize : boolean, default False
-        This parameter is ignored when ``fit_intercept`` is set to False.
-        If True, the regressors X will be normalized before regression by
-        subtracting the mean and dividing by the l2-norm.
+    standardize : boolean, default False
+        If True, the regressors X will be standardized before regression by
+        subtracting the mean and dividing by their standard deviations.
+
+    shared_supprt : bool, default True
+        For models with more than one output (multinomial logistic regression)
+        this determines whether all outputs share the same support or can
+        have independent supports.
+
+    max_iter : int, default None
+        Maximum number of iterations for iterative fitting methods.
 
     random_state : int, RandomState instance or None, default None
         The seed of the pseudo random number generator that selects a random
@@ -71,11 +75,6 @@ class AbstractUoILinearModel(
         number generator; If RandomState instance, random_state is the random
         number generator; If None, the random number generator is the
         RandomState instance used by `np.random`.
-
-    shared_supprt : bool, default True
-        For models with more than one output (multinomial logistic regression)
-        this determines whether all outputs share the same support or can
-        have independent supports.
 
     comm : MPI communicator, default None
         If passed, the selection and estimation steps are parallelized.
@@ -95,7 +94,9 @@ class AbstractUoILinearModel(
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
-                 random_state=None, shared_support=True, comm=None):
+                 fit_intercept=True, standardize=False,
+                 shared_support=True, max_iter=None, random_state=None,
+                 comm=None):
         # data split fractions
         self.selection_frac = selection_frac
         self.estimation_frac = estimation_frac
@@ -104,7 +105,10 @@ class AbstractUoILinearModel(
         self.n_boots_est = n_boots_est
         # other hyperparameters
         self.stability_selection = stability_selection
+        self.fit_intercept = fit_intercept
+        self.standardize=standardize
         self.shared_support = shared_support
+        self.max_iter=max_iter
         self.comm = comm
         # preprocessing
         if isinstance(random_state, int):
@@ -150,13 +154,6 @@ class AbstractUoILinearModel(
         pass
 
     @_abc.abstractmethod
-    def preprocess_data(self, X, y):
-        """
-
-        """
-        pass
-
-    @_abc.abstractmethod
     def get_n_coef(self, X, y):
         """"Return the number of coefficients that will be estimated
 
@@ -167,7 +164,7 @@ class AbstractUoILinearModel(
         pass
 
     @_abc.abstractmethod
-    def _fit_intercept(self, y):
+    def _fit_intercept(self, X, y):
         """"Fit a model with an intercept and fixed coefficients.
 
         This is used to re-fit the intercept after the coefficients are
@@ -454,6 +451,12 @@ class AbstractUoILinearModel(
 
         return coefs
 
+    def predict(self, X):
+        """Predict the class."""
+        if self.standardize:
+            X = self._X_scaler.transform(X)
+        return super().predict(X)
+
 
 class AbstractUoILinearRegressor(
         _six.with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
@@ -468,7 +471,7 @@ class AbstractUoILinearRegressor(
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
                  estimation_score='r2', copy_X=True, fit_intercept=True,
-                 normalize=True, random_state=None, max_iter=1000,
+                 standardize=False, random_state=None, max_iter=None,
                  comm=None):
         super(AbstractUoILinearRegressor, self).__init__(
             n_boots_sel=n_boots_sel,
@@ -476,24 +479,18 @@ class AbstractUoILinearRegressor(
             selection_frac=selection_frac,
             estimation_frac=estimation_frac,
             stability_selection=stability_selection,
+            fit_intercept=fit_intercept,
+            standardize=standardize,
+            max_iter = max_iter,
             random_state=random_state,
             comm=comm,
         )
-        self.copy_X = copy_X
-        self.fit_intercept = fit_intercept
-        self.normalize = normalize
 
         if estimation_score not in self.__valid_estimation_metrics:
             raise ValueError(
                 "invalid estimation metric: '%s'" % estimation_score)
 
         self.__estimation_score = estimation_score
-
-    def preprocess_data(self, X, y):
-        return _preprocess_data(
-            X, y, fit_intercept=self.fit_intercept, normalize=self.normalize,
-            copy=self.copy_X
-        )
 
     def get_n_coef(self, X, y):
         """"Return the number of coefficients that will be estimated
@@ -590,11 +587,13 @@ class AbstractUoILinearRegressor(
         X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
                          y_numeric=True, multi_output=True)
         # preprocess data
-        X, y, X_offset, y_offset, X_scale = self.preprocess_data(X, y)
+        if self.standardize:
+            self._X_scaler = StandardScaler()
+            X = self._X_scaler.fit_transform(X)
         super(AbstractUoILinearRegressor, self).fit(X, y, stratify=stratify,
                                                     verbose=verbose)
 
-        self._fit_intercept(X_offset, y_offset, X_scale)
+        self._fit_intercept(X, y)
         self.coef_ = np.squeeze(self.coef_)
         return self
 
@@ -627,9 +626,9 @@ class AbstractUoILinearClassifier(
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
-                 estimation_score='acc', multi_class='ovr',
-                 copy_X=True, fit_intercept=True, normalize=True,
-                 random_state=None, max_iter=1000, shared_support=True,
+                 estimation_score='acc', multi_class='auto',
+                 copy_X=True, fit_intercept=True, standardize=True,
+                 random_state=None, max_iter=None, shared_support=True,
                  comm=None):
         super(AbstractUoILinearClassifier, self).__init__(
             n_boots_sel=n_boots_sel,
@@ -638,12 +637,12 @@ class AbstractUoILinearClassifier(
             estimation_frac=estimation_frac,
             stability_selection=stability_selection,
             random_state=random_state,
+            fit_intercept = fit_intercept,
+            standardize = standardize,
             shared_support=shared_support,
+            max_iter = max_iter,
             comm=comm,
         )
-        self.fit_intercept = fit_intercept
-        self.normalize = normalize
-        self.copy_X = copy_X
 
         if estimation_score not in self.__valid_estimation_metrics:
             raise ValueError(
@@ -675,13 +674,6 @@ class AbstractUoILinearClassifier(
             supports = np.sum(supports, axis=-2).astype(bool)
             supports = np.unique(supports, axis=0)
         return supports
-
-    @staticmethod
-    def preprocess_data(self, X, y):
-        return _preprocess_data(
-            X, y, fit_intercept=self.fit_intercept, normalize=self.normalize,
-            copy=self.copy_X
-        )
 
     @property
     def estimation_score(self):
@@ -778,6 +770,9 @@ class AbstractUoILinearClassifier(
                          y_numeric=True, multi_output=True)
         self.classes_ = np.array(sorted(set(y)))
         # preprocess data
+        if self.standardize:
+            self._X_scaler = StandardScaler()
+            X = self._X_scaler.fit_transform(X)
         super(AbstractUoILinearClassifier, self).fit(X, y, stratify=stratify,
                                                      verbose=verbose)
 
