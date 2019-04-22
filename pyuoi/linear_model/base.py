@@ -445,18 +445,6 @@ class AbstractUoILinearModel(
             X = self._X_scaler.transform(X)
         return super().predict(X)
 
-    def predict_proba(self, X):
-        """Predict the output log probabilities."""
-        if self.standardize:
-            X = self._X_scaler.transform(X)
-        raise NotImplementedError
-
-    def predict_log_proba(self, X):
-        """Predict the output probabilities."""
-        if self.standardize:
-            X = self._X_scaler.transform(X)
-        raise NotImplementedError
-
     def get_n_coef(self, X, y):
         """"Return the number of coefficients that will be estimated
 
@@ -590,7 +578,7 @@ class AbstractUoILinearClassifier(
     Intersections framework.
     """
 
-    __valid_estimation_metrics = ('acc', 'log')
+    __valid_estimation_metrics = ('acc', 'log', 'BIC', 'AIC', 'AICc')
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
@@ -702,15 +690,3 @@ class AbstractUoILinearClassifier(
                 score = -score
 
         return score
-
-    def predict_proba(self, X):
-        """Predict the ouput log probabilities."""
-        if self.standardize:
-            X = self._X_scaler.transform(X)
-        return super().predict_proba(X)
-
-    def predict_log_proba(self, X):
-        """Predict the ouput probabilities."""
-        if self.standardize:
-            X = self._X_scaler.transform(X)
-        return super().predict_log_proba(X)

@@ -98,6 +98,24 @@ class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
         else:
             self.intercept_ = np.zeros(self.output_dim)
 
+    def predict_proba(self, X):
+        """Predict the ouput log probabilities."""
+        if self.standardize:
+            X = self._X_scaler.transform(X)
+        logits = self.predict_log_proba(X)
+        if (self.output_dim == 1) or (self.multi_class == 'ovr'):
+            proba = sigmoid(logits)
+        else:
+            proba = softmax(logits)
+        return proba
+
+    def predict_log_proba(self, X):
+        """Predict the ouput probabilities."""
+        if self.standardize:
+            X = self._X_scaler.transform(X)
+        logits = X.dot(self.coef_.T) + self.intercept_
+        return logits
+
 
 def fit_intercept_fixed_coef(X, coef_, y, output_dim):
     """Optimize the likelihood w.r.t. the intercept for a logistic

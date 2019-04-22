@@ -85,6 +85,8 @@ def test_l1logistic_binary():
                                      include_intercept=True)
 
     l1log = UoI_L1Logistic(random_state=10).fit(X, y)
+    l1log.predict_proba(X)
+    l1log.predict_log_proba(X)
     y_hat = l1log.predict(X)
     assert_equal(accuracy_score(y, y_hat), l1log.score(X, y))
     assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .8
@@ -103,6 +105,8 @@ def test_l1logistic_multiclass():
                                      shared_support=True,
                                      w_scale=4.)
     l1log = UoI_L1Logistic().fit(X, y)
+    l1log.predict_proba(X)
+    l1log.predict_log_proba(X)
     y_hat = l1log.predict(X)
     assert_equal(accuracy_score(y, y_hat), l1log.score(X, y))
     assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .8
@@ -157,19 +161,20 @@ def test_masked_logistic():
 
 def test_estimation_score_usage():
     """Test the ability to change the estimation score in UoI L1Logistic"""
-    methods = ('acc', 'log')
-    X, y, w, b = make_classification(n_samples=100,
+    methods = ('acc', 'log', 'BIC', 'AIC', 'AICc')
+    X, y, w, b = make_classification(n_samples=200,
                                      random_state=6,
-                                     n_informative=2,
-                                     n_features=6)
+                                     n_informative=5,
+                                     n_features=10)
     scores = []
     for method in methods:
-        l1log = UoI_L1Logistic(random_state=12, estimation_score=method)
+        l1log = UoI_L1Logistic(random_state=12, estimation_score=method,
+                               tol=1e-2, n_boots_sel=24, n_boots_est=24)
         assert_equal(l1log.estimation_score, method)
         l1log.fit(X, y)
-        score = np.max(l1log.scores_)
-        scores.append(score)
-    assert_equal(len(set(scores)), len(methods))
+        scores.append(l1log.scores_)
+    scores = np.stack(scores)
+    assert_equal(len(np.unique(scores, axis=0)), len(methods))
 
 
 def test_set_random_state():
