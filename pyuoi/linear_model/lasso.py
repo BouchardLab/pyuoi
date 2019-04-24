@@ -1,5 +1,3 @@
-import numpy as np
-
 from sklearn.linear_model import Lasso, LinearRegression
 from sklearn.linear_model.coordinate_descent import _alpha_grid
 
@@ -30,12 +28,12 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         )
         self.n_lambdas = n_lambdas
         self.eps = eps
-        self.selection_lm = Lasso(
+        self._selection_lm = Lasso(
             max_iter=max_iter,
             warm_start=warm_start,
             random_state=random_state
         )
-        self.estimation_lm = LinearRegression()
+        self._estimation_lm = LinearRegression()
 
     def get_reg_params(self, X, y):
         alphas = _alpha_grid(
@@ -46,11 +44,3 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
             n_alphas=self.n_lambdas,
         )
         return [{'alpha': a} for a in alphas]
-
-    def _fit_intercept(self, X, y):
-        """Fit the intercept."""
-        if self.fit_intercept:
-            self.intercept_ = (y.mean(axis=0) -
-                               np.dot(X.mean(axis=0), self.coef_.T))
-        else:
-            self.intercept = np.zeros(1)

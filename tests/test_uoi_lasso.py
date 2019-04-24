@@ -81,7 +81,6 @@ def test_uoi_lasso_toy():
         fit_intercept=False,
         selection_frac=0.75,
         estimation_frac=0.75,
-        standardize=False
     )
     lasso.fit(X, y)
 
@@ -127,8 +126,7 @@ def test_intercept():
     y = np.array([8, 5, 14, 17], dtype=float)
 
     lasso = UoI_Lasso(
-        fit_intercept=True,
-        standardize=False)
+        fit_intercept=True)
     lasso.fit(X, y)
 
     assert lasso.intercept_ == (np.mean(y) -

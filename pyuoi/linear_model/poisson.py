@@ -1,6 +1,6 @@
 import numpy as np
 
-from .base import AbstractUoILinearRegressor
+from .base import AbstractUoIGeneralizedLinearRegressor
 
 from pyuoi import utils
 
@@ -284,15 +284,8 @@ class Poisson(LinearModel):
         z = Xbeta + (y / w) - 1
         return w, z
 
-    def _fit_intercept_no_features(self, y):
-        """"Fit a model with only an intercept.
 
-        This is used in cases where the model has no support selected.
-        """
-        return PoissonInterceptFitterNoFeatures(y)
-
-
-class UoI_Poisson(AbstractUoILinearRegressor, Poisson):
+class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
 
     _AbstractUoILinearRegressor__valid_estimation_metrics = \
         ('log', 'AIC', 'AICc', 'BIC')
@@ -322,15 +315,15 @@ class UoI_Poisson(AbstractUoILinearRegressor, Poisson):
         self.warm_start = warm_start
         self.eps = eps
         self.lambdas = None
-        self.selection_lm = Poisson(
+        self._selection_lm = Poisson(
             fit_intercept=fit_intercept,
             max_iter=max_iter,
             tol=tol,
             warm_start=warm_start)
         # estimation is a Poisson regression with no regularization
-        self.estimation_lm = Poisson(
-            alpha=0,
-            l1_ratio=0,
+        self._estimation_lm = Poisson(
+            alpha=0.,
+            l1_ratio=0.,
             fit_intercept=fit_intercept,
             max_iter=max_iter,
             tol=tol,
@@ -454,6 +447,23 @@ class UoI_Poisson(AbstractUoILinearRegressor, Poisson):
             self.intercept_ = np.log(np.mean(y)/np.mean(mu))
         else:
             self.intercept_ = np.zeros(1)
+
+    def _pre_fit(self, X, y):
+        if self.standardize:
+            self._X_scaler = StandardScaler()
+            X = self._X_scaler.fit_transform(X)
+        if y.ndim == 2:
+            self.output_dim = y.shape[1]
+        else:
+            self.output_dim = 1
+        return X, y
+
+    def _fit_intercept_no_features(self, y):
+        """"Fit a model with only an intercept.
+
+        This is used in cases where the model has no support selected.
+        """
+        return PoissonInterceptFitterNoFeatures(y)
 
 class PoissonInterceptFitterNoFeatures(object):
     def __init__(self, y):

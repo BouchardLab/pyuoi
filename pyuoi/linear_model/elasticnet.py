@@ -36,13 +36,13 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
         self.warm_start = warm_start
         self.eps = eps
         self.lambdas = None
-        self.selection_lm = ElasticNet(
+        self._selection_lm = ElasticNet(
             fit_intercept=fit_intercept,
             max_iter=max_iter,
             copy_X=copy_X,
             warm_start=warm_start,
             random_state=random_state)
-        self.estimation_lm = LinearRegression()
+        self._estimation_lm = LinearRegression()
 
     def get_reg_params(self, X, y):
         """Calculates the regularization parameters (alpha and lambda) to be
@@ -95,11 +95,3 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
                 reg_params.append(dict(alpha=lamb, l1_ratio=alpha))
 
         return reg_params
-
-    def _fit_intercept(self, X, y):
-        """Fit the intercept."""
-        if self.fit_intercept:
-            self.intercept_ = (y.mean(axis=0) -
-                               np.dot(X.mean(axis=0), self.coef_.T))
-        else:
-            self.intercept = np.zeros(1)

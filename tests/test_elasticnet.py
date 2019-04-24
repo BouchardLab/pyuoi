@@ -75,6 +75,8 @@ def test_uoi_enet_toy():
         [8, 11]], dtype=float)
     beta = np.array([1, 4], dtype=float)
     y = np.dot(X, beta)
+    X = np.tile(X, (3, 1))
+    y = np.tile(y, 3)
 
     # choose selection_frac to be slightly smaller to ensure that we get
     # good test sets
@@ -82,7 +84,6 @@ def test_uoi_enet_toy():
         fit_intercept=False,
         selection_frac=0.75,
         estimation_frac=0.75,
-        standardize=False
     )
     enet.fit(X, y)
 
@@ -96,8 +97,8 @@ def test_get_reg_params():
         [-1, 2],
         [0, 1],
         [1, 3],
-        [4, 3]])
-    y = np.array([7, 4, 13, 16])
+        [4, 3]], dtype=float)
+    y = np.array([7, 4, 13, 16], dtype=float)
 
     # calculate regularization parameters manually
     l1_ratio = .5
@@ -114,8 +115,9 @@ def test_get_reg_params():
 
     # check each regularization parameter and key
     for estimate, true in zip(reg_params, alphas):
-        assert estimate.keys() == true.keys()
-        assert_allclose(list(estimate.values()), list(true.values()))
+        assert len(estimate) == len(true)
+        for key, value in estimate.items():
+            assert_allclose(true[key], value)
 
 
 def test_intercept():
@@ -126,12 +128,11 @@ def test_intercept():
         [-1, 2],
         [0, 1],
         [1, 3],
-        [4, 3]])
-    y = np.array([8, 5, 14, 17])
+        [4, 3]], dtype=float)
+    y = np.array([8, 5, 14, 17], dtype=float)
 
     enet = UoI_ElasticNet(
-        fit_intercept=True,
-        standardize=False)
+        fit_intercept=True)
     enet.fit(X, y)
 
     assert enet.intercept_ == (np.mean(y) - np.dot(X.mean(axis=0), enet.coef_))

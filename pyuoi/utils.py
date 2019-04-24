@@ -90,7 +90,6 @@ def make_classification(n_samples=100, n_features=20, n_informative=2,
             idxs = rng.permutation(n_features)[:n_not_informative]
             w[idxs] = 0.
     w *= w_scale
-    intercept *= w_scale * 2.
 
     log_p = X.dot(w)
     if include_intercept:

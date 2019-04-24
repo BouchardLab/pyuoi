@@ -21,12 +21,13 @@ from scipy.special import expit
 
 import numpy as np
 
-from .base import AbstractUoILinearClassifier
+from .base import AbstractUoIGeneralizedLinearRegressor
 from ..utils import sigmoid, softmax
 from ..lbfgs import fmin_lbfgs
 
 
-class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
+class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor,
+                     LogisticRegression):
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, n_C=48, stability_selection=1.,
@@ -51,7 +52,8 @@ class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
         self.Cs = None
         self.multi_class = multi_class
         self.tol = tol
-        self.selection_lm = MaskedCoefLogisticRegression(
+        self.solver = 'lbfgs'
+        self._selection_lm = MaskedCoefLogisticRegression(
             penalty='l1',
             max_iter=max_iter,
             warm_start=warm_start,
@@ -59,11 +61,8 @@ class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
             multi_class=multi_class,
             fit_intercept=fit_intercept,
             tol=tol)
-        # sklearn cannot do LogisticRegression without penalization, due to the
-        # ill-posed nature of the problem. We may want to set C=np.inf for no
-        # penalization, but we risk no convergence.
 
-        self.estimation_lm = MaskedCoefLogisticRegression(
+        self._estimation_lm = MaskedCoefLogisticRegression(
             C=np.inf,
             random_state=random_state,
             multi_class='auto',
@@ -98,23 +97,18 @@ class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
         else:
             self.intercept_ = np.zeros(self.output_dim)
 
-    def predict_proba(self, X):
-        """Predict the ouput log probabilities."""
-        if self.standardize:
-            X = self._X_scaler.transform(X)
-        logits = self.predict_log_proba(X)
-        if (self.output_dim == 1) or (self.multi_class == 'ovr'):
-            proba = sigmoid(logits)
+    def _pre_fit(self, X, y):
+        X, y = super()._pre_fit(X, y)
+        le = LabelEncoder()
+        y = le.fit_transform(y)
+        self.classes_ = le.classes_
+        if self.classes_.size > 2:
+            self.output_dim = self.classes_.size
+        elif self.multi_class == 'multinomial':
+            self.output_dim = 2
         else:
-            proba = softmax(logits)
-        return proba
-
-    def predict_log_proba(self, X):
-        """Predict the ouput probabilities."""
-        if self.standardize:
-            X = self._X_scaler.transform(X)
-        logits = X.dot(self.coef_.T) + self.intercept_
-        return logits
+            self.output_dim = 1
+        return X, y
 
 
 def fit_intercept_fixed_coef(X, coef_, y, output_dim):
