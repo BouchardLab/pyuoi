@@ -146,8 +146,20 @@ class AbstractUoILinearModel(
         pass
 
     @_abc.abstractmethod
+    def _pre_fit(self, X, y, stratify, verbose):
+        """Perform class-specific setup for fit().
+        """
+        pass
+
+    @_abc.abstractmethod
+    def _post_fit(self, X, y, stratify, verbose):
+        """Perform class-specific cleanup for fit().
+        """
+        pass
+
+    @_abc.abstractmethod
     def _fit_intercept(self, X, y):
-        """"Fit a model with an intercept and fixed coefficients.
+        """Fit a model with an intercept and fixed coefficients.
 
         This is used to re-fit the intercept after the coefficients are
         estimated.
@@ -156,7 +168,7 @@ class AbstractUoILinearModel(
 
     @_abc.abstractmethod
     def _fit_intercept_no_features(self, y):
-        """"Fit a model with only an intercept.
+        """Fit a model with only an intercept.
 
         This is used in cases where the model has no support selected.
         """
@@ -186,6 +198,8 @@ class AbstractUoILinearModel(
             displaying progress. Utilizes tqdm to indicate progress on
             bootstraps.
         """
+        self._pre_fit(X, y, stratify=stratify, verbose=verbose)
+
         X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
                          y_numeric=True, multi_output=True)
         if self.standardize:
@@ -398,6 +412,7 @@ class AbstractUoILinearModel(
             self.coef_ = np.median(best_estimates,
                                    axis=0).reshape(self.output_dim, n_features)
             self._fit_intercept(X, y)
+        self._post_fit(X, y, stratify=stratify, verbose=verbose)
 
         return self
 
@@ -446,7 +461,7 @@ class AbstractUoILinearModel(
         return super().predict(X)
 
     def get_n_coef(self, X, y):
-        """"Return the number of coefficients that will be estimated
+        """Return the number of coefficients that will be estimated
 
         This should return the shape of X.
         """
@@ -487,14 +502,14 @@ class AbstractUoILinearRegressor(
 
         self.__estimation_score = estimation_score
 
-    def fit(self, X, y, stratify=None, verbose=False):
+    def _pre_fit(self, X, y, stratify=None, verbose=False):
         if y.ndim == 2:
             self.output_dim = y.shape[1]
         else:
             self.output_dim = 1
-        super().fit(X, y, stratify=stratify, verbose=verbose)
+
+    def _post_fit(self, X, y, stratify=None, verbose=False):
         self.coef_ = np.squeeze(self.coef_)
-        return self
 
     def intersect(self, coef, thresholds):
         """Intersect coefficients accross all thresholds"""
@@ -554,7 +569,7 @@ class AbstractUoILinearRegressor(
         return score
 
     def _fit_intercept_no_features(self, y):
-        """"Fit a model with only an intercept.
+        """Fit a model with only an intercept.
 
         This is used in cases where the model has no support selected.
         """
@@ -605,7 +620,7 @@ class AbstractUoILinearClassifier(
                 "invalid estimation metric: '%s'" % estimation_score)
         self.__estimation_score = estimation_score
 
-    def fit(self, X, y, stratify=None, verbose=False):
+    def _pre_fit(self, X, y, stratify=None, verbose=False):
         self.classes_ = np.unique(y)
         if self.classes_.size > 2:
             self.output_dim = self.classes_.size
@@ -613,7 +628,6 @@ class AbstractUoILinearClassifier(
             self.output_dim = 2
         else:
             self.output_dim = 1
-        return super().fit(X, y, stratify=stratify, verbose=verbose)
 
     def intersect(self, coef, thresholds):
         """Intersect coefficients accross all thresholds
