@@ -376,7 +376,7 @@ class AbstractUoILinearModel(
                 scores[ii] = self.score_predictions(
                     metric=self.estimation_score,
                     fitter=fitter,
-                    X=np.zeros_like(X_test), y=y_test,
+                    X=np.zeros(X_test.shape, dtype=X_test.dtype), y=y_test,
                     support=np.zeros(X_test.shape[1], dtype=bool))
 
         if self.comm is not None:
