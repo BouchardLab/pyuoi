@@ -1,6 +1,8 @@
 import abc as _abc
 import six as _six
 import numpy as np
+import logging
+import sys
 
 
 from sklearn.linear_model.base import _preprocess_data, SparseCoefMixin
@@ -80,6 +82,11 @@ class AbstractUoILinearModel(
     comm : MPI communicator, default None
         If passed, the selection and estimation steps are parallelized.
 
+    logger : Logger, default None
+        The logger to use for messages when ``verbose=True`` in ``fit``.
+        If *None* is passed, a logger that writes to ``sys.stdout`` will be
+        used.
+
     Attributes
     ----------
     coef_ : array, shape (n_features,) or (n_targets, n_features)
@@ -95,7 +102,7 @@ class AbstractUoILinearModel(
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
-                 random_state=None, shared_support=True, comm=None):
+                 random_state=None, shared_support=True, comm=None, logger=None):
         # data split fractions
         self.selection_frac = selection_frac
         self.estimation_frac = estimation_frac
@@ -123,6 +130,24 @@ class AbstractUoILinearModel(
             self.stability_selection, self.n_boots_sel)
 
         self.n_supports_ = None
+
+        if logger is None:
+            self._logger = logging.getLogger(name="uoi_linear_model")
+            self._logger.setLevel(logging.INFO)
+
+            handler = logging.StreamHandler(sys.stdout)
+            handler.setLevel(logging.INFO)
+            if self.comm is not None and self.comm.Get_size() > 1:
+                r, s = self.comm.Get_rank(), self.comm.Get_size()
+                fmt = "%(asctime)s - %(name)s " + str(r).rjust(int(np.log10(s))+1) + " - %(levelname)s - %(message)s"
+            else:
+                fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+
+            formatter = logging.Formatter(fmt)
+            handler.setFormatter(formatter)
+            self._logger.addHandler(handler)
+        else:
+            self._logger = logger
 
     @_abc.abstractproperty
     def selection_lm(self):
@@ -208,6 +233,11 @@ class AbstractUoILinearModel(
             bootstraps.
         """
 
+        if verbose:
+            self._logger.setLevel(logging.DEBUG)
+        else:
+            self._logger.setLevel(logging.WARNING)
+
         # extract model dimensions
         n_samples, n_coef = self.get_n_coef(X, y)
         n_features = X.shape[1]
@@ -284,11 +314,11 @@ class AbstractUoILinearModel(
             y_test = y[idxs_test]
 
             # fit the coefficients
-            if verbose:
-                if size > self.n_boots_sel:
-                    print("rank %d - selection bootstrap %d, regularization parameter set %d" % (rank, boot_idx, reg_idx))
-                else:
-                    print("rank %d - selection bootstrap %d" % (rank, boot_idx))
+            if size > self.n_boots_sel:
+                self._logger.info("selection bootstrap %d, regularization parameter set %d" %
+                                  (boot_idx, reg_idx))
+            else:
+                self._logger.info("selection bootstrap %d" % (boot_idx))
             selection_coefs[ii] = np.squeeze(
                 self.uoi_selection_sweep(X_rep, y_rep, my_reg_params))
 
@@ -315,8 +345,8 @@ class AbstractUoILinearModel(
 
         self.n_supports_ = self.supports_.shape[0]
 
-        if verbose and rank == 0:
-            print("Found %d supports" % self.n_supports_)
+        if rank == 0:
+            self._logger.info("Found %d supports" % self.n_supports_)
 
         #####################
         # Estimation Module #
@@ -363,8 +393,7 @@ class AbstractUoILinearModel(
             X_test = X[idxs_test]
             y_rep = y[idxs_train]
             y_test = y[idxs_test]
-            if verbose:
-                print("rank %d - estimation bootstrap %d, support %d" % (rank, boot_idx, support_idx))
+            self._logger.info("estimation bootstrap %d, support %d" % (boot_idx, support_idx))
             if np.any(support):
 
                 # compute ols estimate and store the fitted coefficients
