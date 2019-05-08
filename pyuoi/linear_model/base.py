@@ -284,6 +284,11 @@ class AbstractUoILinearModel(
             y_test = y[idxs_test]
 
             # fit the coefficients
+            if verbose:
+                if size > self.n_boots_sel:
+                    print("rank %d - selection bootstrap %d, regularization parameter set %d" % (rank, boot_idx, reg_idx))
+                else:
+                    print("rank %d - selection bootstrap %d" % (rank, boot_idx))
             selection_coefs[ii] = np.squeeze(
                 self.uoi_selection_sweep(X_rep, y_rep, my_reg_params))
 
@@ -309,6 +314,9 @@ class AbstractUoILinearModel(
                                             self.selection_thresholds_)
 
         self.n_supports_ = self.supports_.shape[0]
+
+        if verbose and rank == 0:
+            print("Found %d supports" % self.n_supports_)
 
         #####################
         # Estimation Module #
@@ -355,6 +363,8 @@ class AbstractUoILinearModel(
             X_test = X[idxs_test]
             y_rep = y[idxs_train]
             y_test = y[idxs_test]
+            if verbose:
+                print("rank %d - estimation bootstrap %d, support %d" % (rank, boot_idx, support_idx))
             if np.any(support):
 
                 # compute ols estimate and store the fitted coefficients
