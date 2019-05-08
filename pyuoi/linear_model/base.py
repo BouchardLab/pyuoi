@@ -241,7 +241,7 @@ class AbstractUoILinearModel(
             my_boots = dict((task_idx, None) for task_idx in tasks)
 
         for boot in range(self.n_boots_sel):
-            if self.comm is not None:
+            if size > 1:
                 if rank == 0:
                     rvals = train_test_split(np.arange(X.shape[0]),
                                              test_size=1 - self.selection_frac,
@@ -289,7 +289,7 @@ class AbstractUoILinearModel(
 
         # if distributed, gather selection coefficients to 0,
         # perform intersection, and broadcast results
-        if self.comm is not None:
+        if size > 1:
             selection_coefs = Gatherv_rows(selection_coefs, self.comm, root=0)
             if rank == 0:
                 if size > self.n_boots_sel:
@@ -321,7 +321,7 @@ class AbstractUoILinearModel(
         estimates = np.zeros((tasks.size, n_coef))
 
         for boot in range(self.n_boots_est):
-            if self.comm is not None:
+            if size > 1:
                 if rank == 0:
                     rvals = train_test_split(np.arange(X.shape[0]),
                                              test_size=1 - self.selection_frac,
@@ -379,7 +379,7 @@ class AbstractUoILinearModel(
                     X=np.zeros(X_test.shape, dtype=X_test.dtype), y=y_test,
                     support=np.zeros(X_test.shape[1], dtype=bool))
 
-        if self.comm is not None:
+        if size > 1:
             estimates = Gatherv_rows(send=estimates, comm=self.comm,
                                      root=0)
             scores = Gatherv_rows(send=scores, comm=self.comm,
