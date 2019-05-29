@@ -77,9 +77,10 @@ def test_CUR_fit():
 
     # fit CUR decomposition
     cur = CUR(max_k=max_k)
-    cur.fit(X)
+    X_new = cur.fit_transform(X)
 
     assert_array_equal(cur.column_indices_, true_columns)
+    assert_array_equal(X_new, X[:, true_columns])
 
 
 def test_UoI_CUR_check_ks():
@@ -104,6 +105,8 @@ def test_UoI_CUR_check_ks():
     assert_raises(ValueError, uoi_cur.check_ks, -1)
     assert_raises(ValueError, uoi_cur.check_ks, [11])
     assert_raises(ValueError, uoi_cur.check_ks, [0.1, -1, 2, 12])
+    assert_raises(ValueError, uoi_cur.check_ks, 2.0)
+    assert_raises(ValueError, uoi_cur.check_ks, uoi_cur)
 
 
 def test_UoI_CUR_basic():
@@ -144,10 +147,11 @@ def test_UoI_CUR_fit():
                       max_k=max_k,
                       boots_frac=boots_frac,
                       random_state=2332)
-    uoi_cur.fit(X)
+    X_new = uoi_cur.fit_transform(X)
 
     assert_array_equal(uoi_cur.column_indices_, true_columns)
-    assert_array_equal(uoi_cur.columns_, X[:, true_columns])
+    assert_array_equal(uoi_cur.components_, X[:, true_columns])
+    assert_array_equal(X_new, X[:, true_columns])
 
 
 def test_UoI_CUR_vs_CUR():

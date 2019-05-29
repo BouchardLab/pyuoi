@@ -142,9 +142,9 @@ class UoI_CUR(AbstractDecompositionModel):
 
         self.column_indices_ = np.sort(np.array(union))
         if self.column_indices_.size == 0:
-            self.columns_ = np.array([[]])
+            self.components_ = np.array([[]])
         else:
-            self.columns_ = X[:, self.column_indices_]
+            self.components_ = X[:, self.column_indices_]
         return self
 
     def check_ks(self, ks=None):
@@ -196,7 +196,7 @@ class UoI_CUR(AbstractDecompositionModel):
         """
         check_is_fitted(self, ['components_'])
         X = check_array(X)
-        X_new = np.dot(np.linalg.pinv(self.components_), X)
+        X_new = X[:, self.column_indices_]
         return X_new
 
     def fit_transform(self, X, c=None):
@@ -315,9 +315,9 @@ class CUR(AbstractDecompositionModel):
         X_new : array-like, shape (n_samples, n_components)
             Transformed data.
         """
-        check_is_fitted(self, ['components_'])
+        check_is_fitted(self, ['column_indices_'])
         X = check_array(X)
-        X_new = np.dot(np.linalg.pinv(self.components_), X)
+        X_new = X[:, self.column_indices_]
         return X_new
 
     def fit_transform(self, X, c=None):
