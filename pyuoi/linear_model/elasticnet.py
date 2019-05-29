@@ -13,7 +13,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
                  n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
                  estimation_score='r2', warm_start=True, eps=1e-3,
-                 copy_X=True, fit_intercept=True, normalize=True,
+                 copy_X=True, fit_intercept=True, standardize=True,
                  random_state=None, max_iter=1000,
                  comm=None):
         super(UoI_ElasticNet, self).__init__(
@@ -25,9 +25,10 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
             estimation_score=estimation_score,
             copy_X=copy_X,
             fit_intercept=fit_intercept,
-            normalize=normalize,
+            standardize=standardize,
             random_state=random_state,
-            comm=comm
+            comm=comm,
+            max_iter=max_iter,
         )
         self.n_lambdas = n_lambdas
         self.alphas = alphas
@@ -35,22 +36,13 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
         self.warm_start = warm_start
         self.eps = eps
         self.lambdas = None
-        self.__selection_lm = ElasticNet(
+        self._selection_lm = ElasticNet(
             fit_intercept=fit_intercept,
-            normalize=normalize,
             max_iter=max_iter,
             copy_X=copy_X,
             warm_start=warm_start,
             random_state=random_state)
-        self.__estimation_lm = LinearRegression()
-
-    @property
-    def estimation_lm(self):
-        return self.__estimation_lm
-
-    @property
-    def selection_lm(self):
-        return self.__selection_lm
+        self._estimation_lm = LinearRegression()
 
     def get_reg_params(self, X, y):
         """Calculates the regularization parameters (alpha and lambda) to be
@@ -93,8 +85,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
                     l1_ratio=alpha,
                     fit_intercept=self.fit_intercept,
                     eps=self.eps,
-                    n_alphas=self.n_lambdas,
-                    normalize=self.normalize)
+                    n_alphas=self.n_lambdas)
 
         # place the regularization parameters into a list of dictionaries
         reg_params = list()
@@ -104,11 +95,3 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
                 reg_params.append(dict(alpha=lamb, l1_ratio=alpha))
 
         return reg_params
-
-    def _fit_intercept(self, X_offset, y_offset, X_scale):
-        """"Fit a model with an intercept and fixed coefficients.
-
-        This is used to re-fit the intercept after the coefficients are
-        estimated.
-        """
-        self._set_intercept(X_offset, y_offset, X_scale)

@@ -15,8 +15,8 @@ def test_fit_intercept_fixed_coef():
     """Test that the intercept in fit correctly for fixed coefficients."""
     X = np.zeros((6, 5))
     coef = np.ones((1, 5))
-    y = np.ones(6)
-    y[:3] = 0.
+    y = np.ones(6, dtype=int)
+    y[:3] = 0
     b = fit_intercept_fixed_coef(X, coef, y, 2)
     assert_allclose(b, 0.)
 
@@ -33,13 +33,13 @@ def test_fit_intercept_no_features():
     X = np.zeros((5, 1))
     y = np.ones(6, dtype=int)
     y[:3] = 0
-    LR = LogisticInterceptFitterNoFeatures(y, 2)
+    LR = LogisticInterceptFitterNoFeatures(y, 1)
     b = LR.intercept_
     assert_allclose(b, 0.)
 
     y = np.ones(7, dtype=int)
     y[:3] = 0
-    LR = LogisticInterceptFitterNoFeatures(y, 2)
+    LR = LogisticInterceptFitterNoFeatures(y, 1)
     yhat = LR.predict(X)
     assert_allclose(yhat, 1)
     py = LR.predict_proba(X)
@@ -85,6 +85,9 @@ def test_l1logistic_binary():
                                      include_intercept=True)
 
     l1log = UoI_L1Logistic(random_state=10).fit(X, y)
+    l1log = UoI_L1Logistic(random_state=10, fit_intercept=False).fit(X, y)
+    l1log.predict_proba(X)
+    l1log.predict_log_proba(X)
     y_hat = l1log.predict(X)
     assert_equal(accuracy_score(y, y_hat), l1log.score(X, y))
     assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .8
@@ -103,6 +106,8 @@ def test_l1logistic_multiclass():
                                      shared_support=True,
                                      w_scale=4.)
     l1log = UoI_L1Logistic().fit(X, y)
+    l1log.predict_proba(X)
+    l1log.predict_log_proba(X)
     y_hat = l1log.predict(X)
     assert_equal(accuracy_score(y, y_hat), l1log.score(X, y))
     assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .8
@@ -121,6 +126,7 @@ def test_l1logistic_multiclass_not_shared():
                                      shared_support=False,
                                      w_scale=4.)
     l1log = UoI_L1Logistic(shared_support=False).fit(X, y)
+    l1log.predict_log_proba(X)
     y_hat = l1log.predict(X)
     assert_equal(accuracy_score(y, y_hat), l1log.score(X, y))
     assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .8
@@ -157,19 +163,20 @@ def test_masked_logistic():
 
 def test_estimation_score_usage():
     """Test the ability to change the estimation score in UoI L1Logistic"""
-    methods = ('acc', 'log')
-    X, y, w, b = make_classification(n_samples=100,
+    methods = ('acc', 'log', 'BIC', 'AIC', 'AICc')
+    X, y, w, b = make_classification(n_samples=200,
                                      random_state=6,
-                                     n_informative=2,
-                                     n_features=6)
+                                     n_informative=5,
+                                     n_features=10)
     scores = []
     for method in methods:
-        l1log = UoI_L1Logistic(random_state=12, estimation_score=method)
+        l1log = UoI_L1Logistic(random_state=12, estimation_score=method,
+                               tol=1e-2, n_boots_sel=24, n_boots_est=24)
         assert_equal(l1log.estimation_score, method)
         l1log.fit(X, y)
-        score = np.max(l1log.scores_)
-        scores.append(score)
-    assert_equal(len(set(scores)), len(methods))
+        scores.append(l1log.scores_)
+    scores = np.stack(scores)
+    assert_equal(len(np.unique(scores, axis=0)), len(methods))
 
 
 def test_set_random_state():
