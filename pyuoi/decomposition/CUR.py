@@ -114,9 +114,12 @@ class UoI_CUR(AbstractDecompositionModel):
         # iterate over bootstraps
         for bootstrap in range(self.n_boots):
             # extract bootstrap
-            X_train, _ = train_test_split(X, test_size=1 - self.boots_frac,
-                                          stratify=stratify,
-                                          random_state=self.random_state)
+            if self.boots_frac == 1:
+                X_train = X
+            else:
+                X_train, _ = train_test_split(X, test_size=1 - self.boots_frac,
+                                              stratify=stratify,
+                                              random_state=self.random_state)
             # perform truncated SVD on bootstrap
             tsvd.fit(X_train)
             # extract right singular vectors
