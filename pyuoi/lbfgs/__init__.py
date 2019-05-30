@@ -5,7 +5,7 @@ Python wrapper around liblbfgs.
 """
 
 import warnings
-from ._lowlevel import LBFGS
+from ._lowlevel import LBFGS, AllZeroLBFGSError  # noqa: F401
 
 
 def fmin_lbfgs(f, x0, progress=None, args=(), orthantwise_c=0,
