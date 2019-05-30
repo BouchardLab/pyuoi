@@ -10,20 +10,19 @@ from sklearn.utils import (check_X_y, check_random_state, compute_class_weight,
                            check_consistent_length, check_array)
 from sklearn.utils.multiclass import check_classification_targets
 from sklearn.utils.fixes import _joblib_parallel_args
-from sklearn.utils.extmath import safe_sparse_dot, log_logistic
+from sklearn.utils.extmath import safe_sparse_dot, log_logistic, squared_norm
 from sklearn.linear_model.logistic import (_check_multi_class,
-                                           _multinomial_loss,
                                            _intercept_dot)
 
 from scipy.optimize import minimize
 from scipy import optimize
-from scipy.special import expit
+from scipy.special import expit, logsumexp
 
 import numpy as np
 
 from .base import AbstractUoIGeneralizedLinearRegressor
 from ..utils import sigmoid, softmax
-from ..lbfgs import fmin_lbfgs
+from ..lbfgs import fmin_lbfgs, AllZeroLBFGSError
 
 
 class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor,
@@ -532,6 +531,8 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
             Y_multi = np.hstack([1 - Y_multi, Y_multi])
         w0 = np.zeros((classes.size, n_features + int(fit_intercept)),
                       dtype=X.dtype)
+        w0[:, -1] = LogisticInterceptFitterNoFeatures(y,
+                                                      classes.size).intercept_
 
     if coef is not None:
         # it must work both giving the bias term and not
@@ -610,11 +611,29 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
                 args=(X, target, 1. / C, coef_mask, sample_weight),
                 iprint=iprint, pgtol=tol, maxiter=max_iter)
         else:
-            w0 = fmin_lbfgs(func, w0, orthantwise_c=1. / C,
-                            args=(X, target, 0., coef_mask, sample_weight),
-                            max_iterations=max_iter,
-                            epsilon=tol,
-                            orthantwise_end=coef_size)
+            zeros_seen = [0]
+
+            def zero_coef(x, *args):
+                if multi_class == 'multinomial':
+                    x = x.reshape(-1, classes.size)[:-1]
+                else:
+                    x = x[:-1]
+                now_zeros = np.array_equiv(x, 0.)
+                if now_zeros:
+                    zeros_seen[0] += 1
+                else:
+                    zeros_seen[0] = 0
+                if zeros_seen[0] > 1:
+                    return -2048
+            try:
+                w0 = fmin_lbfgs(func, w0, orthantwise_c=1. / C,
+                                args=(X, target, 0., coef_mask, sample_weight),
+                                max_iterations=max_iter,
+                                epsilon=tol,
+                                orthantwise_end=coef_size,
+                                progress=zero_coef)
+            except AllZeroLBFGSError:
+                w0 *= 0.
             info = None
         if info is not None and info["warnflag"] == 1:
             warnings.warn("lbfgs failed to converge. Increase the number "
@@ -645,6 +664,53 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
         n_iter[i] = n_iter_i
 
     return np.array(coefs), np.array(Cs), n_iter
+
+
+def _multinomial_loss(w, X, Y, alpha, sample_weight):
+    """Computes multinomial loss and class probabilities.
+    Parameters
+    ----------
+    w : ndarray, shape (n_classes * n_features,) or
+        (n_classes * (n_features + 1),)
+        Coefficient vector.
+    X : {array-like, sparse matrix}, shape (n_samples, n_features)
+        Training data.
+    Y : ndarray, shape (n_samples, n_classes)
+        Transformed labels according to the output of LabelBinarizer.
+    alpha : float
+        Regularization parameter. alpha is equal to 1 / C.
+    sample_weight : array-like, shape (n_samples,)
+        Array of weights that are assigned to individual samples.
+    Returns
+    -------
+    loss : float
+        Multinomial loss.
+    p : ndarray, shape (n_samples, n_classes)
+        Estimated class probabilities.
+    w : ndarray, shape (n_classes, n_features)
+        Reshaped param vector excluding intercept terms.
+    Reference
+    ---------
+    Bishop, C. M. (2006). Pattern recognition and machine learning.
+    Springer. (Chapter 4.3.4)
+    """
+    n_classes = Y.shape[1]
+    n_samples, n_features = X.shape
+    fit_intercept = w.size == (n_classes * (n_features + 1))
+    w = w.reshape(n_classes, -1)
+    sample_weight = sample_weight[:, np.newaxis]
+    if fit_intercept:
+        intercept = w[:, -1]
+        w = w[:, :-1]
+    else:
+        intercept = 0
+    p = safe_sparse_dot(X, w.T)
+    p += intercept
+    p -= logsumexp(p, axis=1)[:, np.newaxis]
+    loss = -(sample_weight * Y * p).sum() / n_samples
+    loss += 0.5 * alpha * squared_norm(w)
+    p = np.exp(p, p)
+    return loss, p, w
 
 
 def _logistic_loss_and_grad(w, X, y, alpha, mask, sample_weight=None):
@@ -682,18 +748,19 @@ def _logistic_loss_and_grad(w, X, y, alpha, mask, sample_weight=None):
         sample_weight = np.ones(n_samples)
 
     # Logistic loss is the negative of the log of the logistic function.
-    out = -np.sum(sample_weight * log_logistic(yz)) + .5 * alpha * np.dot(w, w)
+    out = -np.sum(sample_weight * log_logistic(yz)) / n_samples
+    out += .5 * alpha * np.dot(w, w)
 
     z = expit(yz)
     z0 = sample_weight * (z - 1) * y
 
-    grad[:n_features] = safe_sparse_dot(X.T, z0) + alpha * w
+    grad[:n_features] = (safe_sparse_dot(X.T, z0) / n_samples) + alpha * w
     if mask is not None:
         grad[:n_features] *= mask
 
     # Case where we fit the intercept.
     if grad.shape[0] > n_features:
-        grad[-1] = z0.sum()
+        grad[-1] = z0.sum() / n_samples
     return out, grad
 
 
@@ -729,7 +796,7 @@ def _multinomial_loss_grad(w, X, Y, alpha, mask, sample_weight):
     Springer. (Chapter 4.3.4)
     """
     n_classes = Y.shape[1]
-    n_features = X.shape[1]
+    n_samples, n_features = X.shape
     fit_intercept = (w.size == n_classes * (n_features + 1))
     if mask is not None:
         w = w.reshape(n_classes, n_features + bool(fit_intercept))
@@ -740,10 +807,10 @@ def _multinomial_loss_grad(w, X, Y, alpha, mask, sample_weight):
     loss, p, w = _multinomial_loss(w, X, Y, alpha, sample_weight)
     sample_weight = sample_weight[:, np.newaxis]
     diff = sample_weight * (p - Y)
-    grad[:, :n_features] = safe_sparse_dot(diff.T, X)
+    grad[:, :n_features] = safe_sparse_dot(diff.T, X) / n_samples
     grad[:, :n_features] += alpha * w
     if mask is not None:
         grad[:, :n_features] *= mask
     if fit_intercept:
-        grad[:, -1] = diff.sum(axis=0)
+        grad[:, -1] = diff.sum(axis=0) / n_samples
     return loss, grad.ravel(), p
