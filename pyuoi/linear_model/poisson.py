@@ -6,13 +6,14 @@ from pyuoi import utils
 
 from sklearn.exceptions import NotFittedError
 from sklearn.linear_model.base import LinearModel
-from sklearn.linear_model.base import _preprocess_data
-from sklearn.utils import check_X_y
+from sklearn.preprocessing import StandardScaler
+
+from ..lbfgs import fmin_lbfgs
 
 
 class Poisson(LinearModel):
     def __init__(self, alpha=1.0, l1_ratio=0.5, fit_intercept=True,
-                 max_iter=1000, tol=1e-5, warm_start=True):
+                 max_iter=1000, tol=1e-5, warm_start=False, solver='lbfgs'):
         """Generalized Linear Model with exponential link function
         (i.e. Poisson) trained with L1/L2 regularizer (i.e. Elastic net
         penalty).
@@ -60,9 +61,10 @@ class Poisson(LinearModel):
         self.max_iter = max_iter
         self.tol = tol
         self.warm_start = warm_start
+        self.solver = solver
 
-    def fit(self, X, y, init=None):
-        """Fit the Poisson GLM with coordinate descent.
+    def fit(self, X, y, init=None, sample_weight=None):
+        """Fit the Poisson GLM.
 
         Parameters
         ----------
@@ -79,46 +81,42 @@ class Poisson(LinearModel):
         """
         self.n_samples, self.n_features = X.shape
 
-        # initialization
-        if self.warm_start and hasattr(self, 'coef_'):
-            coef = self.coef_
+        if self.solver == 'lbfgs':
+            # create lbfgs function
+            def func(x, g, *args):
+                loss, grad = _poisson_loss_and_grad(x, *args)
+                g[:] = grad
+                return loss
+
+            # orthant-wise lbfgs optimization
+            if self.fit_intercept:
+                beta = np.zeros(self.n_features + 1)
+            else:
+                beta = np.zeros(self.n_features)
+
+            l1_penalty = self.alpha * self.l1_ratio
+            l2_penalty = self.alpha * (1 - self.l1_ratio)
+
+            beta = fmin_lbfgs(func, beta,
+                              orthantwise_c=l1_penalty,
+                              args=(X, y, l2_penalty, sample_weight),
+                              max_iterations=self.max_iter,
+                              epsilon=self.tol,
+                              orthantwise_end=self.n_features)
+
+            if self.fit_intercept:
+                self.coef_ = beta[:self.n_features]
+                self.intercept_ = beta[-1]
+            else:
+                self.coef_ = beta
+
+        elif self.solver == 'cd':
+            self.intercept_, self.coef_ = self._cd(X=X, y=y, init=init)
+
         else:
-            coef = np.zeros(shape=(self.n_features))
+            raise ValueError('Solver not available.')
 
-        if init is not None:
-            coef = init
-
-        intercept = 0
-
-        # we will handle the intercept by hand: only preprocess the design
-        # matrix
-
-        # all features are initially active
-        active_idx = np.arange(self.n_features)
-
-        coef_update = np.zeros(coef.shape)
-        # perform coordinate descent updates
-        for iteration in range(self.max_iter):
-
-            # linearize the log-likelihood
-            w, z = self.adjusted_response(X, y, coef, intercept)
-
-            # perform an update of coordinate descent
-            coef_update, intercept = self.cd_sweep(
-                coef=coef, intercept=intercept, X=X, w=w, z=z,
-                active_idx=active_idx)
-
-            # check convergence
-            if np.max(np.abs(coef_update - coef)) < self.tol:
-                break
-
-            coef = coef_update
-
-            # update the active features
-            active_idx = np.argwhere(coef != 0).ravel()
-
-        self.intercept_ = intercept
-        self.coef_ = coef_update
+        return self
 
     def predict(self, X):
         """Predicts the response variable given a design matrix. The output is
@@ -160,7 +158,48 @@ class Poisson(LinearModel):
         else:
             raise NotFittedError('Poisson model is not fit.')
 
-    def cd_sweep(self, coef, X, w, z, active_idx, intercept=0):
+    def _cd(self, X, y, init):
+        # initialization
+        if self.warm_start and hasattr(self, 'coef_'):
+            coef = self.coef_
+        else:
+            coef = np.zeros(shape=(self.n_features))
+
+        if init is not None:
+            coef = init
+
+        intercept = 0
+
+        # we will handle the intercept by hand: only preprocess the design
+        # matrix
+
+        # all features are initially active
+        active_idx = np.arange(self.n_features)
+
+        coef_update = np.zeros(coef.shape)
+        # perform coordinate descent updates
+        for iteration in range(self.max_iter):
+
+            # linearize the log-likelihood
+            w, z = self.adjusted_response(X, y, coef, intercept)
+
+            # perform an update of coordinate descent
+            coef_update, intercept = self._cd_sweep(
+                coef=coef, intercept=intercept, X=X, w=w, z=z,
+                active_idx=active_idx)
+
+            # check convergence
+            if np.max(np.abs(coef_update - coef)) < self.tol:
+                break
+
+            coef = coef_update
+
+            # update the active features
+            active_idx = np.argwhere(coef != 0).ravel()
+
+        return intercept, coef
+
+    def _cd_sweep(self, coef, X, w, z, active_idx, intercept=0):
         """Performs one sweep of coordinate descent updates over a set of
         'active' features.
 
@@ -214,7 +253,7 @@ class Poisson(LinearModel):
             z_hat = np.dot(X, coef)
             residuals = z - z_hat
             # update intercept
-            intercept_update = np.dot(w, residuals)/np.sum(w)
+            intercept_update = np.dot(w, residuals) / np.sum(w)
         else:
             intercept_update = 0
 
@@ -444,7 +483,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         """
         if self.fit_intercept:
             mu = np.exp(np.dot(X, self.coef_))
-            self.intercept_ = np.log(np.mean(y)/np.mean(mu))
+            self.intercept_ = np.log(np.mean(y) / np.mean(mu))
         else:
             self.intercept_ = np.zeros(1)
 
@@ -464,6 +503,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         This is used in cases where the model has no support selected.
         """
         return PoissonInterceptFitterNoFeatures(y)
+
 
 class PoissonInterceptFitterNoFeatures(object):
     def __init__(self, y):
@@ -503,3 +543,33 @@ class PoissonInterceptFitterNoFeatures(object):
         """
         mu = np.exp(self.intercept_)
         return mu
+
+
+def _poisson_loss_and_grad(beta, X, y, alpha, sample_weight=None):
+    n_samples, n_features = X.shape
+    grad = np.empty_like(beta)
+
+    if sample_weight is None:
+        sample_weight = np.ones(n_samples)
+
+    # extract intercept
+    if grad.shape[0] > n_features:
+        intercept = beta[-1]
+        beta = beta[:n_features]
+    else:
+        intercept = 0
+
+    # safe sparse dot ?
+    eta = intercept + np.dot(X, beta)
+    out = -np.mean(sample_weight * (y * eta - np.exp(eta)))
+    out += 0.5 * alpha * np.dot(beta, beta)
+
+    # gradient of parameters
+    y_res = sample_weight * (y - np.exp(eta))
+    grad[:n_features] = -np.mean(np.dot(X.T, y_res)) + alpha * beta
+
+    # gradient of intercept
+    if grad.shape[0] > n_features:
+        grad[-1] = -np.mean(y_res)
+
+    return out, grad
