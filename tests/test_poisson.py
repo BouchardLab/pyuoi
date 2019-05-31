@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 from numpy.testing import (assert_allclose,
                            assert_equal,
@@ -72,36 +71,6 @@ def test_adjusted_response():
 
     assert_allclose(w_true, w)
     assert_allclose(z_true, z)
-
-
-def test_cd_sweep():
-    """Test one pass through the coordinate sweep function."""
-
-    poisson = Poisson(fit_intercept=False)
-
-    w, z = Poisson.adjusted_response(X, y, beta)
-    active_idx = np.argwhere(beta != 0).ravel()
-    beta_new, intercept_new = poisson._cd_sweep(beta, X, w, z, active_idx)
-
-    beta_new_true = np.array([
-        2.922553187460584, 0.909849302128083, 0, -1.850644198436912, 0])
-
-    assert_allclose(beta_new_true, beta_new)
-    assert intercept_new == 0
-
-
-@pytest.mark.skip
-def test_fit():
-    """Test the entire fitting procedure for the Poisson GLM."""
-
-    # compare after 50 iterations
-    poisson = Poisson(max_iter=50, fit_intercept=False)
-    poisson.fit(X, y, init=0.5 * np.ones(beta.size))
-    beta_new_true = np.array([
-        -3.865910169523823, 6.243915946623266, -0.728804736275411,
-        -0.463706073765083, -3.622620769371424])
-
-    assert_allclose(beta_new_true, poisson.coef_)
 
 
 def test_predict():
@@ -223,8 +192,8 @@ def test_poisson_loss_and_grad():
     assert_allclose(grad, np.mean(X * np.exp(n_features), axis=0))
 
 
-def test_poisson_lbfgs():
-    """Tests the Poisson fitter using orthant-wise LBFGS."""
+def test_poisson_cd():
+    """Tests the Poisson fitter using coordinate descent."""
     n_features = 3
     n_samples = 10000
 
@@ -234,7 +203,89 @@ def test_poisson_lbfgs():
     eta = np.dot(X, beta)
     y = np.random.poisson(np.exp(eta))
 
-    poisson = Poisson(alpha=0., l1_ratio=1., fit_intercept=False)
+    poisson = Poisson(alpha=0., l1_ratio=1., fit_intercept=False, solver='cd',
+                      max_iter=5000)
+    poisson.fit(X, y)
+
+    assert_allclose(poisson.coef_, beta, rtol=0.6)
+
+
+def test_poisson_no_intercept():
+    """Tests the Poisson fitter with no intercept."""
+    n_features = 3
+    n_samples = 10000
+
+    # create data
+    X = np.random.normal(loc=0, scale=1. / 8, size=(n_samples, n_features))
+    beta = np.array([0.5, 1.0, 1.5])
+    eta = np.dot(X, beta)
+    y = np.random.poisson(np.exp(eta))
+
+    # lbfgs
+    poisson = Poisson(alpha=0., l1_ratio=0., fit_intercept=False,
+                      solver='lbfgs', max_iter=5000)
     poisson.fit(X, y)
 
     assert_allclose(poisson.coef_, beta, rtol=0.5)
+
+    # coordinate descent
+    poisson = Poisson(alpha=0., l1_ratio=0., fit_intercept=False, solver='cd',
+                      max_iter=5000)
+    poisson.fit(X, y)
+
+    assert_allclose(poisson.coef_, beta, rtol=0.5)
+
+
+def test_poisson_with_intercept():
+    """Tests the Poisson fitter with no intercept."""
+    n_features = 3
+    n_samples = 10000
+
+    # create data
+    X = np.random.normal(loc=0, scale=1. / 8, size=(n_samples, n_features))
+    beta = np.array([-1.5, -1.0, 1.5])
+    intercept = 2.0
+    eta = intercept + np.dot(X, beta)
+    y = np.random.poisson(np.exp(eta))
+
+    # lbfgs
+    poisson = Poisson(alpha=0., l1_ratio=0., fit_intercept=True,
+                      solver='lbfgs', max_iter=5000)
+    poisson.fit(X, y)
+
+    assert_allclose(poisson.coef_, beta, rtol=0.5)
+    assert_allclose(poisson.intercept_, intercept, rtol=0.5)
+
+    # coordinate descent
+    poisson = Poisson(alpha=0., l1_ratio=0., fit_intercept=True, solver='cd',
+                      max_iter=5000)
+    poisson.fit(X, y)
+
+    assert_allclose(poisson.coef_, beta, rtol=0.5)
+    assert_allclose(poisson.intercept_, intercept, rtol=0.5)
+
+
+def test_poisson_with_sparsity():
+    """Tests the Poisson fitter with no intercept."""
+    n_features = 3
+    n_samples = 10000
+
+    # create data
+    X = np.random.normal(loc=0, scale=1. / 8, size=(n_samples, n_features))
+    beta = np.array([0, 1.0, 2.0])
+    eta = np.dot(X, beta)
+    y = np.random.poisson(np.exp(eta))
+
+    # lbfgs
+    poisson = Poisson(alpha=0.1, l1_ratio=1., fit_intercept=False,
+                      solver='lbfgs', max_iter=5000)
+    poisson.fit(X, y)
+
+    assert_equal(np.abs(poisson.coef_[0]), 0)
+
+    # coordinate descent
+    poisson = Poisson(alpha=0.1, l1_ratio=1., fit_intercept=False, solver='cd',
+                      max_iter=5000)
+    poisson.fit(X, y)
+
+    assert_equal(np.abs(poisson.coef_[0]), 0.)
