@@ -212,7 +212,7 @@ def test_poisson_loss_and_grad():
     loss, grad = _poisson_loss_and_grad(np.zeros(n_features), X, y, 0.)
 
     assert_equal(loss, 1.)
-    assert_equal(grad, -np.dot(X.T, y - 1) / n_samples)
+    assert_allclose(grad, -np.dot(X.T, y - 1) / n_samples)
 
     # test with non-empty coefficients
     X = np.ones((n_samples, n_features))
@@ -220,7 +220,7 @@ def test_poisson_loss_and_grad():
 
     loss, grad = _poisson_loss_and_grad(np.ones(n_features), X, y, 0)
     assert_equal(loss, np.exp(n_features).mean())
-    assert_equal(grad, np.mean(X * np.exp(n_features), axis=0))
+    assert_allclose(grad, np.mean(X * np.exp(n_features), axis=0))
 
 
 def test_poisson_lbfgs():
@@ -230,7 +230,7 @@ def test_poisson_lbfgs():
 
     # create data
     X = np.random.normal(loc=0, scale=1. / 8, size=(n_samples, n_features))
-    beta = np.random.gamma(shape=1., scale=2., size=(n_features))
+    beta = np.array([0.5, 1.0, 1.5])
     eta = np.dot(X, beta)
     y = np.random.poisson(np.exp(eta))
 

@@ -186,8 +186,6 @@ class Poisson(LinearModel):
 
         intercept = 0
 
-        # we will handle the intercept by hand: only preprocess the desigm matrix
-
         # all features are initially active
         active_idx = np.arange(self.n_features)
 
