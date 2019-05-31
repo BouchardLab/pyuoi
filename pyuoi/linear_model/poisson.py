@@ -94,25 +94,22 @@ class Poisson(BaseEstimator):
         X, y = self._pre_fit(X, y)
 
         if self.solver == 'lbfgs':
+            coef = np.zeros(self.n_features)
+            intercept = 0
+            if self.warm_start:
+                if hasattr(self, 'coef_'):
+                    coef = self.coef_ * self._X_scaler.scale_
+                if hasattr(self, 'intercept_') and self.fit_intercept:
+                    intercept = self.intercept_
+
+            if self.fit_intercept:
+                coef = np.append(coef, intercept)
+
             # create lbfgs function
             def func(x, g, *args):
                 loss, grad = _poisson_loss_and_grad(x, *args)
                 g[:] = grad
                 return loss
-
-            # set up initializations
-            if self.fit_intercept:
-                if self.warm_start:
-                    check_is_fitted(self, ['coef_', 'intercept_'])
-                    coef = np.concatenate((self.coef_, self.intercept_))
-                else:
-                    coef = np.zeros(self.n_features + 1)
-            else:
-                if self.warm_start:
-                    check_is_fitted(self, ['coef_'])
-                    coef = self.coef_
-                else:
-                    coef = np.zeros(self.n_features)
 
             l1_penalty = self.alpha * self.l1_ratio
             l2_penalty = self.alpha * (1 - self.l1_ratio)
@@ -143,7 +140,6 @@ class Poisson(BaseEstimator):
             raise ValueError('Solver not available.')
 
         self._post_fit(X, y)
-
         return self
 
     def predict(self, X):
@@ -543,6 +539,17 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
 
         return score
 
+    def _pre_fit(self, X, y):
+        """Perform standardization, if needed, before fitting."""
+        if self.standardize:
+            self._X_scaler = StandardScaler()
+            X = self._X_scaler.fit_transform(X)
+        if y.ndim == 2:
+            self.output_dim = y.shape[1]
+        else:
+            self.output_dim = 1
+        return X, y
+
     def _fit_intercept(self, X, y):
         """"Fit a model with an intercept and fixed coefficients.
 
@@ -550,18 +557,10 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         estimated.
         """
         if self.fit_intercept:
-            mu = np.exp(np.dot(X, self.coef_))
+            mu = np.exp(np.dot(X, self.coef_.T))
             self.intercept_ = np.log(np.mean(y) / np.mean(mu))
         else:
             self.intercept_ = np.zeros(1)
-
-    def _pre_fit(self, X, y):
-        """Perform standardization, if needed, before fitting."""
-        if self.standardize:
-            self._X_scaler = StandardScaler()
-            X = self._X_scaler.fit_transform(X)
-
-        return X, y
 
     def _fit_intercept_no_features(self, y):
         """"Fit a model with only an intercept.
@@ -574,7 +573,6 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
 class PoissonInterceptFitterNoFeatures(object):
     def __init__(self, y):
         self.intercept_ = np.log(y.mean())
-        raise NotImplementedError
 
     def predict(self, X):
         """Predicts the response variable given a design matrix. The output is

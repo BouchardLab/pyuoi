@@ -289,3 +289,22 @@ def test_poisson_with_sparsity():
     poisson.fit(X, y)
 
     assert_equal(np.abs(poisson.coef_[0]), 0.)
+
+
+def test_UoI_Poisson():
+    """Tests the UoI Poisson fitter with lbfgs solver."""
+    n_features = 3
+    n_samples = 5000
+
+    # create data
+    X = np.random.normal(loc=0, scale=1. / 8, size=(n_samples, n_features))
+    beta = np.array([0, 1.0, 2.0])
+    eta = np.dot(X, beta)
+    y = np.random.poisson(np.exp(eta))
+
+    # lbfgs
+    poisson = UoI_Poisson(n_lambdas=48, n_boots_sel=30, n_boots_est=30,
+                          alphas=np.array([1.0]), warm_start=False)
+    poisson.fit(X, y)
+
+    assert_allclose(poisson.coef_.ravel(), beta, rtol=0.6)
