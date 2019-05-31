@@ -7,13 +7,15 @@ from pyuoi import utils
 from sklearn.exceptions import NotFittedError
 from sklearn.linear_model.base import LinearModel
 from sklearn.preprocessing import StandardScaler
+from sklearn.utils.validation import check_is_fitted
 
 from ..lbfgs import fmin_lbfgs
 
 
 class Poisson(LinearModel):
     def __init__(self, alpha=1.0, l1_ratio=0.5, fit_intercept=True,
-                 max_iter=1000, tol=1e-5, warm_start=False, solver='lbfgs'):
+                 standardize=True, max_iter=1000, tol=1e-5, warm_start=False,
+                 solver='lbfgs'):
         """Generalized Linear Model with exponential link function
         (i.e. Poisson) trained with L1/L2 regularizer (i.e. Elastic net
         penalty).
@@ -58,6 +60,7 @@ class Poisson(LinearModel):
         self.alpha = alpha
         self.l1_ratio = l1_ratio
         self.fit_intercept = fit_intercept
+        self.standardize = standardize
         self.max_iter = max_iter
         self.tol = tol
         self.warm_start = warm_start
@@ -80,6 +83,7 @@ class Poisson(LinearModel):
             Initialization for parameters.
         """
         self.n_samples, self.n_features = X.shape
+        X, y = self._pre_fit(X, y)
 
         if self.solver == 'lbfgs':
             # create lbfgs function
@@ -88,16 +92,25 @@ class Poisson(LinearModel):
                 g[:] = grad
                 return loss
 
-            # orthant-wise lbfgs optimization
+            # set up initializations
             if self.fit_intercept:
-                beta = np.zeros(self.n_features + 1)
+                if self.warm_start:
+                    check_is_fitted(self, ['coef_', 'intercept_'])
+                    coef = np.concatenate((self.coef_, self.intercept_))
+                else:
+                    coef = np.zeros(self.n_features + 1)
             else:
-                beta = np.zeros(self.n_features)
+                if self.warm_start:
+                    check_is_fitted(self, ['coef_'])
+                    coef = self.coef_
+                else:
+                    coef = np.zeros(self.n_features)
 
             l1_penalty = self.alpha * self.l1_ratio
             l2_penalty = self.alpha * (1 - self.l1_ratio)
 
-            beta = fmin_lbfgs(func, beta,
+            # orthant-wise lbfgs optimization
+            coef = fmin_lbfgs(func, coef,
                               orthantwise_c=l1_penalty,
                               args=(X, y, l2_penalty, sample_weight),
                               max_iterations=self.max_iter,
@@ -105,16 +118,19 @@ class Poisson(LinearModel):
                               orthantwise_end=self.n_features)
 
             if self.fit_intercept:
-                self.coef_ = beta[:self.n_features]
-                self.intercept_ = beta[-1]
+                self.coef_ = coef[:self.n_features]
+                self.intercept_ = coef[-1]
             else:
-                self.coef_ = beta
+                self.coef_ = coef
 
+        # coordinate descent
         elif self.solver == 'cd':
             self.intercept_, self.coef_ = self._cd(X=X, y=y, init=init)
 
         else:
             raise ValueError('Solver not available.')
+
+        self._post_fit(X, y)
 
         return self
 
@@ -170,8 +186,7 @@ class Poisson(LinearModel):
 
         intercept = 0
 
-        # we will handle the intercept by hand: only preprocess the design
-        # matrix
+        # we will handle the intercept by hand: only preprocess the desigm matrix
 
         # all features are initially active
         active_idx = np.arange(self.n_features)
@@ -264,6 +279,19 @@ class Poisson(LinearModel):
         coef_update[active_idx] = updates
 
         return coef_update, intercept_update
+
+    def _pre_fit(self, X, y):
+        """Perform standardization, if needed, before fitting."""
+        if self.standardize:
+            self._X_scaler = StandardScaler()
+            X = self._X_scaler.fit_transform(X)
+        return X, y
+
+    def _post_fit(self, X, y):
+        """Rescale coefficients, if needed, after fitting."""
+        if self.standardize:
+            sX = self._X_scaler
+            self.coef_ /= sX.scale_
 
     @staticmethod
     def soft_threshold(X, threshold):
@@ -545,28 +573,56 @@ class PoissonInterceptFitterNoFeatures(object):
         return mu
 
 
-def _poisson_loss_and_grad(beta, X, y, alpha, sample_weight=None):
+def _poisson_loss_and_grad(coef, X, y, l2_penalty, sample_weight=None):
+    """Computes the Poisson loss and gradient.
+
+    Parameters
+    ----------
+    coef : ndarray, shape (n_features,) or (n_features + 1,)
+        Coefficient vector.
+
+    X : array-like, shape (n_samples, n_features)
+        Design matrix.
+
+    y : ndarray, shape (n_samples,)
+        Response vector.
+
+    l2_penalty : float
+        Regularization parameter on l2-norm.
+
+    sample_weight : array-like, shape (n_samples,), default None
+        Array of weights assigned to the individual samples. If None, then each
+        sample is provided an equal weight.
+
+    Returns
+    -------
+    out : float
+        Negative log-likelihood of Poisson GLM.
+
+    grad : ndarray, shape (n_features,) or (n_features + 1,)
+        Poisson gradient.
+    """
     n_samples, n_features = X.shape
-    grad = np.empty_like(beta)
+    grad = np.empty_like(coef)
 
     if sample_weight is None:
         sample_weight = np.ones(n_samples)
 
     # extract intercept
     if grad.shape[0] > n_features:
-        intercept = beta[-1]
-        beta = beta[:n_features]
+        intercept = coef[-1]
+        coef = coef[:n_features]
     else:
         intercept = 0
 
-    # safe sparse dot ?
-    eta = intercept + np.dot(X, beta)
-    out = -np.mean(sample_weight * (y * eta - np.exp(eta)))
-    out += 0.5 * alpha * np.dot(beta, beta)
+    # calculate likelihood
+    eta = intercept + np.dot(X, coef)
+    out = -np.sum(sample_weight * (y * eta - np.exp(eta))) / n_samples
+    out += 0.5 * l2_penalty * np.dot(coef, coef)
 
     # gradient of parameters
     y_res = sample_weight * (y - np.exp(eta))
-    grad[:n_features] = -np.mean(np.dot(X.T, y_res)) + alpha * beta
+    grad[:n_features] = -np.dot(X.T, y_res) / n_samples + l2_penalty * coef
 
     # gradient of intercept
     if grad.shape[0] > n_features:
