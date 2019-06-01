@@ -4,8 +4,10 @@ from numpy.testing import (assert_allclose,
                            assert_equal,
                            assert_raises)
 
-from pyuoi.linear_model import Poisson, UoI_Poisson
-from pyuoi.linear_model.poisson import _poisson_loss_and_grad
+from pyuoi.linear_model import (Poisson,
+                                UoI_Poisson)
+from pyuoi.linear_model.poisson import (_poisson_loss_and_grad,
+                                        PoissonInterceptFitterNoFeatures)
 
 from sklearn.exceptions import NotFittedError
 
@@ -169,6 +171,17 @@ def test_score_predictions():
                   X, y, support)
 
 
+def test_poisson_intercept_fitter_no_features():
+    """Tests the PoissonInterceptFitterNoFeatures class."""
+    y = np.array([0, 1, 2])
+    poisson = PoissonInterceptFitterNoFeatures(y)
+
+    X = np.random.normal(size=(10, y.size))
+    assert_equal(poisson.intercept_, 0.)
+    assert_equal(poisson.predict(X), 1.)
+    assert_equal(poisson.predict_mean(X), 1.)
+
+
 def test_poisson_loss_and_grad():
     """Tests the poisson loss and gradient function."""
     n_features = 5
@@ -192,24 +205,6 @@ def test_poisson_loss_and_grad():
     assert_allclose(grad, np.mean(X * np.exp(n_features), axis=0))
 
 
-def test_poisson_cd():
-    """Tests the Poisson fitter using coordinate descent."""
-    n_features = 3
-    n_samples = 10000
-
-    # create data
-    X = np.random.normal(loc=0, scale=1. / 8, size=(n_samples, n_features))
-    beta = np.array([0.5, 1.0, 1.5])
-    eta = np.dot(X, beta)
-    y = np.random.poisson(np.exp(eta))
-
-    poisson = Poisson(alpha=0., l1_ratio=1., fit_intercept=False, solver='cd',
-                      max_iter=5000)
-    poisson.fit(X, y)
-
-    assert_allclose(poisson.coef_, beta, rtol=0.6)
-
-
 def test_poisson_no_intercept():
     """Tests the Poisson fitter with no intercept."""
     n_features = 3
@@ -225,15 +220,18 @@ def test_poisson_no_intercept():
     poisson = Poisson(alpha=0., l1_ratio=0., fit_intercept=False,
                       solver='lbfgs', max_iter=5000)
     poisson.fit(X, y)
-
     assert_allclose(poisson.coef_, beta, rtol=0.5)
 
     # coordinate descent
     poisson = Poisson(alpha=0., l1_ratio=0., fit_intercept=False, solver='cd',
                       max_iter=5000)
     poisson.fit(X, y)
-
     assert_allclose(poisson.coef_, beta, rtol=0.5)
+
+    # broken solver
+    poisson = Poisson(alpha=0., l1_ratio=0., fit_intercept=False, solver='ruff',
+                      max_iter=5000)
+    assert_raises(ValueError, poisson.fit, X, y)
 
 
 def test_poisson_with_intercept():
@@ -307,4 +305,4 @@ def test_UoI_Poisson():
                           alphas=np.array([1.0]), warm_start=False)
     poisson.fit(X, y)
 
-    assert_allclose(poisson.coef_.ravel(), beta, rtol=0.6)
+    assert_allclose(poisson.coef_.ravel(), beta, atol=0.5)
