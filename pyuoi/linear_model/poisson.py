@@ -98,7 +98,10 @@ class Poisson(BaseEstimator):
             intercept = 0
             if self.warm_start:
                 if hasattr(self, 'coef_'):
-                    coef = self.coef_ * self._X_scaler.scale_
+                    if self.standardize:
+                        coef = self.coef_ * self._X_scaler.scale_
+                    else:
+                        coef = self.coef_
                 if hasattr(self, 'intercept_') and self.fit_intercept:
                     intercept = self.intercept_
 
@@ -212,12 +215,15 @@ class Poisson(BaseEstimator):
         intercept = 0
         # warm start coefficients, if necessary
         if self.warm_start:
-            check_is_fitted(self, ['coef_'])
-            coef = self.coef_
+            if hasattr(self, 'coef_'):
+                if self.standardize:
+                    coef = self.coef_ * self._X_scaler.scale_
+                else:
+                    coef = self.coef_
 
             if self.fit_intercept:
-                check_is_fitted(self, ['intercept_'])
-                intercept = self.intercept_
+                if hasattr(self, 'intercept_'):
+                    intercept = self.intercept_
 
         # every coefficient is active unless there's a warm start
         if self.warm_start:
@@ -549,6 +555,14 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         else:
             self.output_dim = 1
         return X, y
+
+    def _post_fit(self, X, y):
+        """Rescale coefficients, if needed, after fitting."""
+        if self.output_dim == 1:
+            self.coef_ = np.squeeze(self.coef_)
+        if self.standardize:
+            sX = self._X_scaler
+            self.coef_ /= sX.scale_
 
     def _fit_intercept(self, X, y):
         """"Fit a model with an intercept and fixed coefficients.

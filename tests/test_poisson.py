@@ -234,6 +234,42 @@ def test_poisson_no_intercept():
     assert_raises(ValueError, poisson.fit, X, y)
 
 
+def test_poisson_warm_start():
+    """Tests if the warm start initializes coefficients correctly."""
+    n_features = 3
+    n_samples = 10000
+
+    # create data
+    X = np.random.normal(loc=0, scale=1. / 8, size=(n_samples, n_features))
+    beta = np.array([0.5, 1.0, 1.5])
+    eta = np.dot(X, beta)
+    y = np.random.poisson(np.exp(eta))
+
+    # lbfgs
+    poisson = Poisson(alpha=0., l1_ratio=0., fit_intercept=False,
+                      solver='lbfgs', max_iter=5000, warm_start=True)
+    poisson.fit(X, y)
+    first_coef = poisson.coef_
+
+    poisson.coef_ = np.zeros(n_features)
+    poisson.fit(X, y)
+    second_coef = poisson.coef_
+
+    assert_allclose(first_coef, second_coef, rtol=0.1)
+
+    # cd
+    poisson = Poisson(alpha=0., l1_ratio=0., fit_intercept=False,
+                      solver='cd', max_iter=5000, warm_start=True)
+    poisson.fit(X, y)
+    first_coef = poisson.coef_
+
+    poisson.coef_ = np.zeros(n_features)
+    poisson.fit(X, y)
+    second_coef = poisson.coef_
+
+    assert_allclose(first_coef, second_coef, rtol=0.1)
+
+
 def test_poisson_with_intercept():
     """Tests the Poisson fitter with no intercept."""
     n_features = 3
@@ -305,4 +341,4 @@ def test_UoI_Poisson():
                           alphas=np.array([1.0]), warm_start=False)
     poisson.fit(X, y)
 
-    assert_allclose(poisson.coef_.ravel(), beta, atol=0.5)
+    assert_allclose(poisson.coef_, beta, atol=0.5)
