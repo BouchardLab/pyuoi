@@ -2,6 +2,8 @@
 """
 import numpy as np
 
+from sklearn.utils import check_random_state
+
 
 def softmax(y, axis=-1):
     """Calculates the softmax distribution.
@@ -103,6 +105,93 @@ def make_classification(n_samples=100, n_features=20, n_informative=2,
         y = np.array([rng.binomial(1, pi) for pi in p])
 
     return X, y, w.T, intercept
+
+
+def make_poisson_regression(n_samples=100, n_features=5, n_informative=2,
+                            X_loc=0., X_scale=1. / 8,
+                            beta=None, beta_shape=1., beta_scale=3.,
+                            include_intercept=False, random_state=None):
+    """Make a Poisson regression dataset.
+
+    Parameters
+    ----------
+    n_samples : int
+        The number of samples to make.
+
+    n_features : int
+        The number of feature to use.
+
+    n_informative : int
+        The number of feature with non-zero weights.
+
+    X_loc : float
+        The mean of the features in the design matrix.
+
+    X_scale : float
+        The standard deviation of the features in the design matrix.
+
+    beta : array-like or None
+        The beta values to use. If None, beta values will be drawn from a gamma
+        distribution.
+
+    beta_shape : float
+        The shape parameter for the beta values.
+
+    beta_scale : float
+        The scale parameter for the beta values.
+
+    include_intercept : bool
+        If true, includes an intercept in the model, if False, the intercept is
+        set to 0.
+
+    random_state : int, np.random.RandomState instance, or None
+        Random number seed or state.
+
+    Returns
+    -------
+    X : ndarray, shape (n_samples, n_features)
+        The design matrix.
+
+    y : ndarray, shape (n_samples,)
+        The response vector.
+
+    beta : ndarray, shape (n_features,)
+        The feature coefficients.
+
+    intercept : float
+        The intercept. If include_intercept is False, then intercept is zero.
+    """
+    rng = check_random_state(random_state)
+
+    # create design matrix
+    X = rng.normal(loc=X_loc,
+                   scale=X_scale,
+                   size=(n_samples, n_features))
+
+    # create coefficients
+    if beta is None:
+        # draw beta values from gamma distribution
+        beta = rng.gamma(shape=beta_shape,
+                         scale=beta_scale,
+                         size=n_features)
+        # choose sparsity mask
+        zero_idx = np.zeros(n_features)
+        zero_idx[:n_informative] = 1
+        rng.shuffle(zero_idx)
+        # randomly assign beta elements to zero
+        beta = beta * zero_idx
+
+    # create intercept
+    if include_intercept:
+        intercept = rng.gamma(shape=beta_shape, scale=beta_scale)
+    else:
+        intercept = 0
+
+    # draw response variable
+    eta = intercept + np.dot(X, beta)
+    y = rng.poisson(np.exp(eta))
+
+    return X, y, beta, intercept
 
 
 def log_likelihood_glm(model, y_true, y_pred):
