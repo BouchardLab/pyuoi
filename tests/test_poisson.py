@@ -8,6 +8,7 @@ from pyuoi.linear_model import (Poisson,
                                 UoI_Poisson)
 from pyuoi.linear_model.poisson import (_poisson_loss_and_grad,
                                         PoissonInterceptFitterNoFeatures)
+from pyuoi.utils import make_poisson_regression
 
 from sklearn.exceptions import NotFittedError
 
@@ -211,10 +212,11 @@ def test_poisson_no_intercept():
     n_samples = 10000
 
     # create data
-    X = np.random.normal(loc=0, scale=1. / 8, size=(n_samples, n_features))
-    beta = np.array([0.5, 1.0, 1.5])
-    eta = np.dot(X, beta)
-    y = np.random.poisson(np.exp(eta))
+    X, y, beta, _ = make_poisson_regression(n_samples=n_samples,
+                                            n_features=n_features,
+                                            n_informative=n_features,
+                                            beta=np.array([0.5, 1.0, 1.5]),
+                                            random_state=2332)
 
     # lbfgs
     poisson = Poisson(alpha=0., l1_ratio=0., fit_intercept=False,
@@ -240,10 +242,11 @@ def test_poisson_warm_start():
     n_samples = 10000
 
     # create data
-    X = np.random.normal(loc=0, scale=1. / 8, size=(n_samples, n_features))
-    beta = np.array([0.5, 1.0, 1.5])
-    eta = np.dot(X, beta)
-    y = np.random.poisson(np.exp(eta))
+    X, y, beta, _ = make_poisson_regression(n_samples=n_samples,
+                                            n_features=n_features,
+                                            n_informative=n_features,
+                                            beta=np.array([0.5, 1.0, 1.5]),
+                                            random_state=2332)
 
     # lbfgs
     poisson = Poisson(alpha=0., l1_ratio=0., fit_intercept=False,
@@ -276,11 +279,13 @@ def test_poisson_with_intercept():
     n_samples = 10000
 
     # create data
-    X = np.random.normal(loc=0, scale=1. / 8, size=(n_samples, n_features))
-    beta = np.array([-1.5, -1.0, 1.5])
-    intercept = 2.0
-    eta = intercept + np.dot(X, beta)
-    y = np.random.poisson(np.exp(eta))
+    X, y, beta, intercept = make_poisson_regression(
+        n_samples=n_samples,
+        n_features=n_features,
+        n_informative=n_features,
+        beta=np.array([0.5, 1.0, 1.5]),
+        include_intercept=True,
+        random_state=2332)
 
     # lbfgs
     poisson = Poisson(alpha=0., l1_ratio=0., fit_intercept=True,
@@ -305,10 +310,11 @@ def test_poisson_with_sparsity():
     n_samples = 10000
 
     # create data
-    X = np.random.normal(loc=0, scale=1. / 8, size=(n_samples, n_features))
-    beta = np.array([0, 1.0, 2.0])
-    eta = np.dot(X, beta)
-    y = np.random.poisson(np.exp(eta))
+    X, y, beta, _ = make_poisson_regression(n_samples=n_samples,
+                                            n_features=n_features,
+                                            n_informative=n_features,
+                                            beta=np.array([0., 1.0, 1.5]),
+                                            random_state=2332)
 
     # lbfgs
     poisson = Poisson(alpha=0.1, l1_ratio=1., fit_intercept=False,
@@ -331,10 +337,11 @@ def test_UoI_Poisson():
     n_samples = 5000
 
     # create data
-    X = np.random.normal(loc=0, scale=1. / 8, size=(n_samples, n_features))
-    beta = np.array([0, 1.0, 2.0])
-    eta = np.dot(X, beta)
-    y = np.random.poisson(np.exp(eta))
+    X, y, beta, _ = make_poisson_regression(n_samples=n_samples,
+                                            n_features=n_features,
+                                            n_informative=n_features,
+                                            beta=np.array([0., 1.0, 1.5]),
+                                            random_state=2332)
 
     # lbfgs
     poisson = UoI_Poisson(n_lambdas=48, n_boots_sel=30, n_boots_est=30,
