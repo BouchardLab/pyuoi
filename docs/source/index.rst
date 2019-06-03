@@ -11,9 +11,10 @@ Welcome to PyUoI's documentation!
    :caption: Contents:
 
    pyuoi/pyuoi
+   pyuoi/linear_model/linear_model
+   pyuoi/decomposition/decomposition
    pyuoi/utils
    pyuoi/mpi_utils
-   pyuoi/linear_model/linear_model
 
 
 
