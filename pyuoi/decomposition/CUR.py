@@ -69,7 +69,7 @@ class UoI_CUR(AbstractDecompositionModel):
         self.tol = tol
         self.random_state = random_state
 
-    def fit(self, X, c=None, ks=None, stratify=None):
+    def fit(self, X, ks=None, cs=None, stratify=None):
         """Performs column subset selection in the UoI framework on a provided
         matrix.
 
@@ -78,7 +78,7 @@ class UoI_CUR(AbstractDecompositionModel):
         X : ndarray, shape (n_samples, n_features)
             The data matrix.
 
-        c : float
+        cs : int, float
             The expected number of columns to select. If None, c will vary with
             the rank k.
 
@@ -97,7 +97,7 @@ class UoI_CUR(AbstractDecompositionModel):
         union : ndarray
             A numpy array containing the indices of the selected columns.
         """
-        ks = self.check_ks(ks)
+        ks, cs = self.check_ks_and_cs(ks=ks, cs=cs)
         n_ks = ks.size
         n_samples, n_features = X.shape
 
@@ -127,9 +127,7 @@ class UoI_CUR(AbstractDecompositionModel):
 
             # iterate over ranks
             for k_idx, k in enumerate(ks):
-                # perform column selection on the subset of singular vectors
-                if c is None:
-                    c = k + 20
+                c = cs[k_idx]
 
                 column_indices = column_select(V[:, :k], c=c,
                                                random_state=self.random_state)
@@ -150,18 +148,25 @@ class UoI_CUR(AbstractDecompositionModel):
             self.components_ = X[:, self.column_indices_]
         return self
 
-    def check_ks(self, ks=None):
-        """Process the set of ranks to calculate leverage scores over.
+    def check_ks_and_cs(self, ks=None, cs=None):
+        """Process the set of ranks to calculate leverage scores over, and the
+        expected number of columns for each rank.
 
         Parameters
         ----------
         ks : ndarray
             The ranks to compute leverage scores over.
 
+        cs : ndarray
+            The expected number of columns to select for each rank.
+
         Returns
         -------
         ks : ndarray
             Processed and checked ranks.
+
+        cs : ndarray
+            Processed expected number of columns.
         """
         # convert ks to a numpy array
         if ks is None:
@@ -182,7 +187,28 @@ class UoI_CUR(AbstractDecompositionModel):
             raise ValueError('Ranks must be positive, integers, and no more'
                              ' than the max rank.')
 
-        return ks
+        # check expected column numbers
+        n_ks = ks.size
+
+        if cs is None:
+            cs = ks + 20
+        elif isinstance(cs, int) or isinstance(cs, float):
+            cs = cs * np.ones(n_ks)
+        elif isinstance(cs, list):
+            cs = np.array(cs)
+        elif not isinstance(cs, np.ndarray):
+            raise ValueError('cs must be a valid int, float, list or numpy'
+                             ' array.')
+
+        # check that the numpy array contains valid values
+        if (
+            (not np.all(cs > 0))
+            or (not np.issubdtype(cs.dtype, np.number))
+            or (not cs.size == ks.size)
+        ):
+            raise ValueError('Expected number of columns must consist of'
+                             ' positive numbers, with total size equal to ks.')
+        return ks, cs
 
     def transform(self, X):
         """Transform the data X according to the fitted selected columns.
@@ -202,7 +228,7 @@ class UoI_CUR(AbstractDecompositionModel):
         X_new = X[:, self.column_indices_]
         return X_new
 
-    def fit_transform(self, X, c=None):
+    def fit_transform(self, X, ks=None, cs=None):
         """Transform the data X according to the fitted decomposition.
 
         Parameters
@@ -215,7 +241,7 @@ class UoI_CUR(AbstractDecompositionModel):
         X_new : array-like, shape (n_samples, n_components)
             Transformed data.
         """
-        self.fit(X, c=c)
+        self.fit(X, ks=ks, cs=cs)
         return self.transform(X)
 
 
