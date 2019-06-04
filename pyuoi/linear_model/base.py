@@ -608,11 +608,11 @@ class AbstractUoIGeneralizedLinearRegressor(
     """An abstract base class for UoI linear classifier classes.
     """
 
-    __valid_estimation_metrics = ('log', 'BIC', 'AIC', 'AICc')
+    _valid_estimation_metrics = ('log', 'BIC', 'AIC', 'AICc')
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
-                 estimation_score='log',
+                 estimation_score='acc',
                  copy_X=True, fit_intercept=True, standardize=True,
                  random_state=None, max_iter=None, shared_support=True,
                  comm=None):
@@ -630,7 +630,7 @@ class AbstractUoIGeneralizedLinearRegressor(
             comm=comm,
         )
 
-        if estimation_score not in self.__valid_estimation_metrics:
+        if estimation_score not in self._valid_estimation_metrics:
             raise ValueError(
                 "invalid estimation metric: '%s'" % estimation_score)
         self.__estimation_score = estimation_score

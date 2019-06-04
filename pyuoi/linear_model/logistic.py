@@ -27,7 +27,8 @@ from ..lbfgs import fmin_lbfgs, AllZeroLBFGSError
 
 class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
 
-    __valid_estimation_metrics = ('acc', 'log', 'BIC', 'AIC', 'AICc')
+    metrics = AbstractUoIGeneralizedLinearRegressor._valid_estimation_metrics
+    _valid_estimation_metrics = metrics + ('acc',)
 
     """ UoI L1 Logistic model.
 
@@ -151,14 +152,12 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
             penalty='l1',
             max_iter=max_iter,
             warm_start=warm_start,
-            random_state=random_state,
             multi_class=multi_class,
             fit_intercept=fit_intercept,
             tol=tol)
 
         self._estimation_lm = MaskedCoefLogisticRegression(
             C=np.inf,
-            random_state=random_state,
             multi_class='auto',
             fit_intercept=fit_intercept,
             max_iter=max_iter,
