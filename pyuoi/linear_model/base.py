@@ -37,8 +37,7 @@ class AbstractUoILinearModel(
         The fraction of the dataset to use for training in each resampled
         bootstrap, during the estimation module. The remaining data is used
         to obtain validation scores. Small values of this parameters imply
-        larger "perturbations" to the dataset. IGNORED - Leaving this here
-        to double check later
+        larger "perturbations" to the dataset.
 
     stability_selection : int, float, or array-like, default 1
         If int, treated as the number of bootstraps that a feature must
@@ -470,7 +469,7 @@ class AbstractUoILinearRegressor(
     """An abstract base class for UoI linear regression classes.
     """
 
-    __valid_estimation_metrics = ('r2', 'AIC', 'AICc', 'BIC')
+    _valid_estimation_metrics = ('r2', 'AIC', 'AICc', 'BIC')
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
@@ -490,7 +489,7 @@ class AbstractUoILinearRegressor(
             comm=comm,
         )
 
-        if estimation_score not in self.__valid_estimation_metrics:
+        if estimation_score not in self._valid_estimation_metrics:
             raise ValueError(
                 "invalid estimation metric: '%s'" % estimation_score)
 
