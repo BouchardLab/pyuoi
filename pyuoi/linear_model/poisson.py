@@ -440,13 +440,14 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
             solver=solver)
 
     def get_reg_params(self, X, y):
-        """Calculates the regularization parameters (alpha and lambda) to be
+        r"""Calculates the regularization parameters (alpha and lambda) to be
         used for the provided data.
 
         Note that the Elastic Net penalty is given by
 
-                1 / (2 * n_samples) * ||y - Xb||^2_2
-            + lambda * (alpha * |b|_1 + 0.5 * (1 - alpha) * |b|^2_2)
+        .. math::
+           \text{nll}(X, y)
+           + \lambda (\alpha |b|_1 + 0.5 (1 - \alpha) |b|^2_2)
 
         where lambda and alpha are regularization parameters.
 

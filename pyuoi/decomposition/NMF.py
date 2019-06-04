@@ -282,20 +282,25 @@ class UoI_NMF(UoI_NMF_Base):
         range(2, ranks + 1) will be used. If not specified,
         range(X.shape[1]) will be used.
 
-    nmf_init :  'random' | 'nndsvd' |  'nndsvda' | 'nndsvdar' | 'custom'
+    nmf_init :  "random" | "nndsvd" |  "nndsvda" | "nndsvdar" | "custom"
         Method used to initialize the NMF procedure.
-        Default: 'random'.
+        Default: "random".
         Valid options:
-        - 'random': non-negative random matrices, scaled with:
-            sqrt(X.mean() / n_components)
-        - 'nndsvd': Nonnegative Double Singular Value Decomposition (NNDSVD)
+
+        * "random": non-negative random matrices, scaled with
+            :code:`sqrt(X.mean() / n_components)`
+
+        * "nndsvd": Nonnegative Double Singular Value Decomposition (NNDSVD)
             initialization (better for sparseness)
-        - 'nndsvda': NNDSVD with zeros filled with the average of X
+
+        * "nndsvda": NNDSVD with zeros filled with the average of X
             (better when sparsity is not desired)
-        - 'nndsvdar': NNDSVD with zeros filled with small random values
+
+        * "nndsvdar": NNDSVD with zeros filled with small random values
             (generally faster, less accurate alternative to NNDSVDa
             for when sparsity is not desired)
-        - 'custom': use custom matrices W and H
+
+        * "custom": use custom matrices W and H
 
     nmf_solver : 'cd' | 'mu'
         Default: 'mu'.
