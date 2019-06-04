@@ -18,9 +18,6 @@ class AbstractUoILinearModel(
         _six.with_metaclass(_abc.ABCMeta, SparseCoefMixin)):
     """An abstract base class for UoI linear model classes
 
-    See Bouchard et al., NIPS, 2017, for more details on the Union of
-    Intersections framework.
-
     Parameters
     ----------
     n_boots_sel : int, default 48
@@ -61,7 +58,7 @@ class AbstractUoILinearModel(
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.
 
-    shared_supprt : bool, default True
+    shared_support : bool, default True
         For models with more than one output (multinomial logistic regression)
         this determines whether all outputs share the same support or can
         have independent supports.
@@ -471,9 +468,6 @@ class AbstractUoILinearModel(
 class AbstractUoILinearRegressor(
         _six.with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
     """An abstract base class for UoI linear regression classes.
-
-    See Bouchard et al., NIPS, 2017, for more details on the Union of
-    Intersections framework.
     """
 
     __valid_estimation_metrics = ('r2', 'AIC', 'AICc', 'BIC')
@@ -612,16 +606,13 @@ class LinearInterceptFitterNoFeatures(object):
 class AbstractUoIGeneralizedLinearRegressor(
         _six.with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
     """An abstract base class for UoI linear classifier classes.
-
-    See Bouchard et al., NIPS, 2017, for more details on the Union of
-    Intersections framework.
     """
 
-    __valid_estimation_metrics = ('acc', 'log', 'BIC', 'AIC', 'AICc')
+    __valid_estimation_metrics = ('log', 'BIC', 'AIC', 'AICc')
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
-                 estimation_score='acc',
+                 estimation_score='log',
                  copy_X=True, fit_intercept=True, standardize=True,
                  random_state=None, max_iter=None, shared_support=True,
                  comm=None):
