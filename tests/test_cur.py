@@ -83,8 +83,8 @@ def test_CUR_fit():
     assert_array_equal(X_new, X[:, true_columns])
 
 
-def test_UoI_CUR_check_ks():
-    """Tests the check_ks function in UoI_CUR."""
+def test_UoI_CUR_check_ks_and_cs():
+    """Tests the check_ks_and_cs function in UoI_CUR."""
     n_boots = 5
     max_k = 10
     boots_frac = 0.9
@@ -93,20 +93,41 @@ def test_UoI_CUR_check_ks():
                       max_k=max_k,
                       boots_frac=boots_frac)
 
-    ks = uoi_cur.check_ks(1)
+    # check ks
+    ks, cs = uoi_cur.check_ks_and_cs(ks=1)
     assert_array_equal(ks, np.array([1]))
+    assert_array_equal(cs, ks + 20)
 
-    ks = uoi_cur.check_ks([1, 2, 3])
+    ks, cs = uoi_cur.check_ks_and_cs(ks=[1, 2, 3])
     assert_array_equal(ks, np.array([1, 2, 3]))
+    assert_array_equal(cs, ks + 20)
 
-    ks = uoi_cur.check_ks(None)
+    ks, cs = uoi_cur.check_ks_and_cs(ks=None)
     assert_array_equal(ks, 1 + np.arange(max_k))
+    assert_array_equal(cs, ks + 20)
 
-    assert_raises(ValueError, uoi_cur.check_ks, -1)
-    assert_raises(ValueError, uoi_cur.check_ks, [11])
-    assert_raises(ValueError, uoi_cur.check_ks, [0.1, -1, 2, 12])
-    assert_raises(ValueError, uoi_cur.check_ks, 2.0)
-    assert_raises(ValueError, uoi_cur.check_ks, uoi_cur)
+    # check cs
+    ks, cs = uoi_cur.check_ks_and_cs(ks=[1, 2], cs=[3, 4])
+    assert_array_equal(cs, np.array([3, 4]))
+
+    ks, cs = uoi_cur.check_ks_and_cs(ks=[1, 2, 3], cs=1)
+    assert_array_equal(cs, np.array([1, 1, 1]))
+
+    ks, cs = uoi_cur.check_ks_and_cs(ks=[1, 2], cs=2.4)
+    assert_array_equal(cs, np.array([2.4, 2.4]))
+
+    # value errors for ks
+    assert_raises(ValueError, uoi_cur.check_ks_and_cs, -1)
+    assert_raises(ValueError, uoi_cur.check_ks_and_cs, [11])
+    assert_raises(ValueError, uoi_cur.check_ks_and_cs, [0.1, -1, 2, 12])
+    assert_raises(ValueError, uoi_cur.check_ks_and_cs, 2.0)
+    assert_raises(ValueError, uoi_cur.check_ks_and_cs, uoi_cur)
+
+    # value errors for cs
+    assert_raises(ValueError, uoi_cur.check_ks_and_cs, None, -1)
+    assert_raises(ValueError, uoi_cur.check_ks_and_cs, None, [-11])
+    assert_raises(ValueError, uoi_cur.check_ks_and_cs, None, np.array([-12]))
+    assert_raises(ValueError, uoi_cur.check_ks_and_cs, 1, [2, 3])
 
 
 def test_UoI_CUR_basic():
@@ -122,7 +143,7 @@ def test_UoI_CUR_basic():
     uoi_cur = UoI_CUR(n_boots=n_boots,
                       max_k=max_k,
                       boots_frac=boots_frac)
-    uoi_cur.fit(X, c=3)
+    uoi_cur.fit(X, cs=3)
 
     max_col = np.argmax(np.sum(V_subset**2, axis=1))
 
@@ -169,6 +190,6 @@ def test_UoI_CUR_vs_CUR():
                       max_k=max_k,
                       boots_frac=boots_frac,
                       random_state=2332)
-    uoi_cur.fit(X, c=3, ks=3)
+    uoi_cur.fit(X, cs=3, ks=3)
 
     assert uoi_cur.column_indices_.size <= cur.column_indices_.size
