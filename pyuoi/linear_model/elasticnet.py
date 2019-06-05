@@ -8,14 +8,100 @@ from sklearn.linear_model import ElasticNet
 
 
 class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
+    """ UoI ElasticNet model.
 
-    def __init__(self, n_lambdas=48, alphas=np.array([0.5]),
-                 n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
-                 estimation_frac=0.9, stability_selection=1.,
+    Parameters
+    ----------
+    n_boots_sel : int, default 48
+        The number of data bootstraps to use in the selection module.
+        Increasing this number will make selection more strict.
+
+    n_boots_est : int, default 48
+        The number of data bootstraps to use in the estimation module.
+        Increasing this number will relax selection and decrease variance.
+
+    selection_frac : float, default 0.9
+        The fraction of the dataset to use for training in each resampled
+        bootstrap, during the selection module. Small values of this parameter
+        imply larger "perturbations" to the dataset.
+
+    estimation_frac : float, default 0.9
+        The fraction of the dataset to use for training in each resampled
+        bootstrap, during the estimation module. The remaining data is used
+        to obtain validation scores. Small values of this parameters imply
+        larger "perturbations" to the dataset. IGNORED - Leaving this here
+        to double check later
+
+    n_lambdas : int, default 48
+        The number of regularization values to use for selection.
+
+    alphas : list or ndarray of floats
+        The parameter that trades off L1 versus L2 regularization for a given
+        lambda.
+
+    stability_selection : int, float, or array-like, default 1
+        If int, treated as the number of bootstraps that a feature must
+        appear in to guarantee placement in selection profile. If float,
+        must be between 0 and 1, and is instead the proportion of
+        bootstraps. If array-like, must consist of either ints or floats
+        between 0 and 1. In this case, each entry in the array-like object
+        will act as a separate threshold for placement in the selection
+        profile.
+
+    estimation_score : str "r2" | "AIC", | "AICc" | "BIC"
+        Objective used to choose the best estimates per bootstrap.
+
+    warm_start : bool, default True
+        When set to ``True``, reuse the solution of the previous call to fit as
+        initialization, otherwise, just erase the previous solution
+
+    eps : float, default 1e-3
+        Length of the lasso path. eps=1e-3 means that
+        alpha_min / alpha_max = 1e-3
+
+    copy_X : boolean, default True
+        If ``True``, X will be copied; else, it may be overwritten.
+
+    fit_intercept : boolean, default True
+        Whether to calculate the intercept for this model. If set
+        to False, no intercept will be used in calculations
+        (e.g. data is expected to be already centered).
+
+    standardize : boolean, default False
+        If True, the regressors X will be standardized before regression by
+        subtracting the mean and dividing by their standard deviations.
+
+    max_iter : int, default None
+        Maximum number of iterations for iterative fitting methods.
+
+    random_state : int, RandomState instance or None, default None
+        The seed of the pseudo random number generator that selects a random
+        feature to update.  If int, random_state is the seed used by the random
+        number generator; If RandomState instance, random_state is the random
+        number generator; If None, the random number generator is the
+        RandomState instance used by `np.random`.
+
+    comm : MPI communicator, default None
+        If passed, the selection and estimation steps are parallelized.
+
+    Attributes
+    ----------
+    coef_ : array, shape (n_features,) or (n_targets, n_features)
+        Estimated coefficients for the linear regression problem.
+
+    intercept_ : float
+        Independent term in the linear model.
+
+    supports_ : array, shape
+        boolean array indicating whether a given regressor (column) is selected
+        for estimation for a given regularization parameter value (row).
+    """
+    def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
+                 estimation_frac=0.9, n_lambdas=48,
+                 alphas=np.array([0.5]), stability_selection=1.,
                  estimation_score='r2', warm_start=True, eps=1e-3,
                  copy_X=True, fit_intercept=True, standardize=True,
-                 random_state=None, max_iter=1000,
-                 comm=None):
+                 max_iter=1000, random_state=None, comm=None):
         super(UoI_ElasticNet, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,

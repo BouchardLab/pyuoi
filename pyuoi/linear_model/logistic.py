@@ -6,7 +6,7 @@ from sklearn.svm import l1_min_c
 from sklearn.metrics import log_loss
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.utils._joblib import Parallel, delayed
-from sklearn.utils import (check_X_y, check_random_state, compute_class_weight,
+from sklearn.utils import (check_X_y, compute_class_weight,
                            check_consistent_length, check_array)
 from sklearn.utils.multiclass import check_classification_targets
 from sklearn.utils.fixes import _joblib_parallel_args
@@ -25,15 +25,112 @@ from ..utils import sigmoid, softmax
 from ..lbfgs import fmin_lbfgs, AllZeroLBFGSError
 
 
-class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor,
-                     LogisticRegression):
+class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
 
+    metrics = AbstractUoIGeneralizedLinearRegressor._valid_estimation_metrics
+    _valid_estimation_metrics = metrics + ('acc',)
+
+    """ UoI L1 Logistic model.
+
+    Parameters
+    ----------
+    n_boots_sel : int, default 48
+        The number of data bootstraps to use in the selection module.
+        Increasing this number will make selection more strict.
+
+    n_boots_est : int, default 48
+        The number of data bootstraps to use in the estimation module.
+        Increasing this number will relax selection and decrease variance.
+
+    n_lambdas : int, default 48
+        The number of regularization values to use for selection.
+
+    alpha : list or ndarray of floats
+        The parameter that trades off L1 versus L2 regularization for a given
+        lambda.
+
+    selection_frac : float, default 0.9
+        The fraction of the dataset to use for training in each resampled
+        bootstrap, during the selection module. Small values of this parameter
+        imply larger "perturbations" to the dataset.
+
+    estimation_frac : float, default 0.9
+        The fraction of the dataset to use for training in each resampled
+        bootstrap, during the estimation module. The remaining data is used
+        to obtain validation scores. Small values of this parameters imply
+        larger "perturbations" to the dataset.
+
+    stability_selection : int, float, or array-like, default 1
+        If int, treated as the number of bootstraps that a feature must
+        appear in to guarantee placement in selection profile. If float,
+        must be between 0 and 1, and is instead the proportion of
+        bootstraps. If array-like, must consist of either ints or floats
+        between 0 and 1. In this case, each entry in the array-like object
+        will act as a separate threshold for placement in the selection
+        profile.
+
+    estimation_score : str "acc" | "log" | "AIC", | "AICc" | "BIC"
+        Objective used to choose the best estimates per bootstrap.
+
+    multi_class : str "auto" | "ovr" | "multinomial"
+    If the option chosen is "ovr", then a binary problem is fit for each label.
+    For "multinomial" the loss minimised is the multinomial loss fit across the
+    entire probability distribution, even when the data is binary.
+    "auto" selects "ovr" if the data is binary, and otherwise selects
+    "multinomial".
+
+    warm_start : bool, default True
+        When set to ``True``, reuse the solution of the previous call to fit as
+        initialization, otherwise, just erase the previous solution
+
+    fit_intercept : boolean, default True
+        Whether to calculate the intercept for this model. If set
+        to False, no intercept will be used in calculations
+        (e.g. data is expected to be already centered).
+
+    standardize : boolean, default False
+        If True, the regressors X will be standardized before regression by
+        subtracting the mean and dividing by their standard deviations.
+
+    shared_support : bool, default True
+        For models with more than one output (multinomial logistic regression)
+        this determines whether all outputs share the same support or can
+        have independent supports.
+
+    max_iter : int, default 10000
+        Maximum number of iterations for iterative fitting methods.
+
+    tol : float, default 1e-3
+        Stopping criteria for solver.
+
+    random_state : int, RandomState instance or None, default None
+        The seed of the pseudo random number generator that selects a random
+        feature to update.  If int, random_state is the seed used by the random
+        number generator; If RandomState instance, random_state is the random
+        number generator; If None, the random number generator is the
+        RandomState instance used by `np.random`.
+
+    comm : MPI communicator, default None
+        If passed, the selection and estimation steps are parallelized.
+
+    Attributes
+    ----------
+    coef_ : array, shape (n_features,) or (n_targets, n_features)
+        Estimated coefficients for the linear regression problem.
+
+    intercept_ : float
+        Independent term in the linear model.
+
+    supports_ : array, shape
+        boolean array indicating whether a given regressor (column) is selected
+        for estimation for a given regularization parameter value (row).
+    """
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, n_C=48, stability_selection=1.,
-                 warm_start=False, estimation_score='acc', multi_class='auto',
-                 copy_X=True, fit_intercept=True, standardize=True,
-                 random_state=None, max_iter=10000, tol=1e-3,
-                 shared_support=True, comm=None):
+                 estimation_score='acc', multi_class='auto',
+                 shared_support=True, warm_start=False, fit_intercept=True,
+                 standardize=True, max_iter=10000, tol=1e-3, random_state=None,
+                 comm=None):
         super(UoI_L1Logistic, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -42,7 +139,6 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor,
             stability_selection=stability_selection,
             estimation_score=estimation_score,
             random_state=random_state,
-            copy_X=copy_X,
             fit_intercept=fit_intercept,
             standardize=standardize,
             shared_support=shared_support,
@@ -56,14 +152,12 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor,
             penalty='l1',
             max_iter=max_iter,
             warm_start=warm_start,
-            random_state=random_state,
             multi_class=multi_class,
             fit_intercept=fit_intercept,
             tol=tol)
 
         self._estimation_lm = MaskedCoefLogisticRegression(
             C=np.inf,
-            random_state=random_state,
             multi_class='auto',
             fit_intercept=fit_intercept,
             max_iter=max_iter,
@@ -209,15 +303,6 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         as ``n_samples / (n_classes * np.bincount(y))``.
         Note that these weights will be multiplied with sample_weight (passed
         through the fit method) if sample_weight is specified.
-        .. versionadded:: 0.17
-           *class_weight='balanced'*
-    random_state : int, RandomState instance or None, optional (default=None)
-        The seed of the pseudo random number generator to use when shuffling
-        the data.  If int, random_state is the seed used by the random number
-        generator; If RandomState instance, random_state is the random number
-        generator; If None, the random number generator is the RandomState
-        instance used by `np.random`. Used when ``solver`` == 'sag' or
-        'liblinear'.
     max_iter : int, optional (default=100)
         Maximum number of iterations taken for the solvers to converge.
     multi_class : str, {'ovr', 'multinomial', 'auto'}, optional (default='ovr')
@@ -237,26 +322,23 @@ class MaskedCoefLogisticRegression(LogisticRegression):
     warm_start : bool, optional (default=False)
         When set to True, reuse the solution of the previous call to fit as
         initialization, otherwise, just erase the previous solution.
-        Useless for liblinear solver. See :term:`the Glossary <warm_start>`.
-        .. versionadded:: 0.17
-           *warm_start* to support *lbfgs*, *newton-cg*, *sag*, *saga* solvers.
+        Useless for liblinear solver.
     n_jobs : int or None, optional (default=None)
         Number of CPU cores used when parallelizing over classes if
         multi_class='ovr'". This parameter is ignored when the ``solver`` is
         set to 'liblinear' regardless of whether 'multi_class' is specified or
         not. ``None`` means 1 unless in a :obj:`joblib.parallel_backend`
         context. ``-1`` means using all processors.
-        See :term:`Glossary <n_jobs>` for more details.
     """
     def __init__(self, penalty='l2', tol=1e-3, C=1.,
                  fit_intercept=True, class_weight=None,
-                 random_state=None, max_iter=10000,
+                 max_iter=10000,
                  multi_class='auto', verbose=0, warm_start=False,
                  n_jobs=None):
         super().__init__(penalty=penalty, tol=tol, C=C,
                          fit_intercept=fit_intercept,
                          class_weight=class_weight,
-                         random_state=random_state, max_iter=max_iter,
+                         max_iter=max_iter,
                          multi_class=multi_class, verbose=verbose,
                          warm_start=warm_start, n_jobs=n_jobs)
 
@@ -351,7 +433,7 @@ class MaskedCoefLogisticRegression(LogisticRegression):
                       multi_class=multi_class, max_iter=self.max_iter,
                       class_weight=self.class_weight, penalty=self.penalty,
                       check_input=False,
-                      random_state=self.random_state, coef=warm_start_coef_,
+                      coef=warm_start_coef_,
                       sample_weight=sample_weight, coef_mask=coef_mask)
             for class_, warm_start_coef_ in zip(classes_, warm_start_coef))
 
@@ -376,7 +458,7 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
                               max_iter=100, tol=1e-4, verbose=0, coef=None,
                               class_weight=None, penalty='l2',
                               multi_class='warn',
-                              random_state=None, check_input=True,
+                              check_input=True,
                               sample_weight=None,
                               l1_ratio=None, coef_mask=None):
     """Compute a Logistic Regression model for a list of regularization
@@ -435,13 +517,6 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
            Stochastic Average Gradient descent solver for 'multinomial' case.
         .. versionchanged:: 0.20
             Default will change from 'ovr' to 'auto' in 0.22.
-    random_state : int, RandomState instance or None, optional, default None
-        The seed of the pseudo random number generator to use when shuffling
-        the data.  If int, random_state is the seed used by the random number
-        generator; If RandomState instance, random_state is the random number
-        generator; If None, the random number generator is the RandomState
-        instance used by `np.random`. Used when ``solver`` == 'sag' or
-        'liblinear'.
     check_input : bool, default True
         If False, the input arrays X and y will not be checked.
     sample_weight : array-like, shape(n_samples,) optional
@@ -481,7 +556,6 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
     _, n_features = X.shape
 
     classes = np.unique(y)
-    random_state = check_random_state(random_state)
 
     multi_class = _check_multi_class(multi_class, solver, len(classes))
     if pos_class is None and multi_class != 'multinomial':

@@ -18,9 +18,6 @@ class AbstractUoILinearModel(
         _six.with_metaclass(_abc.ABCMeta, SparseCoefMixin)):
     """An abstract base class for UoI linear model classes
 
-    See Bouchard et al., NIPS, 2017, for more details on the Union of
-    Intersections framework.
-
     Parameters
     ----------
     n_boots_sel : int, default 48
@@ -40,8 +37,7 @@ class AbstractUoILinearModel(
         The fraction of the dataset to use for training in each resampled
         bootstrap, during the estimation module. The remaining data is used
         to obtain validation scores. Small values of this parameters imply
-        larger "perturbations" to the dataset. IGNORED - Leaving this here
-        to double check later
+        larger "perturbations" to the dataset.
 
     stability_selection : int, float, or array-like, default 1
         If int, treated as the number of bootstraps that a feature must
@@ -61,7 +57,7 @@ class AbstractUoILinearModel(
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.
 
-    shared_supprt : bool, default True
+    shared_support : bool, default True
         For models with more than one output (multinomial logistic regression)
         this determines whether all outputs share the same support or can
         have independent supports.
@@ -471,12 +467,9 @@ class AbstractUoILinearModel(
 class AbstractUoILinearRegressor(
         _six.with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
     """An abstract base class for UoI linear regression classes.
-
-    See Bouchard et al., NIPS, 2017, for more details on the Union of
-    Intersections framework.
     """
 
-    __valid_estimation_metrics = ('r2', 'AIC', 'AICc', 'BIC')
+    _valid_estimation_metrics = ('r2', 'AIC', 'AICc', 'BIC')
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
@@ -496,7 +489,7 @@ class AbstractUoILinearRegressor(
             comm=comm,
         )
 
-        if estimation_score not in self.__valid_estimation_metrics:
+        if estimation_score not in self._valid_estimation_metrics:
             raise ValueError(
                 "invalid estimation metric: '%s'" % estimation_score)
 
@@ -612,12 +605,9 @@ class LinearInterceptFitterNoFeatures(object):
 class AbstractUoIGeneralizedLinearRegressor(
         _six.with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
     """An abstract base class for UoI linear classifier classes.
-
-    See Bouchard et al., NIPS, 2017, for more details on the Union of
-    Intersections framework.
     """
 
-    __valid_estimation_metrics = ('acc', 'log', 'BIC', 'AIC', 'AICc')
+    _valid_estimation_metrics = ('log', 'BIC', 'AIC', 'AICc')
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
@@ -639,7 +629,7 @@ class AbstractUoIGeneralizedLinearRegressor(
             comm=comm,
         )
 
-        if estimation_score not in self.__valid_estimation_metrics:
+        if estimation_score not in self._valid_estimation_metrics:
             raise ValueError(
                 "invalid estimation metric: '%s'" % estimation_score)
         self.__estimation_score = estimation_score
