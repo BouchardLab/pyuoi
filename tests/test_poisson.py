@@ -206,6 +206,43 @@ def test_poisson_loss_and_grad():
     assert_allclose(grad, np.mean(X * np.exp(n_features), axis=0))
 
 
+def test_poisson_reg_params():
+    """Test whether the upper bound on the regularization parameters correctly
+    zero out the coefficients."""
+    n_features = 5
+    n_samples = 1000
+
+    X, y, beta, intercept = make_poisson_regression(
+        n_samples=n_samples,
+        n_features=n_features,
+        n_informative=n_features,
+        random_state=2332)
+
+    alpha_sets = [np.array([0.5]), np.array([1.0])]
+
+    for alpha_set in alpha_sets:
+        uoi_poisson = UoI_Poisson(alphas=alpha_set)
+        reg_params = uoi_poisson.get_reg_params(X, y)
+        alpha = reg_params[0]['alpha']
+        l1_ratio = reg_params[0]['l1_ratio']
+
+        # check that coefficients get set to zero
+        poisson = Poisson(alpha=1.01 * alpha,
+                          l1_ratio=l1_ratio,
+                          standardize=False,
+                          fit_intercept=True)
+        poisson.fit(X, y)
+        assert_equal(poisson.coef_, np.zeros(n_features))
+
+        # check that coefficients below the bound are not set to zero
+        poisson = Poisson(alpha=0.99 * alpha,
+                          l1_ratio=l1_ratio,
+                          standardize=False,
+                          fit_intercept=True)
+        poisson.fit(X, y)
+        assert np.any(np.not_equal(poisson.coef_, np.zeros(n_features)))
+
+
 def test_poisson_no_intercept():
     """Tests the Poisson fitter with no intercept."""
     n_features = 3
