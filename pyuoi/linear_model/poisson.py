@@ -61,7 +61,7 @@ class Poisson(BaseEstimator):
     intercept_ : float
         The fitted intercept.
     """
-    def __init__(self, alpha=1.0, l1_ratio=0.5, fit_intercept=True,
+    def __init__(self, alpha=1.0, l1_ratio=1., fit_intercept=True,
                  standardize=True, max_iter=1000, tol=1e-5, warm_start=False,
                  solver='lbfgs'):
         self.alpha = alpha
@@ -488,7 +488,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         for estimation for a given regularization parameter value (row).
     """
     def __init__(self, n_boots_sel=48, n_boots_est=48, n_lambdas=48,
-                 alphas=np.array([0.5]), selection_frac=0.8,
+                 alphas=np.array([1.]), selection_frac=0.8,
                  estimation_frac=0.8, stability_selection=1.,
                  estimation_score='log', solver='lbfgs', warm_start=True,
                  eps=1e-3, tol=1e-5, copy_X=True, fit_intercept=True,
@@ -522,7 +522,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         # estimation is a Poisson regression with no regularization
         self._estimation_lm = Poisson(
             alpha=0.,
-            l1_ratio=0.,
+            l1_ratio=1.,
             fit_intercept=fit_intercept,
             standardize=standardize,
             max_iter=max_iter,
@@ -562,14 +562,19 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
             alpha->l1_ratio). This allows easy passing into the ElasticNet
             object.
         """
+        n_samples = X.shape[0]
         if self.lambdas is None:
             self.lambdas = np.zeros((self.n_alphas, self.n_lambdas))
             # a set of lambdas are generated for each alpha value (l1_ratio in
             # sci-kit learn parlance)
             for alpha_idx, alpha in enumerate(self.alphas):
+                # calculate upper bound for lambda sweep
+                ybar = np.log(y.mean())
+                lambda_max = np.max(np.abs(np.dot(X.T, y - ybar)))
+                lambda_max /= n_samples * alpha
                 self.lambdas[alpha_idx, :] = np.logspace(
-                    start=np.log10(3),
-                    stop=-3,
+                    start=np.log10(lambda_max),
+                    stop=np.log10(self.eps * lambda_max),
                     num=self.n_lambdas)
 
         # place the regularization parameters into a list of dictionaries
