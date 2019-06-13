@@ -94,6 +94,21 @@ def test_l1logistic_binary():
     assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .8
 
 
+def test_l1logistic_binary_multinomial():
+    """Test that binary L1 Logistic runs in the UoI framework."""
+    n_inf = 10
+    X, y, w, b = make_classification(n_samples=200,
+                                     random_state=6,
+                                     n_informative=n_inf,
+                                     n_features=20,
+                                     w_scale=4.,
+                                     include_intercept=True)
+
+    l1log = UoI_L1Logistic(random_state=10, multi_class='multinomial').fit(X, y)
+    l1log = UoI_L1Logistic(random_state=10, fit_intercept=False,
+                           multi_class='multinomial').fit(X, y)
+
+
 def test_l1logistic_multiclass():
     """Test that multiclass L1 Logistic runs in the UoI framework when all
        classes share a support."""
