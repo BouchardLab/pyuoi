@@ -106,9 +106,9 @@ def test_l1logistic_binary_multinomial():
                                      w_scale=4.,
                                      include_intercept=True)
 
-    l1log = UoI_L1Logistic(random_state=10, multi_class='multinomial').fit(X, y)
-    l1log = UoI_L1Logistic(random_state=10, fit_intercept=False,
-                           multi_class='multinomial').fit(X, y)
+    UoI_L1Logistic(random_state=10, multi_class='multinomial').fit(X, y)
+    UoI_L1Logistic(random_state=10, fit_intercept=False,
+                   multi_class='multinomial').fit(X, y)
 
 
 def test_l1logistic_no_ovr():

@@ -5,11 +5,9 @@ from sklearn.preprocessing import LabelEncoder, LabelBinarizer
 from sklearn.svm import l1_min_c
 from sklearn.metrics import log_loss
 from sklearn.exceptions import ConvergenceWarning
-from sklearn.utils._joblib import Parallel, delayed
 from sklearn.utils import (check_X_y, compute_class_weight,
                            check_consistent_length, check_array)
 from sklearn.utils.multiclass import check_classification_targets
-from sklearn.utils.fixes import _joblib_parallel_args
 from sklearn.utils.extmath import safe_sparse_dot, log_logistic, squared_norm
 from sklearn.linear_model.logistic import (_check_multi_class,
                                            _intercept_dot)
@@ -72,11 +70,10 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
     estimation_score : str "acc" | "log" | "AIC", | "AICc" | "BIC"
         Objective used to choose the best estimates per bootstrap.
 
-    multi_class : str "auto" | "ovr" | "multinomial"
-    If the option chosen is "ovr", then a binary problem is fit for each label.
+    multi_class : str "auto" | "multinomial"
     For "multinomial" the loss minimised is the multinomial loss fit across the
     entire probability distribution, even when the data is binary.
-    "auto" selects "ovr" if the data is binary, and otherwise selects
+    "auto" selects binary if the data is binary, and otherwise selects
     "multinomial".
 
     warm_start : bool, default True
@@ -158,7 +155,7 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
 
         self._estimation_lm = MaskedCoefLogisticRegression(
             C=np.inf,
-            multi_class='auto',
+            multi_class=multi_class,
             fit_intercept=fit_intercept,
             max_iter=max_iter,
             tol=tol)
@@ -305,17 +302,11 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         through the fit method) if sample_weight is specified.
     max_iter : int, optional (default=100)
         Maximum number of iterations taken for the solvers to converge.
-    multi_class : str, {'ovr', 'multinomial', 'auto'}, optional (default='ovr')
-        If the option chosen is 'ovr', then a binary problem is fit for each
-        label. For 'multinomial' the loss minimised is the multinomial loss fit
+    multi_class : str, {'multinomial', 'auto'}, optional (default='auto')
+        For 'multinomial' the loss minimised is the multinomial loss fit
         across the entire probability distribution, *even when the data is
-        binary*. 'multinomial' is unavailable when solver='liblinear'.
-        'auto' selects 'ovr' if the data is binary, or if solver='liblinear',
+        binary*. 'auto' selects binary if the data is binary,
         and otherwise selects 'multinomial'.
-        .. versionadded:: 0.18
-           Stochastic Average Gradient descent solver for 'multinomial' case.
-        .. versionchanged:: 0.20
-            Default will change from 'ovr' to 'auto' in 0.22.
     verbose : int, optional (default=0)
         For the liblinear and lbfgs solvers set verbose to any positive
         number for verbosity.
@@ -323,24 +314,20 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         When set to True, reuse the solution of the previous call to fit as
         initialization, otherwise, just erase the previous solution.
         Useless for liblinear solver.
-    n_jobs : int or None, optional (default=None)
-        Number of CPU cores used when parallelizing over classes if
-        multi_class='ovr'". This parameter is ignored when the ``solver`` is
-        set to 'liblinear' regardless of whether 'multi_class' is specified or
-        not. ``None`` means 1 unless in a :obj:`joblib.parallel_backend`
-        context. ``-1`` means using all processors.
     """
     def __init__(self, penalty='l2', tol=1e-3, C=1.,
                  fit_intercept=True, class_weight=None,
                  max_iter=10000,
-                 multi_class='auto', verbose=0, warm_start=False,
-                 n_jobs=None):
+                 multi_class='auto', verbose=0, warm_start=False):
+        if multi_class not in ('multinomial', 'auto'):
+            raise ValueError("multi_class should be 'multinomial' or " +
+                             "'auto'. Got %s." % multi_class)
         super().__init__(penalty=penalty, tol=tol, C=C,
                          fit_intercept=fit_intercept,
                          class_weight=class_weight,
                          max_iter=max_iter,
                          multi_class=multi_class, verbose=verbose,
-                         warm_start=warm_start, n_jobs=n_jobs)
+                         warm_start=warm_start)
 
     def fit(self, X, y, sample_weight=None, coef_mask=None):
         """Fit the model according to the given training data.
@@ -389,17 +376,16 @@ class MaskedCoefLogisticRegression(LogisticRegression):
                                          len(self.classes_))
 
         n_classes = len(self.classes_)
-        if multi_class == 'multinomial' and coef_mask is not None:
-            coef_mask = coef_mask.reshape(n_classes, -1)
         classes_ = self.classes_
         if n_classes < 2:
             raise ValueError("This solver needs samples of at least 2 classes"
                              " in the data, but the data contains only one"
                              " class: %r" % classes_[0])
-
-        if len(self.classes_) == 2:
+        if len(self.classes_) == 2 and multi_class == 'ovr':
             n_classes = 1
             classes_ = classes_[1:]
+        if multi_class == 'multinomial' and coef_mask is not None:
+            coef_mask = coef_mask.reshape(n_classes, -1)
 
         if self.warm_start:
             warm_start_coef = getattr(self, 'coef_', None)
@@ -410,42 +396,22 @@ class MaskedCoefLogisticRegression(LogisticRegression):
                                         self.intercept_[:, np.newaxis],
                                         axis=1)
 
-        self.coef_ = list()
         self.intercept_ = np.zeros(n_classes)
 
-        # Hack so that we iterate only once for the multinomial case.
-        if multi_class == 'multinomial':
-            classes_ = [None]
-            warm_start_coef = [warm_start_coef]
-        if warm_start_coef is None:
-            warm_start_coef = [None] * n_classes
+        fold_coefs_ = _logistic_regression_path(
+            X, y, Cs=[self.C],
+            fit_intercept=self.fit_intercept,
+            tol=self.tol, verbose=self.verbose,
+            multi_class=multi_class, max_iter=self.max_iter,
+            class_weight=self.class_weight, penalty=self.penalty,
+            check_input=False,
+            coef=warm_start_coef,
+            sample_weight=sample_weight, coef_mask=coef_mask)
 
-        path_func = delayed(_logistic_regression_path)
-
-        # The SAG solver releases the GIL so it's more efficient to use
-        # threads for this solver.
-        prefer = 'processes'
-        fold_coefs_ = Parallel(n_jobs=self.n_jobs, verbose=self.verbose,
-                               **_joblib_parallel_args(prefer=prefer))(
-            path_func(X, y, pos_class=class_, Cs=[self.C],
-                      fit_intercept=self.fit_intercept,
-                      tol=self.tol, verbose=self.verbose,
-                      multi_class=multi_class, max_iter=self.max_iter,
-                      class_weight=self.class_weight, penalty=self.penalty,
-                      check_input=False,
-                      coef=warm_start_coef_,
-                      sample_weight=sample_weight, coef_mask=coef_mask)
-            for class_, warm_start_coef_ in zip(classes_, warm_start_coef))
-
-        fold_coefs_, _, n_iter_ = zip(*fold_coefs_)
-        self.n_iter_ = np.asarray(n_iter_, dtype=np.int32)[:, 0]
-
-        if multi_class == 'multinomial':
-            self.coef_ = fold_coefs_[0][0]
-        else:
-            self.coef_ = np.asarray(fold_coefs_)
-            self.coef_ = self.coef_.reshape(n_classes, n_features +
-                                            int(self.fit_intercept))
+        fold_coefs_, _, self.n_iter_ = fold_coefs_
+        self.coef_ = np.asarray(fold_coefs_)
+        self.coef_ = self.coef_.reshape(n_classes, n_features +
+                                        int(self.fit_intercept))
 
         if self.fit_intercept:
             self.intercept_ = self.coef_[:, -1]
@@ -454,30 +420,22 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         return self
 
 
-def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
+def _logistic_regression_path(X, y, Cs=10, fit_intercept=True,
                               max_iter=100, tol=1e-4, verbose=0, coef=None,
                               class_weight=None, penalty='l2',
-                              multi_class='warn',
+                              multi_class='auto',
                               check_input=True,
                               sample_weight=None,
                               l1_ratio=None, coef_mask=None):
     """Compute a Logistic Regression model for a list of regularization
     parameters.
-    This is an implementation that uses the result of the previous model
-    to speed up computations along the set of solutions, making it faster
-    than sequentially calling LogisticRegression for the different parameters.
-    Note that there will be no speedup with liblinear solver, since it does
-    not handle warm-starting.
-    Read more in the :ref:`User Guide <logistic_regression>`.
+
     Parameters
     ----------
     X : array-like or sparse matrix, shape (n_samples, n_features)
         Input data.
     y : array-like, shape (n_samples,) or (n_samples, n_targets)
         Input data, target values.
-    pos_class : int, None
-        The class with respect to which we perform a one-vs-all fit.
-        If None, then it is assumed that the given problem is binary.
     Cs : int | array-like, shape (n_cs,)
         List of values for the regularization parameter or integer specifying
         the number of regularization parameters that should be used. In this
@@ -506,17 +464,11 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
         as ``n_samples / (n_classes * np.bincount(y))``.
         Note that these weights will be multiplied with sample_weight (passed
         through the fit method) if sample_weight is specified.
-    multi_class : str, {'ovr', 'multinomial', 'auto'}, default: 'ovr'
-        If the option chosen is 'ovr', then a binary problem is fit for each
-        label. For 'multinomial' the loss minimised is the multinomial loss fit
+    multi_class : str, {'multinomial', 'auto'}, default: 'auto'
+        For 'multinomial' the loss minimised is the multinomial loss fit
         across the entire probability distribution, *even when the data is
-        binary*. 'multinomial' is unavailable when solver='liblinear'.
-        'auto' selects 'ovr' if the data is binary, or if solver='liblinear',
+        binary*. 'auto' selects binary if the data is binary
         and otherwise selects 'multinomial'.
-        .. versionadded:: 0.18
-           Stochastic Average Gradient descent solver for 'multinomial' case.
-        .. versionchanged:: 0.20
-            Default will change from 'ovr' to 'auto' in 0.22.
     check_input : bool, default True
         If False, the input arrays X and y will not be checked.
     sample_weight : array-like, shape(n_samples,) optional
@@ -536,12 +488,6 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
         Grid of Cs used for cross-validation.
     n_iter : array, shape (n_cs,)
         Actual number of iteration for each Cs.
-    Notes
-    -----
-    You might get slightly different results with the solver liblinear than
-    with the others since this uses LIBLINEAR which penalizes the intercept.
-    .. versionchanged:: 0.19
-        The "copy" parameter was removed.
     """
     solver = 'lbfgs'
     if isinstance(Cs, numbers.Integral):
@@ -558,11 +504,6 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
     classes = np.unique(y)
 
     multi_class = _check_multi_class(multi_class, solver, len(classes))
-    if pos_class is None and multi_class != 'multinomial':
-        if (classes.size > 2):
-            raise ValueError('To fit OvR, use the pos_class argument')
-        # np.unique(y) gives labels in sorted order.
-        pos_class = classes[1]
 
     # If sample weights exist, convert them to array (support for lists)
     # and check length
@@ -587,7 +528,7 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
         coef_size = n_features
         w0 = np.zeros(n_features + int(fit_intercept), dtype=X.dtype)
         mask_classes = np.array([-1, 1])
-        mask = (y == pos_class)
+        mask = (y == 1)
         y_bin = np.ones(y.shape, dtype=X.dtype)
         y_bin[~mask] = -1.
         # for compute_class_weight
@@ -617,25 +558,7 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
                     '%d or %d' % (coef.size, n_features, w0.size))
             w0[:coef.size] = coef
         else:
-            # For binary problems coef.shape[0] should be 1, otherwise it
-            # should be classes.size.
-            n_classes = classes.size
-            if n_classes == 2:
-                n_classes = 1
-
-            if (coef.shape[0] != n_classes or
-                    coef.shape[1] not in (n_features, n_features + 1)):
-                raise ValueError(
-                    'Initialization coef is of shape (%d, %d), expected '
-                    'shape (%d, %d) or (%d, %d)' % (
-                        coef.shape[0], coef.shape[1], classes.size,
-                        n_features, classes.size, n_features + 1))
-
-            if n_classes == 1:
-                w0[0, :coef.shape[1]] = -coef
-                w0[1, :coef.shape[1]] = coef
-            else:
-                w0[:, :coef.shape[1]] = coef
+            w0[:, :coef.shape[1]] = coef
 
     # Mask initial array
     if coef_mask is not None:
@@ -727,8 +650,6 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
                 multi_w0 = np.reshape(w0, (-1, n_classes)).T
             if coef_mask is not None:
                 multi_w0[:, :n_features] *= coef_mask
-            if n_classes == 2:
-                multi_w0 = multi_w0[1][np.newaxis, :]
             coefs.append(multi_w0.copy())
         else:
             if coef_mask is not None:
