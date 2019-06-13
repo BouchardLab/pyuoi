@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 
 from numpy.testing import assert_array_equal, assert_allclose, assert_equal
@@ -95,7 +96,8 @@ def test_l1logistic_binary():
 
 
 def test_l1logistic_binary_multinomial():
-    """Test that binary L1 Logistic runs in the UoI framework."""
+    """Test that binary L1 Logistic runs in the UoI framework
+    using multi_class='multinomial'."""
     n_inf = 10
     X, y, w, b = make_classification(n_samples=200,
                                      random_state=6,
@@ -107,6 +109,13 @@ def test_l1logistic_binary_multinomial():
     l1log = UoI_L1Logistic(random_state=10, multi_class='multinomial').fit(X, y)
     l1log = UoI_L1Logistic(random_state=10, fit_intercept=False,
                            multi_class='multinomial').fit(X, y)
+
+
+def test_l1logistic_no_ovr():
+    """Test that binary L1 Logistic model raises an error for
+    multiclass='ovr'."""
+    with pytest.raises(ValueError):
+        UoI_L1Logistic(multi_class='ovr')
 
 
 def test_l1logistic_multiclass():
