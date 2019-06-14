@@ -7,6 +7,7 @@ from sklearn.linear_model import ElasticNet
 from sklearn.metrics import r2_score
 
 from pyuoi import UoI_ElasticNet
+from pyuoi.utils import make_linear_regression
 
 
 def test_variable_selection():
@@ -120,22 +121,35 @@ def test_get_reg_params():
             assert_allclose(true[key], value)
 
 
-def test_intercept():
-    """Test that UoI ElasticNet properly calculates the intercept when centering
-    the response variable."""
+def test_intercept_and_coefs_no_selection():
+    """Test that UoI Lasso properly calculates the intercept with and without
+    standardization."""
+    # create line model
+    X, y, beta, intercept = make_linear_regression(
+        n_samples=500,
+        n_features=2,
+        n_informative=2,
+        snr=10.,
+        include_intercept=True,
+        random_state=2332)
 
-    X = np.array([
-        [-1, 2],
-        [0, 1],
-        [1, 3],
-        [4, 3]], dtype=float)
-    y = np.array([8, 5, 14, 17], dtype=float)
-
+    # without standardization
     enet = UoI_ElasticNet(
-        fit_intercept=True)
+        standardize=False,
+        fit_intercept=True
+    )
     enet.fit(X, y)
+    assert_allclose(enet.intercept_, intercept, rtol=0.25)
+    assert_allclose(enet.coef_, beta, rtol=0.25)
 
-    assert enet.intercept_ == (np.mean(y) - np.dot(X.mean(axis=0), enet.coef_))
+    # with standardization
+    enet = UoI_ElasticNet(
+        standardize=True,
+        fit_intercept=True
+    )
+    enet.fit(X, y)
+    assert_allclose(enet.intercept_, intercept, rtol=0.25)
+    assert_allclose(enet.coef_, beta, rtol=0.25)
 
 
 def test_enet_selection_sweep():

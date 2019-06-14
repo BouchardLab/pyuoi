@@ -7,6 +7,7 @@ from sklearn.linear_model import Lasso
 from sklearn.metrics import r2_score
 
 from pyuoi import UoI_Lasso
+from pyuoi.utils import make_linear_regression
 
 
 def test_variable_selection():
@@ -114,23 +115,35 @@ def test_get_reg_params():
         assert_allclose(list(estimate.values()), list(true.values()))
 
 
-def test_intercept():
-    """Test that UoI Lasso properly calculates the intercept when centering
-    the response variable."""
+def test_intercept_and_coefs_no_selection():
+    """Test that UoI Lasso properly calculates the intercept with and without
+    standardization."""
+    # create line model
+    X, y, beta, intercept = make_linear_regression(
+        n_samples=500,
+        n_features=2,
+        n_informative=2,
+        snr=10.,
+        include_intercept=True,
+        random_state=2332)
 
-    X = np.array([
-        [-1, 2],
-        [0, 1],
-        [1, 3],
-        [4, 3]], dtype=float)
-    y = np.array([8, 5, 14, 17], dtype=float)
-
+    # without standardization
     lasso = UoI_Lasso(
-        fit_intercept=True)
+        standardize=False,
+        fit_intercept=True
+    )
     lasso.fit(X, y)
+    assert_allclose(lasso.intercept_, intercept, rtol=0.25)
+    assert_allclose(lasso.coef_, beta, rtol=0.25)
 
-    assert lasso.intercept_ == (np.mean(y) -
-                                np.dot(X.mean(axis=0), lasso.coef_))
+    # with standardization
+    lasso = UoI_Lasso(
+        standardize=True,
+        fit_intercept=True
+    )
+    lasso.fit(X, y)
+    assert_allclose(lasso.intercept_, intercept, rtol=0.25)
+    assert_allclose(lasso.coef_, beta, rtol=0.25)
 
 
 def test_lasso_selection_sweep():

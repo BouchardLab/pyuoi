@@ -30,6 +30,101 @@ def sigmoid(x):
     return np.exp(-np.logaddexp(0, -x))
 
 
+def make_linear_regression(n_samples=100, n_features=5, n_informative=2,
+                           X_loc=3., X_scale=1., snr=5.,
+                           beta=None, beta_low=1., beta_high=3.,
+                           include_intercept=False, random_state=None):
+    """Make a Linear regression dataset.
+
+    Parameters
+    ----------
+    n_samples : int
+        The number of samples to make.
+
+    n_features : int
+        The number of feature to use.
+
+    n_informative : int
+        The number of feature with non-zero weights.
+
+    X_loc : float
+        The mean of the features in the design matrix.
+
+    X_scale : float
+        The standard deviation of the features in the design matrix.
+
+    snr : float
+        The signal-to-noise ratio, which informs the variance of the noise
+        term.
+
+    beta : array-like or None
+        The beta values to use. If None, beta values will be drawn from a
+        uniform distribution.
+
+    beta_low : float
+        The lower bound for the beta values.
+
+    beta_high : float
+        The upper bound for the beta values.
+
+    include_intercept : bool
+        If true, includes an intercept in the model, if False, the intercept is
+        set to 0.
+
+    random_state : int, np.random.RandomState instance, or None
+        Random number seed or state.
+
+    Returns
+    -------
+    X : ndarray, shape (n_samples, n_features)
+        The design matrix.
+
+    y : ndarray, shape (n_samples,)
+        The response vector.
+
+    beta : ndarray, shape (n_features,)
+        The feature coefficients.
+
+    intercept : float
+        The intercept. If include_intercept is False, then intercept is zero.
+    """
+    rng = check_random_state(random_state)
+
+    # create design matrix
+    X = rng.normal(loc=X_loc,
+                   scale=X_scale,
+                   size=(n_samples, n_features))
+
+    # create coefficients
+    if beta is None:
+        # draw beta values from gamma distribution
+        beta = rng.uniform(low=beta_low,
+                           high=beta_high,
+                           size=n_features)
+
+        # choose sparsity mask
+        zero_idx = np.zeros(n_features)
+        zero_idx[:n_informative] = 1
+        rng.shuffle(zero_idx)
+        # randomly assign beta elements to zero
+        beta = beta * zero_idx
+
+    # create intercept
+    if include_intercept:
+        intercept = rng.uniform(low=beta_low, high=beta_high)
+    else:
+        intercept = 0
+
+    # draw response variable
+    eta = intercept + np.dot(X, beta)
+    signal_var = np.var(eta)
+    noise_var = signal_var / snr
+    noise = rng.normal(loc=0, scale=np.sqrt(noise_var), size=eta.shape)
+    y = eta + noise
+
+    return X, y, beta, intercept
+
+
 def make_classification(n_samples=100, n_features=20, n_informative=2,
                         n_classes=2, shared_support=False, random_state=None,
                         w_scale=1., include_intercept=False):
