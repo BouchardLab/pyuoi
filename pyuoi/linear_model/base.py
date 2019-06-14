@@ -647,7 +647,7 @@ class AbstractUoIGeneralizedLinearRegressor(
         This implementation will account for multi-class classification.
         """
         supports = intersection(coef, thresholds)
-        if self.output_dim > 2 and self.shared_support:
+        if self.output_dim > 1 and self.shared_support:
             n_features = supports.shape[-1] // self.output_dim
             supports = supports.reshape((-1, self.output_dim, n_features))
             supports = np.sum(supports, axis=-2).astype(bool)
