@@ -33,7 +33,7 @@ class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
                  warm_start=False, estimation_score='acc',
                  copy_X=True, fit_intercept=True, normalize=True,
                  random_state=None, max_iter=10000, tol=1e-3,
-                 shared_support=True, comm=None):
+                 shared_support=True, comm=None, logger=None):
         super(UoI_L1Logistic, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -46,7 +46,9 @@ class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
             fit_intercept=fit_intercept,
             normalize=normalize,
             shared_support=shared_support,
-            comm=comm)
+            comm=comm,
+            logger=logger
+        )
         self.n_C = n_C
         self.Cs = None
         self.__selection_lm = MaskedCoefLogisticRegression(
@@ -106,6 +108,16 @@ class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
             if self._n_classes == 2:
                 n = 1
             self.intercept_ = np.zeros(n)
+
+    def fit(self, X, y, verbose=False):
+        self._enc = LabelEncoder().fit(y)
+        self.classes_ = self._enc.classes_
+        return super(UoI_L1Logistic, self).fit(X, self._enc.transform(y), verbose=verbose)
+
+    def predict(self, X):
+        if self._enc is None:
+            raise ValueError("fit must be called before predict")
+        return self._enc.inverse_transform(super(UoI_L1Logistic, self).predict(X))
 
 
 def fit_intercept_fixed_coef(X, coef_, y, n_classes):

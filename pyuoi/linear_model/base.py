@@ -133,10 +133,8 @@ class AbstractUoILinearModel(
 
         if logger is None:
             self._logger = logging.getLogger(name="uoi_linear_model")
-            self._logger.setLevel(logging.INFO)
 
             handler = logging.StreamHandler(sys.stdout)
-            handler.setLevel(logging.INFO)
             if self.comm is not None and self.comm.Get_size() > 1:
                 r, s = self.comm.Get_rank(), self.comm.Get_size()
                 fmt = "%(asctime)s - %(name)s " + str(r).rjust(int(np.log10(s))+1) + " - %(levelname)s - %(message)s"
@@ -232,7 +230,6 @@ class AbstractUoILinearModel(
             displaying progress. Utilizes tqdm to indicate progress on
             bootstraps.
         """
-
         if verbose:
             self._logger.setLevel(logging.DEBUG)
         else:
@@ -669,7 +666,7 @@ class AbstractUoILinearClassifier(
                  estimation_score='acc', multi_class='ovr',
                  copy_X=True, fit_intercept=True, normalize=True,
                  random_state=None, max_iter=1000, shared_support=True,
-                 comm=None):
+                 comm=None, logger=None):
         super(AbstractUoILinearClassifier, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -678,7 +675,7 @@ class AbstractUoILinearClassifier(
             stability_selection=stability_selection,
             random_state=random_state,
             shared_support=shared_support,
-            comm=comm,
+            comm=comm, logger=logger,
         )
         self.fit_intercept = fit_intercept
         self.normalize = normalize

@@ -20,7 +20,7 @@ class UoI_Poisson(AbstractUoILinearRegressor):
                  estimation_score='log', warm_start=True, eps=1e-3,
                  tol=1e-5, copy_X=True, fit_intercept=True,
                  normalize=True, random_state=None, max_iter=1000,
-                 comm=None):
+                 comm=None, logger=None):
         super(UoI_Poisson, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -32,7 +32,9 @@ class UoI_Poisson(AbstractUoILinearRegressor):
             fit_intercept=fit_intercept,
             normalize=normalize,
             random_state=random_state,
-            comm=comm)
+            comm=comm,
+            logger=logger
+        )
         self.n_lambdas = n_lambdas
         self.alphas = alphas
         self.n_alphas = len(alphas)

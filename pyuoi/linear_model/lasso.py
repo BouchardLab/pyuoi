@@ -11,7 +11,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
                  eps=1e-3, warm_start=True, estimation_score='r2',
                  copy_X=True, fit_intercept=True, normalize=True,
                  random_state=None, max_iter=1000,
-                 comm=None):
+                 comm=None, logger=None):
         super(UoI_Lasso, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -22,8 +22,9 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
             fit_intercept=fit_intercept,
             normalize=normalize,
             random_state=random_state,
+            estimation_score=estimation_score,
             comm=comm,
-            estimation_score=estimation_score
+            logger=logger
         )
         self.n_lambdas = n_lambdas
         self.eps = eps
