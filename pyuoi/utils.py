@@ -34,7 +34,7 @@ def make_linear_regression(n_samples=100, n_features=5, n_informative=2,
                            X_loc=3., X_scale=1., snr=5.,
                            beta=None, beta_low=1., beta_high=3.,
                            include_intercept=False, random_state=None):
-    """Make a Poisson regression dataset.
+    """Make a Linear regression dataset.
 
     Parameters
     ----------
@@ -53,15 +53,19 @@ def make_linear_regression(n_samples=100, n_features=5, n_informative=2,
     X_scale : float
         The standard deviation of the features in the design matrix.
 
+    snr : float
+        The signal-to-noise ratio, which informs the variance of the noise
+        term.
+
     beta : array-like or None
-        The beta values to use. If None, beta values will be drawn from a gamma
-        distribution.
+        The beta values to use. If None, beta values will be drawn from a
+        uniform distribution.
 
-    beta_shape : float
-        The shape parameter for the beta values.
+    beta_low : float
+        The lower bound for the beta values.
 
-    beta_scale : float
-        The scale parameter for the beta values.
+    beta_high : float
+        The upper bound for the beta values.
 
     include_intercept : bool
         If true, includes an intercept in the model, if False, the intercept is
