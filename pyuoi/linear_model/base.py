@@ -516,7 +516,7 @@ class AbstractUoILinearRegressor(
             self.coef_ *= sy.scale_[:, np.newaxis]
             if self.fit_intercept:
                 self.intercept_ *= sy.scale_
-                self.intercept_ += sy.mean_ + np.dot(sX.mean_ * sX.scale_,
+                self.intercept_ += sy.mean_ - np.dot(sX.mean_,
                                                      self.coef_.T)
         self.coef_ = np.squeeze(self.coef_)
 
