@@ -512,7 +512,7 @@ class AbstractUoILinearRegressor(
                  estimation_frac=0.9, stability_selection=1.,
                  estimation_score='r2', copy_X=True, fit_intercept=True,
                  standardize=True, random_state=None, max_iter=None,
-                 comm=None):
+                 comm=None, logger=None):
         super(AbstractUoILinearRegressor, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -524,6 +524,7 @@ class AbstractUoILinearRegressor(
             max_iter=max_iter,
             random_state=random_state,
             comm=comm,
+            logger=logger
         )
 
         if estimation_score not in self._valid_estimation_metrics:
