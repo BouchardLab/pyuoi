@@ -5,13 +5,99 @@ from .base import AbstractUoILinearRegressor
 
 
 class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
+    """ UoI Lasso model.
+
+    Parameters
+    ----------
+    n_boots_sel : int, default 48
+        The number of data bootstraps to use in the selection module.
+        Increasing this number will make selection more strict.
+
+    n_boots_est : int, default 48
+        The number of data bootstraps to use in the estimation module.
+        Increasing this number will relax selection and decrease variance.
+
+    n_lambdas : int, default 48
+        The number of regularization values to use for selection.
+
+    alpha : list or ndarray of floats
+        The parameter that trades off L1 versus L2 regularization for a given
+        lambda.
+
+    selection_frac : float, default 0.9
+        The fraction of the dataset to use for training in each resampled
+        bootstrap, during the selection module. Small values of this parameter
+        imply larger "perturbations" to the dataset.
+
+    estimation_frac : float, default 0.9
+        The fraction of the dataset to use for training in each resampled
+        bootstrap, during the estimation module. The remaining data is used
+        to obtain validation scores. Small values of this parameters imply
+        larger "perturbations" to the dataset.
+
+    stability_selection : int, float, or array-like, default 1
+        If int, treated as the number of bootstraps that a feature must
+        appear in to guarantee placement in selection profile. If float,
+        must be between 0 and 1, and is instead the proportion of
+        bootstraps. If array-like, must consist of either ints or floats
+        between 0 and 1. In this case, each entry in the array-like object
+        will act as a separate threshold for placement in the selection
+        profile.
+
+    estimation_score : str "r2" | "AIC", | "AICc" | "BIC"
+        Objective used to choose the best estimates per bootstrap.
+
+    warm_start : bool, default True
+        When set to ``True``, reuse the solution of the previous call to fit as
+        initialization, otherwise, just erase the previous solution
+
+    eps : float, default 1e-3
+        Length of the lasso path. eps=1e-3 means that
+        alpha_min / alpha_max = 1e-3
+
+    copy_X : boolean, default True
+        If ``True``, X will be copied; else, it may be overwritten.
+
+    fit_intercept : boolean, default True
+        Whether to calculate the intercept for this model. If set
+        to False, no intercept will be used in calculations
+        (e.g. data is expected to be already centered).
+
+    standardize : boolean, default False
+        If True, the regressors X will be standardized before regression by
+        subtracting the mean and dividing by their standard deviations.
+
+    max_iter : int, default None
+        Maximum number of iterations for iterative fitting methods.
+
+    random_state : int, RandomState instance or None, default None
+        The seed of the pseudo random number generator that selects a random
+        feature to update.  If int, random_state is the seed used by the random
+        number generator; If RandomState instance, random_state is the random
+        number generator; If None, the random number generator is the
+        RandomState instance used by `np.random`.
+
+    comm : MPI communicator, default None
+        If passed, the selection and estimation steps are parallelized.
+
+    Attributes
+    ----------
+    coef_ : array, shape (n_features,) or (n_targets, n_features)
+        Estimated coefficients for the linear regression problem.
+
+    intercept_ : float
+        Independent term in the linear model.
+
+    supports_ : array, shape
+        boolean array indicating whether a given regressor (column) is selected
+        for estimation for a given regularization parameter value (row).
+    """
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, n_lambdas=48, stability_selection=1.,
-                 eps=1e-3, warm_start=True, estimation_score='r2',
-                 copy_X=True, fit_intercept=True, normalize=True,
-                 random_state=None, max_iter=1000,
-                 comm=None, logger=None):
+                 estimation_score='r2', eps=1e-3, warm_start=True,
+                 copy_X=True, fit_intercept=True, standardize=True,
+                 max_iter=1000, random_state=None, comm=None, logger=None):
         super(UoI_Lasso, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -20,29 +106,21 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
             stability_selection=stability_selection,
             copy_X=copy_X,
             fit_intercept=fit_intercept,
-            normalize=normalize,
+            standardize=standardize,
             random_state=random_state,
             estimation_score=estimation_score,
             comm=comm,
+            estimation_score=estimation_score,
+            max_iter=max_iter,
             logger=logger
         )
         self.n_lambdas = n_lambdas
         self.eps = eps
-        self.__selection_lm = Lasso(
-            normalize=normalize,
+        self._selection_lm = Lasso(
             max_iter=max_iter,
             warm_start=warm_start,
-            random_state=random_state
-        )
-        self.__estimation_lm = LinearRegression()
-
-    @property
-    def estimation_lm(self):
-        return self.__estimation_lm
-
-    @property
-    def selection_lm(self):
-        return self.__selection_lm
+            random_state=random_state)
+        self._estimation_lm = LinearRegression()
 
     def get_reg_params(self, X, y):
         alphas = _alpha_grid(
@@ -50,15 +128,5 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
             l1_ratio=1.0,
             fit_intercept=self.fit_intercept,
             eps=self.eps,
-            n_alphas=self.n_lambdas,
-            normalize=self.normalize
-        )
+            n_alphas=self.n_lambdas)
         return [{'alpha': a} for a in alphas]
-
-    def _fit_intercept(self, X_offset, y_offset, X_scale):
-        """"Fit a model with an intercept and fixed coefficients.
-
-        This is used to re-fit the intercept after the coefficients are
-        estimated.
-        """
-        self._set_intercept(X_offset, y_offset, X_scale)

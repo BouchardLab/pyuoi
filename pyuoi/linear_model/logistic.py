@@ -5,35 +5,129 @@ from sklearn.preprocessing import LabelEncoder, LabelBinarizer
 from sklearn.svm import l1_min_c
 from sklearn.metrics import log_loss
 from sklearn.exceptions import ConvergenceWarning
-from sklearn.utils._joblib import Parallel, delayed
-from sklearn.utils import (check_X_y, check_random_state, compute_class_weight,
+from sklearn.utils import (check_X_y, compute_class_weight,
                            check_consistent_length, check_array)
 from sklearn.utils.multiclass import check_classification_targets
-from sklearn.utils.fixes import _joblib_parallel_args
-from sklearn.utils.extmath import safe_sparse_dot, log_logistic
+from sklearn.utils.extmath import safe_sparse_dot, log_logistic, squared_norm
 from sklearn.linear_model.logistic import (_check_multi_class,
-                                           _multinomial_loss,
                                            _intercept_dot)
 
 from scipy.optimize import minimize
 from scipy import optimize
-from scipy.special import expit
+from scipy.special import expit, logsumexp
 
 import numpy as np
 
-from .base import AbstractUoILinearClassifier
+from .base import AbstractUoIGeneralizedLinearRegressor
 from ..utils import sigmoid, softmax
-from ..lbfgs import fmin_lbfgs
+from ..lbfgs import fmin_lbfgs, AllZeroLBFGSError
 
 
-class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
+class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
 
+    metrics = AbstractUoIGeneralizedLinearRegressor._valid_estimation_metrics
+    _valid_estimation_metrics = metrics + ('acc',)
+
+    """ UoI L1 Logistic model.
+
+    Parameters
+    ----------
+    n_boots_sel : int, default 48
+        The number of data bootstraps to use in the selection module.
+        Increasing this number will make selection more strict.
+
+    n_boots_est : int, default 48
+        The number of data bootstraps to use in the estimation module.
+        Increasing this number will relax selection and decrease variance.
+
+    n_lambdas : int, default 48
+        The number of regularization values to use for selection.
+
+    alpha : list or ndarray of floats
+        The parameter that trades off L1 versus L2 regularization for a given
+        lambda.
+
+    selection_frac : float, default 0.9
+        The fraction of the dataset to use for training in each resampled
+        bootstrap, during the selection module. Small values of this parameter
+        imply larger "perturbations" to the dataset.
+
+    estimation_frac : float, default 0.9
+        The fraction of the dataset to use for training in each resampled
+        bootstrap, during the estimation module. The remaining data is used
+        to obtain validation scores. Small values of this parameters imply
+        larger "perturbations" to the dataset.
+
+    stability_selection : int, float, or array-like, default 1
+        If int, treated as the number of bootstraps that a feature must
+        appear in to guarantee placement in selection profile. If float,
+        must be between 0 and 1, and is instead the proportion of
+        bootstraps. If array-like, must consist of either ints or floats
+        between 0 and 1. In this case, each entry in the array-like object
+        will act as a separate threshold for placement in the selection
+        profile.
+
+    estimation_score : str "acc" | "log" | "AIC", | "AICc" | "BIC"
+        Objective used to choose the best estimates per bootstrap.
+
+    multi_class : str "auto" | "multinomial"
+    For "multinomial" the loss minimised is the multinomial loss fit across the
+    entire probability distribution, even when the data is binary.
+    "auto" selects binary if the data is binary, and otherwise selects
+    "multinomial".
+
+    warm_start : bool, default True
+        When set to ``True``, reuse the solution of the previous call to fit as
+        initialization, otherwise, just erase the previous solution
+
+    fit_intercept : boolean, default True
+        Whether to calculate the intercept for this model. If set
+        to False, no intercept will be used in calculations
+        (e.g. data is expected to be already centered).
+
+    standardize : boolean, default False
+        If True, the regressors X will be standardized before regression by
+        subtracting the mean and dividing by their standard deviations.
+
+    shared_support : bool, default True
+        For models with more than one output (multinomial logistic regression)
+        this determines whether all outputs share the same support or can
+        have independent supports.
+
+    max_iter : int, default 10000
+        Maximum number of iterations for iterative fitting methods.
+
+    tol : float, default 1e-3
+        Stopping criteria for solver.
+
+    random_state : int, RandomState instance or None, default None
+        The seed of the pseudo random number generator that selects a random
+        feature to update.  If int, random_state is the seed used by the random
+        number generator; If RandomState instance, random_state is the random
+        number generator; If None, the random number generator is the
+        RandomState instance used by `np.random`.
+
+    comm : MPI communicator, default None
+        If passed, the selection and estimation steps are parallelized.
+
+    Attributes
+    ----------
+    coef_ : array, shape (n_features,) or (n_targets, n_features)
+        Estimated coefficients for the linear regression problem.
+
+    intercept_ : float
+        Independent term in the linear model.
+
+    supports_ : array, shape
+        boolean array indicating whether a given regressor (column) is selected
+        for estimation for a given regularization parameter value (row).
+    """
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, n_C=48, stability_selection=1.,
-                 warm_start=False, estimation_score='acc',
-                 copy_X=True, fit_intercept=True, normalize=True,
-                 random_state=None, max_iter=10000, tol=1e-3,
-                 shared_support=True, comm=None, logger=None):
+                 estimation_score='acc', multi_class='auto',
+                 shared_support=True, warm_start=False, fit_intercept=True,
+                 standardize=True, max_iter=10000, tol=1e-3, random_state=None,
+                 comm=None, logger=None):
         super(UoI_L1Logistic, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -42,42 +136,31 @@ class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
             stability_selection=stability_selection,
             estimation_score=estimation_score,
             random_state=random_state,
-            copy_X=copy_X,
             fit_intercept=fit_intercept,
-            normalize=normalize,
+            standardize=standardize,
             shared_support=shared_support,
             comm=comm,
             logger=logger
         )
         self.n_C = n_C
         self.Cs = None
-        self.__selection_lm = MaskedCoefLogisticRegression(
+        self.multi_class = multi_class
+        self.tol = tol
+        self.solver = 'lbfgs'
+        self._selection_lm = MaskedCoefLogisticRegression(
             penalty='l1',
             max_iter=max_iter,
             warm_start=warm_start,
-            random_state=random_state,
-            multi_class='auto',
+            multi_class=multi_class,
             fit_intercept=fit_intercept,
             tol=tol)
-        # sklearn cannot do LogisticRegression without penalization, due to the
-        # ill-posed nature of the problem. We may want to set C=np.inf for no
-        # penalization, but we risk no convergence.
 
-        self.__estimation_lm = MaskedCoefLogisticRegression(
+        self._estimation_lm = MaskedCoefLogisticRegression(
             C=np.inf,
-            random_state=random_state,
-            multi_class='auto',
+            multi_class=multi_class,
             fit_intercept=fit_intercept,
             max_iter=max_iter,
             tol=tol)
-
-    @property
-    def estimation_lm(self):
-        return self.__estimation_lm
-
-    @property
-    def selection_lm(self):
-        return self.__selection_lm
 
     def get_reg_params(self, X, y):
         if self.Cs is None:
@@ -92,7 +175,7 @@ class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
 
         This is used in cases where the model has no support selected.
         """
-        return LogisticInterceptFitterNoFeatures(y, self._n_classes)
+        return LogisticInterceptFitterNoFeatures(y, self.output_dim)
 
     def _fit_intercept(self, X, y):
         """"Fit a model with an intercept and fixed coefficients.
@@ -102,12 +185,22 @@ class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
         """
         if self.fit_intercept:
             self.intercept_ = fit_intercept_fixed_coef(X, self.coef_, y,
-                                                       self._n_classes)
+                                                       self.output_dim)
         else:
-            n = self._n_classes
-            if self._n_classes == 2:
-                n = 1
-            self.intercept_ = np.zeros(n)
+            self.intercept_ = np.zeros(self.output_dim)
+
+    def _pre_fit(self, X, y):
+        X, y = super()._pre_fit(X, y)
+        le = LabelEncoder()
+        y = le.fit_transform(y)
+        self.classes_ = le.classes_
+        if self.classes_.size > 2:
+            self.output_dim = self.classes_.size
+        elif self.multi_class == 'multinomial':
+            self.output_dim = 2
+        else:
+            self.output_dim = 1
+        return X, y
 
     def fit(self, X, y, verbose=False):
         self._enc = LabelEncoder().fit(y)
@@ -120,16 +213,16 @@ class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
         return self._enc.inverse_transform(super(UoI_L1Logistic, self).predict(X))
 
 
-def fit_intercept_fixed_coef(X, coef_, y, n_classes):
+def fit_intercept_fixed_coef(X, coef_, y, output_dim):
     """Optimize the likelihood w.r.t. the intercept for a logistic
     model."""
-    if n_classes == 2:
+    if output_dim == 1:
         def f_df(intercept):
             py = sigmoid(X.dot(coef_.T) + intercept)
             dfdb = py.mean() - y.mean()
             return log_loss(y, py), np.atleast_1d(dfdb)
 
-        opt = minimize(f_df, np.atleast_1d(np.zeros(n_classes - 1)),
+        opt = minimize(f_df, np.atleast_1d(np.zeros(1)),
                        method='L-BFGS-B', jac=True)
         return opt.x
     else:
@@ -141,15 +234,15 @@ def fit_intercept_fixed_coef(X, coef_, y, n_classes):
                 if ii == 0:
                     return -pyi[1:]
                 else:
-                    rval = np.eye(n_classes - 1)[ii - 1]
+                    rval = np.eye(output_dim - 1)[ii - 1]
                     rval -= pyi[1:]
                     return rval
 
             dfdb = np.zeros_like(short_intercept)
             for yi, pyi in zip(y, py):
                 dfdb -= dlogpi_dintk(yi, pyi) / y.size
-            return log_loss(y, py, labels=np.arange(n_classes)), dfdb
-        opt = minimize(f_df, np.atleast_1d(np.zeros(n_classes - 1)),
+            return log_loss(y, py, labels=np.arange(output_dim)), dfdb
+        opt = minimize(f_df, np.atleast_1d(np.zeros(output_dim - 1)),
                        method='L-BFGS-B', jac=True)
         intercept = np.concatenate([np.atleast_1d(1.), opt.x])
         return intercept - intercept.max()
@@ -163,19 +256,19 @@ class LogisticInterceptFitterNoFeatures(object):
     y : ndarray
         Class labels.
     """
-    def __init__(self, y, n_classes):
-        self._n_classes = n_classes
+    def __init__(self, y, output_dim):
+        self.output_dim = output_dim
         eps = 1e-10
-        if n_classes == 2:
+        if output_dim == 1:
             p = y.mean(axis=0)
             p = np.minimum(np.maximum(p, eps), 1 - eps)
             self.intercept_ = np.log(p / (1. - p))
         else:
             py = np.equal(y[:, np.newaxis],
-                          np.arange(self._n_classes)[np.newaxis]).mean(axis=0)
+                          np.arange(self.output_dim)[np.newaxis]).mean(axis=0)
             n_included = np.count_nonzero(py)
-            if n_included < self._n_classes:
-                new_mass = eps * (self._n_classes - n_included)
+            if n_included < self.output_dim:
+                new_mass = eps * (self.output_dim - n_included)
                 py *= (1. - new_mass)
                 py[np.equal(py, 0.)] = eps
             intercept = np.log(py)
@@ -183,14 +276,14 @@ class LogisticInterceptFitterNoFeatures(object):
 
     def predict(self, X, mask=None):
         n_samples = X.shape[0]
-        if self._n_classes == 2:
+        if self.output_dim == 1:
             return np.tile(int(self.intercept_ >= 0.), n_samples)
         else:
             return np.tile(int(np.argmax(self.intercept_)), n_samples)
 
     def predict_proba(self, X, mask=None):
         n_samples = X.shape[0]
-        if self._n_classes == 2:
+        if self.output_dim == 1:
             return np.tile(sigmoid(self.intercept_), n_samples)
         else:
             return np.tile(softmax(self.intercept_)[np.newaxis], (n_samples, 1))
@@ -219,56 +312,34 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         as ``n_samples / (n_classes * np.bincount(y))``.
         Note that these weights will be multiplied with sample_weight (passed
         through the fit method) if sample_weight is specified.
-        .. versionadded:: 0.17
-           *class_weight='balanced'*
-    random_state : int, RandomState instance or None, optional (default=None)
-        The seed of the pseudo random number generator to use when shuffling
-        the data.  If int, random_state is the seed used by the random number
-        generator; If RandomState instance, random_state is the random number
-        generator; If None, the random number generator is the RandomState
-        instance used by `np.random`. Used when ``solver`` == 'sag' or
-        'liblinear'.
     max_iter : int, optional (default=100)
         Maximum number of iterations taken for the solvers to converge.
-    multi_class : str, {'ovr', 'multinomial', 'auto'}, optional (default='ovr')
-        If the option chosen is 'ovr', then a binary problem is fit for each
-        label. For 'multinomial' the loss minimised is the multinomial loss fit
+    multi_class : str, {'multinomial', 'auto'}, optional (default='auto')
+        For 'multinomial' the loss minimised is the multinomial loss fit
         across the entire probability distribution, *even when the data is
-        binary*. 'multinomial' is unavailable when solver='liblinear'.
-        'auto' selects 'ovr' if the data is binary, or if solver='liblinear',
+        binary*. 'auto' selects binary if the data is binary,
         and otherwise selects 'multinomial'.
-        .. versionadded:: 0.18
-           Stochastic Average Gradient descent solver for 'multinomial' case.
-        .. versionchanged:: 0.20
-            Default will change from 'ovr' to 'auto' in 0.22.
     verbose : int, optional (default=0)
         For the liblinear and lbfgs solvers set verbose to any positive
         number for verbosity.
     warm_start : bool, optional (default=False)
         When set to True, reuse the solution of the previous call to fit as
         initialization, otherwise, just erase the previous solution.
-        Useless for liblinear solver. See :term:`the Glossary <warm_start>`.
-        .. versionadded:: 0.17
-           *warm_start* to support *lbfgs*, *newton-cg*, *sag*, *saga* solvers.
-    n_jobs : int or None, optional (default=None)
-        Number of CPU cores used when parallelizing over classes if
-        multi_class='ovr'". This parameter is ignored when the ``solver`` is
-        set to 'liblinear' regardless of whether 'multi_class' is specified or
-        not. ``None`` means 1 unless in a :obj:`joblib.parallel_backend`
-        context. ``-1`` means using all processors.
-        See :term:`Glossary <n_jobs>` for more details.
+        Useless for liblinear solver.
     """
     def __init__(self, penalty='l2', tol=1e-3, C=1.,
                  fit_intercept=True, class_weight=None,
-                 random_state=None, max_iter=10000,
-                 multi_class='auto', verbose=0, warm_start=False,
-                 n_jobs=None):
+                 max_iter=10000,
+                 multi_class='auto', verbose=0, warm_start=False):
+        if multi_class not in ('multinomial', 'auto'):
+            raise ValueError("multi_class should be 'multinomial' or " +
+                             "'auto'. Got %s." % multi_class)
         super().__init__(penalty=penalty, tol=tol, C=C,
                          fit_intercept=fit_intercept,
                          class_weight=class_weight,
-                         random_state=random_state, max_iter=max_iter,
+                         max_iter=max_iter,
                          multi_class=multi_class, verbose=verbose,
-                         warm_start=warm_start, n_jobs=n_jobs)
+                         warm_start=warm_start)
 
     def fit(self, X, y, sample_weight=None, coef_mask=None):
         """Fit the model according to the given training data.
@@ -317,17 +388,16 @@ class MaskedCoefLogisticRegression(LogisticRegression):
                                          len(self.classes_))
 
         n_classes = len(self.classes_)
-        if multi_class == 'multinomial' and coef_mask is not None:
-            coef_mask = coef_mask.reshape(n_classes, -1)
         classes_ = self.classes_
         if n_classes < 2:
             raise ValueError("This solver needs samples of at least 2 classes"
                              " in the data, but the data contains only one"
                              " class: %r" % classes_[0])
-
-        if len(self.classes_) == 2:
+        if len(self.classes_) == 2 and multi_class == 'ovr':
             n_classes = 1
             classes_ = classes_[1:]
+        if multi_class == 'multinomial' and coef_mask is not None:
+            coef_mask = coef_mask.reshape(n_classes, -1)
 
         if self.warm_start:
             warm_start_coef = getattr(self, 'coef_', None)
@@ -338,42 +408,22 @@ class MaskedCoefLogisticRegression(LogisticRegression):
                                         self.intercept_[:, np.newaxis],
                                         axis=1)
 
-        self.coef_ = list()
         self.intercept_ = np.zeros(n_classes)
 
-        # Hack so that we iterate only once for the multinomial case.
-        if multi_class == 'multinomial':
-            classes_ = [None]
-            warm_start_coef = [warm_start_coef]
-        if warm_start_coef is None:
-            warm_start_coef = [None] * n_classes
+        fold_coefs_ = _logistic_regression_path(
+            X, y, Cs=[self.C],
+            fit_intercept=self.fit_intercept,
+            tol=self.tol, verbose=self.verbose,
+            multi_class=multi_class, max_iter=self.max_iter,
+            class_weight=self.class_weight, penalty=self.penalty,
+            check_input=False,
+            coef=warm_start_coef,
+            sample_weight=sample_weight, coef_mask=coef_mask)
 
-        path_func = delayed(_logistic_regression_path)
-
-        # The SAG solver releases the GIL so it's more efficient to use
-        # threads for this solver.
-        prefer = 'processes'
-        fold_coefs_ = Parallel(n_jobs=self.n_jobs, verbose=self.verbose,
-                               **_joblib_parallel_args(prefer=prefer))(
-            path_func(X, y, pos_class=class_, Cs=[self.C],
-                      fit_intercept=self.fit_intercept,
-                      tol=self.tol, verbose=self.verbose,
-                      multi_class=multi_class, max_iter=self.max_iter,
-                      class_weight=self.class_weight, penalty=self.penalty,
-                      check_input=False,
-                      random_state=self.random_state, coef=warm_start_coef_,
-                      sample_weight=sample_weight, coef_mask=coef_mask)
-            for class_, warm_start_coef_ in zip(classes_, warm_start_coef))
-
-        fold_coefs_, _, n_iter_ = zip(*fold_coefs_)
-        self.n_iter_ = np.asarray(n_iter_, dtype=np.int32)[:, 0]
-
-        if multi_class == 'multinomial':
-            self.coef_ = fold_coefs_[0][0]
-        else:
-            self.coef_ = np.asarray(fold_coefs_)
-            self.coef_ = self.coef_.reshape(n_classes, n_features +
-                                            int(self.fit_intercept))
+        fold_coefs_, _, self.n_iter_ = fold_coefs_
+        self.coef_ = np.asarray(fold_coefs_)
+        self.coef_ = self.coef_.reshape(n_classes, n_features +
+                                        int(self.fit_intercept))
 
         if self.fit_intercept:
             self.intercept_ = self.coef_[:, -1]
@@ -382,30 +432,22 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         return self
 
 
-def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
+def _logistic_regression_path(X, y, Cs=10, fit_intercept=True,
                               max_iter=100, tol=1e-4, verbose=0, coef=None,
                               class_weight=None, penalty='l2',
-                              multi_class='warn',
-                              random_state=None, check_input=True,
+                              multi_class='auto',
+                              check_input=True,
                               sample_weight=None,
                               l1_ratio=None, coef_mask=None):
     """Compute a Logistic Regression model for a list of regularization
     parameters.
-    This is an implementation that uses the result of the previous model
-    to speed up computations along the set of solutions, making it faster
-    than sequentially calling LogisticRegression for the different parameters.
-    Note that there will be no speedup with liblinear solver, since it does
-    not handle warm-starting.
-    Read more in the :ref:`User Guide <logistic_regression>`.
+
     Parameters
     ----------
     X : array-like or sparse matrix, shape (n_samples, n_features)
         Input data.
     y : array-like, shape (n_samples,) or (n_samples, n_targets)
         Input data, target values.
-    pos_class : int, None
-        The class with respect to which we perform a one-vs-all fit.
-        If None, then it is assumed that the given problem is binary.
     Cs : int | array-like, shape (n_cs,)
         List of values for the regularization parameter or integer specifying
         the number of regularization parameters that should be used. In this
@@ -434,24 +476,11 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
         as ``n_samples / (n_classes * np.bincount(y))``.
         Note that these weights will be multiplied with sample_weight (passed
         through the fit method) if sample_weight is specified.
-    multi_class : str, {'ovr', 'multinomial', 'auto'}, default: 'ovr'
-        If the option chosen is 'ovr', then a binary problem is fit for each
-        label. For 'multinomial' the loss minimised is the multinomial loss fit
+    multi_class : str, {'multinomial', 'auto'}, default: 'auto'
+        For 'multinomial' the loss minimised is the multinomial loss fit
         across the entire probability distribution, *even when the data is
-        binary*. 'multinomial' is unavailable when solver='liblinear'.
-        'auto' selects 'ovr' if the data is binary, or if solver='liblinear',
+        binary*. 'auto' selects binary if the data is binary
         and otherwise selects 'multinomial'.
-        .. versionadded:: 0.18
-           Stochastic Average Gradient descent solver for 'multinomial' case.
-        .. versionchanged:: 0.20
-            Default will change from 'ovr' to 'auto' in 0.22.
-    random_state : int, RandomState instance or None, optional, default None
-        The seed of the pseudo random number generator to use when shuffling
-        the data.  If int, random_state is the seed used by the random number
-        generator; If RandomState instance, random_state is the random number
-        generator; If None, the random number generator is the RandomState
-        instance used by `np.random`. Used when ``solver`` == 'sag' or
-        'liblinear'.
     check_input : bool, default True
         If False, the input arrays X and y will not be checked.
     sample_weight : array-like, shape(n_samples,) optional
@@ -471,12 +500,6 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
         Grid of Cs used for cross-validation.
     n_iter : array, shape (n_cs,)
         Actual number of iteration for each Cs.
-    Notes
-    -----
-    You might get slightly different results with the solver liblinear than
-    with the others since this uses LIBLINEAR which penalizes the intercept.
-    .. versionchanged:: 0.19
-        The "copy" parameter was removed.
     """
     solver = 'lbfgs'
     if isinstance(Cs, numbers.Integral):
@@ -491,14 +514,8 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
     _, n_features = X.shape
 
     classes = np.unique(y)
-    random_state = check_random_state(random_state)
 
     multi_class = _check_multi_class(multi_class, solver, len(classes))
-    if pos_class is None and multi_class != 'multinomial':
-        if (classes.size > 2):
-            raise ValueError('To fit OvR, use the pos_class argument')
-        # np.unique(y) gives labels in sorted order.
-        pos_class = classes[1]
 
     # If sample weights exist, convert them to array (support for lists)
     # and check length
@@ -523,7 +540,7 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
         coef_size = n_features
         w0 = np.zeros(n_features + int(fit_intercept), dtype=X.dtype)
         mask_classes = np.array([-1, 1])
-        mask = (y == pos_class)
+        mask = (y == 1)
         y_bin = np.ones(y.shape, dtype=X.dtype)
         y_bin[~mask] = -1.
         # for compute_class_weight
@@ -541,6 +558,8 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
             Y_multi = np.hstack([1 - Y_multi, Y_multi])
         w0 = np.zeros((classes.size, n_features + int(fit_intercept)),
                       dtype=X.dtype)
+        w0[:, -1] = LogisticInterceptFitterNoFeatures(y,
+                                                      classes.size).intercept_
 
     if coef is not None:
         # it must work both giving the bias term and not
@@ -551,25 +570,7 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
                     '%d or %d' % (coef.size, n_features, w0.size))
             w0[:coef.size] = coef
         else:
-            # For binary problems coef.shape[0] should be 1, otherwise it
-            # should be classes.size.
-            n_classes = classes.size
-            if n_classes == 2:
-                n_classes = 1
-
-            if (coef.shape[0] != n_classes or
-                    coef.shape[1] not in (n_features, n_features + 1)):
-                raise ValueError(
-                    'Initialization coef is of shape (%d, %d), expected '
-                    'shape (%d, %d) or (%d, %d)' % (
-                        coef.shape[0], coef.shape[1], classes.size,
-                        n_features, classes.size, n_features + 1))
-
-            if n_classes == 1:
-                w0[0, :coef.shape[1]] = -coef
-                w0[1, :coef.shape[1]] = coef
-            else:
-                w0[:, :coef.shape[1]] = coef
+            w0[:, :coef.shape[1]] = coef
 
     # Mask initial array
     if coef_mask is not None:
@@ -619,11 +620,29 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
                 args=(X, target, 1. / C, coef_mask, sample_weight),
                 iprint=iprint, pgtol=tol, maxiter=max_iter)
         else:
-            w0 = fmin_lbfgs(func, w0, orthantwise_c=1. / C,
-                            args=(X, target, 0., coef_mask, sample_weight),
-                            max_iterations=max_iter,
-                            epsilon=tol,
-                            orthantwise_end=coef_size)
+            zeros_seen = [0]
+
+            def zero_coef(x, *args):
+                if multi_class == 'multinomial':
+                    x = x.reshape(-1, classes.size)[:-1]
+                else:
+                    x = x[:-1]
+                now_zeros = np.array_equiv(x, 0.)
+                if now_zeros:
+                    zeros_seen[0] += 1
+                else:
+                    zeros_seen[0] = 0
+                if zeros_seen[0] > 1:
+                    return -2048
+            try:
+                w0 = fmin_lbfgs(func, w0, orthantwise_c=1. / C,
+                                args=(X, target, 0., coef_mask, sample_weight),
+                                max_iterations=max_iter,
+                                epsilon=tol,
+                                orthantwise_end=coef_size,
+                                progress=zero_coef)
+            except AllZeroLBFGSError:
+                w0 *= 0.
             info = None
         if info is not None and info["warnflag"] == 1:
             warnings.warn("lbfgs failed to converge. Increase the number "
@@ -643,8 +662,6 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
                 multi_w0 = np.reshape(w0, (-1, n_classes)).T
             if coef_mask is not None:
                 multi_w0[:, :n_features] *= coef_mask
-            if n_classes == 2:
-                multi_w0 = multi_w0[1][np.newaxis, :]
             coefs.append(multi_w0.copy())
         else:
             if coef_mask is not None:
@@ -654,6 +671,53 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
         n_iter[i] = n_iter_i
 
     return np.array(coefs), np.array(Cs), n_iter
+
+
+def _multinomial_loss(w, X, Y, alpha, sample_weight):
+    """Computes multinomial loss and class probabilities.
+    Parameters
+    ----------
+    w : ndarray, shape (n_classes * n_features,) or
+        (n_classes * (n_features + 1),)
+        Coefficient vector.
+    X : {array-like, sparse matrix}, shape (n_samples, n_features)
+        Training data.
+    Y : ndarray, shape (n_samples, n_classes)
+        Transformed labels according to the output of LabelBinarizer.
+    alpha : float
+        Regularization parameter. alpha is equal to 1 / C.
+    sample_weight : array-like, shape (n_samples,)
+        Array of weights that are assigned to individual samples.
+    Returns
+    -------
+    loss : float
+        Multinomial loss.
+    p : ndarray, shape (n_samples, n_classes)
+        Estimated class probabilities.
+    w : ndarray, shape (n_classes, n_features)
+        Reshaped param vector excluding intercept terms.
+    Reference
+    ---------
+    Bishop, C. M. (2006). Pattern recognition and machine learning.
+    Springer. (Chapter 4.3.4)
+    """
+    n_classes = Y.shape[1]
+    n_samples, n_features = X.shape
+    fit_intercept = w.size == (n_classes * (n_features + 1))
+    w = w.reshape(n_classes, -1)
+    sample_weight = sample_weight[:, np.newaxis]
+    if fit_intercept:
+        intercept = w[:, -1]
+        w = w[:, :-1]
+    else:
+        intercept = 0
+    p = safe_sparse_dot(X, w.T)
+    p += intercept
+    p -= logsumexp(p, axis=1)[:, np.newaxis]
+    loss = -(sample_weight * Y * p).sum() / n_samples
+    loss += 0.5 * alpha * squared_norm(w)
+    p = np.exp(p, p)
+    return loss, p, w
 
 
 def _logistic_loss_and_grad(w, X, y, alpha, mask, sample_weight=None):
@@ -691,18 +755,19 @@ def _logistic_loss_and_grad(w, X, y, alpha, mask, sample_weight=None):
         sample_weight = np.ones(n_samples)
 
     # Logistic loss is the negative of the log of the logistic function.
-    out = -np.sum(sample_weight * log_logistic(yz)) + .5 * alpha * np.dot(w, w)
+    out = -np.sum(sample_weight * log_logistic(yz)) / n_samples
+    out += .5 * alpha * np.dot(w, w)
 
     z = expit(yz)
     z0 = sample_weight * (z - 1) * y
 
-    grad[:n_features] = safe_sparse_dot(X.T, z0) + alpha * w
+    grad[:n_features] = (safe_sparse_dot(X.T, z0) / n_samples) + alpha * w
     if mask is not None:
         grad[:n_features] *= mask
 
     # Case where we fit the intercept.
     if grad.shape[0] > n_features:
-        grad[-1] = z0.sum()
+        grad[-1] = z0.sum() / n_samples
     return out, grad
 
 
@@ -738,7 +803,7 @@ def _multinomial_loss_grad(w, X, Y, alpha, mask, sample_weight):
     Springer. (Chapter 4.3.4)
     """
     n_classes = Y.shape[1]
-    n_features = X.shape[1]
+    n_samples, n_features = X.shape
     fit_intercept = (w.size == n_classes * (n_features + 1))
     if mask is not None:
         w = w.reshape(n_classes, n_features + bool(fit_intercept))
@@ -749,10 +814,10 @@ def _multinomial_loss_grad(w, X, Y, alpha, mask, sample_weight):
     loss, p, w = _multinomial_loss(w, X, Y, alpha, sample_weight)
     sample_weight = sample_weight[:, np.newaxis]
     diff = sample_weight * (p - Y)
-    grad[:, :n_features] = safe_sparse_dot(diff.T, X)
+    grad[:, :n_features] = safe_sparse_dot(diff.T, X) / n_samples
     grad[:, :n_features] += alpha * w
     if mask is not None:
         grad[:, :n_features] *= mask
     if fit_intercept:
-        grad[:, -1] = diff.sum(axis=0)
+        grad[:, -1] = diff.sum(axis=0) / n_samples
     return loss, grad.ravel(), p

@@ -4,11 +4,11 @@ import numpy as np
 import logging
 import sys
 
-
-from sklearn.linear_model.base import _preprocess_data, SparseCoefMixin
+from sklearn.linear_model.base import SparseCoefMixin
 from sklearn.metrics import r2_score, accuracy_score, log_loss
 from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
+from sklearn.preprocessing import StandardScaler
 
 from pyuoi import utils
 from pyuoi.mpi_utils import (Gatherv_rows, Bcast_from_root)
@@ -19,9 +19,6 @@ from .utils import stability_selection_to_threshold, intersection
 class AbstractUoILinearModel(
         _six.with_metaclass(_abc.ABCMeta, SparseCoefMixin)):
     """An abstract base class for UoI linear model classes
-
-    See Bouchard et al., NIPS, 2017, for more details on the Union of
-    Intersections framework.
 
     Parameters
     ----------
@@ -42,8 +39,7 @@ class AbstractUoILinearModel(
         The fraction of the dataset to use for training in each resampled
         bootstrap, during the estimation module. The remaining data is used
         to obtain validation scores. Small values of this parameters imply
-        larger "perturbations" to the dataset. IGNORED - Leaving this here
-        to double check later
+        larger "perturbations" to the dataset.
 
     stability_selection : int, float, or array-like, default 1
         If int, treated as the number of bootstraps that a feature must
@@ -54,18 +50,22 @@ class AbstractUoILinearModel(
         will act as a separate threshold for placement in the selection
         profile.
 
-    copy_X : boolean, default True
-        If True, X will be copied; else, it may be overwritten.
-
     fit_intercept : boolean, default True
         Whether to calculate the intercept for this model. If set
         to False, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
 
-    normalize : boolean, default False
-        This parameter is ignored when ``fit_intercept`` is set to False.
-        If True, the regressors X will be normalized before regression by
-        subtracting the mean and dividing by the l2-norm.
+    standardize : boolean, default False
+        If True, the regressors X will be standardized before regression by
+        subtracting the mean and dividing by their standard deviations.
+
+    shared_support : bool, default True
+        For models with more than one output (multinomial logistic regression)
+        this determines whether all outputs share the same support or can
+        have independent supports.
+
+    max_iter : int, default None
+        Maximum number of iterations for iterative fitting methods.
 
     random_state : int, RandomState instance or None, default None
         The seed of the pseudo random number generator that selects a random
@@ -73,11 +73,6 @@ class AbstractUoILinearModel(
         number generator; If RandomState instance, random_state is the random
         number generator; If None, the random number generator is the
         RandomState instance used by `np.random`.
-
-    shared_supprt : bool, default True
-        For models with more than one output (multinomial logistic regression)
-        this determines whether all outputs share the same support or can
-        have independent supports.
 
     comm : MPI communicator, default None
         If passed, the selection and estimation steps are parallelized.
@@ -102,7 +97,9 @@ class AbstractUoILinearModel(
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
-                 random_state=None, shared_support=True, comm=None, logger=None):
+                 fit_intercept=True, standardize=True,
+                 shared_support=True, max_iter=None, random_state=None,
+                 comm=None, logger=None):
         # data split fractions
         self.selection_frac = selection_frac
         self.estimation_frac = estimation_frac
@@ -111,7 +108,10 @@ class AbstractUoILinearModel(
         self.n_boots_est = n_boots_est
         # other hyperparameters
         self.stability_selection = stability_selection
+        self.fit_intercept = fit_intercept
+        self.standardize = standardize
         self.shared_support = shared_support
+        self.max_iter = max_iter
         self.comm = comm
         # preprocessing
         if isinstance(random_state, int):
@@ -148,14 +148,6 @@ class AbstractUoILinearModel(
             self._logger = logger
 
     @_abc.abstractproperty
-    def selection_lm(self):
-        pass
-
-    @_abc.abstractproperty
-    def estimation_lm(self):
-        pass
-
-    @_abc.abstractproperty
     def estimation_score(self):
         pass
 
@@ -164,34 +156,32 @@ class AbstractUoILinearModel(
         pass
 
     @_abc.abstractstaticmethod
-    def score_predictions(self, metric, y_true, y_pred, supports):
+    def _score_predictions(self, metric, fitter, X, y, supports):
         pass
 
     @_abc.abstractmethod
     def intersect(self, coef, thresholds):
-        """Intersect coefficients accross all thresholds"""
+        """Intersect coefficients across all thresholds"""
         pass
 
-    @_abc.abstractmethod
-    def preprocess_data(self, X, y):
+    def _pre_fit(self, X, y):
+        """Perform class-specific setup for fit().
         """
+        if self.standardize:
+            self._X_scaler = StandardScaler(with_mean=self.fit_intercept)
+            X = self._X_scaler.fit_transform(X)
+        return X, y
 
+    def _post_fit(self, X, y):
+        """Perform class-specific cleanup for fit().
         """
-        pass
-
-    @_abc.abstractmethod
-    def get_n_coef(self, X, y):
-        """"Return the number of coefficients that will be estimated
-
-        This should return the total number of coefficients estimated,
-        accounting for all coefficients for multi-target regression or
-        multi-class classification.
-        """
-        pass
+        if self.standardize:
+            sX = self._X_scaler
+            self.coef_ /= sX.scale_[np.newaxis]
 
     @_abc.abstractmethod
-    def _fit_intercept(self, y):
-        """"Fit a model with an intercept and fixed coefficients.
+    def _fit_intercept(self, X, y):
+        """Fit a model with an intercept and fixed coefficients.
 
         This is used to re-fit the intercept after the coefficients are
         estimated.
@@ -200,7 +190,7 @@ class AbstractUoILinearModel(
 
     @_abc.abstractmethod
     def _fit_intercept_no_features(self, y):
-        """"Fit a model with only an intercept.
+        """Fit a model with only an intercept.
 
         This is used in cases where the model has no support selected.
         """
@@ -227,17 +217,22 @@ class AbstractUoILinearModel(
 
         verbose : boolean
             A switch indicating whether the fitting should print out messages
-            displaying progress. Utilizes tqdm to indicate progress on
-            bootstraps.
+            displaying progress.
         """
         if verbose:
             self._logger.setLevel(logging.DEBUG)
         else:
             self._logger.setLevel(logging.WARNING)
 
+        X, y = self._pre_fit(X, y)
+
+        X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
+                         y_numeric=True, multi_output=True)
+
         # extract model dimensions
-        n_samples, n_coef = self.get_n_coef(X, y)
         n_features = X.shape[1]
+
+        n_coef = self.get_n_coef(X, y)
 
         ####################
         # Selection Module #
@@ -298,9 +293,11 @@ class AbstractUoILinearModel(
                 boot_idx = task_idx
                 my_reg_params = self.reg_params_
             # Never warm start across bootstraps
-            if (curr_boot_idx != boot_idx) and hasattr(self.selection_lm,
-                                                       'coef_'):
-                self.selection_lm.coef_[:] = 0.
+            if (curr_boot_idx != boot_idx):
+                if hasattr(self._selection_lm, 'coef_'):
+                    self._selection_lm.coef_ *= 0.
+                if hasattr(self._selection_lm, 'intercept_'):
+                    self._selection_lm.intercept_ *= 0.
             curr_boot_idx = boot_idx
 
             # draw a resampled bootstrap
@@ -359,7 +356,7 @@ class AbstractUoILinearModel(
             if size > 1:
                 if rank == 0:
                     rvals = train_test_split(np.arange(X.shape[0]),
-                                             test_size=1 - self.selection_frac,
+                                             test_size=1 - self.estimation_frac,
                                              stratify=stratify,
                                              random_state=self.random_state)
                 else:
@@ -371,14 +368,13 @@ class AbstractUoILinearModel(
             else:
                 my_boots[boot] = train_test_split(
                     np.arange(X.shape[0]),
-                    test_size=1 - self.selection_frac,
+                    test_size=1 - self.estimation_frac,
                     stratify=stratify,
                     random_state=self.random_state)
 
         # score (r2/AIC/AICc/BIC) for each bootstrap for each support
         scores = np.zeros(tasks.size)
 
-        n_tile = n_coef // n_features
         # iterate over bootstrap samples and supports
         for ii, task_idx in enumerate(tasks):
             boot_idx = task_idx // self.n_supports_
@@ -393,23 +389,23 @@ class AbstractUoILinearModel(
             self._logger.info("estimation bootstrap %d, support %d" % (boot_idx, support_idx))
             if np.any(support):
 
-                # compute ols estimate and store the fitted coefficients
+                # compute the estimate and store the fitted coefficients
                 if self.shared_support:
-                    self.estimation_lm.fit(X_rep[:, support], y_rep)
-                    estimates[ii, np.tile(support, n_tile)] = \
-                        self.estimation_lm.coef_.ravel()
+                    self._estimation_lm.fit(X_rep[:, support], y_rep)
+                    estimates[ii, np.tile(support, self.output_dim)] = \
+                        self._estimation_lm.coef_.ravel()
                 else:
-                    self.estimation_lm.fit(X_rep, y_rep, coef_mask=support)
-                    estimates[ii] = self.estimation_lm.coef_.ravel()
+                    self._estimation_lm.fit(X_rep, y_rep, coef_mask=support)
+                    estimates[ii] = self._estimation_lm.coef_.ravel()
 
-                scores[ii] = self.score_predictions(
+                scores[ii] = self._score_predictions(
                     metric=self.estimation_score,
-                    fitter=self.estimation_lm,
+                    fitter=self._estimation_lm,
                     X=X_test, y=y_test,
                     support=support)
             else:
                 fitter = self._fit_intercept_no_features(y_rep)
-                scores[ii] = self.score_predictions(
+                scores[ii] = self._score_predictions(
                     metric=self.estimation_score,
                     fitter=fitter,
                     X=np.zeros(X_test.shape, dtype=X_test.dtype), y=y_test,
@@ -423,6 +419,7 @@ class AbstractUoILinearModel(
             self.rp_max_idx_ = None
             best_estimates = None
             coef = None
+            self.intercept_ = None
             if rank == 0:
                 estimates = estimates.reshape(self.n_boots_est,
                                               self.n_supports_, n_coef)
@@ -431,11 +428,15 @@ class AbstractUoILinearModel(
                 best_estimates = estimates[np.arange(self.n_boots_est),
                                            self.rp_max_idx_]
                 # take the median across estimates for the final estimate
-                coef = np.median(best_estimates, axis=0).reshape(n_tile,
-                                                                 n_features)
+                coef = np.median(best_estimates,
+                                 axis=0).reshape(self.output_dim, n_features)
+                self.coef_ = coef
+                self._fit_intercept(X, y)
             self.estimates_ = Bcast_from_root(estimates, self.comm, root=0)
             self.scores_ = Bcast_from_root(scores, self.comm, root=0)
             self.coef_ = Bcast_from_root(coef, self.comm, root=0)
+            self.intercept_ = Bcast_from_root(self.intercept_,
+                                              self.comm, root=0)
             self.rp_max_idx_ = self.comm.bcast(self.rp_max_idx_, root=0)
         else:
             self.estimates_ = estimates.reshape(self.n_boots_est,
@@ -447,8 +448,10 @@ class AbstractUoILinearModel(
             best_estimates = self.estimates_[np.arange(self.n_boots_est),
                                              self.rp_max_idx_, :]
             # take the median across estimates for the final, bagged estimate
-            self.coef_ = np.median(best_estimates, axis=0).reshape(n_tile,
-                                                                   n_features)
+            self.coef_ = np.median(best_estimates,
+                                   axis=0).reshape(self.output_dim, n_features)
+            self._fit_intercept(X, y)
+        self._post_fit(X, y)
 
         return self
 
@@ -475,36 +478,40 @@ class AbstractUoILinearModel(
         """
 
         n_param_values = len(reg_param_values)
-        n_samples, n_coef = self.get_n_coef(X, y)
+        n_coef = self.get_n_coef(X, y)
 
         coefs = np.zeros((n_param_values, n_coef))
 
         # apply the selection regression to bootstrapped datasets
         for reg_param_idx, reg_params in enumerate(reg_param_values):
             # reset the regularization parameter
-            self.selection_lm.set_params(**reg_params)
+            self._selection_lm.set_params(**reg_params)
             # rerun fit
-            self.selection_lm.fit(X, y)
+            self._selection_lm.fit(X, y)
             # store coefficients
-            coefs[reg_param_idx] = self.selection_lm.coef_.ravel()
+            coefs[reg_param_idx] = self._selection_lm.coef_.ravel()
 
         return coefs
+
+    def get_n_coef(self, X, y):
+        """Return the number of coefficients that will be estimated
+
+        This should return the shape of X.
+        """
+        return X.shape[1] * self.output_dim
 
 
 class AbstractUoILinearRegressor(
         _six.with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
     """An abstract base class for UoI linear regression classes.
-
-    See Bouchard et al., NIPS, 2017, for more details on the Union of
-    Intersections framework.
     """
 
-    __valid_estimation_metrics = ('r2', 'AIC', 'AICc', 'BIC')
+    _valid_estimation_metrics = ('r2', 'AIC', 'AICc', 'BIC')
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
                  estimation_score='r2', copy_X=True, fit_intercept=True,
-                 normalize=True, random_state=None, max_iter=1000,
+                 standardize=True, random_state=None, max_iter=None,
                  comm=None):
         super(AbstractUoILinearRegressor, self).__init__(
             n_boots_sel=n_boots_sel,
@@ -512,31 +519,43 @@ class AbstractUoILinearRegressor(
             selection_frac=selection_frac,
             estimation_frac=estimation_frac,
             stability_selection=stability_selection,
+            fit_intercept=fit_intercept,
+            standardize=standardize,
+            max_iter=max_iter,
             random_state=random_state,
             comm=comm,
         )
-        self.copy_X = copy_X
-        self.fit_intercept = fit_intercept
-        self.normalize = normalize
 
-        if estimation_score not in self.__valid_estimation_metrics:
+        if estimation_score not in self._valid_estimation_metrics:
             raise ValueError(
                 "invalid estimation metric: '%s'" % estimation_score)
 
         self.__estimation_score = estimation_score
 
-    def preprocess_data(self, X, y):
-        return _preprocess_data(
-            X, y, fit_intercept=self.fit_intercept, normalize=self.normalize,
-            copy=self.copy_X
-        )
+    def _pre_fit(self, X, y):
+        X, y = super()._pre_fit(X, y)
+        if self.standardize:
+            self._y_scaler = StandardScaler(with_mean=self.fit_intercept)
+            if y.ndim == 1:
+                y = y[:, np.newaxis]
+            y = self._y_scaler.fit_transform(y)
+        if y.ndim == 2:
+            self.output_dim = y.shape[1]
+        else:
+            self.output_dim = 1
+        return X, y
 
-    def get_n_coef(self, X, y):
-        """"Return the number of coefficients that will be estimated
-
-        This should return the shape of X.
-        """
-        return X.shape
+    def _post_fit(self, X, y):
+        super()._post_fit(X, y)
+        if self.standardize:
+            sX = self._X_scaler
+            sy = self._y_scaler
+            self.coef_ *= sy.scale_[:, np.newaxis]
+            if self.fit_intercept:
+                self.intercept_ *= sy.scale_
+                self.intercept_ += sy.mean_ - np.dot(sX.mean_,
+                                                     self.coef_.T)
+        self.coef_ = np.squeeze(self.coef_)
 
     def intersect(self, coef, thresholds):
         """Intersect coefficients accross all thresholds"""
@@ -546,7 +565,7 @@ class AbstractUoILinearRegressor(
     def estimation_score(self):
         return self.__estimation_score
 
-    def score_predictions(self, metric, fitter, X, y, support):
+    def _score_predictions(self, metric, fitter, X, y, support):
         """Score, according to some metric, predictions provided by a model.
 
         the resulting score will be negated if an information criterion is
@@ -582,7 +601,7 @@ class AbstractUoILinearRegressor(
                                           y_true=y,
                                           y_pred=y_pred)
             n_features = np.count_nonzero(support)
-            n_samples = y.size
+            n_samples = X.shape[0]
             if metric == 'BIC':
                 score = utils.BIC(ll, n_features, n_samples)
             elif metric == 'AIC':
@@ -595,51 +614,20 @@ class AbstractUoILinearRegressor(
             score = -score
         return score
 
-    def fit(self, X, y, stratify=None, verbose=False):
-        """Fit data according to the UoI algorithm.
-
-        Additionaly, perform X-y checks, data preprocessing, and setting
-        intercept.
-
-        Parameters
-        ----------
-        X : ndarray or scipy.sparse matrix, (n_samples, n_features)
-            The design matrix.
-
-        y : ndarray, shape (n_samples,)
-            Response vector. Will be cast to X's dtype if necessary.
-            Currently, this implementation does not handle multiple response
-            variables.
-
-        stratify : array-like or None, default None
-            Ensures groups of samples are alloted to training/test sets
-            proportionally. Labels for each group must be an int greater
-            than zero. Must be of size equal to the number of samples, with
-            further restrictions on the number of groups.
-
-        verbose : boolean
-            A switch indicating whether the fitting should print out messages
-            displaying progress. Utilizes tqdm to indicate progress on
-            bootstraps.
-        """
-        # perform checks
-        X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
-                         y_numeric=True, multi_output=True)
-        # preprocess data
-        X, y, X_offset, y_offset, X_scale = self.preprocess_data(X, y)
-        super(AbstractUoILinearRegressor, self).fit(X, y, stratify=stratify,
-                                                    verbose=verbose)
-
-        self._fit_intercept(X_offset, y_offset, X_scale)
-        self.coef_ = np.squeeze(self.coef_)
-        return self
-
     def _fit_intercept_no_features(self, y):
-        """"Fit a model with only an intercept.
+        """Fit a model with only an intercept.
 
         This is used in cases where the model has no support selected.
         """
         return LinearInterceptFitterNoFeatures(y)
+
+    def _fit_intercept(self, X, y):
+        """Fit the intercept."""
+        if self.fit_intercept:
+            self.intercept_ = (y.mean(axis=0) -
+                               np.dot(X.mean(axis=0), self.coef_.T))
+        else:
+            self.intercept = np.zeros(1)
 
 
 class LinearInterceptFitterNoFeatures(object):
@@ -651,53 +639,45 @@ class LinearInterceptFitterNoFeatures(object):
         return np.tile(self.intercept_, n_samples)
 
 
-class AbstractUoILinearClassifier(
+class AbstractUoIGeneralizedLinearRegressor(
         _six.with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
     """An abstract base class for UoI linear classifier classes.
-
-    See Bouchard et al., NIPS, 2017, for more details on the Union of
-    Intersections framework.
     """
 
-    __valid_estimation_metrics = ('acc', 'log')
+    _valid_estimation_metrics = ('log', 'BIC', 'AIC', 'AICc')
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
-                 estimation_score='acc', multi_class='ovr',
-                 copy_X=True, fit_intercept=True, normalize=True,
-                 random_state=None, max_iter=1000, shared_support=True,
+                 estimation_score='acc',
+                 copy_X=True, fit_intercept=True, standardize=True,
+                 random_state=None, max_iter=None, shared_support=True,
                  comm=None, logger=None):
-        super(AbstractUoILinearClassifier, self).__init__(
+        super(AbstractUoIGeneralizedLinearRegressor, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
             selection_frac=selection_frac,
             estimation_frac=estimation_frac,
             stability_selection=stability_selection,
             random_state=random_state,
+            fit_intercept=fit_intercept,
+            standardize=standardize,
             shared_support=shared_support,
-            comm=comm, logger=logger,
+            max_iter=max_iter,
+            comm=comm,
+            logger=logger
         )
-        self.fit_intercept = fit_intercept
-        self.normalize = normalize
-        self.copy_X = copy_X
 
-        if estimation_score not in self.__valid_estimation_metrics:
+        if estimation_score not in self._valid_estimation_metrics:
             raise ValueError(
                 "invalid estimation metric: '%s'" % estimation_score)
         self.__estimation_score = estimation_score
 
-    def get_n_coef(self, X, y):
-        """"Return the number of coefficients that will be estimated
-
-        This should return the shape of X if doing binary classification,
-        else return (X.shape[0], X.shape[1]*n_classes).
-        """
-        n_samples, n_coef = X.shape
-        self._n_classes = len(np.unique(y))
-        self._labels = np.unique(y)
-        if self._n_classes > 2:
-            n_coef = n_coef * self._n_classes
-        return n_samples, n_coef
+    def _post_fit(self, X, y):
+        super()._post_fit(X, y)
+        if self.standardize and self.fit_intercept:
+            sX = self._X_scaler
+            self.intercept_ += np.dot(sX.mean_ * sX.scale_,
+                                      self.coef_.T)
 
     def intersect(self, coef, thresholds):
         """Intersect coefficients accross all thresholds
@@ -705,25 +685,18 @@ class AbstractUoILinearClassifier(
         This implementation will account for multi-class classification.
         """
         supports = intersection(coef, thresholds)
-        if self._n_classes > 2 and self.shared_support:
-            n_features = supports.shape[-1] // self._n_classes
-            supports = supports.reshape((-1, self._n_classes, n_features))
+        if self.output_dim > 1 and self.shared_support:
+            n_features = supports.shape[-1] // self.output_dim
+            supports = supports.reshape((-1, self.output_dim, n_features))
             supports = np.sum(supports, axis=-2).astype(bool)
             supports = np.unique(supports, axis=0)
         return supports
-
-    @staticmethod
-    def preprocess_data(self, X, y):
-        return _preprocess_data(
-            X, y, fit_intercept=self.fit_intercept, normalize=self.normalize,
-            copy=self.copy_X
-        )
 
     @property
     def estimation_score(self):
         return self.__estimation_score
 
-    def score_predictions(self, metric, fitter, X, y, support):
+    def _score_predictions(self, metric, fitter, X, y, support):
         """Score, according to some metric, predictions provided by a model.
 
         the resulting score will be negated if an information criterion is
@@ -762,12 +735,12 @@ class AbstractUoILinearClassifier(
                 y_pred = fitter.predict_proba(X[:, support])
             else:
                 y_pred = fitter.predict_proba(X)
-            ll = -log_loss(y, y_pred, labels=np.arange(self._n_classes))
+            ll = -log_loss(y, y_pred, labels=self.classes_)
             if metric == 'log':
                 score = ll
             else:
                 n_features = np.count_nonzero(support)
-                n_samples = y.size
+                n_samples = X.shape[0]
                 if metric == 'BIC':
                     score = utils.BIC(ll, n_features, n_samples)
                 elif metric == 'AIC':
@@ -781,41 +754,3 @@ class AbstractUoILinearClassifier(
                 score = -score
 
         return score
-
-    def fit(self, X, y, stratify=None, verbose=False):
-        """Fit data according to the UoI algorithm.
-
-        Additionaly, perform X-y checks, data preprocessing, and setting
-        intercept.
-
-        Parameters
-        ----------
-        X : ndarray or scipy.sparse matrix, (n_samples, n_features)
-            The design matrix.
-
-        y : ndarray, shape (n_samples,)
-            Response vector. Will be cast to X's dtype if necessary.
-            Currently, this implementation does not handle multiple response
-            variables.
-
-        stratify : array-like or None, default None
-            Ensures groups of samples are alloted to training/test sets
-            proportionally. Labels for each group must be an int greater
-            than zero. Must be of size equal to the number of samples, with
-            further restrictions on the number of groups.
-
-        verbose : boolean
-            A switch indicating whether the fitting should print out messages
-            displaying progress. Utilizes tqdm to indicate progress on
-            bootstraps.
-        """
-        # perform checks
-        X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
-                         y_numeric=True, multi_output=True)
-        self.classes_ = np.array(sorted(set(y)))
-        # preprocess data
-        super(AbstractUoILinearClassifier, self).fit(X, y, stratify=stratify,
-                                                     verbose=verbose)
-
-        self._fit_intercept(X, y)
-        return self

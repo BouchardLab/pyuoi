@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 
 from numpy.testing import assert_array_equal, assert_allclose, assert_equal
@@ -7,6 +8,7 @@ from pyuoi.linear_model.logistic import (fit_intercept_fixed_coef,
                                          MaskedCoefLogisticRegression,
                                          LogisticInterceptFitterNoFeatures)
 from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import LabelEncoder
 
 from pyuoi.utils import make_classification
 
@@ -15,8 +17,8 @@ def test_fit_intercept_fixed_coef():
     """Test that the intercept in fit correctly for fixed coefficients."""
     X = np.zeros((6, 5))
     coef = np.ones((1, 5))
-    y = np.ones(6)
-    y[:3] = 0.
+    y = np.ones(6, dtype=int)
+    y[:3] = 0
     b = fit_intercept_fixed_coef(X, coef, y, 2)
     assert_allclose(b, 0.)
 
@@ -33,13 +35,13 @@ def test_fit_intercept_no_features():
     X = np.zeros((5, 1))
     y = np.ones(6, dtype=int)
     y[:3] = 0
-    LR = LogisticInterceptFitterNoFeatures(y, 2)
+    LR = LogisticInterceptFitterNoFeatures(y, 1)
     b = LR.intercept_
     assert_allclose(b, 0.)
 
     y = np.ones(7, dtype=int)
     y[:3] = 0
-    LR = LogisticInterceptFitterNoFeatures(y, 2)
+    LR = LogisticInterceptFitterNoFeatures(y, 1)
     yhat = LR.predict(X)
     assert_allclose(yhat, 1)
     py = LR.predict_proba(X)
@@ -85,9 +87,35 @@ def test_l1logistic_binary():
                                      include_intercept=True)
 
     l1log = UoI_L1Logistic(random_state=10).fit(X, y)
+    l1log = UoI_L1Logistic(random_state=10, fit_intercept=False).fit(X, y)
+    l1log.predict_proba(X)
+    l1log.predict_log_proba(X)
     y_hat = l1log.predict(X)
     assert_equal(accuracy_score(y, y_hat), l1log.score(X, y))
     assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .8
+
+
+def test_l1logistic_binary_multinomial():
+    """Test that binary L1 Logistic runs in the UoI framework
+    using multi_class='multinomial'."""
+    n_inf = 10
+    X, y, w, b = make_classification(n_samples=200,
+                                     random_state=6,
+                                     n_informative=n_inf,
+                                     n_features=20,
+                                     w_scale=4.,
+                                     include_intercept=True)
+
+    UoI_L1Logistic(random_state=10, multi_class='multinomial').fit(X, y)
+    UoI_L1Logistic(random_state=10, fit_intercept=False,
+                   multi_class='multinomial').fit(X, y)
+
+
+def test_l1logistic_no_ovr():
+    """Test that binary L1 Logistic model raises an error for
+    multiclass='ovr'."""
+    with pytest.raises(ValueError):
+        UoI_L1Logistic(multi_class='ovr')
 
 
 def test_l1logistic_multiclass():
@@ -103,6 +131,8 @@ def test_l1logistic_multiclass():
                                      shared_support=True,
                                      w_scale=4.)
     l1log = UoI_L1Logistic().fit(X, y)
+    l1log.predict_proba(X)
+    l1log.predict_log_proba(X)
     y_hat = l1log.predict(X)
     assert_equal(accuracy_score(y, y_hat), l1log.score(X, y))
     assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .8
@@ -121,6 +151,7 @@ def test_l1logistic_multiclass_not_shared():
                                      shared_support=False,
                                      w_scale=4.)
     l1log = UoI_L1Logistic(shared_support=False).fit(X, y)
+    l1log.predict_log_proba(X)
     y_hat = l1log.predict(X)
     assert_equal(accuracy_score(y, y_hat), l1log.score(X, y))
     assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .8
@@ -157,19 +188,20 @@ def test_masked_logistic():
 
 def test_estimation_score_usage():
     """Test the ability to change the estimation score in UoI L1Logistic"""
-    methods = ('acc', 'log')
-    X, y, w, b = make_classification(n_samples=100,
+    methods = ('acc', 'log', 'BIC', 'AIC', 'AICc')
+    X, y, w, b = make_classification(n_samples=200,
                                      random_state=6,
-                                     n_informative=2,
-                                     n_features=6)
+                                     n_informative=5,
+                                     n_features=10)
     scores = []
     for method in methods:
-        l1log = UoI_L1Logistic(random_state=12, estimation_score=method)
+        l1log = UoI_L1Logistic(random_state=12, estimation_score=method,
+                               tol=1e-2, n_boots_sel=24, n_boots_est=24)
         assert_equal(l1log.estimation_score, method)
         l1log.fit(X, y)
-        score = np.max(l1log.scores_)
-        scores.append(score)
-    assert_equal(len(set(scores)), len(methods))
+        scores.append(l1log.scores_)
+    scores = np.stack(scores)
+    assert_equal(len(np.unique(scores, axis=0)), len(methods))
 
 
 def test_set_random_state():
@@ -197,3 +229,64 @@ def test_set_random_state():
     l1log_0.fit(X, y)
     l1log_1.fit(X, y)
     assert not np.array_equal(l1log_0.coef_, l1log_1.coef_)
+
+
+def test_normalization_by_samples():
+    """Test that coef_ does not depend directly on the number of samples."""
+    n_features = 20
+    for n_classes in [2, 3]:
+        X, y, w, b = make_classification(n_samples=200,
+                                         random_state=10,
+                                         n_classes=n_classes,
+                                         n_informative=n_features,
+                                         n_features=n_features,
+                                         w_scale=4.)
+        for penalty in ['l1', 'l2']:
+            lr1 = MaskedCoefLogisticRegression(penalty=penalty, C=1e2)
+            lr1.fit(X, y)
+
+            lr3 = MaskedCoefLogisticRegression(penalty=penalty, C=1e2)
+            lr3.fit(np.tile(X, (3, 1)), np.tile(y, 3))
+            assert_allclose(lr1.coef_, lr3.coef_)
+
+
+def test_l1logistic_binary_strings():
+    """Test that binary L1 Logistic runs in the UoI framework."""
+    n_inf = 10
+    X, y, w, b = make_classification(n_samples=200,
+                                     random_state=6,
+                                     n_informative=n_inf,
+                                     n_features=20,
+                                     w_scale=4.,
+                                     include_intercept=True)
+
+    classes = ['a', 'b']
+    lb = LabelEncoder()
+    lb.fit(classes)
+    y = lb.inverse_transform(y)
+
+    l1log = UoI_L1Logistic(random_state=10).fit(X, y)
+    y_hat = l1log.predict(X)
+    assert set(classes) >= set(y_hat)
+
+
+def test_l1logistic_multiclass_strings():
+    """Test that multiclass L1 Logistic runs in the UoI framework when all
+       classes share a support."""
+    n_features = 20
+    n_inf = 10
+    X, y, w, b = make_classification(n_samples=200,
+                                     random_state=10,
+                                     n_classes=5,
+                                     n_informative=n_inf,
+                                     n_features=n_features,
+                                     shared_support=True,
+                                     w_scale=4.)
+    classes = ['a', 'b', 'c', 'd', 'e']
+    lb = LabelEncoder()
+    lb.fit(classes)
+    y = lb.inverse_transform(y)
+
+    l1log = UoI_L1Logistic(random_state=10).fit(X, y)
+    y_hat = l1log.predict(X)
+    assert set(classes) >= set(y_hat)

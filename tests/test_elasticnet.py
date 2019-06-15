@@ -7,6 +7,7 @@ from sklearn.linear_model import ElasticNet
 from sklearn.metrics import r2_score
 
 from pyuoi import UoI_ElasticNet
+from pyuoi.utils import make_linear_regression
 
 
 def test_variable_selection():
@@ -75,13 +76,15 @@ def test_uoi_enet_toy():
         [8, 11]], dtype=float)
     beta = np.array([1, 4], dtype=float)
     y = np.dot(X, beta)
+    X = np.tile(X, (3, 1))
+    y = np.tile(y, 3)
 
     # choose selection_frac to be slightly smaller to ensure that we get
     # good test sets
     enet = UoI_ElasticNet(
         fit_intercept=False,
         selection_frac=0.75,
-        estimation_frac=0.75
+        estimation_frac=0.75,
     )
     enet.fit(X, y)
 
@@ -95,8 +98,8 @@ def test_get_reg_params():
         [-1, 2],
         [0, 1],
         [1, 3],
-        [4, 3]])
-    y = np.array([7, 4, 13, 16])
+        [4, 3]], dtype=float)
+    y = np.array([7, 4, 13, 16], dtype=float)
 
     # calculate regularization parameters manually
     l1_ratio = .5
@@ -107,34 +110,46 @@ def test_get_reg_params():
     # calculate regularization parameters with UoI_ElasticNet object
     enet = UoI_ElasticNet(
         n_lambdas=2,
-        normalize=False,
         fit_intercept=False,
         eps=0.1)
     reg_params = enet.get_reg_params(X, y)
 
     # check each regularization parameter and key
     for estimate, true in zip(reg_params, alphas):
-        assert estimate.keys() == true.keys()
-        assert_allclose(list(estimate.values()), list(true.values()))
+        assert len(estimate) == len(true)
+        for key, value in estimate.items():
+            assert_allclose(true[key], value)
 
 
-def test_intercept():
-    """Test that UoI ElasticNet properly calculates the intercept when centering
-    the response variable."""
+def test_intercept_and_coefs_no_selection():
+    """Test that UoI Lasso properly calculates the intercept with and without
+    standardization."""
+    # create line model
+    X, y, beta, intercept = make_linear_regression(
+        n_samples=500,
+        n_features=2,
+        n_informative=2,
+        snr=10.,
+        include_intercept=True,
+        random_state=2332)
 
-    X = np.array([
-        [-1, 2],
-        [0, 1],
-        [1, 3],
-        [4, 3]])
-    y = np.array([8, 5, 14, 17])
-
+    # without standardization
     enet = UoI_ElasticNet(
-        normalize=False,
-        fit_intercept=True)
+        standardize=False,
+        fit_intercept=True
+    )
     enet.fit(X, y)
+    assert_allclose(enet.intercept_, intercept, rtol=0.25)
+    assert_allclose(enet.coef_, beta, rtol=0.25)
 
-    assert enet.intercept_ == np.mean(y) - np.dot(X.mean(axis=0), enet.coef_)
+    # with standardization
+    enet = UoI_ElasticNet(
+        standardize=True,
+        fit_intercept=True
+    )
+    enet.fit(X, y)
+    assert_allclose(enet.intercept_, intercept, rtol=0.25)
+    assert_allclose(enet.coef_, beta, rtol=0.25)
 
 
 def test_enet_selection_sweep():
@@ -146,15 +161,16 @@ def test_enet_selection_sweep():
         [4, 1, -7],
         [1, 3, 1],
         [4, 3, 12],
-        [8, 11, 2]])
-    beta = np.array([1, 4, 2])
+        [8, 11, 2]], dtype=float)
+    beta = np.array([1, 4, 2], dtype=float)
     y = np.dot(X, beta)
 
     # toy regularization
     reg_param_values = [{'alpha': 1.0}, {'alpha': 2.0}]
-    enet1 = ElasticNet(alpha=1.0, fit_intercept=True, normalize=True)
-    enet2 = ElasticNet(alpha=2.0, fit_intercept=True, normalize=True)
-    enet = UoI_ElasticNet(fit_intercept=True, normalize=True)
+    enet = UoI_ElasticNet(fit_intercept=True, warm_start=False)
+    enet1 = ElasticNet(alpha=1.0, fit_intercept=True, max_iter=enet.max_iter)
+    enet2 = ElasticNet(alpha=2.0, fit_intercept=True, max_iter=enet.max_iter)
+    enet.output_dim = 1
 
     coefs = enet.uoi_selection_sweep(X, y, reg_param_values)
     enet1.fit(X, y)
