@@ -7,13 +7,15 @@ from sklearn.utils.validation import check_non_negative
 
 import scipy.optimize as spo
 import numpy as np
+import logging
 
 
 class UoINMF(BaseEstimator, TransformerMixin):
 
     def __init__(self, n_bootstraps=10,
                  random_state=None, cons_meth=None,
-                 ranks=None, nmf=None, dbscan=None, nnreg=None):
+                 ranks=None, nmf=None, dbscan=None, nnreg=None,
+                 logger=None, comm=None):
         """
         Union of Intersections Nonnegative Matrix Factorization
 
@@ -46,6 +48,7 @@ class UoINMF(BaseEstimator, TransformerMixin):
             random_state=random_state,
             nnreg=nnreg,
             cons_meth=cons_meth,
+            logger=logger,
         )
 
     def set_params(self, **kwargs):
@@ -61,6 +64,7 @@ class UoINMF(BaseEstimator, TransformerMixin):
         cons_meth = kwargs['cons_meth']
         self.n_bootstraps = n_bootstraps
         self.components_ = None
+        logger = kwargs['logger']
         if ranks is not None:
             if isinstance(ranks, int):
                 self.ranks = list(range(2, ranks + 1)) \
@@ -108,9 +112,27 @@ class UoINMF(BaseEstimator, TransformerMixin):
         self.components_ = None
         self.bases_samples_ = None
         self.bases_samples_labels_ = None
-        self.boostraps_ = None
+        self.bootstraps_ = None
 
-    def fit(self, X, y=None):
+        self.comm = None
+
+        if logger is None:
+            self._logger = logging.getLogger(name="uoi_nmf")
+
+            handler = logging.StreamHandler(sys.stdout)
+            if self.comm is not None and self.comm.Get_size() > 1:
+                r, s = self.comm.Get_rank(), self.comm.Get_size()
+                fmt = "%(asctime)s - %(name)s " + str(r).rjust(int(np.log10(s))+1) + " - %(levelname)s - %(message)s"
+            else:
+                fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+
+            formatter = logging.Formatter(fmt)
+            handler.setFormatter(formatter)
+            self._logger.addHandler(handler)
+        else:
+            self._logger = logger
+
+    def fit(self, X, y=None, verbose=False):
         """
         Perform first phase of UoI NMF decomposition.
 
@@ -122,6 +144,11 @@ class UoINMF(BaseEstimator, TransformerMixin):
             X:  array of shape (n_samples, n_features)
             y:  ignored
         """
+        if verbose:
+            self._logger.setLevel(logging.DEBUG)
+        else:
+            self._logger.setLevel(logging.WARNING)
+
         check_non_negative(X, 'UoINMF')
         n, p = X.shape
         # Wall = list()
@@ -131,9 +158,10 @@ class UoINMF(BaseEstimator, TransformerMixin):
         # ridx = list()
         rep_idx = self._rand.randint(n, size=(self.n_bootstraps, n))
         for i in range(self.n_bootstraps):
+            self._logger.info("bootstrap %d" % i)
             # compute NMF bases for k across bootstrap replicates
             H_i = i * k_tot
-            sample = X[rep_idx[i]]
+            sample = X[np.unique(rep_idx[i])]
             for (k_idx, k) in enumerate(self.ranks):
                 # concatenate k by p
                 H_samples[H_i:H_i + k:, ] = (self.nmf.set_params(n_components=k)
@@ -142,28 +170,27 @@ class UoINMF(BaseEstimator, TransformerMixin):
         # remove zero bases
         H_samples = H_samples[np.sum(H_samples, axis=1) != 0.0]
         # normalize by 2-norm
-        # TODO: double check normalizing across correct axis
         H_samples = normalize(H_samples)
 
         # cluster all bases
+        self._logger.info("clustering bases samples")
         labels = self.dbscan.fit_predict(H_samples)
 
         # compute consensus bases from clusters
-        # TODO: check if we need to filter out -1
         cluster_ids = np.unique([x for x in labels if x != -1])
         nclusters = len(cluster_ids)
+        self._logger.info("found %d bases, computing consensus bases" % nclusters)
         H_cons = np.zeros((nclusters, p), dtype=np.float64)
         for i in cluster_ids:
             H_cons[i, :] = self.cons_meth(H_samples[labels == i], axis=0)
         # remove nans
-        # TODO: check if we need to remove NaNs
         # H_cons = H_cons[np.any(np.isnan(H_cons), axis=1),]
         # normalize by 2-norm
         H_cons = normalize(H_cons)
         self.components_ = H_cons
         self.bases_samples_ = H_samples
         self.bases_samples_labels_ = labels
-        self.boostraps_ = rep_idx
+        self.bootstraps_ = rep_idx
         self.reconstruction_err_ = None
         return self
 
@@ -193,7 +220,7 @@ class UoINMF(BaseEstimator, TransformerMixin):
                 X - self.inverse_transform(ret))
         return ret
 
-    def fit_transform(self, X, y=None, reconstruction_err=True):
+    def fit_transform(self, X, y=None, reconstruction_err=True, verbose=None):
         """
         Transform the data X according to the fitted UoI-NMF model
 
@@ -208,7 +235,7 @@ class UoINMF(BaseEstimator, TransformerMixin):
             W : array-like; shape (n_samples, n_components)
                 Transformed data.
         """
-        self.fit(X)
+        self.fit(X, verbose=verbose)
         return self.transform(X, reconstruction_err=reconstruction_err)
 
     def inverse_transform(self, W):
