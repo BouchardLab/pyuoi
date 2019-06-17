@@ -57,3 +57,15 @@ def test_UoI_NMF_fit_tranform():
     X_tfm = uoi.transform(X)
     assert hasattr(uoi, 'components_')
     assert X_tfm is not None
+
+
+@pytest.mark.fast
+def test_UoI_NMF_reconstruction_error():
+    """Tests that the """
+    uoi, X = setup()
+    uoi.fit(X)
+    X_tfm = uoi.transform(X, reconstruction_err=True)
+    assert hasattr(uoi, 'components_')
+    assert hasattr(uoi, 'reconstruction_err_')
+    assert uoi.reconstruction_err_ is not None
+    assert X_tfm is not None
