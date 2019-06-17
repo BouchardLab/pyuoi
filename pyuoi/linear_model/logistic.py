@@ -202,16 +202,6 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
             self.output_dim = 1
         return X, y
 
-    def fit(self, X, y, verbose=False):
-        self._enc = LabelEncoder().fit(y)
-        self.classes_ = self._enc.classes_
-        return super(UoI_L1Logistic, self).fit(X, self._enc.transform(y), verbose=verbose)
-
-    def predict(self, X):
-        if self._enc is None:
-            raise ValueError("fit must be called before predict")
-        return self._enc.inverse_transform(super(UoI_L1Logistic, self).predict(X))
-
 
 def fit_intercept_fixed_coef(X, coef_, y, output_dim):
     """Optimize the likelihood w.r.t. the intercept for a logistic
