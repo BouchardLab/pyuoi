@@ -255,6 +255,8 @@ class UoI_NMF_Base(AbstractDecompositionModel):
             self.reconstruction_err_ = np.linalg.norm(
                 X - self.inverse_transform(W))
 
+        return W
+
     def fit_transform(self, X, y=None, reconstruction_err=True, verbose=None):
         """
         Transform the data X according to the fitted UoI-NMF model
