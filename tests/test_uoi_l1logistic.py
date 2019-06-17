@@ -313,5 +313,3 @@ def test_l1logistic_sparse_input():
 
     y_hat = l1log.predict(X)
     assert set(classes) >= set(y_hat)
-
-
