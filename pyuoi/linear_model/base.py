@@ -1,6 +1,7 @@
 import abc as _abc
 import six as _six
 import numpy as np
+import logging
 
 from sklearn.linear_model.base import SparseCoefMixin
 from sklearn.metrics import r2_score, accuracy_score, log_loss
@@ -8,10 +9,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
 from sklearn.preprocessing import StandardScaler
 
+from scipy.sparse import issparse, csr_matrix
+
 from pyuoi import utils
 from pyuoi.mpi_utils import (Gatherv_rows, Bcast_from_root)
 
 from .utils import stability_selection_to_threshold, intersection
+from ..utils import check_logger
 
 
 class AbstractUoILinearModel(
@@ -75,6 +79,11 @@ class AbstractUoILinearModel(
     comm : MPI communicator, default None
         If passed, the selection and estimation steps are parallelized.
 
+    logger : Logger, default None
+        The logger to use for messages when ``verbose=True`` in ``fit``.
+        If *None* is passed, a logger that writes to ``sys.stdout`` will be
+        used.
+
     Attributes
     ----------
     coef_ : array, shape (n_features,) or (n_targets, n_features)
@@ -92,7 +101,7 @@ class AbstractUoILinearModel(
                  estimation_frac=0.9, stability_selection=1.,
                  fit_intercept=True, standardize=True,
                  shared_support=True, max_iter=None, random_state=None,
-                 comm=None):
+                 comm=None, logger=None):
         # data split fractions
         self.selection_frac = selection_frac
         self.estimation_frac = estimation_frac
@@ -124,6 +133,8 @@ class AbstractUoILinearModel(
 
         self.n_supports_ = None
 
+        self._logger = check_logger(logger, 'uoi_linear_model', self.comm)
+
     @_abc.abstractproperty
     def estimation_score(self):
         pass
@@ -145,6 +156,10 @@ class AbstractUoILinearModel(
         """Perform class-specific setup for fit().
         """
         if self.standardize:
+            if self.fit_intercept and issparse(X):
+                msg = ("Cannot center sparse matrices: "
+                       "pass `fit_intercept=False`")
+                raise ValueError(msg)
             self._X_scaler = StandardScaler(with_mean=self.fit_intercept)
             X = self._X_scaler.fit_transform(X)
         return X, y
@@ -196,6 +211,11 @@ class AbstractUoILinearModel(
             A switch indicating whether the fitting should print out messages
             displaying progress.
         """
+        if verbose:
+            self._logger.setLevel(logging.DEBUG)
+        else:
+            self._logger.setLevel(logging.WARNING)
+
         X, y = self._pre_fit(X, y)
 
         X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
@@ -235,7 +255,7 @@ class AbstractUoILinearModel(
             my_boots = dict((task_idx, None) for task_idx in tasks)
 
         for boot in range(self.n_boots_sel):
-            if self.comm is not None:
+            if size > 1:
                 if rank == 0:
                     rvals = train_test_split(np.arange(X.shape[0]),
                                              test_size=1 - self.selection_frac,
@@ -280,12 +300,20 @@ class AbstractUoILinearModel(
             y_test = y[idxs_test]
 
             # fit the coefficients
+            if size > self.n_boots_sel:
+                msg = ("selection bootstrap %d, "
+                       "regularization parameter set %d"
+                       % (boot_idx, reg_idx))
+                self._logger.info(msg)
+
+            else:
+                self._logger.info("selection bootstrap %d" % (boot_idx))
             selection_coefs[ii] = np.squeeze(
                 self.uoi_selection_sweep(X_rep, y_rep, my_reg_params))
 
         # if distributed, gather selection coefficients to 0,
         # perform intersection, and broadcast results
-        if self.comm is not None:
+        if size > 1:
             selection_coefs = Gatherv_rows(selection_coefs, self.comm, root=0)
             if rank == 0:
                 if size > self.n_boots_sel:
@@ -306,6 +334,9 @@ class AbstractUoILinearModel(
 
         self.n_supports_ = self.supports_.shape[0]
 
+        if rank == 0:
+            self._logger.info("Found %d supports" % self.n_supports_)
+
         #####################
         # Estimation Module #
         #####################
@@ -317,7 +348,7 @@ class AbstractUoILinearModel(
         estimates = np.zeros((tasks.size, n_coef))
 
         for boot in range(self.n_boots_est):
-            if self.comm is not None:
+            if size > 1:
                 if rank == 0:
                     rvals = train_test_split(np.arange(X.shape[0]),
                                              test_size=1 - self.estimation_frac,
@@ -350,6 +381,8 @@ class AbstractUoILinearModel(
             X_test = X[idxs_test]
             y_rep = y[idxs_train]
             y_test = y[idxs_test]
+            self._logger.info("estimation bootstrap %d, support %d"
+                              % (boot_idx, support_idx))
             if np.any(support):
 
                 # compute the estimate and store the fitted coefficients
@@ -368,13 +401,17 @@ class AbstractUoILinearModel(
                     support=support)
             else:
                 fitter = self._fit_intercept_no_features(y_rep)
+                if issparse(X_test):
+                    X_test = csr_matrix(X_test.shape, dtype=X_test.dtype)
+                else:
+                    X_test = np.zeros_like(X_test)
                 scores[ii] = self._score_predictions(
                     metric=self.estimation_score,
                     fitter=fitter,
-                    X=np.zeros_like(X_test), y=y_test,
+                    X=X_test, y=y_test,
                     support=np.zeros(X_test.shape[1], dtype=bool))
 
-        if self.comm is not None:
+        if size > 1:
             estimates = Gatherv_rows(send=estimates, comm=self.comm,
                                      root=0)
             scores = Gatherv_rows(send=scores, comm=self.comm,
@@ -475,7 +512,7 @@ class AbstractUoILinearRegressor(
                  estimation_frac=0.9, stability_selection=1.,
                  estimation_score='r2', copy_X=True, fit_intercept=True,
                  standardize=True, random_state=None, max_iter=None,
-                 comm=None):
+                 comm=None, logger=None):
         super(AbstractUoILinearRegressor, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -487,6 +524,7 @@ class AbstractUoILinearRegressor(
             max_iter=max_iter,
             random_state=random_state,
             comm=comm,
+            logger=logger
         )
 
         if estimation_score not in self._valid_estimation_metrics:
@@ -614,7 +652,7 @@ class AbstractUoIGeneralizedLinearRegressor(
                  estimation_score='acc',
                  copy_X=True, fit_intercept=True, standardize=True,
                  random_state=None, max_iter=None, shared_support=True,
-                 comm=None):
+                 comm=None, logger=None):
         super(AbstractUoIGeneralizedLinearRegressor, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -627,6 +665,7 @@ class AbstractUoIGeneralizedLinearRegressor(
             shared_support=shared_support,
             max_iter=max_iter,
             comm=comm,
+            logger=logger
         )
 
         if estimation_score not in self._valid_estimation_metrics:

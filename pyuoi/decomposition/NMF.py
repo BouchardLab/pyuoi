@@ -1,7 +1,10 @@
 import scipy.optimize as spo
 import numpy as np
+import logging
 
 from .base import AbstractDecompositionModel
+
+from ..utils import check_logger
 
 from sklearn.decomposition import NMF as skNMF
 from sklearn.cluster import DBSCAN
@@ -41,10 +44,22 @@ class UoI_NMF_Base(AbstractDecompositionModel):
     cons_meth : function
         The method for computing consensus bases after clustering. If None,
         uses np.median.
+
+    random_state : int, RandomState instance or None, default None
+        The seed of the pseudo random number generator that selects a random
+        feature to update.  If int, random_state is the seed used by the random
+        number generator; If RandomState instance, random_state is the random
+        number generator; If None, the random number generator is the
+        RandomState instance used by `np.random`.
+
+    logger : Logger, default None
+        The logger to use for messages when ``verbose=True`` in ``fit``.
+        If *None* is passed, a logger that writes to ``sys.stdout`` will be
+        used.
     """
     def __init__(
         self, n_boots=10, ranks=None, nmf=None, cluster=None, nnreg=None,
-        cons_meth=None, random_state=None
+        cons_meth=None, random_state=None, logger=None
     ):
         self.__initialize(
             n_boots=n_boots,
@@ -53,6 +68,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
             cluster=cluster,
             nnreg=nnreg,
             cons_meth=cons_meth,
+            logger=logger,
             random_state=random_state
         )
 
@@ -71,6 +87,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
 
         self.n_boots = n_boots
         self.components_ = None
+        logger = kwargs['logger']
 
         # initialize NMF ranks to use
         if ranks is not None:
@@ -128,10 +145,15 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         self.components_ = None
         self.bases_samples_ = None
         self.bases_samples_labels_ = None
-        self.boostraps_ = None
+        self.bootstraps_ = None
 
-    def fit(self, X):
-        """Perform first phase of UoI NMF decomposition.
+        self.comm = None
+
+        self._logger = check_logger(logger, 'uoi_decomposition', self.comm)
+
+    def fit(self, X, y=None, verbose=False):
+        """
+        Perform first phase of UoI NMF decomposition.
 
         Compute H matrix.
 
@@ -142,6 +164,11 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         X : ndarray, shape (n_samples, n_features)
             Data matrix to be decomposed.
         """
+        if verbose:
+            self._logger.setLevel(logging.DEBUG)
+        else:
+            self._logger.setLevel(logging.WARNING)
+
         check_non_negative(X, 'UoI NMF')
         n_samples, n_features = X.shape
 
@@ -151,6 +178,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
 
         rep_idx = self._rand.randint(n_samples, size=(self.n_boots, n_samples))
         for i in range(self.n_boots):
+            self._logger.info("bootstrap %d" % i)
             # compute NMF bases for k across bootstrap replicates
             H_i = i * k_tot
             sample = X[rep_idx[i]]
@@ -165,11 +193,14 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         H_samples = normalize(H_samples, norm='l2', axis=1)
 
         # cluster all bases
+        self._logger.info("clustering bases samples")
         labels = self.cluster.fit_predict(H_samples)
 
         # compute consensus bases from clusters
         cluster_ids = np.unique(labels[labels != -1])
         n_clusters = cluster_ids.size
+        self._logger.info("found %d bases, computing consensus bases" %
+                          n_clusters)
         H_cons = np.zeros((n_clusters, n_features))
 
         for c_id in cluster_ids:
@@ -180,6 +211,9 @@ class UoI_NMF_Base(AbstractDecompositionModel):
 
         self.components_ = H_cons
         self.n_components = self.components_.shape[0]
+        self.bases_samples_ = H_samples
+        self.bases_samples_labels_ = labels
+        self.bootstraps_ = rep_idx
         self.reconstruction_err_ = None
         return self
 
@@ -222,23 +256,22 @@ class UoI_NMF_Base(AbstractDecompositionModel):
 
         return W
 
-    def fit_transform(self, X, reconstruction_err=True):
-        """Transform the data X according to the fitted UoI-NMF model.
-
-        Parameters
-        ----------
-        X : array-like, shape (n_samples, n_features)
-            Data matrix to be decomposed.
-
-        reconstruction_err : bool, default True
-            True to compute reconstruction error, False otherwise.
-
-        Returns
-        -------
-        W : array-like, shape (n_samples, n_components)
-            Transformed data.
+    def fit_transform(self, X, y=None, reconstruction_err=True, verbose=None):
         """
-        self.fit(X)
+        Transform the data X according to the fitted UoI-NMF model
+
+        Args:
+            X : array-like; shape (n_samples, n_features)
+            y
+                ignored
+            reconstruction_err : bool
+                True to compute reconstruction error, False otherwise.
+                default True.
+        Returns:
+            W : array-like; shape (n_samples, n_components)
+                Transformed data.
+        """
+        self.fit(X, verbose=verbose)
         return self.transform(X, reconstruction_err=reconstruction_err)
 
     def inverse_transform(self, W):
@@ -352,6 +385,18 @@ class UoI_NMF(UoI_NMF_Base):
         of the construction and query, as well as the memory required
         to store the tree. The optimal value depends
         on the nature of the problem.
+
+    random_state : int, RandomState instance or None, default None
+        The seed of the pseudo random number generator that selects a random
+        feature to update.  If int, random_state is the seed used by the random
+        number generator; If RandomState instance, random_state is the random
+        number generator; If None, the random number generator is the
+        RandomState instance used by `np.random`.
+
+    logger : Logger, default None
+        The logger to use for messages when ``verbose=True`` in ``fit``.
+        If *None* is passed, a logger that writes to ``sys.stdout`` will be
+        used.
     """
     def __init__(
         self, n_boots, ranks=None,
@@ -359,7 +404,7 @@ class UoI_NMF(UoI_NMF_Base):
         nmf_tol=0.0001, nmf_max_iter=400,
         db_eps=0.5, db_min_samples=None, db_metric='euclidean',
         db_metric_params=None, db_algorithm='auto', db_leaf_size=30,
-        random_state=None
+        random_state=None, logger=None,
     ):
         # create NMF solver
         nmf = skNMF(init=nmf_init,
@@ -384,5 +429,6 @@ class UoI_NMF(UoI_NMF_Base):
             cluster=dbscan,
             nnreg=None,
             cons_meth=np.median,
-            random_state=random_state
+            random_state=random_state,
+            logger=logger
         )

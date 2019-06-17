@@ -3,6 +3,8 @@ import numpy as np
 
 from numpy.testing import assert_array_equal, assert_allclose, assert_equal
 
+from scipy.sparse import rand as sprand
+
 from pyuoi import UoI_L1Logistic
 from pyuoi.linear_model.logistic import (fit_intercept_fixed_coef,
                                          MaskedCoefLogisticRegression,
@@ -288,5 +290,26 @@ def test_l1logistic_multiclass_strings():
     y = lb.inverse_transform(y)
 
     l1log = UoI_L1Logistic(random_state=10).fit(X, y)
+    y_hat = l1log.predict(X)
+    assert set(classes) >= set(y_hat)
+
+
+def test_l1logistic_sparse_input():
+    """Test that multiclass L1 Logistic works when using sparse matrix
+       inputs"""
+    rs = np.random.RandomState(17)
+    X = sprand(100, 100, random_state=rs)
+    classes = ['abc', 'de', 'fgh']
+    y = np.array(classes)[rs.randint(3, size=100)]
+
+    kwargs = dict(
+        fit_intercept=False,
+        random_state=rs,
+        n_boots_sel=4,
+        n_boots_est=4,
+        n_C=7,
+    )
+    l1log = UoI_L1Logistic(**kwargs).fit(X, y)
+
     y_hat = l1log.predict(X)
     assert set(classes) >= set(y_hat)

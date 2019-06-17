@@ -101,7 +101,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
                  alphas=np.array([0.5]), stability_selection=1.,
                  estimation_score='r2', warm_start=True, eps=1e-3,
                  copy_X=True, fit_intercept=True, standardize=True,
-                 max_iter=1000, random_state=None, comm=None):
+                 max_iter=1000, random_state=None, comm=None, logger=None):
         super(UoI_ElasticNet, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -115,6 +115,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
             random_state=random_state,
             comm=comm,
             max_iter=max_iter,
+            logger=logger
         )
         self.n_lambdas = n_lambdas
         self.alphas = alphas

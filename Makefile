@@ -38,7 +38,7 @@ test:
 	tox
 
 flake:
-	$(FLAKE) src/
+	$(FLAKE) pyuoi/
 	$(FLAKE) tests/
 	$(FLAKE) --ignore E402,W504 docs/gallery
 

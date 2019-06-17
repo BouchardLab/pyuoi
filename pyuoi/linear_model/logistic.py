@@ -127,7 +127,7 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
                  estimation_score='acc', multi_class='auto',
                  shared_support=True, warm_start=False, fit_intercept=True,
                  standardize=True, max_iter=10000, tol=1e-3, random_state=None,
-                 comm=None):
+                 comm=None, logger=None):
         super(UoI_L1Logistic, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -139,7 +139,9 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
             fit_intercept=fit_intercept,
             standardize=standardize,
             shared_support=shared_support,
-            comm=comm)
+            comm=comm,
+            logger=logger
+        )
         self.n_C = n_C
         self.Cs = None
         self.multi_class = multi_class
