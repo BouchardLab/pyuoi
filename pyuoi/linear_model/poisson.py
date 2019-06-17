@@ -35,7 +35,7 @@ class Poisson(BaseEstimator):
     fit_intercept : bool, default True
         Whether to fit an intercept or not.
 
-    standardize : bool, default True
+    standardize : bool, default False
         If True, centers the design matrix across samples and rescales them to
         have standard deviation of 1.
 
@@ -62,7 +62,7 @@ class Poisson(BaseEstimator):
         The fitted intercept.
     """
     def __init__(self, alpha=1.0, l1_ratio=1., fit_intercept=True,
-                 standardize=True, max_iter=1000, tol=1e-5, warm_start=False,
+                 standardize=False, max_iter=1000, tol=1e-5, warm_start=False,
                  solver='lbfgs'):
         self.alpha = alpha
         self.l1_ratio = l1_ratio
@@ -503,7 +503,6 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
             estimation_score=estimation_score,
             copy_X=copy_X,
             fit_intercept=fit_intercept,
-            standardize=standardize,
             random_state=random_state,
             comm=comm,
             logger=logger)
@@ -525,7 +524,6 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
             alpha=0.,
             l1_ratio=1.,
             fit_intercept=fit_intercept,
-            standardize=standardize,
             max_iter=max_iter,
             tol=tol,
             warm_start=warm_start,
@@ -570,7 +568,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
             # sci-kit learn parlance)
             for alpha_idx, alpha in enumerate(self.alphas):
                 # calculate upper bound for lambda sweep
-                ybar = np.log(y.mean())
+                ybar = y.mean()
                 lambda_max = np.max(np.abs(np.dot(X.T, y - ybar)))
                 lambda_max /= n_samples * alpha
                 self.lambdas[alpha_idx, :] = np.logspace(

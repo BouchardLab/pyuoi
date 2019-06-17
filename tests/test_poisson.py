@@ -232,7 +232,7 @@ def test_poisson_reg_params():
                           standardize=False,
                           fit_intercept=True)
         poisson.fit(X, y)
-        assert_equal(poisson.coef_, np.zeros(n_features))
+        assert_equal(poisson.coef_, 0.)
 
         # check that coefficients below the bound are not set to zero
         poisson = Poisson(alpha=0.99 * alpha,
@@ -240,7 +240,7 @@ def test_poisson_reg_params():
                           standardize=False,
                           fit_intercept=True)
         poisson.fit(X, y)
-        assert np.any(np.not_equal(poisson.coef_, np.zeros(n_features)))
+        assert np.count_nonzero(poisson.coef_) > 0
 
 
 def test_poisson_no_intercept():

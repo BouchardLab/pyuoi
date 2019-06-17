@@ -162,6 +162,10 @@ class AbstractUoILinearModel(
                 raise ValueError(msg)
             self._X_scaler = StandardScaler(with_mean=self.fit_intercept)
             X = self._X_scaler.fit_transform(X)
+        if y.ndim == 2:
+            self.output_dim = y.shape[1]
+        else:
+            self.output_dim = 1
         return X, y
 
     def _post_fit(self, X, y):
