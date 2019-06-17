@@ -1,6 +1,7 @@
 import scipy.optimize as spo
 import numpy as np
 import logging
+import sys
 
 from .base import AbstractDecompositionModel
 
@@ -136,17 +137,17 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         self.comm = None
 
         if logger is None:
-            self._logger = logging.getLogger(name="uoi_nmf")
-
-            handler = logging.StreamHandler(sys.stdout)
+            name = "uoi_linear_model"
             if self.comm is not None and self.comm.Get_size() > 1:
                 r, s = self.comm.Get_rank(), self.comm.Get_size()
-                fmt = "%(asctime)s - %(name)s " + str(r).rjust(int(np.log10(s))+1) + " - %(levelname)s - %(message)s"
-            else:
-                fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+                name += " " + str(r).rjust(int(np.log10(s)) + 1)
 
-            formatter = logging.Formatter(fmt)
-            handler.setFormatter(formatter)
+            self._logger = logging.getLogger(name=name)
+            handler = logging.StreamHandler(sys.stdout)
+
+            fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+
+            handler.setFormatter(logging.Formatter(fmt))
             self._logger.addHandler(handler)
         else:
             self._logger = logger
@@ -199,7 +200,8 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         # compute consensus bases from clusters
         cluster_ids = np.unique(labels[labels != -1])
         n_clusters = cluster_ids.size
-        self._logger.info("found %d bases, computing consensus bases" % nclusters)
+        self._logger.info("found %d bases, computing consensus bases" %
+                          n_clusters)
         H_cons = np.zeros((n_clusters, n_features))
 
         for c_id in cluster_ids:

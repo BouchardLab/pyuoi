@@ -108,7 +108,6 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
             fit_intercept=fit_intercept,
             standardize=standardize,
             random_state=random_state,
-            estimation_score=estimation_score,
             comm=comm,
             estimation_score=estimation_score,
             max_iter=max_iter,

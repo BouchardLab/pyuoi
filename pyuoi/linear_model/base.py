@@ -10,6 +10,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
 from sklearn.preprocessing import StandardScaler
 
+from scipy.sparse import issparse, csr_matrix
+
 from pyuoi import utils
 from pyuoi.mpi_utils import (Gatherv_rows, Bcast_from_root)
 
@@ -132,17 +134,17 @@ class AbstractUoILinearModel(
         self.n_supports_ = None
 
         if logger is None:
-            self._logger = logging.getLogger(name="uoi_linear_model")
-
-            handler = logging.StreamHandler(sys.stdout)
+            name = "uoi_linear_model"
             if self.comm is not None and self.comm.Get_size() > 1:
                 r, s = self.comm.Get_rank(), self.comm.Get_size()
-                fmt = "%(asctime)s - %(name)s " + str(r).rjust(int(np.log10(s))+1) + " - %(levelname)s - %(message)s"
-            else:
-                fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+                name += " " + str(r).rjust(int(np.log10(s)) + 1)
 
-            formatter = logging.Formatter(fmt)
-            handler.setFormatter(formatter)
+            self._logger = logging.getLogger(name=name)
+            handler = logging.StreamHandler(sys.stdout)
+
+            fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+
+            handler.setFormatter(logging.Formatter(fmt))
             self._logger.addHandler(handler)
         else:
             self._logger = logger
@@ -168,6 +170,10 @@ class AbstractUoILinearModel(
         """Perform class-specific setup for fit().
         """
         if self.standardize:
+            if self.fit_intercept and issparse(X):
+                msg = ("Cannot center sparse matrices: "
+                       "pass `fit_intercept=False`")
+                raise ValueError(msg)
             self._X_scaler = StandardScaler(with_mean=self.fit_intercept)
             X = self._X_scaler.fit_transform(X)
         return X, y
@@ -309,8 +315,11 @@ class AbstractUoILinearModel(
 
             # fit the coefficients
             if size > self.n_boots_sel:
-                self._logger.info("selection bootstrap %d, regularization parameter set %d" %
-                                  (boot_idx, reg_idx))
+                msg = ("selection bootstrap %d, "
+                       "regularization parameter set %d"
+                       % (boot_idx, reg_idx))
+                self._logger.info(msg)
+
             else:
                 self._logger.info("selection bootstrap %d" % (boot_idx))
             selection_coefs[ii] = np.squeeze(
@@ -386,7 +395,8 @@ class AbstractUoILinearModel(
             X_test = X[idxs_test]
             y_rep = y[idxs_train]
             y_test = y[idxs_test]
-            self._logger.info("estimation bootstrap %d, support %d" % (boot_idx, support_idx))
+            self._logger.info("estimation bootstrap %d, support %d"
+                              % (boot_idx, support_idx))
             if np.any(support):
 
                 # compute the estimate and store the fitted coefficients
@@ -405,10 +415,14 @@ class AbstractUoILinearModel(
                     support=support)
             else:
                 fitter = self._fit_intercept_no_features(y_rep)
+                if issparse(X_test):
+                    X_test = csr_matrix(X_test.shape, dtype=X_test.dtype)
+                else:
+                    X_test = np.zeros_like(X_test)
                 scores[ii] = self._score_predictions(
                     metric=self.estimation_score,
                     fitter=fitter,
-                    X=np.zeros(X_test.shape, dtype=X_test.dtype), y=y_test,
+                    X=X_test, y=y_test,
                     support=np.zeros(X_test.shape[1], dtype=bool))
 
         if size > 1:
