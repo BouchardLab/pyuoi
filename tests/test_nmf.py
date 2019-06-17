@@ -1,9 +1,11 @@
+import pytest
 import numpy as np
 
 from numpy.testing import assert_array_equal
 from pyuoi.decomposition import UoI_NMF
 
 
+@pytest.mark.fast
 def test_UoI_NMF_initialization():
     """Tests the initialization of UoI NMF."""
     n_boots = 30
@@ -16,8 +18,7 @@ def test_UoI_NMF_initialization():
     assert uoi.cluster.min_samples == n_boots / 2
 
 
-def test_UoI_NMF_fitting():
-    """Tests that the fitting procedure of UoI NMF runs without error."""
+def setup():
     W = np.random.randint(0, high=2, size=(500, 5))
     H = np.random.randint(0, high=2, size=(5, 2))
     X = np.dot(W, H)
@@ -28,4 +29,31 @@ def test_UoI_NMF_fitting():
                   ranks=[ranks],
                   nmf_max_iter=1000,
                   random_state=2332)
+    return uoi, X
+
+
+@pytest.mark.fast
+def test_UoI_NMF_fit():
+    """Tests that the fitting procedure of UoI NMF runs without error."""
+    uoi, X = setup()
     uoi.fit(X)
+    assert hasattr(uoi, 'components_')
+
+
+@pytest.mark.fast
+def test_UoI_NMF_tranform():
+    """Tests that the """
+    uoi, X = setup()
+    X_tfm = uoi.fit_transform(X)
+    assert hasattr(uoi, 'components_')
+    assert X_tfm is not None
+
+
+@pytest.mark.fast
+def test_UoI_NMF_fit_tranform():
+    """Tests that the """
+    uoi, X = setup()
+    uoi.fit(X)
+    X_tfm = uoi.transform(X)
+    assert hasattr(uoi, 'components_')
+    assert X_tfm is not None
