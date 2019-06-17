@@ -2,7 +2,6 @@ import abc as _abc
 import six as _six
 import numpy as np
 import logging
-import sys
 
 from sklearn.linear_model.base import SparseCoefMixin
 from sklearn.metrics import r2_score, accuracy_score, log_loss
@@ -16,6 +15,7 @@ from pyuoi import utils
 from pyuoi.mpi_utils import (Gatherv_rows, Bcast_from_root)
 
 from .utils import stability_selection_to_threshold, intersection
+from ..utils import check_logger
 
 
 class AbstractUoILinearModel(
@@ -133,21 +133,7 @@ class AbstractUoILinearModel(
 
         self.n_supports_ = None
 
-        if logger is None:
-            name = "uoi_linear_model"
-            if self.comm is not None and self.comm.Get_size() > 1:
-                r, s = self.comm.Get_rank(), self.comm.Get_size()
-                name += " " + str(r).rjust(int(np.log10(s)) + 1)
-
-            self._logger = logging.getLogger(name=name)
-            handler = logging.StreamHandler(sys.stdout)
-
-            fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-
-            handler.setFormatter(logging.Formatter(fmt))
-            self._logger.addHandler(handler)
-        else:
-            self._logger = logger
+        self._logger = check_logger(logger, 'uoi_linear_model', self.comm)
 
     @_abc.abstractproperty
     def estimation_score(self):

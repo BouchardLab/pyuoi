@@ -1,9 +1,16 @@
+import pytest
+
 import numpy as np
 from numpy.testing import assert_array_equal
 from numpy.testing import assert_raises
 
 from pyuoi.linear_model.utils import stability_selection_to_threshold
 from pyuoi.linear_model.utils import intersection
+
+from pyuoi.utils import check_logger
+
+import logging
+from mpi4py import MPI
 
 
 def test_stability_selection_to_threshold_int():
@@ -295,3 +302,28 @@ def test_intersection_no_thresholds():
     assert_array_equal(
         np.sort(true_intersection, axis=0),
         np.sort(estimated_intersection, axis=0))
+
+
+@pytest.mark.fast
+def test_check_logger():
+    """Test that check_logger builds logger correctly"""
+    ret = check_logger(None, name="test_check_logger")
+    assert ret is not None
+    assert ret.name == 'test_check_logger'
+
+
+@pytest.mark.fast
+def test_check_logger_mpi():
+    """Test that passing in a MPI communicatorj object works with
+    check_logger"""
+    comm = MPI.COMM_WORLD
+    ret = check_logger(None, comm=comm)
+    assert ret is not None
+
+
+@pytest.mark.fast
+def test_check_logger_exists():
+    """Test that logger returns the argued logger when it gets passed in"""
+    logger = logging.getLogger()
+    ret = check_logger(logger)
+    assert ret is logger

@@ -1,6 +1,8 @@
 """Utility functions for pyuoi package.
 """
 import numpy as np
+import sys
+import logging
 
 from sklearn.utils import check_random_state
 
@@ -398,3 +400,20 @@ def AICc(ll, n_features, n_samples):
     if n_samples > (n_features + 1):
         AICc += 2 * (n_features**2 + n_features) / (n_samples - n_features - 1)
     return AICc
+
+
+def check_logger(logger, name='uoi', comm=None):
+    ret = logger
+    if ret is None:
+        if comm is not None and comm.Get_size() > 1:
+            r, s = comm.Get_rank(), comm.Get_size()
+            name += " " + str(r).rjust(int(np.log10(s)) + 1)
+
+        ret = logging.getLogger(name=name)
+        handler = logging.StreamHandler(sys.stdout)
+
+        fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+
+        handler.setFormatter(logging.Formatter(fmt))
+        ret.addHandler(handler)
+    return ret

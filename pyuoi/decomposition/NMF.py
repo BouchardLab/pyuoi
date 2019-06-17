@@ -1,9 +1,10 @@
 import scipy.optimize as spo
 import numpy as np
 import logging
-import sys
 
 from .base import AbstractDecompositionModel
+
+from ..utils import check_logger
 
 from sklearn.decomposition import NMF as skNMF
 from sklearn.cluster import DBSCAN
@@ -43,6 +44,18 @@ class UoI_NMF_Base(AbstractDecompositionModel):
     cons_meth : function
         The method for computing consensus bases after clustering. If None,
         uses np.median.
+
+    random_state : int, RandomState instance or None, default None
+        The seed of the pseudo random number generator that selects a random
+        feature to update.  If int, random_state is the seed used by the random
+        number generator; If RandomState instance, random_state is the random
+        number generator; If None, the random number generator is the
+        RandomState instance used by `np.random`.
+
+    logger : Logger, default None
+        The logger to use for messages when ``verbose=True`` in ``fit``.
+        If *None* is passed, a logger that writes to ``sys.stdout`` will be
+        used.
     """
     def __init__(
         self, n_boots=10, ranks=None, nmf=None, cluster=None, nnreg=None,
@@ -136,21 +149,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
 
         self.comm = None
 
-        if logger is None:
-            name = "uoi_linear_model"
-            if self.comm is not None and self.comm.Get_size() > 1:
-                r, s = self.comm.Get_rank(), self.comm.Get_size()
-                name += " " + str(r).rjust(int(np.log10(s)) + 1)
-
-            self._logger = logging.getLogger(name=name)
-            handler = logging.StreamHandler(sys.stdout)
-
-            fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-
-            handler.setFormatter(logging.Formatter(fmt))
-            self._logger.addHandler(handler)
-        else:
-            self._logger = logger
+        self._logger = check_logger(logger, 'uoi_decomposition', self.comm)
 
     def fit(self, X, y=None, verbose=False):
         """
@@ -386,6 +385,18 @@ class UoI_NMF(UoI_NMF_Base):
         of the construction and query, as well as the memory required
         to store the tree. The optimal value depends
         on the nature of the problem.
+
+    random_state : int, RandomState instance or None, default None
+        The seed of the pseudo random number generator that selects a random
+        feature to update.  If int, random_state is the seed used by the random
+        number generator; If RandomState instance, random_state is the random
+        number generator; If None, the random number generator is the
+        RandomState instance used by `np.random`.
+
+    logger : Logger, default None
+        The logger to use for messages when ``verbose=True`` in ``fit``.
+        If *None* is passed, a logger that writes to ``sys.stdout`` will be
+        used.
     """
     def __init__(
         self, n_boots, ranks=None,
@@ -393,7 +404,7 @@ class UoI_NMF(UoI_NMF_Base):
         nmf_tol=0.0001, nmf_max_iter=400,
         db_eps=0.5, db_min_samples=None, db_metric='euclidean',
         db_metric_params=None, db_algorithm='auto', db_leaf_size=30,
-        random_state=None
+        random_state=None, logger=None,
     ):
         # create NMF solver
         nmf = skNMF(init=nmf_init,
@@ -418,5 +429,6 @@ class UoI_NMF(UoI_NMF_Base):
             cluster=dbscan,
             nnreg=None,
             cons_meth=np.median,
-            random_state=random_state
+            random_state=random_state,
+            logger=logger
         )
