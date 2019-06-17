@@ -129,15 +129,9 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, n_C=48, stability_selection=1.,
                  estimation_score='acc', multi_class='auto',
-<<<<<<< HEAD
                  shared_support=True, warm_start=False, eps=1e-5,
                  fit_intercept=True, standardize=True, max_iter=10000, tol=1e-3,
                  random_state=None, comm=None, logger=None):
-=======
-                 shared_support=True, warm_start=False, eps=1e-5,
-                 fit_intercept=True, standardize=True, max_iter=10000,
-                 tol=1e-3, random_state=None, comm=None):
->>>>>>> d19eaee... update tests
         super(UoI_L1Logistic, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
