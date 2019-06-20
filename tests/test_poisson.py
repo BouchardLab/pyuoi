@@ -341,6 +341,26 @@ def test_poisson_with_intercept():
     assert_allclose(poisson.intercept_, intercept, rtol=0.5)
 
 
+def test_poisson_standardize():
+    """Tests the Poisson fitter `standardize=True`."""
+    n_features = 3
+    n_samples = 200
+
+    # create data
+    X, y, beta, intercept = make_poisson_regression(
+        n_samples=n_samples,
+        n_features=n_features,
+        n_informative=n_features,
+        beta=np.array([0.5, 1.0, 1.5]),
+        include_intercept=True,
+        random_state=2332)
+
+    # lbfgs
+    poisson = Poisson(alpha=0., l1_ratio=0., fit_intercept=True,
+                      solver='lbfgs', standardize=True)
+    poisson.fit(X, y)
+
+
 def test_poisson_with_sparsity():
     """Tests the Poisson fitter with no intercept."""
     n_features = 3
