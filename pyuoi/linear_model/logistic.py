@@ -1,8 +1,7 @@
 import numbers, warnings
 
 from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import LabelEncoder, LabelBinarizer
-from sklearn.svm import l1_min_c
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from sklearn.metrics import log_loss
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.utils import (check_X_y, compute_class_weight,
@@ -11,6 +10,7 @@ from sklearn.utils.multiclass import check_classification_targets
 from sklearn.utils.extmath import safe_sparse_dot, log_logistic, squared_norm
 from sklearn.linear_model.logistic import (_check_multi_class,
                                            _intercept_dot)
+from sklearn.preprocessing import StandardScaler
 
 from scipy.optimize import minimize
 from scipy import optimize
@@ -80,6 +80,10 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
         When set to ``True``, reuse the solution of the previous call to fit as
         initialization, otherwise, just erase the previous solution
 
+    eps : float, default 1e-5
+        Length of the L1 path. eps=1e-5 means that
+        alpha_min / alpha_max = 1e-5
+
     fit_intercept : boolean, default True
         Whether to calculate the intercept for this model. If set
         to False, no intercept will be used in calculations
@@ -125,9 +129,9 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, n_C=48, stability_selection=1.,
                  estimation_score='acc', multi_class='auto',
-                 shared_support=True, warm_start=False, fit_intercept=True,
-                 standardize=True, max_iter=10000, tol=1e-3, random_state=None,
-                 comm=None, logger=None):
+                 shared_support=True, warm_start=False, eps=1e-5,
+                 fit_intercept=True, standardize=True, max_iter=10000, tol=1e-3,
+                 random_state=None, comm=None, logger=None):
         super(UoI_L1Logistic, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -145,6 +149,7 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
         self.n_C = n_C
         self.Cs = None
         self.multi_class = multi_class
+        self.eps = eps
         self.tol = tol
         self.solver = 'lbfgs'
         self._selection_lm = MaskedCoefLogisticRegression(
@@ -163,8 +168,28 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
             tol=tol)
 
     def get_reg_params(self, X, y):
+        input_dim = X.shape[1]
         if self.Cs is None:
-            self.Cs = l1_min_c(X, y, loss='log') * np.logspace(0, 7, self.n_C)
+            if self.output_dim == 1:
+                w = np.zeros(input_dim)
+                if self.fit_intercept:
+                    intercept = LogisticInterceptFitterNoFeatures(
+                        y, 1).intercept_
+                    w = np.concatenate([w, np.atleast_1d(intercept)])
+                _, grad = _logistic_loss_and_grad(w, X, y, 0., None)
+            else:
+                w = np.zeros((self.output_dim, input_dim))
+                yp = OneHotEncoder(categories=[range(self.output_dim)],
+                                   sparse=False).fit_transform(y[:, np.newaxis])
+                if self.fit_intercept:
+                    intercept = LogisticInterceptFitterNoFeatures(
+                        y, self.output_dim).intercept_
+                    w = np.concatenate([w, intercept[:, np.newaxis]], axis=1)
+                _, grad, _ = _multinomial_loss_grad(w, X, yp, 0., None,
+                                                    np.ones(X.shape[0]))
+            alpha_max = abs(grad[:-1]).max()
+            logC = -np.log10(alpha_max)
+            self.Cs = np.logspace(logC, logC - np.log10(self.eps), self.n_C)
         ret = list()
         for c in self.Cs:
             ret.append(dict(C=c))
@@ -294,6 +319,9 @@ class MaskedCoefLogisticRegression(LogisticRegression):
     fit_intercept : bool, optional (default=True)
         Specifies if a constant (a.k.a. bias or intercept) should be
         added to the decision function.
+    standardize : bool, default False
+        If True, centers the design matrix across samples and rescales them to
+        have standard deviation of 1.
     class_weight : dict or 'balanced', optional (default=None)
         Weights associated with classes in the form ``{class_label: weight}``.
         If not given, all classes are supposed to have weight one.
@@ -318,7 +346,7 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         Useless for liblinear solver.
     """
     def __init__(self, penalty='l2', tol=1e-3, C=1.,
-                 fit_intercept=True, class_weight=None,
+                 fit_intercept=True, standardize=False, class_weight=None,
                  max_iter=10000,
                  multi_class='auto', verbose=0, warm_start=False):
         if multi_class not in ('multinomial', 'auto'):
@@ -330,6 +358,7 @@ class MaskedCoefLogisticRegression(LogisticRegression):
                          max_iter=max_iter,
                          multi_class=multi_class, verbose=verbose,
                          warm_start=warm_start)
+        self.standardize = standardize
 
     def fit(self, X, y, sample_weight=None, coef_mask=None):
         """Fit the model according to the given training data.
@@ -367,6 +396,8 @@ class MaskedCoefLogisticRegression(LogisticRegression):
                              "positive; got (tol=%r)" % self.tol)
 
         _dtype = np.float64
+
+        X, y = self._pre_fit(X, y)
 
         X, y = check_X_y(X, y, accept_sparse='csr', dtype=_dtype, order="C",
                          accept_large_sparse=True)
@@ -419,7 +450,31 @@ class MaskedCoefLogisticRegression(LogisticRegression):
             self.intercept_ = self.coef_[:, -1]
             self.coef_ = self.coef_[:, :-1]
 
+        self._post_fit(X, y)
+
         return self
+
+    def _pre_fit(self, X, y):
+        if self.standardize:
+            self._X_scaler = StandardScaler()
+            X = self._X_scaler.fit_transform(X)
+        le = LabelEncoder()
+        y = le.fit_transform(y)
+        self.classes_ = le.classes_
+        if self.classes_.size > 2:
+            self.output_dim = self.classes_.size
+        elif self.multi_class == 'multinomial':
+            self.output_dim = 2
+        else:
+            self.output_dim = 1
+        return X, y
+
+    def _post_fit(self, X, y):
+        """Perform class-specific cleanup for fit().
+        """
+        if self.standardize:
+            sX = self._X_scaler
+            self.coef_ /= sX.scale_[np.newaxis]
 
 
 def _logistic_regression_path(X, y, Cs=10, fit_intercept=True,
@@ -542,8 +597,8 @@ def _logistic_regression_path(X, y, Cs=10, fit_intercept=True,
 
     else:
         coef_size = classes.size * n_features
-        lbin = LabelBinarizer()
-        Y_multi = lbin.fit_transform(y)
+        lbin = OneHotEncoder(categories=[range(classes.size)], sparse=False)
+        Y_multi = lbin.fit_transform(y[:, np.newaxis])
         if Y_multi.shape[1] == 1:
             Y_multi = np.hstack([1 - Y_multi, Y_multi])
         w0 = np.zeros((classes.size, n_features + int(fit_intercept)),

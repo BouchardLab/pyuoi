@@ -21,7 +21,7 @@ def test_l1logistic_binary():
                                      include_intercept=True)
 
     l1log = UoI_L1Logistic(random_state=10, comm=MPI.COMM_WORLD).fit(X, y)
-    assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .8
+    assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .7
 
 
 @pytest.mark.skipif(MPI is None, reason='MPI not installed.')

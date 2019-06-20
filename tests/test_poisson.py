@@ -232,7 +232,7 @@ def test_poisson_reg_params():
                           standardize=False,
                           fit_intercept=True)
         poisson.fit(X, y)
-        assert_equal(poisson.coef_, np.zeros(n_features))
+        assert_equal(poisson.coef_, 0.)
 
         # check that coefficients below the bound are not set to zero
         poisson = Poisson(alpha=0.99 * alpha,
@@ -240,7 +240,7 @@ def test_poisson_reg_params():
                           standardize=False,
                           fit_intercept=True)
         poisson.fit(X, y)
-        assert np.any(np.not_equal(poisson.coef_, np.zeros(n_features)))
+        assert np.count_nonzero(poisson.coef_) > 0
 
 
 def test_poisson_no_intercept():
@@ -339,6 +339,26 @@ def test_poisson_with_intercept():
 
     assert_allclose(poisson.coef_, beta, rtol=0.5)
     assert_allclose(poisson.intercept_, intercept, rtol=0.5)
+
+
+def test_poisson_standardize():
+    """Tests the Poisson fitter `standardize=True`."""
+    n_features = 3
+    n_samples = 200
+
+    # create data
+    X, y, beta, intercept = make_poisson_regression(
+        n_samples=n_samples,
+        n_features=n_features,
+        n_informative=n_features,
+        beta=np.array([0.5, 1.0, 1.5]),
+        include_intercept=True,
+        random_state=2332)
+
+    # lbfgs
+    poisson = Poisson(alpha=0., l1_ratio=0., fit_intercept=True,
+                      solver='lbfgs', standardize=True)
+    poisson.fit(X, y)
 
 
 def test_poisson_with_sparsity():

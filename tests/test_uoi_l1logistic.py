@@ -156,7 +156,7 @@ def test_l1logistic_multiclass_not_shared():
     l1log.predict_log_proba(X)
     y_hat = l1log.predict(X)
     assert_equal(accuracy_score(y, y_hat), l1log.score(X, y))
-    assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .8
+    assert (np.sign(abs(w)) == np.sign(abs(l1log.coef_))).mean() >= .7
 
 
 def test_masked_logistic():
@@ -179,6 +179,36 @@ def test_masked_logistic():
                     lr = MaskedCoefLogisticRegression(penalty=penalty, C=10.,
                                                       warm_start=True,
                                                       fit_intercept=intercept)
+                    lr.fit(X, y, coef_mask=mask)
+                    coef_idxs = np.flatnonzero(np.equal(lr.coef_, 0.))
+                    coef_idxs = set(coef_idxs.tolist())
+                    mask_idxs = np.flatnonzero(np.equal(mask, 0))
+                    mask_idxs = set(mask_idxs.tolist())
+                    assert mask_idxs.issubset(coef_idxs)
+                    lr.fit(X, y, coef_mask=mask)
+
+
+def test_masked_logistic_standardize():
+    """Test the masked logistic regression class with `standardize=True`."""
+    n_features = 20
+    n_inf = 10
+    for shared_support in [True, False]:
+        for n_classes in [2, 3]:
+            for intercept in [True, False]:
+                X, y, w, b = make_classification(n_samples=200,
+                                                 random_state=10,
+                                                 n_classes=n_classes,
+                                                 n_informative=n_inf,
+                                                 n_features=n_features,
+                                                 shared_support=shared_support,
+                                                 include_intercept=intercept,
+                                                 w_scale=4.)
+                mask = np.squeeze(np.logical_not(np.equal(w, 0)))
+                for penalty in ['l1', 'l2']:
+                    lr = MaskedCoefLogisticRegression(penalty=penalty, C=10.,
+                                                      warm_start=True,
+                                                      fit_intercept=intercept,
+                                                      standardize=True)
                     lr.fit(X, y, coef_mask=mask)
                     coef_idxs = np.flatnonzero(np.equal(lr.coef_, 0.))
                     coef_idxs = set(coef_idxs.tolist())
@@ -313,3 +343,37 @@ def test_l1logistic_sparse_input():
 
     y_hat = l1log.predict(X)
     assert set(classes) >= set(y_hat)
+
+
+def test_reg_params():
+    """Test whether the upper bound on the regularization parameters correctly
+    zero out the coefficients."""
+    n_features = 20
+    n_inf = 10
+    n_classes = 5
+    X, y, w, b = make_classification(n_samples=200,
+                                     random_state=101,
+                                     n_classes=n_classes,
+                                     n_informative=n_inf,
+                                     n_features=n_features,
+                                     shared_support=True)
+
+    uoi_log = UoI_L1Logistic()
+    uoi_log.output_dim = n_classes
+    reg_params = uoi_log.get_reg_params(X, y)
+    C = reg_params[0]['C']
+    # check that coefficients get set to zero
+    lr = MaskedCoefLogisticRegression(penalty='l1',
+                                      C=0.99 * C,
+                                      standardize=False,
+                                      fit_intercept=True)
+    lr.fit(X, y)
+    assert_equal(lr.coef_, 0.)
+
+    # check that coefficients above the bound are not set to zero
+    lr = MaskedCoefLogisticRegression(penalty='l1',
+                                      C=1.01 * C,
+                                      standardize=False,
+                                      fit_intercept=True)
+    lr.fit(X, y)
+    assert np.count_nonzero(lr.coef_) > 0
