@@ -632,7 +632,7 @@ class AbstractUoILinearRegressor(
             self.intercept_ = (y.mean(axis=0) -
                                np.dot(X.mean(axis=0), self.coef_.T))
         else:
-            self.intercept = np.zeros(1)
+            self.intercept_ = np.zeros(1)
 
 
 class LinearInterceptFitterNoFeatures(object):
