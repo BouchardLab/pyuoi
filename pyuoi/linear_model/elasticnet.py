@@ -129,7 +129,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
             copy_X=copy_X,
             warm_start=warm_start,
             random_state=random_state)
-        self._estimation_lm = LinearRegression()
+        self._estimation_lm = LinearRegression(fit_intercept=fit_intercept)
 
     def get_reg_params(self, X, y):
         r"""Calculates the regularization parameters (alpha and lambda) to be
