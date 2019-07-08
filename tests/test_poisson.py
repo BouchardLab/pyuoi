@@ -406,3 +406,15 @@ def test_UoI_Poisson():
     poisson.fit(X, y)
 
     assert_allclose(poisson.coef_, beta, atol=0.5)
+
+
+def test_fit_intercept():
+    """Tests whether `include_intercept` in passed through to the linear models.
+    """
+    poi = UoI_Poisson(fit_intercept=True)
+    assert poi._selection_lm.fit_intercept
+    assert poi._estimation_lm.fit_intercept
+
+    poi = UoI_Poisson(fit_intercept=False)
+    assert not poi._selection_lm.fit_intercept
+    assert not poi._estimation_lm.fit_intercept

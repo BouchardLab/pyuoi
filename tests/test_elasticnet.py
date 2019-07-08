@@ -178,3 +178,15 @@ def test_enet_selection_sweep():
 
     assert np.allclose(coefs[0], enet1.coef_)
     assert np.allclose(coefs[1], enet2.coef_)
+
+
+def test_fit_intercept():
+    """Tests whether `include_intercept` in passed through to the linear models.
+    """
+    enet = UoI_ElasticNet(fit_intercept=True)
+    assert enet._selection_lm.fit_intercept
+    assert enet._estimation_lm.fit_intercept
+
+    enet = UoI_ElasticNet(fit_intercept=False)
+    assert not enet._selection_lm.fit_intercept
+    assert not enet._estimation_lm.fit_intercept

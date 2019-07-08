@@ -377,3 +377,15 @@ def test_reg_params():
                                       fit_intercept=True)
     lr.fit(X, y)
     assert np.count_nonzero(lr.coef_) > 0
+
+
+def test_fit_intercept():
+    """Tests whether `include_intercept` in passed through to the linear models.
+    """
+    lr = UoI_L1Logistic(fit_intercept=True)
+    assert lr._selection_lm.fit_intercept
+    assert lr._estimation_lm.fit_intercept
+
+    lr = UoI_L1Logistic(fit_intercept=False)
+    assert not lr._selection_lm.fit_intercept
+    assert not lr._estimation_lm.fit_intercept

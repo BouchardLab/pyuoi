@@ -118,8 +118,9 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         self._selection_lm = Lasso(
             max_iter=max_iter,
             warm_start=warm_start,
-            random_state=random_state)
-        self._estimation_lm = LinearRegression()
+            random_state=random_state,
+            fit_intercept=fit_intercept)
+        self._estimation_lm = LinearRegression(fit_intercept=fit_intercept)
 
     def get_reg_params(self, X, y):
         alphas = _alpha_grid(

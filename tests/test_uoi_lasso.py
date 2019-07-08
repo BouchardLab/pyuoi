@@ -172,3 +172,15 @@ def test_lasso_selection_sweep():
 
     assert np.allclose(coefs[0], lasso1.coef_)
     assert np.allclose(coefs[1], lasso2.coef_)
+
+
+def test_fit_intercept():
+    """Tests whether `include_intercept` in passed through to the linear models.
+    """
+    lasso = UoI_Lasso(fit_intercept=True)
+    assert lasso._selection_lm.fit_intercept
+    assert lasso._estimation_lm.fit_intercept
+
+    lasso = UoI_Lasso(fit_intercept=False)
+    assert not lasso._selection_lm.fit_intercept
+    assert not lasso._estimation_lm.fit_intercept
