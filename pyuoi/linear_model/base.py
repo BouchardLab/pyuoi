@@ -299,9 +299,7 @@ class AbstractUoILinearModel(
             # draw a resampled bootstrap
             idxs_train, idxs_test = my_boots[boot_idx]
             X_rep = X[idxs_train]
-            X_test = X[idxs_test]
             y_rep = y[idxs_train]
-            y_test = y[idxs_test]
 
             # fit the coefficients
             if size > self.n_boots_sel:
@@ -382,9 +380,7 @@ class AbstractUoILinearModel(
             # draw a resampled bootstrap
             idxs_train, idxs_test = my_boots[boot_idx]
             X_rep = X[idxs_train]
-            X_test = X[idxs_test]
             y_rep = y[idxs_train]
-            y_test = y[idxs_test]
             self._logger.info("estimation bootstrap %d, support %d"
                               % (boot_idx, support_idx))
             if np.any(support):
@@ -597,9 +593,9 @@ class AbstractUoILinearRegressor(
             The value of the supports for the model
 
         boot_idxs : 2-tuple of array-like objects
-            Tuple of (train_idxs, test_idxs) generated from a bootstrap 
-            sample. If this is specified, then the appropriate set of 
-            data will be used for evaluating scores: test data for r^2, 
+            Tuple of (train_idxs, test_idxs) generated from a bootstrap
+            sample. If this is specified, then the appropriate set of
+            data will be used for evaluating scores: test data for r^2,
             and training data for information criteria
 
         Returns
@@ -749,9 +745,9 @@ class AbstractUoIGeneralizedLinearRegressor(
             The value of the supports for the model
 
         boot_idxs : 2-tuple of array-like objects
-            Tuple of (train_idxs, test_idxs) generated from a bootstrap 
-            sample. If this is specified, then the appropriate set of 
-            data will be used for evaluating scores: test data for r^2, 
+            Tuple of (train_idxs, test_idxs) generated from a bootstrap
+            sample. If this is specified, then the appropriate set of
+            data will be used for evaluating scores: test data for r^2,
             and training data for information criteria
 
         Returns
