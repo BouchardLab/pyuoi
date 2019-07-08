@@ -401,19 +401,21 @@ class AbstractUoILinearModel(
                 scores[ii] = self._score_predictions(
                     metric=self.estimation_score,
                     fitter=self._estimation_lm,
-                    X=X_test, y=y_test,
-                    support=support)
+                    X=X, y=y,
+                    support=support,
+                    boot_idxs=my_boots[boot_idx])
             else:
                 fitter = self._fit_intercept_no_features(y_rep)
-                if issparse(X_test):
-                    X_test = csr_matrix(X_test.shape, dtype=X_test.dtype)
+                if issparse(X):
+                    X_ = csr_matrix(X.shape, dtype=X.dtype)
                 else:
-                    X_test = np.zeros_like(X_test)
+                    X_ = np.zeros_like(X)
                 scores[ii] = self._score_predictions(
                     metric=self.estimation_score,
                     fitter=fitter,
-                    X=X_test, y=y_test,
-                    support=np.zeros(X_test.shape[1], dtype=bool))
+                    X=X_, y=y,
+                    support=np.zeros(X.shape[1], dtype=bool),
+                    boot_idxs=my_boots[boot_idx])
 
         if size > 1:
             estimates = Gatherv_rows(send=estimates, comm=self.comm,
@@ -570,7 +572,7 @@ class AbstractUoILinearRegressor(
     def estimation_score(self):
         return self.__estimation_score
 
-    def _score_predictions(self, metric, fitter, X, y, support):
+    def _score_predictions(self, metric, fitter, X, y, support, boot_idxs=None):
         """Score, according to some metric, predictions provided by a model.
 
         the resulting score will be negated if an information criterion is
@@ -583,25 +585,46 @@ class AbstractUoILinearRegressor(
             'r2' (explained variance), 'BIC' (Bayesian information criterion),
             'AIC' (Akaike information criterion), and 'AICc' (corrected AIC).
 
-        y_true : array-like
-            The true response variables.
+        fitter : object with .predict and .predict_proba methods as per sklearn
 
-        y_pred : array-like
-            The predicted response variables.
+        X : array-like
+            The design matrix.
 
-        supports: array-like
-            The value of the supports for the model that was used to generate
-            *y_pred*.
+        y : array-like
+            Response vector.
+
+        supports : array-like
+            The value of the supports for the model
+
+        boot_idxs : 2-tuple of array-like objects
+            Tuple of (train_idxs, test_idxs) generated from a bootstrap 
+            sample. If this is specified, then the appropriate set of 
+            data will be used for evaluating scores: test data for r^2, 
+            and training data for information criteria
 
         Returns
         -------
         score : float
             The score.
         """
-        y_pred = fitter.predict(X[:, support])
+
         if metric == 'r2':
+            # Select the test data
+            if boot_idxs is not None:
+                X = X[boot_idxs[1]]
+                y = y[boot_idxs[1]]
+
+            y_pred = fitter.predict(X[:, support])
+
             score = r2_score(y, y_pred)
         else:
+            # Select the train data
+            if boot_idxs is not None:
+                X = X[boot_idxs[0]]
+                y = y[boot_idxs[0]]
+
+            y_pred = fitter.predict(X[:, support])
+
             ll = utils.log_likelihood_glm(model='normal',
                                           y_true=y,
                                           y_pred=y_pred)
@@ -701,7 +724,7 @@ class AbstractUoIGeneralizedLinearRegressor(
     def estimation_score(self):
         return self.__estimation_score
 
-    def _score_predictions(self, metric, fitter, X, y, support):
+    def _score_predictions(self, metric, fitter, X, y, support, boot_idxs=None):
         """Score, according to some metric, predictions provided by a model.
 
         the resulting score will be negated if an information criterion is
@@ -714,28 +737,46 @@ class AbstractUoIGeneralizedLinearRegressor(
             'r2' (explained variance), 'BIC' (Bayesian information criterion),
             'AIC' (Akaike information criterion), and 'AICc' (corrected AIC).
 
-        y_true : array-like
-            The true response variables.
+        fitter : object with .predict and .predict_proba methods as per sklearn
 
-        y_pred : array-like
-            The predicted response variables.
+        X : array-like
+            The design matrix.
 
-        supports: array-like
-            The value of the supports for the model that was used to generate
-            *y_pred*.
+        y : array-like
+            Response vector.
+
+        supports : array-like
+            The value of the supports for the model
+
+        boot_idxs : 2-tuple of array-like objects
+            Tuple of (train_idxs, test_idxs) generated from a bootstrap 
+            sample. If this is specified, then the appropriate set of 
+            data will be used for evaluating scores: test data for r^2, 
+            and training data for information criteria
 
         Returns
         -------
         score : float
             The score.
         """
+
         if metric == 'acc':
+            # Select the test data
+            if boot_idxs is not None:
+                X = X[boot_idxs[1]]
+                y = y[boot_idxs[1]]
+
             if self.shared_support:
                 y_pred = fitter.predict(X[:, support])
             else:
                 y_pred = fitter.predict(X)
             score = accuracy_score(y, y_pred)
         else:
+            # Select the train data
+            if boot_idxs is not None:
+                X = X[boot_idxs[0]]
+                y = y[boot_idxs[0]]
+
             if self.shared_support:
                 y_pred = fitter.predict_proba(X[:, support])
             else:
