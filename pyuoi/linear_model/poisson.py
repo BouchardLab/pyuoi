@@ -585,7 +585,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
 
         return reg_params
 
-    def _score_predictions(self, metric, fitter, X, y, support):
+    def _score_predictions(self, metric, fitter, X, y, support, boot_idxs=None):
         """Score, according to some metric, predictions provided by a model.
 
         The resulting score will be negated if an information criterion is
@@ -611,11 +611,23 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         support: array-like
             The indices of the non-zero features.
 
+        boot_idxs : 2-tuple of array-like objects
+            Tuple of (train_idxs, test_idxs) generated from a bootstrap
+            sample. If this is specified, then the appropriate set of
+            data will be used for evaluating scores: test data for r^2,
+            and training data for information criteria
+
         Returns
         -------
         score : float
             The score.
         """
+
+        # Select the train data
+        if boot_idxs is not None:
+            X = X[boot_idxs[0]]
+            y = y[boot_idxs[0]]
+
         # for Poisson, use predict_mean to calculate the "predicted" values
         y_pred = fitter.predict_mean(X[:, support])
         # calculate the log-likelihood

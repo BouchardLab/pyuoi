@@ -2,7 +2,6 @@ import abc as _abc
 import six as _six
 import numpy as np
 import logging
-
 from sklearn.linear_model.base import SparseCoefMixin
 from sklearn.metrics import r2_score, accuracy_score, log_loss
 from sklearn.model_selection import train_test_split
@@ -144,7 +143,7 @@ class AbstractUoILinearModel(
         pass
 
     @_abc.abstractstaticmethod
-    def _score_predictions(self, metric, fitter, X, y, supports):
+    def _score_predictions(self, metric, fitter, X, y, supports, boot_idxs):
         pass
 
     @_abc.abstractmethod
