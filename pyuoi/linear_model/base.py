@@ -93,8 +93,8 @@ class AbstractUoILinearModel(
         for estimation for a given regularization parameter value (row).
     """
 
-    def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
-                 estimation_frac=0.9, stability_selection=1.,
+    def __init__(self, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
+                 estimation_frac=0.9, stability_selection=0.9,
                  random_state=None, shared_support=True, comm=None):
         # data split fractions
         self.selection_frac = selection_frac
