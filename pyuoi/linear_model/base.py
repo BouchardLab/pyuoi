@@ -548,7 +548,7 @@ class AbstractUoILinearRegressor(
                 estimation_target = self._train_test_map[estimation_target]
         else:
             estimation_target = self._default_est_targets[estimation_score]
-        self.__estimation_target = estimation_target
+        self._estimation_target = estimation_target
 
     def _pre_fit(self, X, y):
         X, y = super()._pre_fit(X, y)
@@ -620,8 +620,8 @@ class AbstractUoILinearRegressor(
         """
 
         # Select the data relevant for the estimation_score
-        X = X[boot_idxs[self.__estimation_target]]
-        y = y[boot_idxs[self.__estimation_target]]
+        X = X[boot_idxs[self._estimation_target]]
+        y = y[boot_idxs[self._estimation_target]]
 
         if metric == 'r2':
 
@@ -629,9 +629,7 @@ class AbstractUoILinearRegressor(
 
             score = r2_score(y, y_pred)
         else:
-
             y_pred = fitter.predict(X[:, support])
-
             ll = utils.log_likelihood_glm(model='normal',
                                           y_true=y,
                                           y_pred=y_pred)
@@ -721,7 +719,7 @@ class AbstractUoIGeneralizedLinearRegressor(
         else:
             estimation_target = self._default_est_targets[estimation_score]
 
-        self.__estimation_target = estimation_target
+        self._estimation_target = estimation_target
 
     def _post_fit(self, X, y):
         super()._post_fit(X, y)
@@ -784,8 +782,8 @@ class AbstractUoIGeneralizedLinearRegressor(
         """
 
         # Select the data relevant for the estimation_score
-        X = X[boot_idxs[self.__estimation_target]]
-        y = y[boot_idxs[self.__estimation_target]]
+        X = X[boot_idxs[self._estimation_target]]
+        y = y[boot_idxs[self._estimation_target]]
 
         if metric == 'acc':
             if self.shared_support:

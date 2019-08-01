@@ -58,6 +58,11 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
         to obtain validation scores. Small values of this parameters imply
         larger "perturbations" to the dataset.
 
+    estimation_target : str "train" | "test"
+        Decide whether to assess the estimation_score on the train
+        or test data across each bootstrap. By deafult, a sensible
+        choice is made based on the chosen estimation_score
+
     stability_selection : int, float, or array-like, default 1
         If int, treated as the number of bootstraps that a feature must
         appear in to guarantee placement in selection profile. If float,
@@ -128,10 +133,11 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
     """
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, n_C=48, stability_selection=1.,
-                 estimation_score='acc', multi_class='auto',
-                 shared_support=True, warm_start=False, eps=1e-5,
-                 fit_intercept=True, standardize=True, max_iter=10000, tol=1e-3,
-                 random_state=None, comm=None, logger=None):
+                 estimation_score='acc', estimation_target=None,
+                 multi_class='auto', shared_support=True, warm_start=False,
+                 eps=1e-5, fit_intercept=True, standardize=True,
+                 max_iter=10000, tol=1e-3, random_state=None, comm=None,
+                 logger=None):
         super(UoI_L1Logistic, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -139,6 +145,7 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
             estimation_frac=estimation_frac,
             stability_selection=stability_selection,
             estimation_score=estimation_score,
+            estimation_target=estimation_target,
             random_state=random_state,
             fit_intercept=fit_intercept,
             standardize=standardize,

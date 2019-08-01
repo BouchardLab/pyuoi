@@ -47,6 +47,11 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
     estimation_score : str "r2" | "AIC", | "AICc" | "BIC"
         Objective used to choose the best estimates per bootstrap.
 
+    estimation_target : str "train" | "test"
+        Decide whether to assess the estimation_score on the train
+        or test data across each bootstrap. By deafult, a sensible
+        choice is made based on the chosen estimation_score
+
     warm_start : bool, default True
         When set to ``True``, reuse the solution of the previous call to fit as
         initialization, otherwise, just erase the previous solution
@@ -95,14 +100,16 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, n_lambdas=48, stability_selection=1.,
-                 estimation_score='r2', eps=1e-3, warm_start=True,
-                 copy_X=True, fit_intercept=True, standardize=True,
-                 max_iter=1000, random_state=None, comm=None, logger=None):
+                 estimation_score='r2', estimation_target=None, eps=1e-3,
+                 warm_start=True, copy_X=True, fit_intercept=True,
+                 standardize=True, max_iter=1000, random_state=None,
+                 comm=None, logger=None):
         super(UoI_Lasso, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
             selection_frac=selection_frac,
             estimation_frac=estimation_frac,
+            estimation_target=estimation_target,
             stability_selection=stability_selection,
             copy_X=copy_X,
             fit_intercept=fit_intercept,
