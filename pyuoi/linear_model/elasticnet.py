@@ -51,6 +51,11 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
     estimation_score : str "r2" | "AIC", | "AICc" | "BIC"
         Objective used to choose the best estimates per bootstrap.
 
+    estimation_target : str "train" | "test"
+        Decide whether to assess the estimation_score on the train
+        or test data across each bootstrap. By deafult, a sensible
+        choice is made based on the chosen estimation_score
+
     warm_start : bool, default True
         When set to ``True``, reuse the solution of the previous call to fit as
         initialization, otherwise, just erase the previous solution
@@ -99,8 +104,9 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, n_lambdas=48,
                  alphas=np.array([0.5]), stability_selection=1.,
-                 estimation_score='r2', warm_start=True, eps=1e-3,
-                 copy_X=True, fit_intercept=True, standardize=True,
+                 estimation_score='r2', estimation_target=None,
+                 warm_start=True, eps=1e-3, copy_X=True,
+                 fit_intercept=True, standardize=True,
                  max_iter=1000, random_state=None, comm=None, logger=None):
         super(UoI_ElasticNet, self).__init__(
             n_boots_sel=n_boots_sel,
@@ -109,6 +115,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
             estimation_frac=estimation_frac,
             stability_selection=stability_selection,
             estimation_score=estimation_score,
+            estimation_target=estimation_target,
             copy_X=copy_X,
             fit_intercept=fit_intercept,
             standardize=standardize,

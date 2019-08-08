@@ -435,6 +435,11 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
     estimation_score : str "log" | "AIC", | "AICc" | "BIC"
         Objective used to choose the best estimates per bootstrap.
 
+    estimation_target : str "train" | "test"
+        Decide whether to assess the estimation_score on the train
+        or test data across each bootstrap. By deafult, a sensible
+        choice is made based on the chosen estimation_score
+
     solver : string, default 'lbfgs'
         The solver to use. Options are 'lbfgs' (orthant-wise LBFGS) and 'cd'
         (coordinate descent).
@@ -487,10 +492,12 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         boolean array indicating whether a given regressor (column) is selected
         for estimation for a given regularization parameter value (row).
     """
+
     def __init__(self, n_boots_sel=48, n_boots_est=48, n_lambdas=48,
                  alphas=np.array([1.]), selection_frac=0.8,
                  estimation_frac=0.8, stability_selection=1.,
-                 estimation_score='log', solver='lbfgs', warm_start=True,
+                 estimation_score='log', estimation_target=None,
+                 solver='lbfgs', warm_start=True,
                  eps=1e-3, tol=1e-5, copy_X=True, fit_intercept=True,
                  standardize=True, max_iter=1000,
                  random_state=None, comm=None, logger=None):
@@ -501,6 +508,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
             estimation_frac=estimation_frac,
             stability_selection=stability_selection,
             estimation_score=estimation_score,
+            estimation_target=estimation_target,
             copy_X=copy_X,
             fit_intercept=fit_intercept,
             random_state=random_state,
@@ -585,7 +593,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
 
         return reg_params
 
-    def _score_predictions(self, metric, fitter, X, y, support):
+    def _score_predictions(self, metric, fitter, X, y, support, boot_idxs=None):
         """Score, according to some metric, predictions provided by a model.
 
         The resulting score will be negated if an information criterion is
@@ -611,11 +619,23 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         support: array-like
             The indices of the non-zero features.
 
+        boot_idxs : 2-tuple of array-like objects
+            Tuple of (train_idxs, test_idxs) generated from a bootstrap
+            sample. If this is specified, then the appropriate set of
+            data will be used for evaluating scores: test data for r^2,
+            and training data for information criteria
+
         Returns
         -------
         score : float
             The score.
         """
+
+        # Select the train data
+        if boot_idxs is not None:
+            X = X[boot_idxs[self._estimation_target]]
+            y = y[boot_idxs[self._estimation_target]]
+
         # for Poisson, use predict_mean to calculate the "predicted" values
         y_pred = fitter.predict_mean(X[:, support])
         # calculate the log-likelihood

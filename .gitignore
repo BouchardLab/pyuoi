@@ -97,3 +97,6 @@ ENV/
 
 # VS Code
 .vscode
+
+# lbfgs solver stuff
+pyuoi/lbfgs/_lowlevel.c
