@@ -5,8 +5,9 @@ from numpy.testing import (assert_array_equal, assert_array_almost_equal_nulp,
 from sklearn.datasets import make_regression
 from sklearn.linear_model import Lasso
 from sklearn.metrics import r2_score
-
+from sklearn.linear_model.coordinate_descent import _alpha_grid
 from pyuoi import UoI_Lasso
+from pyuoi.linear_model.lasso import PycLasso
 from pyuoi.utils import make_linear_regression
 
 
@@ -184,3 +185,54 @@ def test_fit_intercept():
     lasso = UoI_Lasso(fit_intercept=False)
     assert not lasso._selection_lm.fit_intercept
     assert not lasso._estimation_lm.fit_intercept
+
+
+def test_choice_of_solver():
+    '''Tests whether one can correctly switch between solvers in UoI Lasso'''
+
+    uoi1 = UoI_Lasso(solver='cd')
+    assert(isinstance(uoi1._selection_lm, Lasso))
+
+    uoi2 = UoI_Lasso(solver='pyc')
+    assert(isinstance(uoi2._selection_lm, PycLasso))
+
+
+def test_pyclasso():
+    '''Tests whether the PycLasso class is working'''
+
+    pyclasso = PycLasso(fit_intercept=False, max_iter=1000)
+
+    # Test that we can set params correctly
+    pyclasso.set_params(fit_intercept=True)
+    assert(pyclasso.fit_intercept)
+    pyclasso.set_params(max_iter=500)
+    assert(pyclasso.max_iter == 500)
+    pyclasso.set_params(alphas=np.arange(100))
+    assert(np.array_equal(pyclasso.alphas, np.arange(100)))
+
+    # Test that spurious parameters are rejected
+    try:
+        pyclasso.set_params(blah=5)
+        Exception('No exception thrown!')
+    except ValueError:
+        pass
+    finally:
+        Exception('Unexpected Exception raised')
+
+    # Tests against a toy problem
+    X = np.array([
+        [-1, 2, 3],
+        [4, 1, -7],
+        [1, 3, 1],
+        [4, 3, 12],
+        [8, 11, 2]], dtype=float)
+    beta = np.array([1, 4, 2], dtype=float)
+    y = np.dot(X, beta)
+
+    alphas = _alpha_grid(X, y)
+    pyclasso.set_params(alphas=alphas, fit_intercept=False)
+    pyclasso.fit(X, y)
+    assert(np.array_equal(pyclasso.coef_.shape, (100, 3)))
+    y_pred = pyclasso.predict(X)
+    scores = np.array([r2_score(y, y_pred[:, j]) for j in range(100)])
+    assert(np.allclose(1, max(scores)))
