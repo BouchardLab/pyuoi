@@ -79,10 +79,23 @@ def test_uoi_lasso_toy():
 
     # choose selection_frac to be slightly smaller to ensure that we get
     # good test sets
+
+    # Also test both choices of solver
     lasso = UoI_Lasso(
         fit_intercept=False,
         selection_frac=0.75,
         estimation_frac=0.75,
+        solver='cd'
+    )
+    lasso.fit(X, y)
+
+    assert_allclose(lasso.coef_, beta)
+
+    lasso = UoI_Lasso(
+        fit_intercept=False,
+        selection_frac=0.75,
+        estimation_frac=0.75,
+        solver='pyc'
     )
     lasso.fit(X, y)
 
@@ -198,7 +211,7 @@ def test_choice_of_solver():
 
 
 def test_pyclasso():
-    '''Tests whether the PycLasso class is working'''
+    """Tests whether the PycLasso class is working"""
 
     pyclasso = PycLasso(fit_intercept=False, max_iter=1000)
 

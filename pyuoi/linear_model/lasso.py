@@ -1,14 +1,14 @@
 import pycasso
 import numpy as np
-from warnings import warn
 
+from sklearn.exceptions import NotFittedError
 from sklearn.linear_model import Lasso, LinearRegression
 from sklearn.linear_model.coordinate_descent import _alpha_grid
 from .base import AbstractUoILinearRegressor
 
 
 class PycLasso():
-    '''class PycLasso: Lasso using the pycasso solver. Solves for an
+    """class PycLasso: Lasso using the pycasso solver. Solves for an
     entire regularization path at once.
 
         alphas : ndarray
@@ -21,7 +21,7 @@ class PycLasso():
         max_iter : int
             Iterations for pycasso solver
 
-    '''
+    """
     def __init__(self, alphas=None, fit_intercept=False, max_iter=1000):
         self.max_iter = max_iter
         self.fit_intercept = fit_intercept
@@ -29,14 +29,6 @@ class PycLasso():
 
         # Flag to prevent us from predicting before fitting
         self.isfitted = False
-
-    def init_solver(self, X, y, alphas):
-
-        self.solver = pycasso.Solver(X, y, family='gaussian',
-                                     useintercept=self.fit_intercept,
-                                     lambdas=alphas,
-                                     penalty='l1',
-                                     max_ite=self.max_iter)
 
     def set_params(self, **kwargs):
 
@@ -46,25 +38,25 @@ class PycLasso():
             if key in _valid_params:
                 setattr(self, key, value)
             else:
-                ValueError('Invalid parameter %s' % key)
+                raise ValueError('Invalid parameter %s' % key)
 
     def predict(self, X):
 
         if self.isfitted:
-
             return np.matmul(X, self.coef_.T) + self.intercept_
-
         else:
-
-            warn('Cannot predict, estimator is not yet fit!')
+            raise NotFittedError('Cannot predict, estimator is not yet fit!')
 
     def fit(self, X, y):
 
         if self.alphas is None:
-            print('Set alphas before fitting!')
-            return
+            raise Exception('Set alphas before fitting!')
 
-        self.init_solver(X, y, self.alphas)
+        self.solver = pycasso.Solver(X, y, family='gaussian',
+                                     useintercept=self.fit_intercept,
+                                     lambdas=self.alphas,
+                                     penalty='l1',
+                                     max_ite=self.max_iter)
         self.solver.train()
         # Coefs across the entire solution path
         self.coef_ = self.solver.result['beta']
@@ -222,9 +214,9 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
 
         return [{'alpha': a} for a in alphas]
 
-    # Overwrite base class selection sweep to accommodate
-    # Pycasso path-wise solution
     def uoi_selection_sweep(self, X, y, reg_param_values):
+        """Overwrite base class selection sweep to accommodate
+        pycasso path-wise solution"""
 
         if self.solver == 'pyc':
             alphas = np.array([reg_param['alpha']
