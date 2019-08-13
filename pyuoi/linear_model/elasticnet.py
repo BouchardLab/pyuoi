@@ -59,7 +59,12 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
         Whether to calculate the intercept for this model. If set
         to False, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
-    standardize : bool
+
+    replace : boolean, deafult False
+        Whether or not to sample with replacement when "bootstrapping"
+        in selection/estimation modules
+
+    standardize : boolean, default False
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.
     max_iter : int
@@ -92,7 +97,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
                  alphas=np.array([0.5]), stability_selection=1.,
                  estimation_score='r2', estimation_target=None,
                  warm_start=True, eps=1e-3, copy_X=True,
-                 fit_intercept=True, standardize=True,
+                 fit_intercept=True, replace=False, standardize=True,
                  max_iter=1000, random_state=None, comm=None, logger=None):
         super(UoI_ElasticNet, self).__init__(
             n_boots_sel=n_boots_sel,
@@ -104,6 +109,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
             estimation_target=estimation_target,
             copy_X=copy_X,
             fit_intercept=fit_intercept,
+            replace=replace,
             standardize=standardize,
             random_state=random_state,
             comm=comm,

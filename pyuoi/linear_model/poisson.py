@@ -428,11 +428,17 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         Stopping criteria for solver.
     copy_X : boolean
         If ``True``, X will be copied; else, it may be overwritten.
-    fit_intercept : boolean
-        Whether to calculate the intercept for this model. If set to ``False``,
-        no intercept will be used in calculations (e.g. data is expected to be
-        already centered).
-    standardize : bool
+
+    fit_intercept : boolean, default True
+        Whether to calculate the intercept for this model. If set
+        to False, no intercept will be used in calculations
+        (e.g. data is expected to be already centered).
+
+    replace : boolean, deafult False
+        Whether or not to sample with replacement when "bootstrapping"
+        in selection/estimation modules
+
+    standardize : boolean, default False
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.
     max_iter : int
@@ -462,7 +468,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
                  estimation_score='log', estimation_target=None,
                  solver='lbfgs', warm_start=True,
                  eps=1e-3, tol=1e-5, copy_X=True, fit_intercept=True,
-                 standardize=True, max_iter=1000,
+                 replace=False, standardize=True, max_iter=1000,
                  random_state=None, comm=None, logger=None):
         super(UoI_Poisson, self).__init__(
             n_boots_sel=n_boots_sel,
@@ -474,6 +480,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
             estimation_target=estimation_target,
             copy_X=copy_X,
             fit_intercept=fit_intercept,
+            replace=replace,
             random_state=random_state,
             comm=comm,
             logger=logger)
