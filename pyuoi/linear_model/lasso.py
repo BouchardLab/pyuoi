@@ -52,6 +52,21 @@ class PycLasso():
         if self.alphas is None:
             raise Exception('Set alphas before fitting!')
 
+        # Sort in descending order
+        self.alphas = np.sort(self.alphas)[::-1]
+
+        # Pycasso requires the regularization path to include at
+        # least 3 regularization parameters. Add 'dummy parameters'
+        # whose solution we subsequently discard
+        dummy_path = False
+        if self.alphas.size < 3:
+            dummy_path = True
+            alphas = self.alphas
+            pathlength = alphas.size
+            while alphas.size < 3:
+                alphas = np.append(alphas, alphas[-1] / 2)
+            self.alphas = alphas
+
         self.solver = pycasso.Solver(X, y, family='gaussian',
                                      useintercept=self.fit_intercept,
                                      lambdas=self.alphas,
@@ -59,8 +74,12 @@ class PycLasso():
                                      max_ite=self.max_iter)
         self.solver.train()
         # Coefs across the entire solution path
-        self.coef_ = self.solver.result['beta']
-        self.intercept_ = self.solver.result['intercept']
+        if dummy_path:
+            self.coef_ = self.solver.result['beta'][:pathlength, :]
+            self.intercept_ = self.solver.result['intercept'][:pathlength]
+        else:
+            self.coef_ = self.solver.result['beta']
+            self.intercept_ = self.solver.result['intercept']
 
         self.isfitted = True
 
@@ -226,6 +245,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         if self.solver == 'pyc':
             alphas = np.array([reg_param['alpha']
                                for reg_param in reg_param_values])
+
             self._selection_lm.set_params(alphas=alphas)
             self._selection_lm.fit(X, y)
 
