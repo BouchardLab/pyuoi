@@ -1,7 +1,68 @@
+import pycasso
+import numpy as np
+
+from sklearn.exceptions import NotFittedError
 from sklearn.linear_model import Lasso, LinearRegression
 from sklearn.linear_model.coordinate_descent import _alpha_grid
-
 from .base import AbstractUoILinearRegressor
+
+
+class PycLasso():
+    """class PycLasso: Lasso using the pycasso solver. Solves for an
+    entire regularization path at once.
+
+        alphas : ndarray
+            regularization path. Defaults to None for compatibility with UoI,
+            but needs to be set prior to fitting
+
+        fit_intercept : bool
+            Should we fit an intercept?
+
+        max_iter : int
+            Iterations for pycasso solver
+
+    """
+    def __init__(self, alphas=None, fit_intercept=False, max_iter=1000):
+        self.max_iter = max_iter
+        self.fit_intercept = fit_intercept
+        self.alphas = alphas
+
+        # Flag to prevent us from predicting before fitting
+        self.isfitted = False
+
+    def set_params(self, **kwargs):
+
+        _valid_params = ['alphas', 'fit_intercept', 'max_iter']
+
+        for key, value in kwargs.items():
+            if key in _valid_params:
+                setattr(self, key, value)
+            else:
+                raise ValueError('Invalid parameter %s' % key)
+
+    def predict(self, X):
+
+        if self.isfitted:
+            return np.matmul(X, self.coef_.T) + self.intercept_
+        else:
+            raise NotFittedError('Cannot predict, estimator is not yet fit!')
+
+    def fit(self, X, y):
+
+        if self.alphas is None:
+            raise Exception('Set alphas before fitting!')
+
+        self.solver = pycasso.Solver(X, y, family='gaussian',
+                                     useintercept=self.fit_intercept,
+                                     lambdas=self.alphas,
+                                     penalty='l1',
+                                     max_ite=self.max_iter)
+        self.solver.train()
+        # Coefs across the entire solution path
+        self.coef_ = self.solver.result['beta']
+        self.intercept_ = self.solver.result['intercept']
+
+        self.isfitted = True
 
 
 class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
@@ -85,6 +146,11 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
     comm : MPI communicator, default None
         If passed, the selection and estimation steps are parallelized.
 
+    solver : 'cd' | 'pyc'
+
+        If cd, will use sklearn's lasso implementation (via coordinate descent)
+        If pyc, will use pyclasso, built off of the pycasso path-wise solver
+
     Attributes
     ----------
     coef_ : array, shape (n_features,) or (n_targets, n_features)
@@ -103,7 +169,8 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
                  estimation_score='r2', estimation_target=None, eps=1e-3,
                  warm_start=True, copy_X=True, fit_intercept=True,
                  standardize=True, max_iter=1000, random_state=None,
-                 comm=None, logger=None):
+                 comm=None, logger=None,
+                 solver='cd'):
         super(UoI_Lasso, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -122,11 +189,19 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         )
         self.n_lambdas = n_lambdas
         self.eps = eps
-        self._selection_lm = Lasso(
-            max_iter=max_iter,
-            warm_start=warm_start,
-            random_state=random_state,
-            fit_intercept=fit_intercept)
+        self.solver = solver
+
+        if solver == 'cd':
+            self._selection_lm = Lasso(
+                max_iter=max_iter,
+                warm_start=warm_start,
+                random_state=random_state,
+                fit_intercept=fit_intercept)
+        elif solver == 'pyc':
+            self._selection_lm = PycLasso(
+                fit_intercept=fit_intercept,
+                max_iter=max_iter)
+
         self._estimation_lm = LinearRegression(fit_intercept=fit_intercept)
 
     def get_reg_params(self, X, y):
@@ -136,4 +211,22 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
             fit_intercept=self.fit_intercept,
             eps=self.eps,
             n_alphas=self.n_lambdas)
+
         return [{'alpha': a} for a in alphas]
+
+    def uoi_selection_sweep(self, X, y, reg_param_values):
+        """Overwrite base class selection sweep to accommodate
+        pycasso path-wise solution"""
+
+        if self.solver == 'pyc':
+            alphas = np.array([reg_param['alpha']
+                               for reg_param in reg_param_values])
+            self._selection_lm.set_params(alphas=alphas)
+            self._selection_lm.fit(X, y)
+
+            return self._selection_lm.coef_
+
+        else:
+
+            return super(UoI_Lasso, self).uoi_selection_sweep(X, y,
+                                                              reg_param_values)
