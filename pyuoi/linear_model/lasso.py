@@ -129,6 +129,10 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         to False, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
 
+    replace : boolean, deafult False
+        Whether or not to sample with replacement when "bootstrapping"
+        in selection/estimation modules
+
     standardize : boolean, default False
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.
@@ -168,9 +172,9 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
                  estimation_frac=0.9, n_lambdas=48, stability_selection=1.,
                  estimation_score='r2', estimation_target=None, eps=1e-3,
                  warm_start=True, copy_X=True, fit_intercept=True,
-                 standardize=True, max_iter=1000, random_state=None,
-                 comm=None, logger=None,
-                 solver='cd'):
+                 replace=False, standardize=True, max_iter=1000,
+                 random_state=None, comm=None, logger=None,
+                 solver='pyc'):
         super(UoI_Lasso, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -180,6 +184,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
             stability_selection=stability_selection,
             copy_X=copy_X,
             fit_intercept=fit_intercept,
+            replace=replace,
             standardize=standardize,
             random_state=random_state,
             comm=comm,

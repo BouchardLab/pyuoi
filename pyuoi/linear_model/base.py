@@ -4,13 +4,13 @@ import numpy as np
 import logging
 from sklearn.linear_model.base import SparseCoefMixin
 from sklearn.metrics import r2_score, accuracy_score, log_loss
-from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
 from sklearn.preprocessing import StandardScaler
 
 from scipy.sparse import issparse, csr_matrix
 
 from pyuoi import utils
+from pyuoi.resampling import resample
 from pyuoi.mpi_utils import (Gatherv_rows, Bcast_from_root)
 
 from .utils import stability_selection_to_threshold, intersection
@@ -56,6 +56,10 @@ class AbstractUoILinearModel(
         to False, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
 
+    replace : boolean, deafult False
+        Whether or not to sample with replacement when "bootstrapping"
+        in selection/estimation modules
+
     standardize : boolean, default False
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.
@@ -98,7 +102,7 @@ class AbstractUoILinearModel(
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
-                 fit_intercept=True, standardize=True,
+                 fit_intercept=True, replace=False, standardize=True,
                  shared_support=True, max_iter=None, random_state=None,
                  comm=None, logger=None):
         # data split fractions
@@ -110,6 +114,7 @@ class AbstractUoILinearModel(
         # other hyperparameters
         self.stability_selection = stability_selection
         self.fit_intercept = fit_intercept
+        self.replace = replace
         self.standardize = standardize
         self.shared_support = shared_support
         self.max_iter = max_iter
@@ -150,6 +155,13 @@ class AbstractUoILinearModel(
     def intersect(self, coef, thresholds):
         """Intersect coefficients across all thresholds"""
         pass
+
+    def _resample(self, idxs, sampling_frac, stratify):
+        """Do bootstrap (train/test split) depnding on whether replace is
+        set to false (true)"""
+
+        return resample('bootstrap', idxs, self.replace, self.random_state,
+                        sampling_frac=sampling_frac, stratify=stratify)
 
     def _pre_fit(self, X, y):
         """Perform class-specific setup for fit().
@@ -260,10 +272,9 @@ class AbstractUoILinearModel(
         for boot in range(self.n_boots_sel):
             if size > 1:
                 if rank == 0:
-                    rvals = train_test_split(np.arange(X.shape[0]),
-                                             test_size=1 - self.selection_frac,
-                                             stratify=stratify,
-                                             random_state=self.random_state)
+                    rvals = self._resample(np.arange(X.shape[0]),
+                                           sampling_frac=self.selection_frac,
+                                           stratify=stratify)
                 else:
                     rvals = [None] * 2
                 rvals = [Bcast_from_root(rval, self.comm, root=0)
@@ -271,11 +282,10 @@ class AbstractUoILinearModel(
                 if boot in my_boots.keys():
                     my_boots[boot] = rvals
             else:
-                my_boots[boot] = train_test_split(
+                my_boots[boot] = self._resample(
                     np.arange(X.shape[0]),
-                    test_size=1 - self.selection_frac,
-                    stratify=stratify,
-                    random_state=self.random_state)
+                    sampling_frac=self.selection_frac,
+                    stratify=stratify)
 
         # iterate over bootstraps
         curr_boot_idx = None
@@ -351,10 +361,9 @@ class AbstractUoILinearModel(
         for boot in range(self.n_boots_est):
             if size > 1:
                 if rank == 0:
-                    rvals = train_test_split(np.arange(X.shape[0]),
-                                             test_size=1 - self.estimation_frac,
-                                             stratify=stratify,
-                                             random_state=self.random_state)
+                    rvals = self._resample(np.arange(X.shape[0]),
+                                           sampling_frac=self.estimation_frac,
+                                           stratify=stratify)
                 else:
                     rvals = [None] * 2
                 rvals = [Bcast_from_root(rval, self.comm, root=0)
@@ -362,11 +371,10 @@ class AbstractUoILinearModel(
                 if boot in my_boots.keys():
                     my_boots[boot] = rvals
             else:
-                my_boots[boot] = train_test_split(
+                my_boots[boot] = self._resample(
                     np.arange(X.shape[0]),
-                    test_size=1 - self.estimation_frac,
-                    stratify=stratify,
-                    random_state=self.random_state)
+                    sampling_frac=self.selection_frac,
+                    stratify=stratify)
 
         # score (r2/AIC/AICc/BIC) for each bootstrap for each support
         scores = np.zeros(tasks.size)
@@ -517,7 +525,7 @@ class AbstractUoILinearRegressor(
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
                  estimation_score='r2', estimation_target=None,
-                 copy_X=True, fit_intercept=True,
+                 copy_X=True, fit_intercept=True, replace=False,
                  standardize=True, random_state=None, max_iter=None,
                  comm=None, logger=None):
         super(AbstractUoILinearRegressor, self).__init__(
@@ -527,6 +535,7 @@ class AbstractUoILinearRegressor(
             estimation_frac=estimation_frac,
             stability_selection=stability_selection,
             fit_intercept=fit_intercept,
+            replace=replace,
             standardize=standardize,
             max_iter=max_iter,
             random_state=random_state,
@@ -687,9 +696,9 @@ class AbstractUoIGeneralizedLinearRegressor(
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
                  estimation_score='acc', estimation_target=None,
-                 copy_X=True, fit_intercept=True, standardize=True,
-                 random_state=None, max_iter=None, shared_support=True,
-                 comm=None, logger=None):
+                 copy_X=True, fit_intercept=True, replace=False,
+                 standardize=True, random_state=None, max_iter=None,
+                 shared_support=True, comm=None, logger=None):
         super(AbstractUoIGeneralizedLinearRegressor, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
