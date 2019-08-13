@@ -232,7 +232,7 @@ def test_lasso_selection_sweep():
 
     # toy regularization
     reg_param_values = [{'alpha': 1.0}, {'alpha': 2.0}]
-    lasso = UoI_Lasso(fit_intercept=True, warm_start=False)
+    lasso = UoI_Lasso(fit_intercept=True, warm_start=False, solver='cd')
     lasso1 = Lasso(alpha=1.0, fit_intercept=True, max_iter=lasso.max_iter)
     lasso2 = Lasso(alpha=2.0, fit_intercept=True, max_iter=lasso.max_iter)
     lasso.output_dim = 1

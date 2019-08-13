@@ -107,17 +107,20 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         self.shared_support = shared_support
         self.max_iter = max_iter
         self.comm = comm
-        # preprocessing
-        if isinstance(random_state, int):
+
+        # Properly assign a RandomState instance to this fitter
+        if random_state is None:
+            self.random_state = np.random.RandomState()
+        elif isinstance(random_state, int):
             # make sure ranks use different seed
             if self.comm is not None:
                 random_state += self.comm.rank
             self.random_state = np.random.RandomState(random_state)
+        elif isinstance(random_state, np.random.RandomState):
+            self.random_state = random_state
         else:
-            if random_state is None:
-                self.random_state = np.random
-            else:
-                self.random_state = random_state
+            raise ValueError("Invalid type for random_state. Must be an integer"
+                             "np.random.RandomState instance or NoneType")
 
         # extract selection thresholds from user provided stability selection
         self.selection_thresholds_ = stability_selection_to_threshold(
