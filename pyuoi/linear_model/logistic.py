@@ -393,9 +393,6 @@ class MaskedCoefLogisticRegression(LogisticRegression):
             Array of weights that are assigned to individual samples.
             If not provided, then each sample is given unit weight.
 
-            .. versionadded:: 0.17
-                *sample_weight* support to LogisticRegression.
-
         coef_mask : array-like, shape (n_features), (n_classes, n_features)
                     optional
             Masking array for coef.

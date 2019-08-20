@@ -47,7 +47,7 @@ Further details on the UoI framework can be found in [Bouchard2017]_ and
 
 
 Indices and tables
-==================
+------------------
 
 * :ref:`genindex`
 * :ref:`modindex`
