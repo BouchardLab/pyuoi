@@ -1,6 +1,15 @@
-============
+############
 linear_model
-============
+############
 
-.. automodule:: pyuoi.linear_model
-   :members:
+lasso
+-----
+
+.. automodule:: pyuoi.linear_model.lasso
+   :members: UoI_Lasso, PycLasso
+
+logistic
+--------
+
+.. automodule:: pyuoi.linear_model.logistic
+    :members: UoI_L1Logistic
