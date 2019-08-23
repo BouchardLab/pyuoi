@@ -161,7 +161,7 @@ class AbstractUoILinearModel(
 
     def _resample(self, idxs, sampling_frac, stratify):
         """Do bootstrap (train/test split) depnding on whether replace is
-        set to false (true)"""
+        set to true (false)"""
 
         return resample('bootstrap', idxs, self.replace, self.random_state,
                         sampling_frac=sampling_frac, stratify=stratify)
