@@ -1,6 +1,7 @@
 import numpy as np
 from collections import Counter
 from sklearn.model_selection import train_test_split
+from sklearn.utils import check_random_state
 
 
 def resample(type, x, replace=True, random_state=None, **kwargs):
@@ -25,12 +26,7 @@ def resample(type, x, replace=True, random_state=None, **kwargs):
     **kwargs : arguments necessary to perform the desired resampling.
     See functions below for necessary keyword arguments"""
 
-    if random_state is None or isinstance(random_state, int):
-        random_state = np.random.RandomState(random_state)
-    elif isinstance(random_state, np.random.RandomState):
-        pass
-    else:
-        raise ValueError('Invalid value for random_state')
+    random_state = check_random_state(random_state)
 
     if type == 'bootstrap':
         train_idxs, test_idxs = bootstrap(x, random_state, replace, **kwargs)
