@@ -2,7 +2,6 @@ import abc as _abc
 import six as _six
 import numpy as np
 import logging
-
 from sklearn.linear_model.base import SparseCoefMixin
 from sklearn.metrics import r2_score, accuracy_score, log_loss
 from sklearn.model_selection import train_test_split
@@ -144,7 +143,7 @@ class AbstractUoILinearModel(
         pass
 
     @_abc.abstractstaticmethod
-    def _score_predictions(self, metric, fitter, X, y, supports):
+    def _score_predictions(self, metric, fitter, X, y, supports, boot_idxs):
         pass
 
     @_abc.abstractmethod
@@ -299,9 +298,7 @@ class AbstractUoILinearModel(
             # draw a resampled bootstrap
             idxs_train, idxs_test = my_boots[boot_idx]
             X_rep = X[idxs_train]
-            X_test = X[idxs_test]
             y_rep = y[idxs_train]
-            y_test = y[idxs_test]
 
             # fit the coefficients
             if size > self.n_boots_sel:
@@ -382,9 +379,7 @@ class AbstractUoILinearModel(
             # draw a resampled bootstrap
             idxs_train, idxs_test = my_boots[boot_idx]
             X_rep = X[idxs_train]
-            X_test = X[idxs_test]
             y_rep = y[idxs_train]
-            y_test = y[idxs_test]
             self._logger.info("estimation bootstrap %d, support %d"
                               % (boot_idx, support_idx))
             if np.any(support):
@@ -401,19 +396,21 @@ class AbstractUoILinearModel(
                 scores[ii] = self._score_predictions(
                     metric=self.estimation_score,
                     fitter=self._estimation_lm,
-                    X=X_test, y=y_test,
-                    support=support)
+                    X=X, y=y,
+                    support=support,
+                    boot_idxs=my_boots[boot_idx])
             else:
                 fitter = self._fit_intercept_no_features(y_rep)
-                if issparse(X_test):
-                    X_test = csr_matrix(X_test.shape, dtype=X_test.dtype)
+                if issparse(X):
+                    X_ = csr_matrix(X.shape, dtype=X.dtype)
                 else:
-                    X_test = np.zeros_like(X_test)
+                    X_ = np.zeros_like(X)
                 scores[ii] = self._score_predictions(
                     metric=self.estimation_score,
                     fitter=fitter,
-                    X=X_test, y=y_test,
-                    support=np.zeros(X_test.shape[1], dtype=bool))
+                    X=X_, y=y,
+                    support=np.zeros(X.shape[1], dtype=bool),
+                    boot_idxs=my_boots[boot_idx])
 
         if size > 1:
             estimates = Gatherv_rows(send=estimates, comm=self.comm,
@@ -512,9 +509,15 @@ class AbstractUoILinearRegressor(
 
     _valid_estimation_metrics = ('r2', 'AIC', 'AICc', 'BIC')
 
+    _train_test_map = {'train': 0, 'test': 1}
+
+    _default_est_targets = {'r2': 1, 'AIC': 0,
+                            'AICc': 0, 'BIC': 0}
+
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
-                 estimation_score='r2', copy_X=True, fit_intercept=True,
+                 estimation_score='r2', estimation_target=None,
+                 copy_X=True, fit_intercept=True,
                  standardize=True, random_state=None, max_iter=None,
                  comm=None, logger=None):
         super(AbstractUoILinearRegressor, self).__init__(
@@ -536,6 +539,16 @@ class AbstractUoILinearRegressor(
                 "invalid estimation metric: '%s'" % estimation_score)
 
         self.__estimation_score = estimation_score
+
+        if estimation_target is not None:
+            if estimation_target not in ['train', 'test']:
+                raise ValueError(
+                    "invalid estimation target: %s" % estimation_target)
+            else:
+                estimation_target = self._train_test_map[estimation_target]
+        else:
+            estimation_target = self._default_est_targets[estimation_score]
+        self._estimation_target = estimation_target
 
     def _pre_fit(self, X, y):
         X, y = super()._pre_fit(X, y)
@@ -570,7 +583,7 @@ class AbstractUoILinearRegressor(
     def estimation_score(self):
         return self.__estimation_score
 
-    def _score_predictions(self, metric, fitter, X, y, support):
+    def _score_predictions(self, metric, fitter, X, y, support, boot_idxs):
         """Score, according to some metric, predictions provided by a model.
 
         the resulting score will be negated if an information criterion is
@@ -583,25 +596,40 @@ class AbstractUoILinearRegressor(
             'r2' (explained variance), 'BIC' (Bayesian information criterion),
             'AIC' (Akaike information criterion), and 'AICc' (corrected AIC).
 
-        y_true : array-like
-            The true response variables.
+        fitter : object with .predict and .predict_proba methods as per sklearn
 
-        y_pred : array-like
-            The predicted response variables.
+        X : array-like
+            The design matrix.
 
-        supports: array-like
-            The value of the supports for the model that was used to generate
-            *y_pred*.
+        y : array-like
+            Response vector.
+
+        supports : array-like
+            The value of the supports for the model
+
+        boot_idxs : 2-tuple of array-like objects
+            Tuple of (train_idxs, test_idxs) generated from a bootstrap
+            sample. If this is specified, then the appropriate set of
+            data will be used for evaluating scores: test data for r^2,
+            and training data for information criteria
 
         Returns
         -------
         score : float
             The score.
         """
-        y_pred = fitter.predict(X[:, support])
+
+        # Select the data relevant for the estimation_score
+        X = X[boot_idxs[self._estimation_target]]
+        y = y[boot_idxs[self._estimation_target]]
+
         if metric == 'r2':
+
+            y_pred = fitter.predict(X[:, support])
+
             score = r2_score(y, y_pred)
         else:
+            y_pred = fitter.predict(X[:, support])
             ll = utils.log_likelihood_glm(model='normal',
                                           y_true=y,
                                           y_pred=y_pred)
@@ -649,11 +677,16 @@ class AbstractUoIGeneralizedLinearRegressor(
     """An abstract base class for UoI linear classifier classes.
     """
 
-    _valid_estimation_metrics = ('log', 'BIC', 'AIC', 'AICc')
+    _valid_estimation_metrics = ('log', 'BIC', 'AIC', 'AICc', 'acc')
+
+    _train_test_map = {'train': 0, 'test': 1}
+
+    _default_est_targets = {'log': 1, 'AIC': 0, 'AICc': 0,
+                            'BIC': 0, 'acc': 1}
 
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
-                 estimation_score='acc',
+                 estimation_score='acc', estimation_target=None,
                  copy_X=True, fit_intercept=True, standardize=True,
                  random_state=None, max_iter=None, shared_support=True,
                  comm=None, logger=None):
@@ -676,6 +709,17 @@ class AbstractUoIGeneralizedLinearRegressor(
             raise ValueError(
                 "invalid estimation metric: '%s'" % estimation_score)
         self.__estimation_score = estimation_score
+
+        if estimation_target is not None:
+            if estimation_target not in ['train', 'test']:
+                raise ValueError(
+                    "invalid estimation target: %s" % estimation_target)
+            else:
+                estimation_target = self._train_test_map[estimation_target]
+        else:
+            estimation_target = self._default_est_targets[estimation_score]
+
+        self._estimation_target = estimation_target
 
     def _post_fit(self, X, y):
         super()._post_fit(X, y)
@@ -701,7 +745,7 @@ class AbstractUoIGeneralizedLinearRegressor(
     def estimation_score(self):
         return self.__estimation_score
 
-    def _score_predictions(self, metric, fitter, X, y, support):
+    def _score_predictions(self, metric, fitter, X, y, support, boot_idxs):
         """Score, according to some metric, predictions provided by a model.
 
         the resulting score will be negated if an information criterion is
@@ -714,21 +758,33 @@ class AbstractUoIGeneralizedLinearRegressor(
             'r2' (explained variance), 'BIC' (Bayesian information criterion),
             'AIC' (Akaike information criterion), and 'AICc' (corrected AIC).
 
-        y_true : array-like
-            The true response variables.
+        fitter : object with .predict and .predict_proba methods as per sklearn
 
-        y_pred : array-like
-            The predicted response variables.
+        X : array-like
+            The design matrix.
 
-        supports: array-like
-            The value of the supports for the model that was used to generate
-            *y_pred*.
+        y : array-like
+            Response vector.
+
+        supports : array-like
+            The value of the supports for the model
+
+        boot_idxs : 2-tuple of array-like objects
+            Tuple of (train_idxs, test_idxs) generated from a bootstrap
+            sample. If this is specified, then the appropriate set of
+            data will be used for evaluating scores: test data for r^2,
+            and training data for information criteria
 
         Returns
         -------
         score : float
             The score.
         """
+
+        # Select the data relevant for the estimation_score
+        X = X[boot_idxs[self._estimation_target]]
+        y = y[boot_idxs[self._estimation_target]]
+
         if metric == 'acc':
             if self.shared_support:
                 y_pred = fitter.predict(X[:, support])
@@ -736,6 +792,7 @@ class AbstractUoIGeneralizedLinearRegressor(
                 y_pred = fitter.predict(X)
             score = accuracy_score(y, y_pred)
         else:
+
             if self.shared_support:
                 y_pred = fitter.predict_proba(X[:, support])
             else:
