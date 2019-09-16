@@ -48,3 +48,46 @@ def column_select(V, c, leverage_sort=False, random_state=None):
         column_indices = column_indices[np.argsort(pi_subset)]
 
     return column_indices
+
+
+def stability_selection_to_threshold(stability_selection, n_boots):
+    """Converts user inputted stability selection to an array of
+    thresholds. These thresholds correspond to the number of bootstraps
+    that a feature must appear in to guarantee placement in the selection
+    profile.
+
+    Parameters
+    ----------
+    stability_selection : int, float, or array-like
+        If int, treated as the number of bootstraps that a feature must
+        appear in to guarantee placement in selection profile. If float,
+        must be between 0 and 1, and is instead the proportion of
+        bootstraps. If array-like, must consist of either ints or floats
+        between 0 and 1. In this case, each entry in the array-like object
+        will act as a separate threshold for placement in the selection
+        profile.
+
+    n_boots: int
+        The number of bootstraps that will be used for selection
+    """
+
+    # float, indicating proportion of bootstraps
+    if isinstance(stability_selection, float):
+        selection_threshold = int(stability_selection * n_boots)
+
+    # int, indicating number of bootstraps
+    elif isinstance(stability_selection, int):
+        selection_threshold = stability_selection
+
+    else:
+        raise ValueError("Stability selection must be a valid float or int.")
+
+    # ensure that ensuing list of selection thresholds satisfies
+    # the correct bounds
+    if not (
+        selection_threshold <= n_boots and selection_threshold >= 1
+    ):
+        raise ValueError("Stability selection thresholds must be within "
+                         "the correct bounds.")
+
+    return selection_threshold
