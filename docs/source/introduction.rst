@@ -31,9 +31,10 @@ detail the UoI framework in these contexts.
 Linear Models
 -------------
 
-We first consider 
+We first consider the ``linear_model`` module, which contains implementations to
+fit several penalized (generalized) linear models.
 
-Linear Regression
+Lasso Regression
 ^^^^^^^^^^^^^^^^^
 
 Consider a linear model with :math:`M` features:
