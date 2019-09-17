@@ -4,7 +4,8 @@ from numpy.testing import assert_equal
 from numpy.testing import assert_array_equal
 from numpy.testing import assert_raises
 from pyuoi.decomposition import CUR, UoI_CUR
-from pyuoi.decomposition.utils import column_select
+from pyuoi.decomposition.utils import (column_select,
+                                       stability_selection_to_threshold)
 
 X = np.array([
     [0, 0, 0, 4, 2],
@@ -47,6 +48,82 @@ def test_column_select():
     counts = np.sum(column_flags, axis=0)
 
     assert_equal(np.argmax(counts), np.argmax(np.sum(V_subset**2, axis=1)))
+
+
+def test_stability_selection_to_threshold_int():
+    """Tests whether stability_selection_to_threshold correctly outputs the
+    correct threshold when provided a single integer."""
+
+    n_boots_sel = 48
+    # stability selection is a single integer
+    test_int = 36
+    selection_thresholds = stability_selection_to_threshold(test_int,
+                                                            n_boots_sel)
+
+    assert_array_equal(selection_thresholds, test_int)
+
+
+def test_stability_selection_to_threshold_float():
+    """Tests whether stability_selection_to_threshold correctly outputs the
+    correct threshold when provided a single float."""
+
+    n_boots_sel = 48
+    # stability selection is a single float
+    test_float = 0.5
+    selection_thresholds = stability_selection_to_threshold(test_float,
+                                                            n_boots_sel)
+
+    assert_array_equal(selection_thresholds, np.array([24]))
+
+
+def test_stability_selection_to_threshold_exceeds_n_bootstraps():
+    """Tests whether stability_selection_to_threshold correctly outputs an
+    error when provided an input that results in bootstraps exceeding
+    n_boots_sel."""
+
+    n_boots_sel = 48
+    # stability selection is a list of floats
+    test_float = 1.1
+    test_int = 50
+
+    assert_raises(
+        ValueError,
+        stability_selection_to_threshold,
+        test_int,
+        n_boots_sel)
+
+    assert_raises(
+        ValueError,
+        stability_selection_to_threshold,
+        test_float,
+        n_boots_sel)
+
+
+def test_stability_selection_to_threshold_input_value_error():
+    """Tests whether stability_selection_to_threshold properly raises an error
+    when it receives objects without ints or floats."""
+    n_boots_sel = 48
+    stability_selection_list = [0, 1, 'a']
+    stability_selection_np_array = np.array([0, 1, 'a'])
+    stability_selection_dict = {0: 'a', 1: 'b'}
+
+    assert_raises(
+        ValueError,
+        stability_selection_to_threshold,
+        stability_selection_list,
+        n_boots_sel)
+
+    assert_raises(
+        ValueError,
+        stability_selection_to_threshold,
+        stability_selection_np_array,
+        n_boots_sel)
+
+    assert_raises(
+        ValueError,
+        stability_selection_to_threshold,
+        stability_selection_dict,
+        n_boots_sel)
 
 
 def test_CUR():

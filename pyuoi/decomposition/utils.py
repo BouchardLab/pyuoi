@@ -62,10 +62,7 @@ def stability_selection_to_threshold(stability_selection, n_boots):
         If int, treated as the number of bootstraps that a feature must
         appear in to guarantee placement in selection profile. If float,
         must be between 0 and 1, and is instead the proportion of
-        bootstraps. If array-like, must consist of either ints or floats
-        between 0 and 1. In this case, each entry in the array-like object
-        will act as a separate threshold for placement in the selection
-        profile.
+        bootstraps.
 
     n_boots: int
         The number of bootstraps that will be used for selection
