@@ -313,22 +313,28 @@ class LogisticInterceptFitterNoFeatures(object):
 
 class MaskedCoefLogisticRegression(LogisticRegression):
     """Logistic regression with a binary mask on the coef.
+
     Parameters
     ----------
     penalty : str
         Type of regularization: 'l1' or 'l2'.
+
     tol : float, optional (default=1e-4)
         Tolerance for stopping criteria.
+
     C : float, optional (default=1.0)
         Inverse of regularization strength; must be a positive float.
         Like in support vector machines, smaller values specify stronger
         regularization.
+
     fit_intercept : bool, optional (default=True)
         Specifies if a constant (a.k.a. bias or intercept) should be
         added to the decision function.
+
     standardize : bool, default False
         If True, centers the design matrix across samples and rescales them to
         have standard deviation of 1.
+
     class_weight : dict or 'balanced', optional (default=None)
         Weights associated with classes in the form ``{class_label: weight}``.
         If not given, all classes are supposed to have weight one.
@@ -337,16 +343,20 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         as ``n_samples / (n_classes * np.bincount(y))``.
         Note that these weights will be multiplied with sample_weight (passed
         through the fit method) if sample_weight is specified.
+
     max_iter : int, optional (default=100)
         Maximum number of iterations taken for the solvers to converge.
+
     multi_class : str, {'multinomial', 'auto'}, optional (default='auto')
         For 'multinomial' the loss minimised is the multinomial loss fit
         across the entire probability distribution, *even when the data is
         binary*. 'auto' selects binary if the data is binary,
         and otherwise selects 'multinomial'.
+
     verbose : int, optional (default=0)
         For the liblinear and lbfgs solvers set verbose to any positive
         number for verbosity.
+
     warm_start : bool, optional (default=False)
         When set to True, reuse the solution of the previous call to fit as
         initialization, otherwise, just erase the previous solution.
@@ -369,26 +379,27 @@ class MaskedCoefLogisticRegression(LogisticRegression):
 
     def fit(self, X, y, sample_weight=None, coef_mask=None):
         """Fit the model according to the given training data.
+
         Parameters
         ----------
         X : {array-like, sparse matrix}, shape (n_samples, n_features)
             Training vector, where n_samples is the number of samples and
             n_features is the number of features.
+
         y : array-like, shape (n_samples,)
             Target vector relative to X.
+
         sample_weight : array-like, shape (n_samples,) optional
             Array of weights that are assigned to individual samples.
             If not provided, then each sample is given unit weight.
-            .. versionadded:: 0.17
-               *sample_weight* support to LogisticRegression.
+
         coef_mask : array-like, shape (n_features), (n_classes, n_features)
                     optional
             Masking array for coef.
+
         Returns
         -------
         self : object
-        Notes
-        -----
         """
         solver = 'lbfgs'
 

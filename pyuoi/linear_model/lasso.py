@@ -8,19 +8,29 @@ from .base import AbstractUoILinearRegressor
 
 
 class PycLasso():
-    """class PycLasso: Lasso using the pycasso solver. Solves for an
-    entire regularization path at once.
+    """Lasso using the pycasso solver. Solves for an entire regularization path
+    at once.
 
-        alphas : ndarray
-            regularization path. Defaults to None for compatibility with UoI,
-            but needs to be set prior to fitting
+    Parameters
+    ----------
+    alphas : nd-array
+        The regularization path. Defaults to None for compatibility with UoI,
+        but needs to be set prior to fitting.
 
-        fit_intercept : bool
-            Should we fit an intercept?
+    fit_intercept : bool
+        Whether to calculate the intercept for this model. If set
+        to False, no intercept will be used in calculations.
 
-        max_iter : int
-            Iterations for pycasso solver
+    max_iter : int
+        Maximum number of iterations for pycasso solver.
 
+    Attributes
+    ----------
+    coef_ : array, shape (n_features,) or (n_targets, n_features)
+        Estimated coefficients for the linear regression problem.
+
+    intercept_ : float
+        Independent term in the linear model.
     """
     def __init__(self, alphas=None, fit_intercept=False, max_iter=1000):
         self.max_iter = max_iter
@@ -66,24 +76,21 @@ class PycLasso():
 
 
 class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
-    """ UoI Lasso model.
+    r"""UoI\ :sub:`Lasso` solver.
 
     Parameters
     ----------
     n_boots_sel : int, default 48
-        The number of data bootstraps to use in the selection module.
+        The number of data bootstraps/resamples to use in the selection module.
         Increasing this number will make selection more strict.
 
     n_boots_est : int, default 48
-        The number of data bootstraps to use in the estimation module.
-        Increasing this number will relax selection and decrease variance.
+        The number of data bootstraps/resamples to use in the estimation
+        module. Increasing this number will relax selection and decrease
+        variance.
 
     n_lambdas : int, default 48
         The number of regularization values to use for selection.
-
-    alpha : list or ndarray of floats
-        The parameter that trades off L1 versus L2 regularization for a given
-        lambda.
 
     selection_frac : float, default 0.9
         The fraction of the dataset to use for training in each resampled
@@ -98,14 +105,14 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
 
     stability_selection : int, float, or array-like, default 1
         If int, treated as the number of bootstraps that a feature must
-        appear in to guarantee placement in selection profile. If float,
+        appear in order to guarantee placement in selection profile. If float,
         must be between 0 and 1, and is instead the proportion of
         bootstraps. If array-like, must consist of either ints or floats
         between 0 and 1. In this case, each entry in the array-like object
         will act as a separate threshold for placement in the selection
         profile.
 
-    estimation_score : str "r2" | "AIC", | "AICc" | "BIC"
+    estimation_score : str "r2" | "AIC" | "AICc" | "BIC"
         Objective used to choose the best estimates per bootstrap.
 
     estimation_target : str "train" | "test"
@@ -118,8 +125,8 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         initialization, otherwise, just erase the previous solution
 
     eps : float, default 1e-3
-        Length of the lasso path. eps=1e-3 means that
-        alpha_min / alpha_max = 1e-3
+        Length of the lasso path. ``eps=1e-3`` means that
+        ``lambda_min / lambda_max = 1e-3``
 
     copy_X : boolean, default True
         If ``True``, X will be copied; else, it may be overwritten.
@@ -131,7 +138,8 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
 
     standardize : boolean, default False
         If True, the regressors X will be standardized before regression by
-        subtracting the mean and dividing by their standard deviations.
+        subtracting the mean and dividing by their standard deviations. This
+        parameter is equivalent to ``normalize`` in ``scikit-learn`` models.
 
     max_iter : int, default None
         Maximum number of iterations for iterative fitting methods.
@@ -146,14 +154,14 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
     comm : MPI communicator, default None
         If passed, the selection and estimation steps are parallelized.
 
-    solver : 'cd' | 'pyc'
-
-        If cd, will use sklearn's lasso implementation (via coordinate descent)
-        If pyc, will use pyclasso, built off of the pycasso path-wise solver
+    solver : string, 'cd' | 'pyc'
+        If cd, will use the ``scikit-learn`` lasso implementation (via
+        coordinate descent). If pyc, will use pyclasso, built off of the
+        pycasso path-wise solver.
 
     Attributes
     ----------
-    coef_ : array, shape (n_features,) or (n_targets, n_features)
+    coef_ : nd-array, shape (n_features,) or (n_targets, n_features)
         Estimated coefficients for the linear regression problem.
 
     intercept_ : float
@@ -163,7 +171,6 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         boolean array indicating whether a given regressor (column) is selected
         for estimation for a given regularization parameter value (row).
     """
-
     def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
                  estimation_frac=0.9, n_lambdas=48, stability_selection=1.,
                  estimation_score='r2', estimation_target=None, eps=1e-3,
