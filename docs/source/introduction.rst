@@ -66,9 +66,6 @@ subset of them exactly equally to zero, thereby performing model selection. The
 parameter :math:`\lambda` specifies how strongly we want to enforce sparsity,
 and is typically chosen through cross-validation.
 
-In UoI\ :sub:`Lasso`, we separate model selection and model estimation. As in
-cross-validation, a sweep of :math:`\lambda` values is chosen to 
-
 
 Logistic Regresion
 ^^^^^^^^^^^^^^^^^^

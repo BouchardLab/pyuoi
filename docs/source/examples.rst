@@ -97,10 +97,6 @@ A few differences from the Lasso case are worth pointing out:
 
 * The estimation score, can be set to the either the log-likelihood (and penalized versions thereof) or the accuracy 
 
-* hello
-
-jello
-
 Poisson Regression
 ------------------
 
