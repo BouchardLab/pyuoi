@@ -1,4 +1,5 @@
 numpy
 h5py
 scikit-learn
+cython
 pycasso
