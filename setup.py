@@ -22,6 +22,7 @@ with open(path.join(here, 'requirements-dev.txt'), encoding='utf-8') as f:
 try:
     from Cython.Build import cythonize
     use_cython = True
+    print('-------------------WORKING-----------------')
 except ImportError:
     use_cython = False
     print('-------------------BROKEN-----------------')
