@@ -1,12 +1,10 @@
 import abc as _abc
-import six as _six
 
 from sklearn.linear_model.base import BaseEstimator
 
 
-class AbstractDecompositionModel(
-    _six.with_metaclass(_abc.ABCMeta, BaseEstimator)
-):
+class AbstractDecompositionModel(BaseEstimator,
+                                 metaclass=_abc.ABCMeta):
     @_abc.abstractmethod
     def fit(X):
         """Placeholder for fit. Subclasses should implement this method!
