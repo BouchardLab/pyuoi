@@ -1,5 +1,4 @@
 import abc as _abc
-import six as _six
 import numpy as np
 import logging
 from sklearn.linear_model.base import SparseCoefMixin
@@ -17,8 +16,8 @@ from .utils import stability_selection_to_threshold, intersection
 from ..utils import check_logger
 
 
-class AbstractUoILinearModel(
-        _six.with_metaclass(_abc.ABCMeta, SparseCoefMixin)):
+class AbstractUoILinearModel(SparseCoefMixin,
+                             metaclass=_abc.ABCMeta):
     """An abstract base class for UoI linear model classes
 
     Parameters
@@ -502,8 +501,8 @@ class AbstractUoILinearModel(
         return X.shape[1] * self.output_dim
 
 
-class AbstractUoILinearRegressor(
-        _six.with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
+class AbstractUoILinearRegressor(AbstractUoILinearModel,
+                                 metaclass=_abc.ABCMeta):
     """An abstract base class for UoI linear regression classes.
     """
 
@@ -672,8 +671,8 @@ class LinearInterceptFitterNoFeatures(object):
         return np.tile(self.intercept_, n_samples)
 
 
-class AbstractUoIGeneralizedLinearRegressor(
-        _six.with_metaclass(_abc.ABCMeta, AbstractUoILinearModel)):
+class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
+                                            metaclass=_abc.ABCMeta):
     """An abstract base class for UoI linear classifier classes.
     """
 
