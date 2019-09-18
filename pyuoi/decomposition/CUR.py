@@ -7,7 +7,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import check_array
 from sklearn.utils.validation import check_is_fitted
 
-from .utils import column_select
+from .utils import column_select, stability_selection_to_threshold
 
 
 class UoI_CUR(AbstractDecompositionModel):
@@ -58,12 +58,13 @@ class UoI_CUR(AbstractDecompositionModel):
         The indices of the columns selected by the algorithm.
     """
     def __init__(
-        self, n_boots, max_k, boots_frac, algorithm='randomized',
-        n_iter=5, tol=0.0, random_state=None
+        self, n_boots, max_k, boots_frac, stability_selection=1.,
+        algorithm='randomized', n_iter=5, tol=0.0, random_state=None
     ):
         self.n_boots = n_boots
         self.max_k = max_k
         self.boots_frac = boots_frac
+        self.stability_selection = stability_selection
         self.algorithm = algorithm
         self.n_iter = n_iter
         self.tol = tol
@@ -100,9 +101,12 @@ class UoI_CUR(AbstractDecompositionModel):
         ks, cs = self.check_ks_and_cs(ks=ks, cs=cs)
         n_ks = ks.size
         n_samples, n_features = X.shape
+        selection_threshold = stability_selection_to_threshold(
+            self.stability_selection,
+            self.n_boots)
 
-        # initialize list of lists to contain the extracted column indices
-        indices = [[] for _ in range(n_ks)]
+        # keep track of which columns are chosen
+        columns = np.zeros((n_ks, self.n_boots, n_features), dtype='int')
 
         # truncated SVD fitter object
         tsvd = TruncatedSVD(n_components=self.max_k,
@@ -132,16 +136,14 @@ class UoI_CUR(AbstractDecompositionModel):
                 column_indices = column_select(V[:, :k], c=c,
                                                random_state=self.random_state)
                 # convert column flags to set
-                column_indices = set(column_indices)
-                indices[k_idx].append(column_indices)
+                columns[k_idx, bootstrap][column_indices] += 1
 
-        # calculate intersections
-        intersection = [set.intersection(*indices[k_idx])
-                        for k_idx in range(n_ks)]
+        intersection = np.sum(columns, axis=1) >= selection_threshold
+
         # calculate union of intersections
-        union = list(set.union(*intersection))
+        union = np.sum(intersection, axis=0) > 0
+        self.column_indices_ = np.argwhere(union).ravel()
 
-        self.column_indices_ = np.sort(np.array(union))
         if self.column_indices_.size == 0:
             self.components_ = np.array([[]])
         else:
