@@ -14,45 +14,37 @@ from sklearn.utils.validation import check_is_fitted
 
 
 class UoI_NMF_Base(AbstractDecompositionModel):
-    """Performs non-negative matrix factorization in the Union of
-    Intersection framework.
+    """Performs non-negative matrix factorization in the Union of Intersections
+    framework.
 
-    See Bouchard et al., NIPS, 2017, for more details on the Union of
-    Intersections framework.
+    This base class accepts objects or functions that perform the NMF fitting,
+    clustering, non-negative regression, and consensus grouping.
 
     Parameters
     ----------
     n_boots : int
         The number of bootstraps to use for model selection.
-
-    ranks : int, list, or None, default None
-        The range of k to use. If *ranks* is an int,
-        range(2, ranks + 1) will be used. If not specified,
-        range(X.shape[1]) will be used.
-
+    ranks : int, list, or None
+        The range of k to use. If *ranks* is an int, range(2, ranks + 1) will
+        be used. If not specified, range(X.shape[1]) will be used.
     nmf : NMF object
         The NMF object to use to perform fitting.
         Note: this class must take *n_components* as an argument.
-
-    cluster : Clustering object.
+    cluster : Clustering object
         Clustering object to use. If None, defaults to DBSCAN.
-
     nnreg : NNLS object
         Non-negative regressor to use. If None, defaults to
         scipy.optimize.nnls.
-
     cons_meth : function
         The method for computing consensus bases after clustering. If None,
         uses np.median.
-
-    random_state : int, RandomState instance or None, default None
+    random_state : int, RandomState instance, or None
         The seed of the pseudo random number generator that selects a random
         feature to update.  If int, random_state is the seed used by the random
         number generator; If RandomState instance, random_state is the random
         number generator; If None, the random number generator is the
         RandomState instance used by `np.random`.
-
-    logger : Logger, default None
+    logger : Logger
         The logger to use for messages when ``verbose=True`` in ``fit``.
         If *None* is passed, a logger that writes to ``sys.stdout`` will be
         used.
@@ -73,6 +65,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         )
 
     def set_params(self, **kwargs):
+        """Set the parameters of this estimator."""
         self.__initialize(**kwargs)
 
     def __initialize(self, **kwargs):
@@ -151,18 +144,16 @@ class UoI_NMF_Base(AbstractDecompositionModel):
 
         self._logger = check_logger(logger, 'uoi_decomposition', self.comm)
 
-    def fit(self, X, y=None, verbose=False):
-        """
-        Perform first phase of UoI NMF decomposition.
-
-        Compute H matrix.
-
-        Iterate across a range of k (as specified with the *ranks* argument).
+    def fit(self, X, verbose=False):
+        r"""Compute the basis matrix on the provided data matrix using the
+        UoI\ :sub:`NMF` algorithm.
 
         Parameters
         ----------
         X : ndarray, shape (n_samples, n_features)
             Data matrix to be decomposed.
+        verbose : bool
+            If True, outputs status updates.
         """
         if verbose:
             self._logger.setLevel(logging.DEBUG)
@@ -218,16 +209,15 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         return self
 
     def transform(self, X, reconstruction_err=True):
-        """Transform the data X according to the fitted UoI-NMF model.
+        r"""Transform the data according to the fitted UoI\ :sub:`NMF` model.
 
         Parameters
         ----------
         X : array-like, shape (n_samples, n_features)
             Data matrix to be decomposed.
-
         reconstruction_err : bool
-            True to compute reconstruction error, False otherwise.
-            default True.
+            If True, the reconstruction error is computed and stored as a class
+            attribute.
 
         Returns
         -------
@@ -256,20 +246,24 @@ class UoI_NMF_Base(AbstractDecompositionModel):
 
         return W
 
-    def fit_transform(self, X, y=None, reconstruction_err=True, verbose=None):
-        """
-        Transform the data X according to the fitted UoI-NMF model
+    def fit_transform(self, X, reconstruction_err=True, verbose=None):
+        r"""Fit and transform the data according to the fitted UoI\ :sub:`NMF`
+        model.
 
-        Args:
-            X : array-like; shape (n_samples, n_features)
-            y
-                ignored
-            reconstruction_err : bool
-                True to compute reconstruction error, False otherwise.
-                default True.
-        Returns:
-            W : array-like; shape (n_samples, n_components)
-                Transformed data.
+        Parameters
+        ----------
+        X : array-like, shape (n_samples, n_features)
+            Data matrix to be decomposed.
+        reconstruction_err : bool
+            If True, the reconstruction error is computed and stored as a class
+            attribute.
+        verbose : bool
+            If True, outputs status updates.
+
+        Returns
+        -------
+        W : array-like, shape (n_samples, n_components)
+            Transformed data (coefficients of bases).
         """
         self.fit(X, verbose=verbose)
         return self.transform(X, reconstruction_err=reconstruction_err)
@@ -299,71 +293,53 @@ class UoI_NMF_Base(AbstractDecompositionModel):
 
 
 class UoI_NMF(UoI_NMF_Base):
-    """Performs non-negative matrix factorization in the Union of
-    Intersection framework.
-
-    See Bouchard et al., NIPS, 2017, for more details on the Union of
+    r"""Performs non-negative matrix factorization in the Union of
     Intersections framework.
+
+    This derived class uses (and accepts the keyword arguments for)
+    ``scikit-learn``’s NMF and DBSCAN objects, ``scipy``’s non-negative least
+    squares function, and a median function for consensus grouping.
 
     Parameters
     ----------
     n_boots : int
         The number of bootstraps to use for model selection.
-
-    ranks : int, list, or None, default None
-        The range of k to use. If *ranks* is an int,
-        range(2, ranks + 1) will be used. If not specified,
-        range(X.shape[1]) will be used.
-
+    ranks : int, list, or None
+        The range of k to use. If *ranks* is an int, range(2, ranks + 1) will
+        be used. If not specified, range(X.shape[1]) will be used.
     nmf_init :  "random" | "nndsvd" |  "nndsvda" | "nndsvdar" | "custom"
-        Method used to initialize the NMF procedure.
-        Default: "random".
-        Valid options:
-
-        * "random": non-negative random matrices, scaled with
-            :code:`sqrt(X.mean() / n_components)`
-
-        * "nndsvd": Nonnegative Double Singular Value Decomposition (NNDSVD)
-            initialization (better for sparseness)
-
-        * "nndsvda": NNDSVD with zeros filled with the average of X
-            (better when sparsity is not desired)
-
-        * "nndsvdar": NNDSVD with zeros filled with small random values
-            (generally faster, less accurate alternative to NNDSVDa
-            for when sparsity is not desired)
-
-        * "custom": use custom matrices W and H
-
-    nmf_solver : 'cd' | 'mu'
-        Default: 'mu'.
-        Numerical solver to use for NMF:
-        'cd' is a Coordinate Descent solver.
-        'mu' is a Multiplicative Update solver.
-
-    nmf_beta_loss : float or string, default 'kullback-leibler'
+        Method used to initialize the NMF procedure. Valid options:
+            * "random": non-negative random matrices, scaled with
+                :code:`sqrt(X.mean() / n_components)`
+            * "nndsvd": Nonnegative Double Singular Value Decomposition (NNDSVD)
+                initialization (better for sparseness)
+            * "nndsvda": NNDSVD with zeros filled with the average of X
+                (better when sparsity is not desired)
+            * "nndsvdar": NNDSVD with zeros filled with small random values
+                (generally faster, less accurate alternative to NNDSVDa
+                for when sparsity is not desired)
+            * "custom": use custom matrices W and H
+    nmf_solver : 'cd' | 'mu', optional
+        Numerical solver to use for NMF: 'cd' is a Coordinate Descent solver,
+        while 'mu' is a Multiplicative Update solver.
+    nmf_beta_loss : float or string, optional
         String must be in {'frobenius', 'kullback-leibler', 'itakura-saito'}.
         Beta divergence to be minimized, measuring the distance between X
         and the dot product WH. Note that values different from 'frobenius'
         (or 2) and 'kullback-leibler' (or 1) lead to significantly slower
         fits. Note that for beta_loss <= 0 (or 'itakura-saito'), the input
         matrix X cannot contain zeros. Used only in 'mu' solver.
-
-    nmf_tol : float, default: 1e-4
+    nmf_tol : float, optional
         Tolerance of the stopping condition for NMF algorithm.
-
-    nmf_max_iter : integer, default: 200
+    nmf_max_iter : integer, optional
         Maximum number of iterations before timing out in NMF.
-
     db_eps : float, optional
         The maximum distance between two samples for them to be considered
         as in the same neighborhood in the DBSCAN algorithm.
-
     db_min_samples : int, optional
         The number of samples (or total weight) in a neighborhood for a point
         to be considered as a core point. This includes the point itself.
-
-    db_metric : string, or callable
+    db_metric : string, or callable, optional
         The metric to use when calculating distance between instances in a
         feature array. If metric is a string or callable, it must be one of
         the options allowed by :func:`sklearn.metrics.pairwise_distances` for
@@ -371,29 +347,24 @@ class UoI_NMF(UoI_NMF_Base):
         If metric is "precomputed", X is assumed to be a distance matrix and
         must be square. X may be a sparse matrix, in which case only "nonzero"
         elements may be considered neighbors for DBSCAN.
-
     db_metric_params : dict, optional
         Additional keyword arguments for the metric function.
-
     db_algorithm : {'auto', 'ball_tree', 'kd_tree', 'brute'}, optional
         The algorithm to be used by the NearestNeighbors module
         to compute pointwise distances and find nearest neighbors.
         See NearestNeighbors module documentation for details.
-
     db_leaf_size : int, optional (default = 30)
         Leaf size passed to BallTree or cKDTree. This can affect the speed
         of the construction and query, as well as the memory required
         to store the tree. The optimal value depends
         on the nature of the problem.
-
-    random_state : int, RandomState instance or None, default None
+    random_state : int, RandomState instance, or None
         The seed of the pseudo random number generator that selects a random
         feature to update.  If int, random_state is the seed used by the random
         number generator; If RandomState instance, random_state is the random
         number generator; If None, the random number generator is the
         RandomState instance used by `np.random`.
-
-    logger : Logger, default None
+    logger : Logger
         The logger to use for messages when ``verbose=True`` in ``fit``.
         If *None* is passed, a logger that writes to ``sys.stdout`` will be
         used.
@@ -430,5 +401,4 @@ class UoI_NMF(UoI_NMF_Base):
             nnreg=None,
             cons_meth=np.median,
             random_state=random_state,
-            logger=logger
-        )
+            logger=logger)

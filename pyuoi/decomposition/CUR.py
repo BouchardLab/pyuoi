@@ -11,50 +11,40 @@ from .utils import column_select, stability_selection_to_threshold
 
 
 class UoI_CUR(AbstractDecompositionModel):
-    """Performs column subset selection (CUR decomposition) in the Union
-    of Intersections framework.
-
-    See Bouchard et al., NIPS, 2017, for more details on the Union of
+    """Performs column subset selection (CUR decomposition) in the Union of
     Intersections framework.
 
     Parameters
     ----------
     n_boots : int
         Number of bootstraps.
-
     max_k : int
         The maximum rank of the singular value decomposition.
-
     boots_frac : float
         The fraction of data to use in the bootstrap.
-
-    algorithm : string, default = “randomized”
+    algorithm : string, optional
         SVD solver to use. Either “arpack” for the ARPACK wrapper in SciPy
         (scipy.sparse.linalg.svds), or “randomized” for the randomized
         algorithm due to Halko (2009).
-
-    n_iter : int, optional (default 5)
+    n_iter : int, optional
         Number of iterations for randomized SVD solver. Not used by ARPACK.
         The default is larger than the default in randomized_svd to handle
         sparse matrices that may have large slowly decaying spectrum.
-
-    random_state : int, RandomState instance or None, optional,
-                    default = None
+    random_state : int, RandomState instance, or None, optional
         If int, random_state is the seed used by the random number
         generator; If RandomState instance, random_state is the random
         number generator; If None, the random number generator is the
         RandomState instance used by np.random.
-
     tol : float, optional
         Tolerance for ARPACK. 0 means machine precision. Ignored by
         randomized SVD solver.
 
     Attributes
     ----------
-    components_ : ndarray, shape (n_samples, n_selected_features)
+    components_ : ndarray, shape (n_samples, n_components)
         The selected columns of the design matrix.
 
-    column_indices_ : ndarray
+    column_indices_ : ndarray, shape (n_components,)
         The indices of the columns selected by the algorithm.
     """
     def __init__(
@@ -79,7 +69,7 @@ class UoI_CUR(AbstractDecompositionModel):
         X : ndarray, shape (n_samples, n_features)
             The data matrix.
 
-        cs : int, float
+        cs : int, float or None
             The expected number of columns to select. If None, c will vary with
             the rank k.
 
@@ -87,7 +77,7 @@ class UoI_CUR(AbstractDecompositionModel):
             The ranks to consider union over. If None, all ranks from
             (1, ..., max_k) will be used.
 
-        stratify : array-like or None, default None
+        stratify : array-like or None
             Ensures groups of samples are alloted to bootstraps proportionally.
             Labels for each group must be an int greater than zero. Must be of
             size equal to the number of samples, with further restrictions on
@@ -95,7 +85,7 @@ class UoI_CUR(AbstractDecompositionModel):
 
         Returns
         -------
-        union : ndarray
+        union : ndarray, shape (n_components,)
             A numpy array containing the indices of the selected columns.
         """
         ks, cs = self.check_ks_and_cs(ks=ks, cs=cs)
@@ -158,7 +148,6 @@ class UoI_CUR(AbstractDecompositionModel):
         ----------
         ks : ndarray
             The ranks to compute leverage scores over.
-
         cs : ndarray
             The expected number of columns to select for each rank.
 
@@ -166,7 +155,6 @@ class UoI_CUR(AbstractDecompositionModel):
         -------
         ks : ndarray
             Processed and checked ranks.
-
         cs : ndarray
             Processed expected number of columns.
         """
@@ -213,17 +201,17 @@ class UoI_CUR(AbstractDecompositionModel):
         return ks, cs
 
     def transform(self, X):
-        """Transform the data X according to the fitted selected columns.
+        """Transform the data by extracting the selected columns.
 
         Parameters
         ----------
         X : array-like, shape (n_samples, n_features)
-            Data matrix to be decomposed.
+            Data matrix from which to select columns.
 
         Returns
         -------
         X_new : array-like, shape (n_samples, n_components)
-            Transformed data.
+            Data matrix comprised of selected columns.
         """
         check_is_fitted(self, ['components_'])
         X = check_array(X)
@@ -231,17 +219,18 @@ class UoI_CUR(AbstractDecompositionModel):
         return X_new
 
     def fit_transform(self, X, ks=None, cs=None):
-        """Transform the data X according to the fitted decomposition.
+        """Fit and transform the data by choosing and extracting specific
+        columns.
 
         Parameters
         ----------
         X : array-like, shape (n_samples, n_features)
-            Data matrix to be decomposed.
+            Data matrix from which to select columns.
 
         Returns
         -------
         X_new : array-like, shape (n_samples, n_components)
-            Transformed data.
+            Data matrix comprised of selected columns.
         """
         self.fit(X, ks=ks, cs=cs)
         return self.transform(X)
@@ -254,34 +243,28 @@ class CUR(AbstractDecompositionModel):
     ----------
     max_k : int
         The maximum rank of the singular value decomposition.
-
-    algorithm : string, default = “randomized”
+    algorithm : string, optional
         SVD solver to use. Either “arpack” for the ARPACK wrapper in SciPy
         (scipy.sparse.linalg.svds), or “randomized” for the randomized
         algorithm due to Halko (2009).
-
-    n_iter : int, optional (default 5)
+    n_iter : int, optional
         Number of iterations for randomized SVD solver. Not used by ARPACK.
         The default is larger than the default in randomized_svd to handle
         sparse matrices that may have large slowly decaying spectrum.
-
-    random_state : int, RandomState instance or None, optional,
-                   default = None
+    random_state : int, RandomState instance, or None, optional
         If int, random_state is the seed used by the random number
         generator; If RandomState instance, random_state is the random
         number generator; If None, the random number generator is the
         RandomState instance used by np.random.
-
     tol : float, optional
         Tolerance for ARPACK. 0 means machine precision. Ignored by
         randomized SVD solver.
 
     Attributes
     ----------
-    components_ : ndarray, shape (n_samples, n_selected_features)
+    components_ : ndarray, shape (n_samples, n_components)
         The selected columns of the design matrix.
-
-    column_indices_ : ndarray
+    column_indices_ : ndarray, shape (n_components,)
         The indices of the columns selected by the algorithm.
     """
     def __init__(
@@ -302,7 +285,6 @@ class CUR(AbstractDecompositionModel):
         ----------
         X : ndarray, shape (n_samples, n_features)
             The data matrix.
-
         c : float
             The expected number of columns to select. If None, c will vary with
             the rank k.
@@ -334,17 +316,17 @@ class CUR(AbstractDecompositionModel):
         return self
 
     def transform(self, X):
-        """Transform the data X according to the fitted selected columns.
+        """Transform the data by extracting the selected columns.
 
         Parameters
         ----------
         X : array-like, shape (n_samples, n_features)
-            Data matrix to be decomposed.
+            Data matrix from which to select columns.
 
         Returns
         -------
         X_new : array-like, shape (n_samples, n_components)
-            Transformed data.
+            Data matrix comprised of selected columns.
         """
         check_is_fitted(self, ['column_indices_'])
         X = check_array(X)
@@ -352,17 +334,18 @@ class CUR(AbstractDecompositionModel):
         return X_new
 
     def fit_transform(self, X, c=None):
-        """Transform the data X according to the fitted decomposition.
+        """Fit and transform the data by choosing and extracting specific
+        columns.
 
         Parameters
         ----------
         X : array-like, shape (n_samples, n_features)
-            Data matrix to be decomposed.
+            Data matrix from which to select columns.
 
         Returns
         -------
         X_new : array-like, shape (n_samples, n_components)
-            Transformed data.
+            Data matrix comprised of selected columns.
         """
         self.fit(X, c=c)
         return self.transform(X)
