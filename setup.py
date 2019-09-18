@@ -24,6 +24,7 @@ try:
     use_cython = True
 except ImportError:
     use_cython = False
+    print('-------------------BROKEN-----------------')
 
 class custom_build_ext(build_ext):
     def finalize_options(self):
