@@ -19,13 +19,7 @@ with open(path.join(here, 'requirements-dev.txt'), encoding='utf-8') as f:
     dev_requirements = dev_requirements[1:] # Throw away the first line which is not a package.
 
 # Prepare lbfgs
-try:
-    from Cython.Build import cythonize
-    use_cython = True
-    print('-------------------WORKING-----------------')
-except ImportError:
-    use_cython = False
-    print('-------------------BROKEN-----------------')
+from Cython.Build import cythonize
 
 class custom_build_ext(build_ext):
     def finalize_options(self):
@@ -40,15 +34,10 @@ class custom_build_ext(build_ext):
 
 include_dirs = ['liblbfgs', np.get_include()]
 
-if use_cython:
-    ext_modules = cythonize(
-        [Extension('pyuoi.lbfgs._lowlevel',
-                   ['pyuoi/lbfgs/_lowlevel.pyx', 'liblbfgs/lbfgs.c'],
-                   include_dirs=include_dirs)])
-else:
-    ext_modules = [Extension('pyuoi.lbfgs._lowlevel',
-                             ['pyuoi/lbfgs/_lowlevel.c', 'liblbfgs/lbfgs.c'],
-                             include_dirs=include_dirs)]
+ext_modules = cythonize(
+    [Extension('pyuoi.lbfgs._lowlevel',
+               ['pyuoi/lbfgs/_lowlevel.pyx', 'liblbfgs/lbfgs.c'],
+               include_dirs=include_dirs)])
 
 
 setup(
