@@ -1,5 +1,5 @@
 """
-Helper functions for working with MPI.
+Helper functions for loading data and managing arrays across ranks with MPI.
 """
 import h5py
 import numpy as np
@@ -14,8 +14,8 @@ except ImportError:
     pass
 
 
-def load_data_MPI(h5_name, X_key='X', y_key='y', root=0):
-    """Load data from an h5 file and broadcast it across MPI ranks.
+def load_data_MPI(h5_name, X_key='X', y_key='y', comm=None, root=0):
+    """Load data from an HDF5 file and broadcast it across MPI ranks.
 
     This is a helper function. It is also possible to load the data
     without this function.
@@ -28,6 +28,10 @@ def load_data_MPI(h5_name, X_key='X', y_key='y', root=0):
         Key for the features dataset. (default: 'X')
     y_key : str
         Key for the targets dataset. (default: 'y')
+    comm : MPI.COMM_WORLD
+        MPI communicator.
+    root : int
+        This rank will load the data from file.
 
     Returns
     -------
@@ -37,7 +41,8 @@ def load_data_MPI(h5_name, X_key='X', y_key='y', root=0):
         Targets on all MPI ranks.
     """
 
-    comm = MPI.COMM_WORLD
+    if comm is None:
+        comm = MPI.COMM_WORLD
     rank = comm.rank
     Xshape = None
     Xdtype = None
@@ -63,7 +68,7 @@ def load_data_MPI(h5_name, X_key='X', y_key='y', root=0):
     return X, y
 
 
-def Bcast_from_root(send, comm, root=0):
+def Bcast_from_root(send, comm=None, root=0):
     """Broadcast an array from root to all MPI ranks.
 
     Parameters
@@ -73,7 +78,7 @@ def Bcast_from_root(send, comm, root=0):
         has no effect.
     comm : MPI.COMM_WORLD
         MPI communicator.
-    root : int, default 0
+    root : int
         This rank contains the array to send.
 
     Returns
@@ -81,6 +86,8 @@ def Bcast_from_root(send, comm, root=0):
     send : ndarray
         Each rank will have a copy of the array from root.
     """
+    if comm is None:
+        comm = MPI.COMM_WORLD
     rank = comm.rank
     if rank == 0:
         dtype = send.dtype
@@ -96,8 +103,8 @@ def Bcast_from_root(send, comm, root=0):
     return send
 
 
-def Gatherv_rows(send, comm, root=0):
-    """Concatenate arrays along the first axis using Gatherv.
+def Gatherv_rows(send, comm=None, root=0):
+    """Concatenate arrays along the first axis using Gatherv on root.
 
     Parameters
     ----------
@@ -106,7 +113,7 @@ def Gatherv_rows(send, comm, root=0):
         first.
     comm : MPI.COMM_WORLD
         MPI communicator.
-    root : int, default 0
+    root : int
         This rank will contain the Gatherv'ed array.
 
     Returns
@@ -115,6 +122,8 @@ def Gatherv_rows(send, comm, root=0):
         Gatherv'ed array on root or None on other ranks.
     """
 
+    if comm is None:
+        comm = MPI.COMM_WORLD
     rank = comm.rank
     dtype = send.dtype
     shape = send.shape
