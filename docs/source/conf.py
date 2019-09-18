@@ -20,6 +20,7 @@ import sphinx_rtd_theme
 cwd = os.getcwd()
 project_root = os.path.dirname(cwd)
 print("project root:", project_root)
+print(list(os.listdir(project_root)))
 print("current working directory:", cwd)
 
 # Insert the project root dir as the first element in the PYTHONPATH.
