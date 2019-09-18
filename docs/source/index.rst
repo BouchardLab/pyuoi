@@ -29,6 +29,7 @@ Further details on the UoI framework can be found in [Bouchard2017]_ and
    introduction
    installation
    examples
+   mpi
    api
 
 .. rubric:: References
