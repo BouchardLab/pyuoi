@@ -25,30 +25,24 @@ class Poisson(BaseEstimator):
     ----------
     alpha : float, optional
         Constant that multiplies the L1 term. Defaults to 1.0.
-
     l1_ratio : float, optional
         float between 0 and 1 acting as a scaling between
         l1 and l2 penalties). For ``l1_ratio = 0`` the penalty is an
         L2 penalty. For ``l1_ratio = 1`` it is an L1 penalty. For ``0
         < l1_ratio < 1``, the penalty is a combination of L1 and L2
-
     fit_intercept : bool, default True
         Whether to fit an intercept or not.
-
     standardize : bool, default False
         If True, centers the design matrix across samples and rescales them to
         have standard deviation of 1.
-
     tol : float, optional
         The tolerance for the optimization: if the updates are
         smaller than ``tol``, the optimization code checks the
         dual gap for optimality and continues until it is smaller
         than ``tol``.
-
     warm_start : bool, optional
         When set to ``True``, reuse the solution of the previous call to
         fit as initialization, otherwise, just erase the previous solution.
-
     solver : string, default 'lbfgs'
         The solver to use. Options are 'lbfgs' (orthant-wise LBFGS) and 'cd'
         (coordinate descent).
@@ -57,7 +51,6 @@ class Poisson(BaseEstimator):
     ----------
     coef_ : array, shape (n_features,)
         The fitted parameter vector.
-
     intercept_ : float
         The fitted intercept.
     """
@@ -80,12 +73,10 @@ class Poisson(BaseEstimator):
         ----------
         X : nd-array, shape (n_samples, n_features)
             The design matrix.
-
         y : nd-array, shape (n_samples,)
             Response vector. Will be cast to X's dtype if necessary.
             Currently, this implementation does not handle multiple response
             variables.
-
         sample_weight : array-like, shape (n_samples,), default None
             Array of weights assigned to the individual samples. If None, then
             each sample is provided an equal weight.
@@ -399,30 +390,24 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
     n_boots_sel : int, default 48
         The number of data bootstraps to use in the selection module.
         Increasing this number will make selection more strict.
-
     n_boots_est : int, default 48
         The number of data bootstraps to use in the estimation module.
         Increasing this number will relax selection and decrease variance.
-
     selection_frac : float, default 0.9
         The fraction of the dataset to use for training in each resampled
         bootstrap, during the selection module. Small values of this parameter
         imply larger "perturbations" to the dataset.
-
     estimation_frac : float, default 0.9
         The fraction of the dataset to use for training in each resampled
         bootstrap, during the estimation module. The remaining data is used
         to obtain validation scores. Small values of this parameters imply
         larger "perturbations" to the dataset. IGNORED - Leaving this here
         to double check later
-
     n_lambdas : int, default 48
         The number of regularization values to use for selection.
-
     alphas : list or ndarray of floats
         The parameter that trades off L1 versus L2 regularization for a given
         lambda.
-
     stability_selection : int, float, or array-like, default 1
         If int, treated as the number of bootstraps that a feature must
         appear in to guarantee placement in selection profile. If float,
@@ -431,52 +416,40 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         between 0 and 1. In this case, each entry in the array-like object
         will act as a separate threshold for placement in the selection
         profile.
-
     estimation_score : str "log" | "AIC", | "AICc" | "BIC"
         Objective used to choose the best estimates per bootstrap.
-
     estimation_target : str "train" | "test"
         Decide whether to assess the estimation_score on the train
         or test data across each bootstrap. By deafult, a sensible
         choice is made based on the chosen estimation_score
-
     solver : string, default 'lbfgs'
         The solver to use. Options are 'lbfgs' (orthant-wise LBFGS) and 'cd'
         (coordinate descent).
-
     warm_start : bool, default True
         When set to ``True``, reuse the solution of the previous call to fit as
         initialization, otherwise, just erase the previous solution
-
     eps : float, default 1e-3
         Length of the lasso path. eps=1e-3 means that
         alpha_min / alpha_max = 1e-3
-
     tol : float, default 1e-5
         Stopping criteria for solver.
-
     copy_X : boolean, default True
         If ``True``, X will be copied; else, it may be overwritten.
-
     fit_intercept : boolean, default True
         Whether to calculate the intercept for this model. If set
         to False, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
-
     standardize : boolean, default False
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.
-
     max_iter : int, default None
         Maximum number of iterations for iterative fitting methods.
-
     random_state : int, RandomState instance or None, default None
         The seed of the pseudo random number generator that selects a random
         feature to update.  If int, random_state is the seed used by the random
         number generator; If RandomState instance, random_state is the random
         number generator; If None, the random number generator is the
         RandomState instance used by `np.random`.
-
     comm : MPI communicator, default None
         If passed, the selection and estimation steps are parallelized.
 
@@ -484,16 +457,14 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
     ----------
     coef_ : array, shape (n_features,) or (n_targets, n_features)
         Estimated coefficients for the linear regression problem.
-
     intercept_ : float
         Independent term in the linear model.
-
     supports_ : array, shape
         boolean array indicating whether a given regressor (column) is selected
         for estimation for a given regularization parameter value (row).
     """
 
-    def __init__(self, n_boots_sel=48, n_boots_est=48, n_lambdas=48,
+    def __init__(self, n_boots_sel=24, n_boots_est=24, n_lambdas=48,
                  alphas=np.array([1.]), selection_frac=0.8,
                  estimation_frac=0.8, stability_selection=1.,
                  estimation_score='log', estimation_target=None,
@@ -605,20 +576,15 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
             The type of score to run on the prediction. Valid options include
             'r2' (explained variance), 'BIC' (Bayesian information criterion),
             'AIC' (Akaike information criterion), and 'AICc' (corrected AIC).
-
         fitter : Poisson object
             The Poisson object that has been fit to the data with the
             respective hyperparameters.
-
         X : nd-array
             The design matrix.
-
         y : nd-array
             The response vector.
-
         support: array-like
             The indices of the non-zero features.
-
         boot_idxs : 2-tuple of array-like objects
             Tuple of (train_idxs, test_idxs) generated from a bootstrap
             sample. If this is specified, then the appropriate set of
@@ -746,16 +712,12 @@ def _poisson_loss_and_grad(coef, X, y, l2_penalty, sample_weight=None):
     ----------
     coef : ndarray, shape (n_features,) or (n_features + 1,)
         Coefficient vector.
-
     X : array-like, shape (n_samples, n_features)
         Design matrix.
-
     y : ndarray, shape (n_samples,)
         Response vector.
-
     l2_penalty : float
         Regularization parameter on l2-norm.
-
     sample_weight : array-like, shape (n_samples,), default None
         Array of weights assigned to the individual samples. If None, then each
         sample is provided an equal weight.
@@ -764,7 +726,6 @@ def _poisson_loss_and_grad(coef, X, y, l2_penalty, sample_weight=None):
     -------
     out : float
         Negative log-likelihood of Poisson GLM.
-
     grad : ndarray, shape (n_features,) or (n_features + 1,)
         Poisson gradient.
     """
