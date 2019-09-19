@@ -118,6 +118,9 @@ html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
 #
 # html_sidebars = {}
 
+html_logo = 'art/pyuoi.png'
+html_theme_options = {'logo_only': True}
+
 
 # -- Options for HTMLHelp output ---------------------------------------------
 
