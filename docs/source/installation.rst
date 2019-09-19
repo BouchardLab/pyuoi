@@ -62,7 +62,7 @@ To build the docs you will additionally need
 Install from source
 -------------------
 
-The latest development version of the code can be installed from github
+The latest development version of the code can be installed from https://github.com/BouchardLab/PyUoI
 
 .. code-block:: bash
 
