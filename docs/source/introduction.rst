@@ -124,6 +124,8 @@ Poisson Regression
 
 Dimensionality Reduction
 ------------------------
+Dimensionality reduction techniques do not fit as directly in the UoI framework,
+as described above. 
 
 CUR Decomposition (Column Subset Selection)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
