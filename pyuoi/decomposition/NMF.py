@@ -168,7 +168,9 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         H_samples = np.zeros((n_H_samples, n_features))
 
         rep_idx = self._rand.randint(n_samples, size=(self.n_boots, n_samples))
+        Hs = list()
         for i in range(self.n_boots):
+            Hs.append(list())
             self._logger.info("bootstrap %d" % i)
             # compute NMF bases for k across bootstrap replicates
             H_i = i * k_tot
@@ -177,7 +179,11 @@ class UoI_NMF_Base(AbstractDecompositionModel):
                 # concatenate k by p
                 H_samples[H_i:H_i + k:, ] = (self.nmf.set_params(n_components=k)
                                              .fit(sample).components_)
+                Hs[i].append(H_samples[H_i:H_i + k:, ])
                 H_i += k
+
+        self.stored_Hs_ = Hs
+
 
         # remove zero bases and normalize across features
         H_samples = H_samples[np.sum(H_samples, axis=1) != 0.0]
