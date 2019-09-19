@@ -1,5 +1,3 @@
-"""Utility functions for pyuoi package.
-"""
 import numpy as np
 import sys
 import logging
@@ -26,7 +24,7 @@ def sigmoid(x):
 
     Parameters
     ----------
-    y : ndarray
+    x : ndarray
         Log-probabilities.
     """
     return np.exp(-np.logaddexp(0, -x))
@@ -42,37 +40,27 @@ def make_linear_regression(n_samples=100, n_features=5, n_informative=2,
     ----------
     n_samples : int
         The number of samples to make.
-
     n_features : int
         The number of feature to use.
-
     n_informative : int
         The number of feature with non-zero weights.
-
     X_loc : float
         The mean of the features in the design matrix.
-
     X_scale : float
         The standard deviation of the features in the design matrix.
-
     snr : float
         The signal-to-noise ratio, which informs the variance of the noise
         term.
-
     beta : array-like or None
         The beta values to use. If None, beta values will be drawn from a
         uniform distribution.
-
     beta_low : float
         The lower bound for the beta values.
-
     beta_high : float
         The upper bound for the beta values.
-
     include_intercept : bool
         If true, includes an intercept in the model, if False, the intercept is
         set to 0.
-
     random_state : int, np.random.RandomState instance, or None
         Random number seed or state.
 
@@ -80,13 +68,10 @@ def make_linear_regression(n_samples=100, n_features=5, n_informative=2,
     -------
     X : ndarray, shape (n_samples, n_features)
         The design matrix.
-
     y : ndarray, shape (n_samples,)
         The response vector.
-
     beta : ndarray, shape (n_features,)
         The feature coefficients.
-
     intercept : float
         The intercept. If include_intercept is False, then intercept is zero.
     """
@@ -214,33 +199,24 @@ def make_poisson_regression(n_samples=100, n_features=5, n_informative=2,
     ----------
     n_samples : int
         The number of samples to make.
-
     n_features : int
         The number of feature to use.
-
     n_informative : int
         The number of feature with non-zero weights.
-
     X_loc : float
         The mean of the features in the design matrix.
-
     X_scale : float
         The standard deviation of the features in the design matrix.
-
     beta : array-like or None
         The beta values to use. If None, beta values will be drawn from a gamma
         distribution.
-
     beta_shape : float
         The shape parameter for the beta values.
-
     beta_scale : float
         The scale parameter for the beta values.
-
     include_intercept : bool
         If true, includes an intercept in the model, if False, the intercept is
         set to 0.
-
     random_state : int, np.random.RandomState instance, or None
         Random number seed or state.
 
@@ -248,13 +224,10 @@ def make_poisson_regression(n_samples=100, n_features=5, n_informative=2,
     -------
     X : ndarray, shape (n_samples, n_features)
         The design matrix.
-
     y : ndarray, shape (n_samples,)
         The response vector.
-
     beta : ndarray, shape (n_features,)
         The feature coefficients.
-
     intercept : float
         The intercept. If include_intercept is False, then intercept is zero.
     """
@@ -301,14 +274,12 @@ def log_likelihood_glm(model, y_true, y_pred):
     ----------
     model : string
         The generalized linear model to calculate the log-likelihood for.
-
-    y_true : nd-array, shape (n_samples)
+    y_true : nd-array, shape (n_samples,)
         Array of true response values.
-
-    y_pred : nd-array, shape (n_samples)
+    y_pred : nd-array, shape (n_samples,)
         Array of predicted response values (conditional mean).
 
-    Results
+    Returns
     -------
     ll : float
         The log-likelihood.
@@ -333,10 +304,8 @@ def BIC(ll, n_features, n_samples):
     ----------
     ll : float
         The log-likelihood of the model.
-
     n_features : int
         The number of features used in the model.
-
     n_samples : int
         The number of samples in the dataset being tested.
 
@@ -356,10 +325,8 @@ def AIC(ll, n_features):
     ----------
     ll : float
         The log-likelihood of the model.
-
     n_features : int
         The number of features used in the model.
-
     n_samples : int
         The number of samples in the dataset being tested.
 
@@ -384,10 +351,8 @@ def AICc(ll, n_features, n_samples):
     ----------
     ll : float
         The log-likelihood of the model.
-
     n_features : int
         The number of features used in the model.
-
     n_samples : int
         The number of samples in the dataset being tested.
 

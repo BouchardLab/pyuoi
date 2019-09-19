@@ -24,11 +24,7 @@ from ..lbfgs import fmin_lbfgs, AllZeroLBFGSError
 
 
 class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
-
-    metrics = AbstractUoIGeneralizedLinearRegressor._valid_estimation_metrics
-    _valid_estimation_metrics = metrics + ('acc',)
-
-    """UoI L1 Logistic model.
+    r"""UoI\ :sub:`L1-Logistic` model.
 
     Parameters
     ----------
@@ -80,7 +76,7 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
         Whether to calculate the intercept for this model. If set to False, no
         intercept will be used in calculations (e.g. data is expected to be
         already centered).
-    standardize : boolean
+    standardize : bool
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.
     shared_support : bool
@@ -110,6 +106,10 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
         boolean array indicating whether a given regressor (column) is selected
         for estimation for a given regularization parameter value (row).
     """
+
+    metrics = AbstractUoIGeneralizedLinearRegressor._valid_estimation_metrics
+    _valid_estimation_metrics = metrics + ('acc',)
+
     def __init__(self, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
                  estimation_frac=0.9, n_C=48, stability_selection=1.,
                  estimation_score='acc', estimation_target=None,

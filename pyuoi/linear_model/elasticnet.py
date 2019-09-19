@@ -8,7 +8,7 @@ from sklearn.linear_model import ElasticNet
 
 
 class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
-    """ UoI ElasticNet model.
+    r"""UoI\ :sub:`ElasticNet` solver.
 
     Parameters
     ----------
@@ -51,27 +51,31 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
         When set to ``True``, reuse the solution of the previous call to fit as
         initialization, otherwise, just erase the previous solution
     eps : float
-        Length of the lasso path. eps=1e-3 means that
-        alpha_min / alpha_max = 1e-3
-    copy_X : boolean
+        Length of the lasso path. ``eps=1e-3`` means that
+        ``alpha_min / alpha_max = 1e-3``.
+    copy_X : bool
         If ``True``, X will be copied; else, it may be overwritten.
-    fit_intercept : boolean
+    fit_intercept : bool
         Whether to calculate the intercept for this model. If set
         to False, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
-    standardize : boolean
+    standardize : bool
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.
-    max_iter : int, default None
+    max_iter : int
         Maximum number of iterations for iterative fitting methods.
-    random_state : int, RandomState instance or None, default None
+    random_state : int, RandomState instance, or None
         The seed of the pseudo random number generator that selects a random
         feature to update.  If int, random_state is the seed used by the random
         number generator; If RandomState instance, random_state is the random
         number generator; If None, the random number generator is the
         RandomState instance used by `np.random`.
-    comm : MPI communicator, default None
+    comm : MPI communicator
         If passed, the selection and estimation steps are parallelized.
+    logger : Logger
+        The logger to use for messages when ``verbose=True`` in ``fit``.
+        If *None* is passed, a logger that writes to ``sys.stdout`` will be
+        used.
 
     Attributes
     ----------
@@ -79,8 +83,8 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
         Estimated coefficients for the linear regression problem.
     intercept_ : float
         Independent term in the linear model.
-    supports_ : array, shape
-        boolean array indicating whether a given regressor (column) is selected
+    supports_ : ndarray, shape (n_supports, n_features)
+        Boolean array indicating whether a given regressor (column) is selected
         for estimation for a given regularization parameter value (row).
     """
     def __init__(self, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
@@ -131,7 +135,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
 
         where lambda and alpha are regularization parameters.
 
-        Scikit-learn does not use these names. Instead, scitkit-learn
+        ``scikit-learn`` does not use these names. Instead, ``scitkit-learn``
         denotes alpha by 'l1_ratio' and lambda by 'alpha'.
 
         Parameters

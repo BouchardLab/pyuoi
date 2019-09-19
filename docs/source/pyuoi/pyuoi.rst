@@ -1,6 +1,0 @@
-=====
-pyuoi
-=====
-
-.. automodule:: pyuoi
-   :members:

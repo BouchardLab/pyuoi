@@ -16,19 +16,16 @@ class PycLasso():
     alphas : nd-array
         The regularization path. Defaults to None for compatibility with UoI,
         but needs to be set prior to fitting.
-
     fit_intercept : bool
-        Whether to calculate the intercept for this model. If set
-        to False, no intercept will be used in calculations.
-
+        Whether to calculate the intercept for this model. If set to ``False``,
+        no intercept will be used in calculations.
     max_iter : int
         Maximum number of iterations for pycasso solver.
 
     Attributes
     ----------
-    coef_ : array, shape (n_features,) or (n_targets, n_features)
+    coef_ : ndarray, shape (n_features,) or (n_targets, n_features)
         Estimated coefficients for the linear regression problem.
-
     intercept_ : float
         Independent term in the linear model.
     """
@@ -41,7 +38,7 @@ class PycLasso():
         self.isfitted = False
 
     def set_params(self, **kwargs):
-
+        """Sets the parameters of this estimator."""
         _valid_params = ['alphas', 'fit_intercept', 'max_iter']
 
         for key, value in kwargs.items():
@@ -51,16 +48,37 @@ class PycLasso():
                 raise ValueError('Invalid parameter %s' % key)
 
     def predict(self, X):
+        """Predicts responses given a design matrix.
 
+        Parameters
+        ----------
+        X : ndarray, (n_samples, n_features)
+            The design matrix.
+
+        Returns
+        -------
+        y : ndarray, shape (n_samples,)
+            Predicted response vector.
+        """
         if self.isfitted:
             return np.matmul(X, self.coef_.T) + self.intercept_
         else:
-            raise NotFittedError('Cannot predict, estimator is not yet fit!')
+            raise NotFittedError('Estimator is not fit.')
 
     def fit(self, X, y):
+        """Fit data according to the pycasso object.
 
+        Parameters
+        ----------
+        X : ndarray, (n_samples, n_features)
+            The design matrix.
+        y : ndarray, shape (n_samples,)
+            Response vector. Will be cast to X's dtype if necessary.
+            Currently, this implementation does not handle multiple response
+            variables.
+        """
         if self.alphas is None:
-            raise Exception('Set alphas before fitting!')
+            raise Exception('Set alphas before fitting.')
 
         self.solver = pycasso.Solver(X, y, family='gaussian',
                                      useintercept=self.fit_intercept,
@@ -71,8 +89,8 @@ class PycLasso():
         # Coefs across the entire solution path
         self.coef_ = self.solver.result['beta']
         self.intercept_ = self.solver.result['intercept']
-
         self.isfitted = True
+        return self
 
 
 class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
@@ -118,13 +136,13 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
     eps : float
         Length of the lasso path. ``eps=1e-3`` means that
         ``lambda_min / lambda_max = 1e-3``
-    copy_X : boolean
+    copy_X : bool
         If ``True``, X will be copied; else, it may be overwritten.
-    fit_intercept : boolean
+    fit_intercept : bool
         Whether to calculate the intercept for this model. If set
         to False, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
-    standardize : boolean
+    standardize : bool
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations. This
         parameter is equivalent to ``normalize`` in ``scikit-learn`` models.
@@ -135,13 +153,18 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         feature to update.  If int, random_state is the seed used by the random
         number generator; If RandomState instance, random_state is the random
         number generator; If None, the random number generator is the
-        RandomState instance used by `np.random`.
+        RandomState instance used by ``np.random``.
     comm : MPI communicator
         If passed, the selection and estimation steps are parallelized.
+    logger : Logger
+        The logger to use for messages when ``verbose=True`` in ``fit``.
+        If *None* is passed, a logger that writes to ``sys.stdout`` will be
+        used.
     solver : string, 'cd' | 'pyc'
         If cd, will use the ``scikit-learn`` lasso implementation (via
         coordinate descent). If pyc, will use pyclasso, built off of the
         pycasso path-wise solver.
+
 
     Attributes
     ----------
@@ -203,8 +226,8 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         return [{'alpha': a} for a in alphas]
 
     def uoi_selection_sweep(self, X, y, reg_param_values):
-        """Overwrite base class selection sweep to accommodate
-        pycasso path-wise solution"""
+        """Overwrite base class selection sweep to accommodate pycasso
+        path-wise solution"""
 
         if self.solver == 'pyc':
             alphas = np.array([reg_param['alpha']
@@ -213,8 +236,6 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
             self._selection_lm.fit(X, y)
 
             return self._selection_lm.coef_
-
         else:
-
             return super(UoI_Lasso, self).uoi_selection_sweep(X, y,
                                                               reg_param_values)
