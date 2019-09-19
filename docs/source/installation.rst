@@ -14,7 +14,7 @@ and through conda-forge (installable with ``conda``).
 
 .. code-block:: bash
 
-    $ conda install pyuoi
+    $ conda install -c conda-forge pyuoi
 
 ``pip`` and ``conda`` will install the required dependencies.
 
