@@ -121,7 +121,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         # initialize method for computing consensus H bases after clustering
         if cons_meth is None:
             # default uses median
-            self.cons_meth = np.median
+            self.cons_meth = np.mean
         else:
             self.cons_meth = cons_meth
 

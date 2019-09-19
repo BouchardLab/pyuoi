@@ -88,3 +88,10 @@ def stability_selection_to_threshold(stability_selection, n_boots):
                          "the correct bounds.")
 
     return selection_threshold
+
+def diss(H0, H1):
+    k = H0.shape[0]
+    H0 = H0 / np.linalg.norm(H0, axis=1, keepdims=True)
+    H1 = H1 / np.linalg.norm(H1, axis=1, keepdims=True)
+    C = H0.dot(H1.T)
+    return (2.*k - C.max(axis=0).sum() - C.max(axis=1).sum()) / (2.*k)
