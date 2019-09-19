@@ -52,8 +52,20 @@ extensions = [
     'sphinx.ext.githubpages',
     'sphinx.ext.napoleon',
     'sphinx.ext.mathjax',
-    'sphinx_rtd_theme'
+    'sphinx_rtd_theme',
+    'sphinx_gallery.gen_gallery'
 ]
+
+sphinx_gallery_conf = {
+    # path to your examples scripts
+    'examples_dirs': ['../gallery'],
+    # path where to save gallery generated examples
+    'gallery_dirs': ['examples'],
+    #'subsection_order': ExplicitOrder(['../gallery/general', '../gallery/domain']),
+    'backreferences_dir': 'gen_modules/backreferences',
+    'download_section_examples': False,
+    'min_reported_time': 5
+}
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
