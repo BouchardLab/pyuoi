@@ -17,7 +17,7 @@ from ..utils import check_logger
 
 
 class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
-    """An abstract base class for UoI linear model classes.
+    r"""An abstract base class for UoI ``linear_model`` classes.
 
     Parameters
     ----------
@@ -37,18 +37,17 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         to obtain validation scores. Small values of this parameters imply
         larger "perturbations" to the dataset.
     stability_selection : int, float, or array-like
-        If int, treated as the number of bootstraps that a feature must
-        appear in to guarantee placement in selection profile. If float,
-        must be between 0 and 1, and is instead the proportion of
-        bootstraps. If array-like, must consist of either ints or floats
-        between 0 and 1. In this case, each entry in the array-like object
-        will act as a separate threshold for placement in the selection
-        profile.
-    fit_intercept : boolean
-        Whether to calculate the intercept for this model. If set
-        to False, no intercept will be used in calculations
-        (e.g. data is expected to be already centered).
-    standardize : boolean
+        If int, treated as the number of bootstraps that a feature must appear
+        in to guarantee placement in selection profile. If float, must be
+        between 0 and 1, and is instead the proportion of bootstraps. If
+        array-like, must consist of either ints or floats between 0 and 1.
+        In this case, each entry in the array-like object will act as a
+        separate threshold for placement in the selection profile.
+    fit_intercept : bool
+        Whether to calculate the intercept for this model. If set to False,
+        no intercept will be used in calculations (e.g. data is expected to be
+        already centered).
+    standardize : bool
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.
     shared_support : bool
@@ -62,7 +61,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         feature to update.  If int, random_state is the seed used by the random
         number generator; If RandomState instance, random_state is the random
         number generator; If None, the random number generator is the
-        RandomState instance used by `np.random`.
+        RandomState instance used by ``np.random``.
     comm : MPI communicator
         If passed, the selection and estimation steps are parallelized.
     logger : Logger
@@ -77,7 +76,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
     intercept_ : float
         Independent term in the linear model.
     supports_ : array, shape
-        boolean array indicating whether a given regressor (column) is selected
+        Boolean array indicating whether a given regressor (column) is selected
         for estimation for a given regularization parameter value (row).
     """
 
@@ -185,12 +184,12 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             Response vector. Will be cast to X's dtype if necessary.
             Currently, this implementation does not handle multiple response
             variables.
-        stratify : array-like or None, default None
+        stratify : array-like or None
             Ensures groups of samples are alloted to training/test sets
             proportionally. Labels for each group must be an int greater
             than zero. Must be of size equal to the number of samples, with
             further restrictions on the number of groups.
-        verbose : boolean
+        verbose : bool
             A switch indicating whether the fitting should print out messages
             displaying progress.
         """
@@ -442,7 +441,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
 
         Parameters
         ----------
-        X : ndarray or scipy.sparse matrix, (n_samples, n_features)
+        X : ndarray or scipy.sparse matrix, shape (n_samples, n_features)
             The design matrix.
         y : ndarray, shape (n_samples,)
             Response vector.
@@ -452,7 +451,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
 
         Returns
         -------
-        coefs : nd.array, shape (n_param_values, n_features)
+        coefs : ndarray, shape (n_param_values, n_features)
             Predicted parameter values for each regularization strength.
         """
 
@@ -488,8 +487,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
 
     _train_test_map = {'train': 0, 'test': 1}
 
-    _default_est_targets = {'r2': 1, 'AIC': 0,
-                            'AICc': 0, 'BIC': 0}
+    _default_est_targets = {'r2': 1, 'AIC': 0, 'AICc': 0, 'BIC': 0}
 
     def __init__(self, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
@@ -508,8 +506,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
             max_iter=max_iter,
             random_state=random_state,
             comm=comm,
-            logger=logger
-        )
+            logger=logger)
 
         if estimation_score not in self._valid_estimation_metrics:
             raise ValueError(
@@ -564,7 +561,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
         """Score, according to some metric, predictions provided by a model.
 
         The resulting score will be negated if an information criterion is
-        specified
+        specified.
 
         Parameters
         ----------
@@ -674,8 +671,7 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
             shared_support=shared_support,
             max_iter=max_iter,
             comm=comm,
-            logger=logger
-        )
+            logger=logger)
 
         if estimation_score not in self._valid_estimation_metrics:
             raise ValueError(
