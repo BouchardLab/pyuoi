@@ -24,24 +24,16 @@ import numpy as np
 
 from sklearn.preprocessing import minmax_scale
 from sklearn.exceptions import ConvergenceWarning
-from sklearn.decomposition import NMF
 from sklearn.manifold import TSNE
-from sklearn.cluster import DBSCAN
 
 from umap import UMAP
 
 from pyuoi.decomposition import UoI_NMF
+from pyuoi.datasets import load_swimmer
 
 np.random.seed(10)
 
-
-from pkg_resources import resource_filename
-import h5py
-input_path = resource_filename('pyuoi', 'data/Swimmer.h5')
-f = h5py.File(input_path, 'r+')
-Swimmers= f['Y'][:]
-f.close()
-Swimmers = Swimmers.T.reshape(256, 1024)
+Swimmers = load_swimmer()
 Swimmers = minmax_scale(Swimmers, axis=1)
 
 
@@ -49,8 +41,8 @@ Swimmers = minmax_scale(Swimmers, axis=1)
 # Original Swimmer samples
 # =========================
 
-
-fig, ax = plt.subplots(4, 4, figsize=(10,10), subplot_kw={'xticks': [], 'yticks': []})
+#fig, ax = plt.subplots(4, 4, figsize=(10,10), subplot_kw={'xticks': [], 'yticks': []})
+fig, ax = plt.subplots(4, 4, subplot_kw={'xticks': [], 'yticks': []})
 indices = np.random.randint(16, size=16) + np.arange(0, 256, 16)
 ax = ax.flatten()
 for i in range(len(indices)):
@@ -59,19 +51,17 @@ fig.suptitle("Original Swimmer samples", fontsize='xx-large', verticalalignment=
 ret = fig.text(.5, .05, "Features were translated and scaled to be between [0,1]", ha='center', fontsize=12)
 
 
-s = Swimmers.shape
-reps = 10
-corrupted = np.zeros((s[0]*reps, s[1]))
-
-for r in range(reps):
-    corrupted[r*s[0]:(r+1)*s[0]] = Swimmers + np.abs(np.random.normal(scale=0.25, size=Swimmers.shape))
-
-
 ####################
 # Swimmer samples corrupted with Absolute Gaussian noise
 # ======================================================
 # Noise was randomly sampled from |N(0,0.25)|
 
+
+reps = 1
+corrupted = np.zeros((Swimmers.shape[0]*reps, Swimmers.shape[1]))
+
+for r in range(reps):
+    corrupted[r*Swimmers.shape[0]:(r+1)*Swimmers.shape[0]] = Swimmers + np.abs(np.random.normal(scale=0.25, size=Swimmers.shape))
 
 fig, ax = plt.subplots(4, 4, figsize=(10,10), subplot_kw={'xticks': [], 'yticks': []})
 ax = ax.flatten()
@@ -79,8 +69,6 @@ for i in range(len(indices)):
     ax[i].imshow(corrupted[indices[i]].reshape(32,32).T, aspect='auto', cmap='gray')
 fig.suptitle("Corrupted Swimmer samples ", fontsize='xx-large', verticalalignment='center')
 fig.text(.5, .05, "%d samples were corrupted with absolute Gaussian noise drawn from a Normal(0, 0.25)" % corrupted.shape[0], ha='center', fontsize=12)
-
-
 
 nboot = 20
 min_pts = nboot/2
@@ -94,22 +82,22 @@ uoinmf = UoI_NMF(n_boots=nboot, ranks=ranks,
 
 uoinmf.cons_meth = np.mean   # intersect and mean give too much noise
 
-transformed = None
-before = datetime.now()
-with warnings.catch_warnings(record=True) as w:
-    warnings.simplefilter('ignore', ConvergenceWarning)
-    transformed = uoinmf.fit_transform(corrupted)
-    print("Caught %d ConvergenceWarnings" % len(w))
-after = datetime.now()
-recovered = transformed @ uoinmf.components_
+#transformed = None
+#before = datetime.now()
+#with warnings.catch_warnings(record=True) as w:
+#    warnings.simplefilter('ignore', ConvergenceWarning)
+#    print("Caught %d ConvergenceWarnings" % len(w))
+#after = datetime.now()
 
-embedding = TSNE(n_components=2).fit_transform(uoinmf.bases_samples_)
+transformed = uoinmf.fit_transform(corrupted)
+recovered = transformed @ uoinmf.components_
 
 
 ####################
 # NMF Swimmer bases
 # =================
 
+plt.figure()
 order = np.argsort(np.sum(uoinmf.components_, axis=1))
 
 nrow = 5 if uoinmf.components_.shape[0] > 16 else 4
@@ -134,6 +122,7 @@ fig.text(.5, .05, caption, ha='center', fontsize=12)
 # ==================
 
 
+plt.figure()
 fig, ax = plt.subplots(4, 4, figsize=(10,10), subplot_kw={'xticks': [], 'yticks': []})
 ax = ax.flatten()
 for i in range(len(indices)):
@@ -141,8 +130,14 @@ for i in range(len(indices)):
 
 ret = fig.suptitle("Recovered Swimmers", fontsize='xx-large', verticalalignment='center')
 
+################################################################
+# Plot them all together so we can see how well we recovered
+# the original swimmer data.
+#
+#
 
 
+plt.figure()
 fig, ax = plt.subplots(3, 16, figsize=(80, 15), subplot_kw={'xticks': [], 'yticks': []})
 indices = np.random.randint(16, size=16) + np.arange(0, 256, 16)
 ax = ax.flatten()
@@ -168,7 +163,8 @@ for i in range(len(indices)):
 ret = fig.suptitle("Original, corrupted, and recoverd Swimmers", fontsize=50, verticalalignment='center')
 
 
-plt.figure(figsize=(7,7))
+#plt.figure(figsize=(7,7))
+embedding = TSNE(n_components=2).fit_transform(uoinmf.bases_samples_)
 sc = plt.scatter(embedding[:,0], embedding[:,1], c=uoinmf.bases_samples_labels_, s=80, cmap="nipy_spectral")
 sc.set_facecolor('none')
 
