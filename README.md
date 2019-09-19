@@ -1,5 +1,3 @@
-# PyUoI
-
 <img src="docs/source/art/pyuoi.png" alt="PyUoI logo" width="200px">
 
 
