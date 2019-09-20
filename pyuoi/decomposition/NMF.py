@@ -3,6 +3,7 @@ import numpy as np
 import logging
 
 from .base import AbstractDecompositionModel
+from .utils import diss
 
 from ..utils import check_logger
 
@@ -168,9 +169,8 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         H_samples = np.zeros((n_H_samples, n_features))
 
         rep_idx = self._rand.randint(n_samples, size=(self.n_boots, n_samples))
-        Hs = list()
+        k_mask = np.zeros(n_H_samples, dtype=int)
         for i in range(self.n_boots):
-            Hs.append(list())
             self._logger.info("bootstrap %d" % i)
             # compute NMF bases for k across bootstrap replicates
             H_i = i * k_tot
@@ -179,11 +179,20 @@ class UoI_NMF_Base(AbstractDecompositionModel):
                 # concatenate k by p
                 H_samples[H_i:H_i + k:, ] = (self.nmf.set_params(n_components=k)
                                              .fit(sample).components_)
-                Hs[i].append(H_samples[H_i:H_i + k:, ])
+                k_mask[H_i:H_i + k] = k
                 H_i += k
 
-        self.stored_Hs_ = Hs
 
+        diss_k = np.zeros(len(self.ranks))
+        for k_idx, k in enumerate(self.ranks):
+            mask = k_mask == k
+            Hs = H_samples[mask]
+            for i in range(self.n_boots):
+                H_i = Hs[i*k:i*k+k]
+                for j in range(i+1, self.n_boots):
+                    H_j = Hs[j*k:j*k+k]
+                    diss_k[k_idx] += diss(H_i, H_j)
+        self.dissimilarity_  = (diss_k * 2)/(self.n_boots * (self.n_boots - 1))
 
         # remove zero bases and normalize across features
         H_samples = H_samples[np.sum(H_samples, axis=1) != 0.0]
