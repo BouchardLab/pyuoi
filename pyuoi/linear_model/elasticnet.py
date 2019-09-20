@@ -8,38 +8,32 @@ from sklearn.linear_model import ElasticNet
 
 
 class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
-    """ UoI ElasticNet model.
+    r"""UoI\ :sub:`ElasticNet` solver.
 
     Parameters
     ----------
-    n_boots_sel : int, default 48
+    n_boots_sel : int
         The number of data bootstraps to use in the selection module.
         Increasing this number will make selection more strict.
-
-    n_boots_est : int, default 48
+    n_boots_est : int
         The number of data bootstraps to use in the estimation module.
         Increasing this number will relax selection and decrease variance.
-
-    selection_frac : float, default 0.9
+    selection_frac : float
         The fraction of the dataset to use for training in each resampled
         bootstrap, during the selection module. Small values of this parameter
         imply larger "perturbations" to the dataset.
-
-    estimation_frac : float, default 0.9
+    estimation_frac : float
         The fraction of the dataset to use for training in each resampled
         bootstrap, during the estimation module. The remaining data is used
         to obtain validation scores. Small values of this parameters imply
         larger "perturbations" to the dataset. IGNORED - Leaving this here
         to double check later
-
-    n_lambdas : int, default 48
+    n_lambdas : int
         The number of regularization values to use for selection.
-
-    alphas : list or ndarray of floats
+    alphas : list or ndarray
         The parameter that trades off L1 versus L2 regularization for a given
         lambda.
-
-    stability_selection : int, float, or array-like, default 1
+    stability_selection : int, float, or array-like
         If int, treated as the number of bootstraps that a feature must
         appear in to guarantee placement in selection profile. If float,
         must be between 0 and 1, and is instead the proportion of
@@ -47,61 +41,53 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
         between 0 and 1. In this case, each entry in the array-like object
         will act as a separate threshold for placement in the selection
         profile.
-
-    estimation_score : str "r2" | "AIC", | "AICc" | "BIC"
+    estimation_score : string, "r2" | "AIC" | "AICc" | "BIC"
         Objective used to choose the best estimates per bootstrap.
-
-    estimation_target : str "train" | "test"
+    estimation_target : string, "train" | "test"
         Decide whether to assess the estimation_score on the train
-        or test data across each bootstrap. By deafult, a sensible
-        choice is made based on the chosen estimation_score
-
-    warm_start : bool, default True
+        or test data across each bootstrap. By default, a sensible
+        choice is made based on the chosen estimation_score.
+    warm_start : bool
         When set to ``True``, reuse the solution of the previous call to fit as
         initialization, otherwise, just erase the previous solution
-
-    eps : float, default 1e-3
-        Length of the lasso path. eps=1e-3 means that
-        alpha_min / alpha_max = 1e-3
-
-    copy_X : boolean, default True
+    eps : float
+        Length of the lasso path. ``eps=1e-3`` means that
+        ``alpha_min / alpha_max = 1e-3``.
+    copy_X : bool
         If ``True``, X will be copied; else, it may be overwritten.
-
-    fit_intercept : boolean, default True
+    fit_intercept : bool
         Whether to calculate the intercept for this model. If set
         to False, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
-
-    standardize : boolean, default False
+    standardize : bool
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.
-
-    max_iter : int, default None
+    max_iter : int
         Maximum number of iterations for iterative fitting methods.
-
-    random_state : int, RandomState instance or None, default None
+    random_state : int, RandomState instance, or None
         The seed of the pseudo random number generator that selects a random
         feature to update.  If int, random_state is the seed used by the random
         number generator; If RandomState instance, random_state is the random
         number generator; If None, the random number generator is the
         RandomState instance used by `np.random`.
-
-    comm : MPI communicator, default None
+    comm : MPI communicator
         If passed, the selection and estimation steps are parallelized.
+    logger : Logger
+        The logger to use for messages when ``verbose=True`` in ``fit``.
+        If *None* is passed, a logger that writes to ``sys.stdout`` will be
+        used.
 
     Attributes
     ----------
     coef_ : array, shape (n_features,) or (n_targets, n_features)
         Estimated coefficients for the linear regression problem.
-
     intercept_ : float
         Independent term in the linear model.
-
-    supports_ : array, shape
-        boolean array indicating whether a given regressor (column) is selected
+    supports_ : ndarray, shape (n_supports, n_features)
+        Boolean array indicating whether a given regressor (column) is selected
         for estimation for a given regularization parameter value (row).
     """
-    def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
+    def __init__(self, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
                  estimation_frac=0.9, n_lambdas=48,
                  alphas=np.array([0.5]), stability_selection=1.,
                  estimation_score='r2', estimation_target=None,
@@ -122,8 +108,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
             random_state=random_state,
             comm=comm,
             max_iter=max_iter,
-            logger=logger
-        )
+            logger=logger)
         self.n_lambdas = n_lambdas
         self.alphas = alphas
         self.n_alphas = len(alphas)
@@ -150,7 +135,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
 
         where lambda and alpha are regularization parameters.
 
-        Scikit-learn does not use these names. Instead, scitkit-learn
+        ``scikit-learn`` does not use these names. Instead, ``scitkit-learn``
         denotes alpha by 'l1_ratio' and lambda by 'alpha'.
 
         Parameters

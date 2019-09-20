@@ -24,46 +24,35 @@ from ..lbfgs import fmin_lbfgs, AllZeroLBFGSError
 
 
 class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
-
-    metrics = AbstractUoIGeneralizedLinearRegressor._valid_estimation_metrics
-    _valid_estimation_metrics = metrics + ('acc',)
-
-    """ UoI L1 Logistic model.
+    r"""UoI\ :sub:`L1-Logistic` model.
 
     Parameters
     ----------
-    n_boots_sel : int, default 48
+    n_boots_sel : int
         The number of data bootstraps to use in the selection module.
         Increasing this number will make selection more strict.
-
-    n_boots_est : int, default 48
+    n_boots_est : int
         The number of data bootstraps to use in the estimation module.
         Increasing this number will relax selection and decrease variance.
-
-    n_lambdas : int, default 48
+    n_lambdas : int
         The number of regularization values to use for selection.
-
-    alpha : list or ndarray of floats
+    alpha : list or ndarray
         The parameter that trades off L1 versus L2 regularization for a given
         lambda.
-
-    selection_frac : float, default 0.9
+    selection_frac : float
         The fraction of the dataset to use for training in each resampled
         bootstrap, during the selection module. Small values of this parameter
         imply larger "perturbations" to the dataset.
-
-    estimation_frac : float, default 0.9
+    estimation_frac : float
         The fraction of the dataset to use for training in each resampled
         bootstrap, during the estimation module. The remaining data is used
         to obtain validation scores. Small values of this parameters imply
         larger "perturbations" to the dataset.
-
-    estimation_target : str "train" | "test"
+    estimation_target : string, "train" | "test"
         Decide whether to assess the estimation_score on the train
         or test data across each bootstrap. By deafult, a sensible
         choice is made based on the chosen estimation_score
-
-    stability_selection : int, float, or array-like, default 1
+    stability_selection : int, float, or array-like
         If int, treated as the number of bootstraps that a feature must
         appear in to guarantee placement in selection profile. If float,
         must be between 0 and 1, and is instead the proportion of
@@ -71,67 +60,57 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
         between 0 and 1. In this case, each entry in the array-like object
         will act as a separate threshold for placement in the selection
         profile.
-
-    estimation_score : str "acc" | "log" | "AIC", | "AICc" | "BIC"
+    estimation_score : string, "acc" | "log" | "AIC", | "AICc" | "BIC"
         Objective used to choose the best estimates per bootstrap.
-
-    multi_class : str "auto" | "multinomial"
-    For "multinomial" the loss minimised is the multinomial loss fit across the
-    entire probability distribution, even when the data is binary.
-    "auto" selects binary if the data is binary, and otherwise selects
-    "multinomial".
-
-    warm_start : bool, default True
+    multi_class : string, "auto" | "multinomial"
+        For "multinomial" the loss minimised is the multinomial loss fit across
+        the entire probability distribution, even when the data is binary.
+        "auto" selects binary if the data is binary, and otherwise selects
+        "multinomial".
+    warm_start : bool
         When set to ``True``, reuse the solution of the previous call to fit as
         initialization, otherwise, just erase the previous solution
-
-    eps : float, default 1e-5
-        Length of the L1 path. eps=1e-5 means that
-        alpha_min / alpha_max = 1e-5
-
-    fit_intercept : boolean, default True
-        Whether to calculate the intercept for this model. If set
-        to False, no intercept will be used in calculations
-        (e.g. data is expected to be already centered).
-
-    standardize : boolean, default False
+    eps : float
+        Length of the L1 path. eps=1e-5 means that alpha_min / alpha_max = 1e-5
+    fit_intercept : bool
+        Whether to calculate the intercept for this model. If set to False, no
+        intercept will be used in calculations (e.g. data is expected to be
+        already centered).
+    standardize : bool
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.
-
-    shared_support : bool, default True
+    shared_support : bool
         For models with more than one output (multinomial logistic regression)
         this determines whether all outputs share the same support or can
         have independent supports.
-
-    max_iter : int, default 10000
+    max_iter : int
         Maximum number of iterations for iterative fitting methods.
-
-    tol : float, default 1e-3
+    tol : float
         Stopping criteria for solver.
-
-    random_state : int, RandomState instance or None, default None
+    random_state : int, RandomState instance, or None
         The seed of the pseudo random number generator that selects a random
         feature to update.  If int, random_state is the seed used by the random
         number generator; If RandomState instance, random_state is the random
         number generator; If None, the random number generator is the
         RandomState instance used by `np.random`.
-
-    comm : MPI communicator, default None
+    comm : MPI communicator
         If passed, the selection and estimation steps are parallelized.
 
     Attributes
     ----------
     coef_ : array, shape (n_features,) or (n_targets, n_features)
         Estimated coefficients for the linear regression problem.
-
     intercept_ : float
         Independent term in the linear model.
-
     supports_ : array, shape
         boolean array indicating whether a given regressor (column) is selected
         for estimation for a given regularization parameter value (row).
     """
-    def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
+
+    metrics = AbstractUoIGeneralizedLinearRegressor._valid_estimation_metrics
+    _valid_estimation_metrics = metrics + ('acc',)
+
+    def __init__(self, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
                  estimation_frac=0.9, n_C=48, stability_selection=1.,
                  estimation_score='acc', estimation_target=None,
                  multi_class='auto', shared_support=True, warm_start=False,
@@ -151,8 +130,7 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
             standardize=standardize,
             shared_support=shared_support,
             comm=comm,
-            logger=logger
-        )
+            logger=logger)
         self.n_C = n_C
         self.Cs = None
         self.multi_class = multi_class
@@ -236,8 +214,7 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
 
 
 def fit_intercept_fixed_coef(X, coef_, y, output_dim):
-    """Optimize the likelihood w.r.t. the intercept for a logistic
-    model."""
+    """Optimize the likelihood w.r.t. the intercept for a logistic model."""
     if output_dim == 1:
         def f_df(intercept):
             py = sigmoid(X.dot(coef_.T) + intercept)
@@ -318,23 +295,18 @@ class MaskedCoefLogisticRegression(LogisticRegression):
     ----------
     penalty : str
         Type of regularization: 'l1' or 'l2'.
-
     tol : float, optional (default=1e-4)
         Tolerance for stopping criteria.
-
     C : float, optional (default=1.0)
         Inverse of regularization strength; must be a positive float.
         Like in support vector machines, smaller values specify stronger
         regularization.
-
     fit_intercept : bool, optional (default=True)
         Specifies if a constant (a.k.a. bias or intercept) should be
         added to the decision function.
-
     standardize : bool, default False
         If True, centers the design matrix across samples and rescales them to
         have standard deviation of 1.
-
     class_weight : dict or 'balanced', optional (default=None)
         Weights associated with classes in the form ``{class_label: weight}``.
         If not given, all classes are supposed to have weight one.
@@ -343,20 +315,16 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         as ``n_samples / (n_classes * np.bincount(y))``.
         Note that these weights will be multiplied with sample_weight (passed
         through the fit method) if sample_weight is specified.
-
     max_iter : int, optional (default=100)
         Maximum number of iterations taken for the solvers to converge.
-
     multi_class : str, {'multinomial', 'auto'}, optional (default='auto')
         For 'multinomial' the loss minimised is the multinomial loss fit
         across the entire probability distribution, *even when the data is
         binary*. 'auto' selects binary if the data is binary,
         and otherwise selects 'multinomial'.
-
     verbose : int, optional (default=0)
         For the liblinear and lbfgs solvers set verbose to any positive
         number for verbosity.
-
     warm_start : bool, optional (default=False)
         When set to True, reuse the solution of the previous call to fit as
         initialization, otherwise, just erase the previous solution.
@@ -385,14 +353,11 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         X : {array-like, sparse matrix}, shape (n_samples, n_features)
             Training vector, where n_samples is the number of samples and
             n_features is the number of features.
-
         y : array-like, shape (n_samples,)
             Target vector relative to X.
-
         sample_weight : array-like, shape (n_samples,) optional
             Array of weights that are assigned to individual samples.
             If not provided, then each sample is given unit weight.
-
         coef_mask : array-like, shape (n_features), (n_classes, n_features)
                     optional
             Masking array for coef.
@@ -495,7 +460,7 @@ class MaskedCoefLogisticRegression(LogisticRegression):
             self.coef_ /= sX.scale_[np.newaxis]
 
 
-def _logistic_regression_path(X, y, Cs=10, fit_intercept=True,
+def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
                               max_iter=100, tol=1e-4, verbose=0, coef=None,
                               class_weight=None, penalty='l2',
                               multi_class='auto',
@@ -738,6 +703,7 @@ def _logistic_regression_path(X, y, Cs=10, fit_intercept=True,
 
 def _multinomial_loss(w, X, Y, alpha, sample_weight):
     """Computes multinomial loss and class probabilities.
+
     Parameters
     ----------
     w : ndarray, shape (n_classes * n_features,) or
@@ -751,6 +717,7 @@ def _multinomial_loss(w, X, Y, alpha, sample_weight):
         Regularization parameter. alpha is equal to 1 / C.
     sample_weight : array-like, shape (n_samples,)
         Array of weights that are assigned to individual samples.
+
     Returns
     -------
     loss : float
@@ -759,10 +726,6 @@ def _multinomial_loss(w, X, Y, alpha, sample_weight):
         Estimated class probabilities.
     w : ndarray, shape (n_classes, n_features)
         Reshaped param vector excluding intercept terms.
-    Reference
-    ---------
-    Bishop, C. M. (2006). Pattern recognition and machine learning.
-    Springer. (Chapter 4.3.4)
     """
     n_classes = Y.shape[1]
     n_samples, n_features = X.shape
@@ -785,6 +748,7 @@ def _multinomial_loss(w, X, Y, alpha, sample_weight):
 
 def _logistic_loss_and_grad(w, X, y, alpha, mask, sample_weight=None):
     """Computes the logistic loss and gradient.
+
     Parameters
     ----------
     w : ndarray, shape (n_features,) or (n_features + 1,)
@@ -800,6 +764,7 @@ def _logistic_loss_and_grad(w, X, y, alpha, mask, sample_weight=None):
     sample_weight : array-like, shape (n_samples,) optional
         Array of weights that are assigned to individual samples.
         If not provided, then each sample is given unit weight.
+
     Returns
     -------
     out : float
@@ -836,6 +801,7 @@ def _logistic_loss_and_grad(w, X, y, alpha, mask, sample_weight=None):
 
 def _multinomial_loss_grad(w, X, Y, alpha, mask, sample_weight):
     """Computes the multinomial loss, gradient and class probabilities.
+
     Parameters
     ----------
     w : ndarray, shape (n_classes * n_features,) or
@@ -851,6 +817,7 @@ def _multinomial_loss_grad(w, X, Y, alpha, mask, sample_weight):
         Masking array for coef.
     sample_weight : array-like, shape (n_samples,)
         Array of weights that are assigned to individual samples.
+
     Returns
     -------
     loss : float
@@ -860,10 +827,6 @@ def _multinomial_loss_grad(w, X, Y, alpha, mask, sample_weight):
         Ravelled gradient of the multinomial loss.
     p : ndarray, shape (n_samples, n_classes)
         Estimated class probabilities
-    Reference
-    ---------
-    Bishop, C. M. (2006). Pattern recognition and machine learning.
-    Springer. (Chapter 4.3.4)
     """
     n_classes = Y.shape[1]
     n_samples, n_features = X.shape

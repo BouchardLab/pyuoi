@@ -16,68 +16,55 @@ from .utils import stability_selection_to_threshold, intersection
 from ..utils import check_logger
 
 
-class AbstractUoILinearModel(SparseCoefMixin,
-                             metaclass=_abc.ABCMeta):
-    """An abstract base class for UoI linear model classes
+class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
+    r"""An abstract base class for UoI ``linear_model`` classes.
 
     Parameters
     ----------
-    n_boots_sel : int, default 48
+    n_boots_sel : int
         The number of data bootstraps to use in the selection module.
         Increasing this number will make selection more strict.
-
-    n_boots_est : int, default 48
+    n_boots_est : int
         The number of data bootstraps to use in the estimation module.
         Increasing this number will relax selection and decrease variance.
-
-    selection_frac : float, default 0.9
+    selection_frac : float
         The fraction of the dataset to use for training in each resampled
         bootstrap, during the selection module. Small values of this parameter
         imply larger "perturbations" to the dataset.
-
-    estimation_frac : float, default 0.9
+    estimation_frac : float
         The fraction of the dataset to use for training in each resampled
         bootstrap, during the estimation module. The remaining data is used
         to obtain validation scores. Small values of this parameters imply
         larger "perturbations" to the dataset.
-
-    stability_selection : int, float, or array-like, default 1
-        If int, treated as the number of bootstraps that a feature must
-        appear in to guarantee placement in selection profile. If float,
-        must be between 0 and 1, and is instead the proportion of
-        bootstraps. If array-like, must consist of either ints or floats
-        between 0 and 1. In this case, each entry in the array-like object
-        will act as a separate threshold for placement in the selection
-        profile.
-
-    fit_intercept : boolean, default True
-        Whether to calculate the intercept for this model. If set
-        to False, no intercept will be used in calculations
-        (e.g. data is expected to be already centered).
-
-    standardize : boolean, default False
+    stability_selection : int, float, or array-like
+        If int, treated as the number of bootstraps that a feature must appear
+        in to guarantee placement in selection profile. If float, must be
+        between 0 and 1, and is instead the proportion of bootstraps. If
+        array-like, must consist of either ints or floats between 0 and 1.
+        In this case, each entry in the array-like object will act as a
+        separate threshold for placement in the selection profile.
+    fit_intercept : bool
+        Whether to calculate the intercept for this model. If set to False,
+        no intercept will be used in calculations (e.g. data is expected to be
+        already centered).
+    standardize : bool
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.
-
-    shared_support : bool, default True
+    shared_support : bool
         For models with more than one output (multinomial logistic regression)
         this determines whether all outputs share the same support or can
         have independent supports.
-
-    max_iter : int, default None
+    max_iter : int
         Maximum number of iterations for iterative fitting methods.
-
-    random_state : int, RandomState instance or None, default None
+    random_state : int, RandomState instance, or None
         The seed of the pseudo random number generator that selects a random
         feature to update.  If int, random_state is the seed used by the random
         number generator; If RandomState instance, random_state is the random
         number generator; If None, the random number generator is the
-        RandomState instance used by `np.random`.
-
-    comm : MPI communicator, default None
+        RandomState instance used by ``np.random``.
+    comm : MPI communicator
         If passed, the selection and estimation steps are parallelized.
-
-    logger : Logger, default None
+    logger : Logger
         The logger to use for messages when ``verbose=True`` in ``fit``.
         If *None* is passed, a logger that writes to ``sys.stdout`` will be
         used.
@@ -86,16 +73,14 @@ class AbstractUoILinearModel(SparseCoefMixin,
     ----------
     coef_ : array, shape (n_features,) or (n_targets, n_features)
         Estimated coefficients for the linear regression problem.
-
     intercept_ : float
         Independent term in the linear model.
-
     supports_ : array, shape
-        boolean array indicating whether a given regressor (column) is selected
+        Boolean array indicating whether a given regressor (column) is selected
         for estimation for a given regularization parameter value (row).
     """
 
-    def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
+    def __init__(self, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
                  fit_intercept=True, standardize=True,
                  shared_support=True, max_iter=None, random_state=None,
@@ -147,12 +132,11 @@ class AbstractUoILinearModel(SparseCoefMixin,
 
     @_abc.abstractmethod
     def intersect(self, coef, thresholds):
-        """Intersect coefficients across all thresholds"""
+        """Intersect coefficients across all thresholds."""
         pass
 
     def _pre_fit(self, X, y):
-        """Perform class-specific setup for fit().
-        """
+        """Perform class-specific setup for fit()."""
         if self.standardize:
             if self.fit_intercept and issparse(X):
                 msg = ("Cannot center sparse matrices: "
@@ -167,8 +151,7 @@ class AbstractUoILinearModel(SparseCoefMixin,
         return X, y
 
     def _post_fit(self, X, y):
-        """Perform class-specific cleanup for fit().
-        """
+        """Perform class-specific cleanup for fit()."""
         if self.standardize:
             sX = self._X_scaler
             self.coef_ /= sX.scale_[np.newaxis]
@@ -197,19 +180,16 @@ class AbstractUoILinearModel(SparseCoefMixin,
         ----------
         X : ndarray or scipy.sparse matrix, (n_samples, n_features)
             The design matrix.
-
         y : ndarray, shape (n_samples,)
             Response vector. Will be cast to X's dtype if necessary.
             Currently, this implementation does not handle multiple response
             variables.
-
-        stratify : array-like or None, default None
+        stratify : array-like or None
             Ensures groups of samples are alloted to training/test sets
             proportionally. Labels for each group must be an int greater
             than zero. Must be of size equal to the number of samples, with
             further restrictions on the number of groups.
-
-        verbose : boolean
+        verbose : bool
             A switch indicating whether the fitting should print out messages
             displaying progress.
         """
@@ -461,19 +441,17 @@ class AbstractUoILinearModel(SparseCoefMixin,
 
         Parameters
         ----------
-        X : ndarray or scipy.sparse matrix, (n_samples, n_features)
+        X : ndarray or scipy.sparse matrix, shape (n_samples, n_features)
             The design matrix.
-
         y : ndarray, shape (n_samples,)
             Response vector.
-
         reg_param_values: list of dicts
             A list of dictionaries containing the regularization parameter
             values to iterate over.
 
         Returns
         -------
-        coefs : nd.array, shape (n_param_values, n_features)
+        coefs : ndarray, shape (n_param_values, n_features)
             Predicted parameter values for each regularization strength.
         """
 
@@ -503,17 +481,15 @@ class AbstractUoILinearModel(SparseCoefMixin,
 
 class AbstractUoILinearRegressor(AbstractUoILinearModel,
                                  metaclass=_abc.ABCMeta):
-    """An abstract base class for UoI linear regression classes.
-    """
+    """An abstract base class for UoI linear regression classes."""
 
     _valid_estimation_metrics = ('r2', 'AIC', 'AICc', 'BIC')
 
     _train_test_map = {'train': 0, 'test': 1}
 
-    _default_est_targets = {'r2': 1, 'AIC': 0,
-                            'AICc': 0, 'BIC': 0}
+    _default_est_targets = {'r2': 1, 'AIC': 0, 'AICc': 0, 'BIC': 0}
 
-    def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
+    def __init__(self, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
                  estimation_score='r2', estimation_target=None,
                  copy_X=True, fit_intercept=True,
@@ -530,8 +506,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
             max_iter=max_iter,
             random_state=random_state,
             comm=comm,
-            logger=logger
-        )
+            logger=logger)
 
         if estimation_score not in self._valid_estimation_metrics:
             raise ValueError(
@@ -575,7 +550,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
         self.coef_ = np.squeeze(self.coef_)
 
     def intersect(self, coef, thresholds):
-        """Intersect coefficients accross all thresholds"""
+        """Intersect coefficients accross all thresholds."""
         return intersection(coef, thresholds)
 
     @property
@@ -585,8 +560,8 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
     def _score_predictions(self, metric, fitter, X, y, support, boot_idxs):
         """Score, according to some metric, predictions provided by a model.
 
-        the resulting score will be negated if an information criterion is
-        specified
+        The resulting score will be negated if an information criterion is
+        specified.
 
         Parameters
         ----------
@@ -594,18 +569,14 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
             The type of score to run on the prediction. Valid options include
             'r2' (explained variance), 'BIC' (Bayesian information criterion),
             'AIC' (Akaike information criterion), and 'AICc' (corrected AIC).
-
-        fitter : object with .predict and .predict_proba methods as per sklearn
-
+        fitter : object
+            Must contain .predict and .predict_proba methods.
         X : array-like
             The design matrix.
-
         y : array-like
             Response vector.
-
         supports : array-like
             The value of the supports for the model
-
         boot_idxs : 2-tuple of array-like objects
             Tuple of (train_idxs, test_idxs) generated from a bootstrap
             sample. If this is specified, then the appropriate set of
@@ -673,8 +644,7 @@ class LinearInterceptFitterNoFeatures(object):
 
 class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
                                             metaclass=_abc.ABCMeta):
-    """An abstract base class for UoI linear classifier classes.
-    """
+    """An abstract base class for UoI linear classifier classes."""
 
     _valid_estimation_metrics = ('log', 'BIC', 'AIC', 'AICc', 'acc')
 
@@ -683,7 +653,7 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
     _default_est_targets = {'log': 1, 'AIC': 0, 'AICc': 0,
                             'BIC': 0, 'acc': 1}
 
-    def __init__(self, n_boots_sel=48, n_boots_est=48, selection_frac=0.9,
+    def __init__(self, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
                  estimation_score='acc', estimation_target=None,
                  copy_X=True, fit_intercept=True, standardize=True,
@@ -701,8 +671,7 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
             shared_support=shared_support,
             max_iter=max_iter,
             comm=comm,
-            logger=logger
-        )
+            logger=logger)
 
         if estimation_score not in self._valid_estimation_metrics:
             raise ValueError(
@@ -728,7 +697,7 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
                                       self.coef_.T)
 
     def intersect(self, coef, thresholds):
-        """Intersect coefficients accross all thresholds
+        """Intersect coefficients accross all thresholds.
 
         This implementation will account for multi-class classification.
         """
@@ -747,8 +716,8 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
     def _score_predictions(self, metric, fitter, X, y, support, boot_idxs):
         """Score, according to some metric, predictions provided by a model.
 
-        the resulting score will be negated if an information criterion is
-        specified
+        The resulting score will be negated if an information criterion is
+        specified.
 
         Parameters
         ----------
@@ -756,18 +725,14 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
             The type of score to run on the prediction. Valid options include
             'r2' (explained variance), 'BIC' (Bayesian information criterion),
             'AIC' (Akaike information criterion), and 'AICc' (corrected AIC).
-
-        fitter : object with .predict and .predict_proba methods as per sklearn
-
+        fitter : object
+            Must contain .predict and .predict_proba methods.
         X : array-like
             The design matrix.
-
         y : array-like
             Response vector.
-
         supports : array-like
             The value of the supports for the model
-
         boot_idxs : 2-tuple of array-like objects
             Tuple of (train_idxs, test_idxs) generated from a bootstrap
             sample. If this is specified, then the appropriate set of

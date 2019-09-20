@@ -16,7 +16,13 @@ import os
 import sys
 import sphinx_rtd_theme
 
-sys.path.insert(0, os.path.abspath(os.path.join('..', '..')))
+# Get the project root dir, which is the parent parent dir of this
+project_root = os.path.dirname(os.getcwd())
+
+# Insert the project root dir as the first element in the PYTHONPATH.
+# This lets us ensure that the source package is imported, and that its
+# version is used.
+sys.path.insert(0, project_root)
 
 
 # -- Project information -----------------------------------------------------
@@ -123,6 +129,9 @@ html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
 # 'searchbox.html']``.
 #
 # html_sidebars = {}
+
+html_logo = 'art/pyuoi.png'
+html_theme_options = {'logo_only': True}
 
 
 # -- Options for HTMLHelp output ---------------------------------------------
