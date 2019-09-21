@@ -3,9 +3,11 @@ import numpy as np
 import logging
 
 from .base import AbstractDecompositionModel
+from .utils import dissimilarity
 
 from ..utils import check_logger
 
+from itertools import combinations
 from sklearn.decomposition import NMF as skNMF
 from sklearn.cluster import DBSCAN
 from sklearn.preprocessing import normalize
@@ -38,6 +40,10 @@ class UoI_NMF_Base(AbstractDecompositionModel):
     cons_meth : function
         The method for computing consensus bases after clustering. If None,
         uses np.median.
+    use_dissimilarity : bool
+        Whether to use dissimilarity to choose the final rank. If False, all
+        bases across ranks are concatenated and clustered. The final rank in
+        this case is how many clusters are chosen.
     random_state : int, RandomState instance, or None
         The seed of the pseudo random number generator that selects a random
         feature to update.  If int, random_state is the seed used by the random
@@ -51,7 +57,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
     """
     def __init__(
         self, n_boots=10, ranks=None, nmf=None, cluster=None, nnreg=None,
-        cons_meth=None, random_state=None, logger=None
+        cons_meth=None, use_dissimilarity=True, random_state=None, logger=None
     ):
         self.__initialize(
             n_boots=n_boots,
@@ -61,8 +67,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
             nnreg=nnreg,
             cons_meth=cons_meth,
             logger=logger,
-            random_state=random_state
-        )
+            random_state=random_state)
 
     def set_params(self, **kwargs):
         """Set the parameters of this estimator."""
@@ -163,25 +168,41 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         check_non_negative(X, 'UoI NMF')
         n_samples, n_features = X.shape
 
-        k_tot = sum(self.ranks)
-        n_H_samples = k_tot * self.n_boots
-        H_samples = np.zeros((n_H_samples, n_features))
+        H_samples = {k: np.zeros((self.n_boots, k, n_features))
+                     for k in self.ranks}
 
         rep_idx = self._rand.randint(n_samples, size=(self.n_boots, n_samples))
-        for i in range(self.n_boots):
-            self._logger.info("bootstrap %d" % i)
+        for boot_idx in range(self.n_boots):
+            self._logger.info("Bootstrap %d" % boot_idx)
             # compute NMF bases for k across bootstrap replicates
-            H_i = i * k_tot
-            sample = X[rep_idx[i]]
+            sample = X[rep_idx[boot_idx]]
             for k_idx, k in enumerate(self.ranks):
                 # concatenate k by p
-                H_samples[H_i:H_i + k:, ] = (self.nmf.set_params(n_components=k)
-                                             .fit(sample).components_)
-                H_i += k
+                H_samples[k][boot_idx] = \
+                    self.nmf.set_params(n_components=k).fit(sample).components_
+
+        if self.use_dissimilarity:
+            gamma = np.zeros(self.ranks.size)
+            for k_idx, k in enumerate(self.ranks):
+                H_k = H_samples[k]
+                for boot1, boot2 in combinations(range(self.n_boots), 2):
+                    gamma[k_idx] += dissimilarity(H_k[boot1], H_k[boot2])
+            k_min = self.ranks[np.argmin(gamma)]
+            H_pre_cluster = H_samples[k_min].reshape((self.n_boots * k,
+                                                      n_features))
+        else:
+            H_pre_cluster = np.zeros((self.n_boots * np.sum(self.ranks),
+                                      n_features))
+            start_idx = 0
+            for k in self.ranks:
+                H_k = H_samples[k].reshape((self.n_boots * k, n_features))
+                end_idx = start_idx + self.n_boots * k
+                H_pre_cluster[start_idx:end_idx] = H_k
+                start_idx = end_idx
 
         # remove zero bases and normalize across features
-        H_samples = H_samples[np.sum(H_samples, axis=1) != 0.0]
-        H_samples = normalize(H_samples, norm='l2', axis=1)
+        H_pre_cluster = H_pre_cluster[np.sum(H_samples, axis=1) != 0.0]
+        H_pre_cluster = normalize(H_pre_cluster, norm='l2', axis=1)
 
         # cluster all bases
         self._logger.info("clustering bases samples")

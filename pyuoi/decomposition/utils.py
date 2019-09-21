@@ -88,3 +88,12 @@ def stability_selection_to_threshold(stability_selection, n_boots):
                          "the correct bounds.")
 
     return selection_threshold
+
+
+def dissimilarity(H1, H2):
+    k = H1.shape[0]
+    H1 = H1 / np.linalg.norm(H1, axis=1, keepdims=True)
+    H2 = H2 / np.linalg.norm(H1, axis=1, keepdims=True)
+    C = np.dot(H1, H2.T)
+    diss = 1 - (np.max(C, axis=0).sum() + np.max(C, axis=1).sum()) / (2. * k)
+    return diss
