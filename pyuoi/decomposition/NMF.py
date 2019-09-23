@@ -68,6 +68,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
             cons_meth=cons_meth,
             logger=logger,
             random_state=random_state)
+        self.use_dissimilarity = use_dissimilarity
 
     def set_params(self, **kwargs):
         """Set the parameters of this estimator."""
@@ -182,13 +183,17 @@ class UoI_NMF_Base(AbstractDecompositionModel):
                     self.nmf.set_params(n_components=k).fit(sample).components_
 
         if self.use_dissimilarity:
-            gamma = np.zeros(self.ranks.size)
+            gamma = np.zeros(len(self.ranks))
+            # iterate over each rank
             for k_idx, k in enumerate(self.ranks):
+                # extract the bases for each rank
                 H_k = H_samples[k]
                 for boot1, boot2 in combinations(range(self.n_boots), 2):
                     gamma[k_idx] += dissimilarity(H_k[boot1], H_k[boot2])
             k_min = self.ranks[np.argmin(gamma)]
-            H_pre_cluster = H_samples[k_min].reshape((self.n_boots * k,
+            print(gamma)
+            print(k_min)
+            H_pre_cluster = H_samples[k_min].reshape((self.n_boots * k_min,
                                                       n_features))
         else:
             H_pre_cluster = np.zeros((self.n_boots * np.sum(self.ranks),
@@ -201,12 +206,12 @@ class UoI_NMF_Base(AbstractDecompositionModel):
                 start_idx = end_idx
 
         # remove zero bases and normalize across features
-        H_pre_cluster = H_pre_cluster[np.sum(H_samples, axis=1) != 0.0]
+        H_pre_cluster = H_pre_cluster[np.sum(H_pre_cluster, axis=1) != 0.0]
         H_pre_cluster = normalize(H_pre_cluster, norm='l2', axis=1)
 
         # cluster all bases
         self._logger.info("clustering bases samples")
-        labels = self.cluster.fit_predict(H_samples)
+        labels = self.cluster.fit_predict(H_pre_cluster)
 
         # compute consensus bases from clusters
         cluster_ids = np.unique(labels[labels != -1])
@@ -216,7 +221,8 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         H_cons = np.zeros((n_clusters, n_features))
 
         for c_id in cluster_ids:
-            H_cons[c_id, :] = self.cons_meth(H_samples[labels == c_id], axis=0)
+            H_cons[c_id, :] = self.cons_meth(H_pre_cluster[labels == c_id],
+                                             axis=0)
 
         # re-normalize across features
         H_cons = normalize(H_cons, norm='l2', axis=1)
@@ -396,7 +402,7 @@ class UoI_NMF(UoI_NMF_Base):
         nmf_tol=0.0001, nmf_max_iter=400,
         db_eps=0.5, db_min_samples=None, db_metric='euclidean',
         db_metric_params=None, db_algorithm='auto', db_leaf_size=30,
-        random_state=None, logger=None,
+        use_dissimilarity=True, random_state=None, logger=None,
     ):
         # create NMF solver
         nmf = skNMF(init=nmf_init,
@@ -422,4 +428,5 @@ class UoI_NMF(UoI_NMF_Base):
             nnreg=None,
             cons_meth=np.median,
             random_state=random_state,
+            use_dissimilarity=use_dissimilarity,
             logger=logger)
