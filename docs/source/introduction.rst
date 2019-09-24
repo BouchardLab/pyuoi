@@ -241,4 +241,82 @@ rank.
 
 Non-negative Matrix Factorization
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+A non-negative matrix factorization consists of finding a parts-based
+decomposition of some data matrix :math:`A \in \mathbb{R}^{m\times n}_+`.
+This can be posed as a non-convex optimization problem, solving for the matrices
+:math:`W \in \mathbb{R}_+^{m\times k}` and :math:`H \in \mathbb{R}_+^{k\times n}`
+such that:
 
+.. math::
+    \begin{align}
+        \min_{W\geq 0, H\geq 0} ||A - WH||_F
+    \end{align}
+
+where :math:`F` denotes the Frobenius norm. Here, the rows of :math:`H` form
+some basis of the objects (of which there are :math:`k`) while the rows of
+:math:`W` are the weights of the basis in :math:`A`. Importantly, :math:`W` and
+:math:`H` are both non-negative, so the parts in NMF are often more
+interpretable.
+
+There are a variety of algorithms and approaches to both choose the correct
+number of components and estimate the values of :math:`W` and :math:`H`. In the
+UoI framework, basis estimation and weight estimation are separated into distinct
+modules (similar to the linear models). NMF is fit to many bootstraps of the
+data matrix, using a desired approach (in PyUoI, it defaults to a symmetric KL
+divergence loss with multiplicative update rules). The fitted bases across
+bootstraps are aggregated to form the final bases, which can then be used to
+extract the weights.
+
+Specifically, during basis estimation, NMF is fit to many bootstraps of the data matrix across
+a variety of ranks. The bases fit will tend to form clusters near the bases
+that would be fit if the entire data matrix is used. Then, the final rank is
+chosen by evaluating a dissimilarity metric, which prefers ranks that result
+in tight basis clusters. The final bases are chosen using a clustering algorithm
+-- DBSCAN -- to identify clusters of bases across bootstraps. A consensus procedure,
+such as the median, extracts the actual basis from each cluster. Finally, given
+a set of bases :math:`H`, the weights can be determined by using non-negative
+least squares.
+
+The above procedure is detailed in the following pseudocode:
+
+.. code:: python
+
+    def UoI_NMF(A, ranks, n_bootstraps):
+        # iterate over bootstraps
+        for k in ranks:
+            for i in range(n_bootstraps):
+                Aj = Generate bootstrapped resample of the data matrix A
+                Hi, Wi = NMF(A, k)
+        
+        Compute diss(Hi^k, H_j^k) and Gamma(k) and choose the best rank k_hat
+        let Hk denote the bases fitted from rank k_hat
+
+        # cluster the best set of bases
+        Cluster Hk using DBSCAN
+        Set centers of the clusters as the best bases H
+
+        # fit W
+        Fit W using non-negative least squares between A and H
+
+        return W, H
+
+Above, the dissimilarity between two sets of bases from different bootstrapped
+data matrices :math:`H, H'` with rank :math:`k` is given by
+
+.. math::
+    \begin{align}
+        \text{diss}(H, H') = 1 - \frac{1}{2k} \left(
+            \sum_{j=1}^k \text{max}_i C_{ij} + \sum_{i=1}^k \text{max}_j C_{ij}
+        \right)
+    \end{align}
+
+where :math:`C_{ij}` is the cross-correlation matrix between :math:`H` and
+:math:`H'`. The discrepancy :math:`\Gamma(k)`, which aggregates dissimilarities
+across pairs of bootstraps, is given by
+
+.. math::
+    \begin{align}
+        \Gamma(k) = \sum_{1 \leq i \leq j \leq N_B} \text{diss}(H_i, H_j)
+    \end{align}
+
+where :math:`N_B` is the number of boostraps.
