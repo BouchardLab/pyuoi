@@ -8,6 +8,7 @@ from .utils import dissimilarity
 from ..utils import check_logger
 
 from itertools import combinations
+from sklearn.base import BaseEstimator
 from sklearn.decomposition import NMF as skNMF
 from sklearn.cluster import DBSCAN
 from sklearn.preprocessing import normalize
@@ -59,6 +60,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         self, n_boots=10, ranks=None, nmf=None, cluster=None, nnreg=None,
         cons_meth=None, use_dissimilarity=True, random_state=None, logger=None
     ):
+        super(UoI_NMF_Base, self).__init__()
         self.__initialize(
             n_boots=n_boots,
             ranks=ranks,
@@ -72,7 +74,8 @@ class UoI_NMF_Base(AbstractDecompositionModel):
 
     def set_params(self, **kwargs):
         """Set the parameters of this estimator."""
-        self.__initialize(**kwargs)
+        super(UoI_NMF_Base, self).set_params(**kwargs)
+        self.__initialize(**self.get_params())
 
     def __initialize(self, **kwargs):
         """Initializes the NMF class."""
@@ -119,8 +122,10 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         if nnreg is None:
             self.nnreg = lambda A, b: spo.nnls(A, b)[0]
         else:
-            if isinstance(nnreg, ):
+            if isinstance(nnreg, BaseEstimator):
                 self.nnreg = lambda A, B: nnreg.fit(A, B).coef_
+            elif callable(nnreg):
+                self.nnreg = nnreg
             else:
                 raise ValueError("Unrecognized regressor.")
 
@@ -191,8 +196,6 @@ class UoI_NMF_Base(AbstractDecompositionModel):
                 for boot1, boot2 in combinations(range(self.n_boots), 2):
                     gamma[k_idx] += dissimilarity(H_k[boot1], H_k[boot2])
             k_min = self.ranks[np.argmin(gamma)]
-            print(gamma)
-            print(k_min)
             H_pre_cluster = H_samples[k_min].reshape((self.n_boots * k_min,
                                                       n_features))
         else:
@@ -403,6 +406,7 @@ class UoI_NMF(UoI_NMF_Base):
         db_eps=0.5, db_min_samples=None, db_metric='euclidean',
         db_metric_params=None, db_algorithm='auto', db_leaf_size=30,
         use_dissimilarity=True, random_state=None, logger=None,
+        nmf=None, cluster=None, nnreg=None, cons_meth=None
     ):
         # create NMF solver
         nmf = skNMF(init=nmf_init,
