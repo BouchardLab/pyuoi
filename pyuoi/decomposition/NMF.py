@@ -3,10 +3,12 @@ import numpy as np
 import logging
 
 from .base import AbstractDecompositionModel
-from .utils import diss
+from .utils import dissimilarity
 
 from ..utils import check_logger
 
+from itertools import combinations
+from sklearn.base import BaseEstimator
 from sklearn.decomposition import NMF as skNMF
 from sklearn.cluster import DBSCAN
 from sklearn.preprocessing import normalize
@@ -39,6 +41,10 @@ class UoI_NMF_Base(AbstractDecompositionModel):
     cons_meth : function
         The method for computing consensus bases after clustering. If None,
         uses np.median.
+    use_dissimilarity : bool
+        Whether to use dissimilarity to choose the final rank. If False, all
+        bases across ranks are concatenated and clustered. The final rank in
+        this case is how many clusters are chosen.
     random_state : int, RandomState instance, or None
         The seed of the pseudo random number generator that selects a random
         feature to update.  If int, random_state is the seed used by the random
@@ -52,8 +58,9 @@ class UoI_NMF_Base(AbstractDecompositionModel):
     """
     def __init__(
         self, n_boots=10, ranks=None, nmf=None, cluster=None, nnreg=None,
-        cons_meth=None, random_state=None, logger=None
+        cons_meth=None, use_dissimilarity=True, random_state=None, logger=None
     ):
+        super(UoI_NMF_Base, self).__init__()
         self.__initialize(
             n_boots=n_boots,
             ranks=ranks,
@@ -62,12 +69,13 @@ class UoI_NMF_Base(AbstractDecompositionModel):
             nnreg=nnreg,
             cons_meth=cons_meth,
             logger=logger,
-            random_state=random_state
-        )
+            random_state=random_state)
+        self.use_dissimilarity = use_dissimilarity
 
     def set_params(self, **kwargs):
         """Set the parameters of this estimator."""
-        self.__initialize(**kwargs)
+        super(UoI_NMF_Base, self).set_params(**kwargs)
+        self.__initialize(**self.get_params())
 
     def __initialize(self, **kwargs):
         """Initializes the NMF class."""
@@ -88,7 +96,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
             if isinstance(ranks, int):
                 self.ranks = list(range(2, ranks + 1)) \
                     if isinstance(ranks, int) else list(ranks)
-            elif isinstance(ranks, (list, tuple, range, np.array)):
+            elif isinstance(ranks, (list, tuple, range, np.ndarray)):
                 self.ranks = tuple(ranks)
             else:
                 raise ValueError('Specify a max value or an array-like for k.')
@@ -114,8 +122,10 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         if nnreg is None:
             self.nnreg = lambda A, b: spo.nnls(A, b)[0]
         else:
-            if isinstance(nnreg, ):
+            if isinstance(nnreg, BaseEstimator):
                 self.nnreg = lambda A, B: nnreg.fit(A, B).coef_
+            elif callable(nnreg):
+                self.nnreg = nnreg
             else:
                 raise ValueError("Unrecognized regressor.")
 
@@ -164,43 +174,48 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         check_non_negative(X, 'UoI NMF')
         n_samples, n_features = X.shape
 
-        k_tot = sum(self.ranks)
-        n_H_samples = k_tot * self.n_boots
-        H_samples = np.zeros((n_H_samples, n_features))
+        H_samples = {k: np.zeros((self.n_boots, k, n_features))
+                     for k in self.ranks}
 
         rep_idx = self._rand.randint(n_samples, size=(self.n_boots, n_samples))
-        k_mask = np.zeros(n_H_samples, dtype=int)
-        for i in range(self.n_boots):
-            self._logger.info("bootstrap %d" % i)
+        for boot_idx in range(self.n_boots):
+            self._logger.info("Bootstrap %d" % boot_idx)
             # compute NMF bases for k across bootstrap replicates
-            H_i = i * k_tot
-            sample = X[rep_idx[i]]
+            sample = X[rep_idx[boot_idx]]
             for k_idx, k in enumerate(self.ranks):
                 # concatenate k by p
-                H_samples[H_i:H_i + k:, ] = (self.nmf.set_params(n_components=k)
-                                             .fit(sample).components_)
-                k_mask[H_i:H_i + k] = k
-                H_i += k
+                H_samples[k][boot_idx] = \
+                    self.nmf.set_params(n_components=k).fit(sample).components_
 
-
-        diss_k = np.zeros(len(self.ranks))
-        for k_idx, k in enumerate(self.ranks):
-            mask = k_mask == k
-            Hs = H_samples[mask]
-            for i in range(self.n_boots):
-                H_i = Hs[i*k:i*k+k]
-                for j in range(i+1, self.n_boots):
-                    H_j = Hs[j*k:j*k+k]
-                    diss_k[k_idx] += diss(H_i, H_j)
-        self.dissimilarity_  = (diss_k * 2)/(self.n_boots * (self.n_boots - 1))
+        if self.use_dissimilarity:
+            gamma = np.zeros(len(self.ranks))
+            # iterate over each rank
+            for k_idx, k in enumerate(self.ranks):
+                # extract the bases for each rank
+                H_k = H_samples[k]
+                for boot1, boot2 in combinations(range(self.n_boots), 2):
+                    gamma[k_idx] += dissimilarity(H_k[boot1], H_k[boot2])
+            self.dissimilarity_  = (gamma * 2)/(self.n_boots * (self.n_boots - 1))
+            k_min = self.ranks[np.argmin(gamma)]
+            H_pre_cluster = H_samples[k_min].reshape((self.n_boots * k_min,
+                                                      n_features))
+        else:
+            H_pre_cluster = np.zeros((self.n_boots * np.sum(self.ranks),
+                                      n_features))
+            start_idx = 0
+            for k in self.ranks:
+                H_k = H_samples[k].reshape((self.n_boots * k, n_features))
+                end_idx = start_idx + self.n_boots * k
+                H_pre_cluster[start_idx:end_idx] = H_k
+                start_idx = end_idx
 
         # remove zero bases and normalize across features
-        H_samples = H_samples[np.sum(H_samples, axis=1) != 0.0]
-        H_samples = normalize(H_samples, norm='l2', axis=1)
+        H_pre_cluster = H_pre_cluster[np.sum(H_pre_cluster, axis=1) != 0.0]
+        H_pre_cluster = normalize(H_pre_cluster, norm='l2', axis=1)
 
         # cluster all bases
         self._logger.info("clustering bases samples")
-        labels = self.cluster.fit_predict(H_samples)
+        labels = self.cluster.fit_predict(H_pre_cluster)
 
         # compute consensus bases from clusters
         cluster_ids = np.unique(labels[labels != -1])
@@ -210,7 +225,8 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         H_cons = np.zeros((n_clusters, n_features))
 
         for c_id in cluster_ids:
-            H_cons[c_id, :] = self.cons_meth(H_samples[labels == c_id], axis=0)
+            H_cons[c_id, :] = self.cons_meth(H_pre_cluster[labels == c_id],
+                                             axis=0)
 
         # re-normalize across features
         H_cons = normalize(H_cons, norm='l2', axis=1)
@@ -297,9 +313,9 @@ class UoI_NMF_Base(AbstractDecompositionModel):
             Data matrix of original shape.
         """
         check_is_fitted(self, ['components_'])
-        n_samples = W.shape[1]
+        n_components = W.shape[1]
 
-        if n_samples != self.components_.shape[0]:
+        if n_components != self.components_.shape[0]:
             raise ValueError(
                 'Incompatible shape: cannot multiply %s with %s.'
                 % (W.shape, self.components_.shape))
@@ -390,7 +406,8 @@ class UoI_NMF(UoI_NMF_Base):
         nmf_tol=0.0001, nmf_max_iter=400,
         db_eps=0.5, db_min_samples=None, db_metric='euclidean',
         db_metric_params=None, db_algorithm='auto', db_leaf_size=30,
-        random_state=None, logger=None,
+        use_dissimilarity=True, random_state=None, logger=None,
+        nmf=None, cluster=None, nnreg=None, cons_meth=None
     ):
         # create NMF solver
         nmf = skNMF(init=nmf_init,
@@ -416,4 +433,5 @@ class UoI_NMF(UoI_NMF_Base):
             nnreg=None,
             cons_meth=np.median,
             random_state=random_state,
+            use_dissimilarity=use_dissimilarity,
             logger=logger)
