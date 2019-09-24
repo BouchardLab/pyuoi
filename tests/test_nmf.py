@@ -83,3 +83,27 @@ def test_UoI_NMF_reconstruction_error():
     assert hasattr(uoi, 'reconstruction_err_')
     assert uoi.reconstruction_err_ is not None
     assert X_tfm is not None
+
+
+@pytest.mark.slow
+def test_UoI_NMF_correct_number_of_components():
+    """Tests that, using the dissimilarity metric, UoI NMF extracts the correct
+    number of bases."""
+    k = 2
+    n_samples = 1000
+    n_features = 30
+
+    # create data matrix
+    W = np.random.randint(low=0, high=3, size=(n_samples, k))
+    H = np.random.randint(low=0, high=3, size=(k, n_features))
+    noise = np.random.normal(loc=0, scale=0.5, size=(n_samples, n_features))**2
+    A = np.dot(W, H) + noise
+
+    # fit uoi nmf
+    uoi = UoI_NMF(n_boots=10,
+                  ranks=[2, 4, 8],
+                  nmf_max_iter=1000,
+                  use_dissimilarity=True)
+    uoi.fit(A)
+
+    assert uoi.components_.shape[0] == k
