@@ -96,7 +96,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
             if isinstance(ranks, int):
                 self.ranks = list(range(2, ranks + 1)) \
                     if isinstance(ranks, int) else list(ranks)
-            elif isinstance(ranks, (list, tuple, range, np.array)):
+            elif isinstance(ranks, (list, tuple, range, np.ndarray)):
                 self.ranks = tuple(ranks)
             else:
                 raise ValueError('Specify a max value or an array-like for k.')
@@ -312,9 +312,9 @@ class UoI_NMF_Base(AbstractDecompositionModel):
             Data matrix of original shape.
         """
         check_is_fitted(self, ['components_'])
-        n_samples = W.shape[1]
+        n_components = W.shape[1]
 
-        if n_samples != self.components_.shape[0]:
+        if n_components != self.components_.shape[0]:
             raise ValueError(
                 'Incompatible shape: cannot multiply %s with %s.'
                 % (W.shape, self.components_.shape))

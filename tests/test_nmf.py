@@ -1,25 +1,21 @@
 import pytest
 import numpy as np
 
-from numpy.testing import assert_array_equal
-from pyuoi.decomposition import UoI_NMF
+from numpy.testing import assert_array_equal, assert_raises
+from pyuoi.decomposition import UoI_NMF, UoI_NMF_Base
 from pyuoi.decomposition.utils import dissimilarity
+from sklearn.cluster import DBSCAN
+from sklearn.decomposition import NMF
 
 
-def setup():
+@pytest.fixture
+def nmf_setup():
     W = np.random.randint(0, high=2, size=(500, 5))
     H = np.random.randint(0, high=2, size=(5, 2))
     X = np.dot(W, H)
     noise = np.random.normal(loc=0, scale=0.5, size=X.shape)**2
     X = X + noise
-
-    n_boots = 2
-    ranks = 5
-    uoi = UoI_NMF(n_boots=n_boots,
-                  ranks=[ranks],
-                  nmf_max_iter=1000,
-                  random_state=2332)
-    return uoi, X
+    return X
 
 
 def test_dissimilarity():
@@ -34,6 +30,19 @@ def test_dissimilarity():
 
 
 @pytest.mark.fast
+def test_UoI_NMF_Base_initialization():
+    """Tests the initialization of UoI NMF Base Class."""
+    n_boots = 30
+    ranks = 10
+    uoi = UoI_NMF(n_boots=n_boots, ranks=ranks,
+                  random_state=np.random.RandomState(2332))
+    assert_array_equal(uoi.ranks, np.arange(2, ranks + 1))
+    assert uoi.nmf.solver == 'mu'
+    assert uoi.nmf.beta_loss == 'kullback-leibler'
+    assert uoi.cluster.min_samples == n_boots / 2
+
+
+@pytest.mark.fast
 def test_UoI_NMF_initialization():
     """Tests the initialization of UoI NMF."""
     n_boots = 30
@@ -43,40 +52,98 @@ def test_UoI_NMF_initialization():
     assert uoi.nmf.solver == 'mu'
     assert uoi.nmf.beta_loss == 'kullback-leibler'
     assert uoi.cluster.min_samples == n_boots / 2
+    assert uoi.cons_meth == np.median
 
 
 @pytest.mark.fast
-def test_UoI_NMF_fit():
+def test_UoI_NMF_initialization_value_error():
+    """Tests that ValueErrors are correctly raised in the NMF initialization."""
+    assert_raises(ValueError, UoI_NMF_Base, **{'ranks': 2.5})
+    assert_raises(ValueError, UoI_NMF_Base, **{'nmf': NMF})
+    assert_raises(ValueError, UoI_NMF_Base, **{'cluster': DBSCAN})
+    assert_raises(ValueError, UoI_NMF_Base, **{'nnreg': 2})
+
+
+@pytest.mark.fast
+def test_UoI_NMF_fit(nmf_setup):
     """Tests that the fitting procedure of UoI NMF runs without error."""
-    uoi, X = setup()
+    X = nmf_setup
+
+    n_boots = 1
+    ranks = 5
+    uoi = UoI_NMF(n_boots=n_boots,
+                  ranks=[ranks],
+                  nmf_max_iter=1000,
+                  random_state=2332)
     uoi.fit(X)
     assert hasattr(uoi, 'components_')
 
 
 @pytest.mark.fast
-def test_UoI_NMF_fit_no_dissimilarity():
+def test_UoI_NMF_fit_no_dissimilarity(nmf_setup):
     """Tests that the fitting procedure of UoI NMF runs without error, when
     the algorithm does not use dissimilarity to choose a rank."""
-    uoi, X = setup()
+    X = nmf_setup
+
+    n_boots = 1
+    ranks = 5
+    uoi = UoI_NMF(n_boots=n_boots,
+                  ranks=[ranks],
+                  nmf_max_iter=1000,
+                  random_state=2332)
     uoi.set_params(use_dissimilarity=False)
     uoi.fit(X)
     assert hasattr(uoi, 'components_')
 
 
 @pytest.mark.fast
-def test_UoI_NMF_transform():
+def test_UoI_NMF_transform(nmf_setup):
     """Tests that the transform procedure of UoI NMF runs without error."""
-    uoi, X = setup()
+    X = nmf_setup
+
+    n_boots = 1
+    ranks = 5
+    uoi = UoI_NMF(n_boots=n_boots,
+                  ranks=[ranks],
+                  nmf_max_iter=1000,
+                  random_state=2332)
     X_tfm = uoi.fit_transform(X)
     assert hasattr(uoi, 'components_')
     assert X_tfm is not None
 
 
 @pytest.mark.fast
-def test_UoI_NMF_reconstruction_error():
+def test_UoI_NMF_transform_value_error(nmf_setup):
+    """Tests that the transform procedure of UoI NMF correctly raises a
+    ValueError."""
+    X = nmf_setup
+    n_boots = 1
+    ranks = 5
+    uoi = UoI_NMF(n_boots=n_boots,
+                  ranks=[ranks],
+                  nmf_max_iter=1000,
+                  random_state=2332)
+    uoi.fit(X)
+
+    # transform
+    Y = np.random.normal(size=(X.shape[0], 2 * X.shape[1]))**2
+    assert_raises(ValueError, uoi.transform, Y)
+    # inverse transform
+    W = np.random.normal(size=(X.shape[0], 2 * uoi.components_.shape[0]))**2
+    assert_raises(ValueError, uoi.inverse_transform, W)
+
+
+@pytest.mark.fast
+def test_UoI_NMF_reconstruction_error(nmf_setup):
     """Tests that a reconstruction error is calculated when data is
     transformed."""
-    uoi, X = setup()
+    X = nmf_setup
+    n_boots = 1
+    ranks = 5
+    uoi = UoI_NMF(n_boots=n_boots,
+                  ranks=[ranks],
+                  nmf_max_iter=1000,
+                  random_state=2332)
     uoi.fit(X)
     X_tfm = uoi.transform(X, reconstruction_err=True)
     assert hasattr(uoi, 'components_')
@@ -102,7 +169,7 @@ def test_UoI_NMF_correct_number_of_components():
     # fit uoi nmf
     uoi = UoI_NMF(n_boots=10,
                   ranks=[2, 4, 8],
-                  nmf_max_iter=1000,
+                  nmf_max_iter=5000,
                   use_dissimilarity=True)
     uoi.fit(A)
 
