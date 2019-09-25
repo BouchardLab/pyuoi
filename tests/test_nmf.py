@@ -74,7 +74,8 @@ def test_UoI_NMF_fit(nmf_setup):
     uoi = UoI_NMF(n_boots=n_boots,
                   ranks=[ranks],
                   nmf_max_iter=1000,
-                  random_state=2332)
+                  random_state=2332,
+                  use_dissimilarity=False)
     uoi.fit(X)
     assert hasattr(uoi, 'components_')
 
@@ -90,8 +91,8 @@ def test_UoI_NMF_fit_no_dissimilarity(nmf_setup):
     uoi = UoI_NMF(n_boots=n_boots,
                   ranks=[ranks],
                   nmf_max_iter=1000,
-                  random_state=2332)
-    uoi.set_params(use_dissimilarity=False)
+                  random_state=2332,
+                  use_dissimilarity=False)
     uoi.fit(X)
     assert hasattr(uoi, 'components_')
 
@@ -106,7 +107,8 @@ def test_UoI_NMF_transform(nmf_setup):
     uoi = UoI_NMF(n_boots=n_boots,
                   ranks=[ranks],
                   nmf_max_iter=1000,
-                  random_state=2332)
+                  random_state=2332,
+                  use_dissimilarity=False)
     X_tfm = uoi.fit_transform(X)
     assert hasattr(uoi, 'components_')
     assert X_tfm is not None
@@ -122,7 +124,8 @@ def test_UoI_NMF_transform_value_error(nmf_setup):
     uoi = UoI_NMF(n_boots=n_boots,
                   ranks=[ranks],
                   nmf_max_iter=1000,
-                  random_state=2332)
+                  random_state=2332,
+                  use_dissimilarity=False)
     uoi.fit(X)
 
     # transform
@@ -143,7 +146,8 @@ def test_UoI_NMF_reconstruction_error(nmf_setup):
     uoi = UoI_NMF(n_boots=n_boots,
                   ranks=[ranks],
                   nmf_max_iter=1000,
-                  random_state=2332)
+                  random_state=2332,
+                  use_dissimilarity=False)
     uoi.fit(X)
     X_tfm = uoi.transform(X, reconstruction_err=True)
     assert hasattr(uoi, 'components_')
@@ -174,3 +178,16 @@ def test_UoI_NMF_correct_number_of_components():
     uoi.fit(A)
 
     assert uoi.components_.shape[0] == k
+
+
+@pytest.mark.fast
+def test_UoI_NMF_dissim_boots_argcheck(nmf_setup):
+    """Test that UoI_NMF raises ValueError when trying to use
+    dissimilarity with a single bootstrap."""
+    n_boots = 1
+    ranks = 5
+    assert_raises(ValueError, UoI_NMF,
+                  n_boots=n_boots,
+                  ranks=[ranks],
+                  nmf_max_iter=1000,
+                  random_state=2332)

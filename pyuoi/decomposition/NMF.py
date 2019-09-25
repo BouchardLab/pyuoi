@@ -70,6 +70,9 @@ class UoI_NMF_Base(AbstractDecompositionModel):
             cons_meth=cons_meth,
             logger=logger,
             random_state=random_state)
+        if self.n_boots == 1 and use_dissimilarity:
+            raise ValueError("Cannot use dissimilarity to compute best rank "
+                             "with a single bootstrap")
         self.use_dissimilarity = use_dissimilarity
 
     def set_params(self, **kwargs):
@@ -132,7 +135,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         # initialize method for computing consensus H bases after clustering
         if cons_meth is None:
             # default uses median
-            self.cons_meth = np.median
+            self.cons_meth = np.mean
         else:
             self.cons_meth = cons_meth
 
@@ -195,6 +198,9 @@ class UoI_NMF_Base(AbstractDecompositionModel):
                 H_k = H_samples[k]
                 for boot1, boot2 in combinations(range(self.n_boots), 2):
                     gamma[k_idx] += dissimilarity(H_k[boot1], H_k[boot2])
+            self.dissimilarity_ = (gamma * 2) /\
+                                  (self.n_boots *
+                                   (self.n_boots - 1))
             k_min = self.ranks[np.argmin(gamma)]
             H_pre_cluster = H_samples[k_min].reshape((self.n_boots * k_min,
                                                       n_features))
