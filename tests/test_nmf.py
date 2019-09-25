@@ -52,7 +52,7 @@ def test_UoI_NMF_initialization():
     assert uoi.nmf.solver == 'mu'
     assert uoi.nmf.beta_loss == 'kullback-leibler'
     assert uoi.cluster.min_samples == n_boots / 2
-    assert uoi.cons_meth == np.median
+    assert uoi.cons_meth == np.mean
 
 
 @pytest.mark.fast

@@ -40,7 +40,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
         scipy.optimize.nnls.
     cons_meth : function
         The method for computing consensus bases after clustering. If None,
-        uses np.median.
+        uses np.mean.
     use_dissimilarity : bool
         Whether to use dissimilarity to choose the final rank. If False, all
         bases across ranks are concatenated and clustered. The final rank in
@@ -134,7 +134,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
 
         # initialize method for computing consensus H bases after clustering
         if cons_meth is None:
-            # default uses median
+            # default uses mean
             self.cons_meth = np.mean
         else:
             self.cons_meth = cons_meth
@@ -238,7 +238,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
 
         self.components_ = H_cons
         self.n_components = self.components_.shape[0]
-        self.bases_samples_ = H_samples
+        self.bases_samples_ = H_pre_cluster
         self.bases_samples_labels_ = labels
         self.bootstraps_ = rep_idx
         self.reconstruction_err_ = None
@@ -334,7 +334,7 @@ class UoI_NMF(UoI_NMF_Base):
 
     This derived class uses (and accepts the keyword arguments for)
     ``scikit-learn``’s NMF and DBSCAN objects, ``scipy``’s non-negative least
-    squares function, and a median function for consensus grouping.
+    squares function, and a mean function for consensus grouping.
 
     Parameters
     ----------
@@ -436,7 +436,7 @@ class UoI_NMF(UoI_NMF_Base):
             nmf=nmf,
             cluster=dbscan,
             nnreg=None,
-            cons_meth=np.median,
+            cons_meth=np.mean,
             random_state=random_state,
             use_dissimilarity=use_dissimilarity,
             logger=logger)

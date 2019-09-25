@@ -14,7 +14,7 @@ install:
     - python setup.py develop
     - pip install pytest-cov
 script:
-    - flake8 pyuoi bin tests
+    - flake8 pyuoi tests docs/gallery
     - pytest --cov=./ tests
 after_success:
     - codecov
