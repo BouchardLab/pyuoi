@@ -1,3 +1,6 @@
+import numpy as np
+from sklearn.utils import check_random_state
+
 from ..utils import softmax, sigmoid
 
 

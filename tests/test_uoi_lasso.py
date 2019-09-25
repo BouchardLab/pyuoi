@@ -6,9 +6,10 @@ from sklearn.datasets import make_regression
 from sklearn.linear_model import Lasso
 from sklearn.metrics import r2_score
 from sklearn.linear_model.coordinate_descent import _alpha_grid
+
 from pyuoi import UoI_Lasso
 from pyuoi.linear_model.lasso import PycLasso
-from pyuoi.utils import make_linear_regression
+from pyuoi.datasets import make_linear_regression
 
 
 def test_variable_selection():

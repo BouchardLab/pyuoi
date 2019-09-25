@@ -8,7 +8,7 @@ from pyuoi.linear_model import (Poisson,
                                 UoI_Poisson)
 from pyuoi.linear_model.poisson import (_poisson_loss_and_grad,
                                         PoissonInterceptFitterNoFeatures)
-from pyuoi.data import make_poisson_regression
+from pyuoi.datasets import make_poisson_regression
 
 from sklearn.exceptions import NotFittedError
 

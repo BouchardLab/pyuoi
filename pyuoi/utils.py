@@ -2,8 +2,6 @@ import numpy as np
 import sys
 import logging
 
-from sklearn.utils import check_random_state
-
 
 def softmax(y, axis=-1):
     """Calculates the softmax distribution.

@@ -10,11 +10,9 @@ The swimmer dataset is the canonical example of separable data.
 
 """
 
-####################
+###############################################################################
 # Swimmer dataset
 # ---------------
-#
-#
 
 
 import matplotlib
@@ -35,9 +33,9 @@ swimmers = load_swimmer()
 swimmers = minmax_scale(swimmers, axis=1)
 
 
-####################
+###############################################################################
 # Original Swimmer samples
-# =========================
+# ------------------------
 
 fig, ax = plt.subplots(4, 4, subplot_kw={'xticks': [], 'yticks': []})
 indices = np.random.randint(16, size=16) + np.arange(0, 256, 16)
@@ -47,9 +45,9 @@ for i in range(len(indices)):
                  aspect='auto', cmap='gray')
 
 
-####################
+###############################################################################
 # Swimmer samples corrupted with Absolute Gaussian noise
-# ======================================================
+# ------------------------------------------------------
 #
 # Corrupt the images with with absolute Gaussian noise with ``std = 0.25``.
 
@@ -67,13 +65,12 @@ for i in range(len(indices)):
     ax[i].imshow(corrupted[indices[i]].reshape(32, 32).T,
                  aspect='auto', cmap='gray')
 
-####################
+###############################################################################
 # Run UoI NMF on corrupted Swimmer data
-# =====================================
+# -------------------------------------
 #
 # Twenty bootstraps should be enough.
 # ``min_pts`` should be half of the number of bootstraps.
-#
 
 nboot = 20
 min_pts = nboot / 2
@@ -81,28 +78,28 @@ ranks = [16]
 
 shape = corrupted.shape
 
-uoinmf = UoI_NMF(n_boots=nboot, ranks=ranks, db_min_samples=min_pts,
-                 nmf_max_iter=800)
+uoi_nmf = UoI_NMF(n_boots=nboot, ranks=ranks, db_min_samples=min_pts,
+                  nmf_max_iter=800)
 
-transformed = uoinmf.fit_transform(corrupted)
-recovered = transformed @ uoinmf.components_
+transformed = uoi_nmf.fit_transform(corrupted)
+recovered = transformed @ uoi_nmf.components_
 
-####################
+###############################################################################
 # NMF Swimmer bases
-# =================
+# -----------------
 
-order = np.argsort(np.sum(uoinmf.components_, axis=1))
+order = np.argsort(np.sum(uoi_nmf.components_, axis=1))
 
 fig, ax = plt.subplots(4, 4, subplot_kw={'xticks': [], 'yticks': []})
 ax = ax.flatten()
-for i in range(uoinmf.components_.shape[0]):
-    ax[i].imshow(uoinmf.components_[order[i]].reshape(32, 32).T,
+for i in range(uoi_nmf.components_.shape[0]):
+    ax[i].imshow(uoi_nmf.components_[order[i]].reshape(32, 32).T,
                  aspect='auto', cmap='gray')
 
 
-####################
+###############################################################################
 # Recovered Swimmers
-# ==================
+# ------------------
 
 
 fig, ax = plt.subplots(4, 4, subplot_kw={'xticks': [], 'yticks': []})
@@ -112,11 +109,9 @@ for i in range(len(indices)):
                  aspect='auto', cmap='gray')
 
 
-################################################################
+###############################################################################
 # Plot them all together so we can see how well we recovered
 # the original swimmer data.
-#
-#
 
 
 fig, ax = plt.subplots(3, 16, figsize=(27, 5),
@@ -145,14 +140,11 @@ for i in range(len(indices)):
     ax[32 + i].imshow(recovered[indices[i]].reshape(32, 32).T,
                       aspect='auto', cmap='gray')
 
-################################################################
-#
-# To see what DBSCAN is doing, lets look at a the bases samples.
-#
-#
+###############################################################################
+# To see what DBSCAN is doing, let's look at a the bases samples.
 
 plt.figure()
-embedding = TSNE(n_components=2).fit_transform(uoinmf.bases_samples_)
+embedding = TSNE(n_components=2).fit_transform(uoi_nmf.bases_samples_)
 sc = plt.scatter(embedding[:, 0], embedding[:, 1],
-                 c=uoinmf.bases_samples_labels_, s=80, cmap="nipy_spectral")
+                 c=uoi_nmf.bases_samples_labels_, s=80, cmap="nipy_spectral")
 sc.set_facecolor('none')

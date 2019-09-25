@@ -12,7 +12,7 @@ from pyuoi.linear_model.logistic import (fit_intercept_fixed_coef,
 from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import LabelEncoder
 
-from pyuoi.data import make_classification
+from pyuoi.datasets import make_classification
 
 
 def test_fit_intercept_fixed_coef():
