@@ -89,6 +89,7 @@ def stability_selection_to_threshold(stability_selection, n_boots):
 
     return selection_threshold
 
+
 def dissimilarity(H1, H2):
     """Calculates the dissimilarity between two sets of NMF bases.
 
