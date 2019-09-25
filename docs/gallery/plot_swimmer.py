@@ -1,7 +1,7 @@
 """
 .. _swimmer:
 
-UoI-NMF for parts based decomposition
+UoI-NMF for parts-based decomposition
 =====================================
 
 This example will demonstrate parts-based decomposition with
@@ -51,7 +51,7 @@ for i in range(len(indices)):
 # Swimmer samples corrupted with Absolute Gaussian noise
 # ======================================================
 #
-# Corrupt the images with with absolute Gaussian noise with ```std = 0.25```.
+# Corrupt the images with with absolute Gaussian noise with ``std = 0.25``.
 
 
 reps = 1
@@ -72,7 +72,7 @@ for i in range(len(indices)):
 # =====================================
 #
 # Twenty bootstraps should be enough.
-# ```min_pts``` should be half of the number of bootstraps.
+# ``min_pts`` should be half of the number of bootstraps.
 #
 
 nboot = 20

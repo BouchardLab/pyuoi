@@ -6,7 +6,7 @@ except ImportError:
     MPI = None
 
 from pyuoi import UoI_L1Logistic
-from pyuoi.utils import make_classification
+from pyuoi.data import make_classification
 
 
 @pytest.mark.skipif(MPI is None, reason='MPI not installed.')
