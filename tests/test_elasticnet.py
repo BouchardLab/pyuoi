@@ -7,7 +7,7 @@ from sklearn.linear_model import ElasticNet
 from sklearn.metrics import r2_score
 
 from pyuoi import UoI_ElasticNet
-from pyuoi.utils import make_linear_regression
+from pyuoi.datasets import make_linear_regression
 
 
 def test_variable_selection():
