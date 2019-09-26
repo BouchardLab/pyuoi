@@ -168,7 +168,7 @@ number of resamples, fraction of data in each resample, and the model selection
 criteria used in the estimation module (in Algorithm 1, test set accuracy is
 used, but the Akaike and Bayesian Information Criteria are also available).
 Additionally, `PyUoI` is agnostic to the specific solver used for a given model.
-For example, for generalized linear models come equipped with a coordinate
+For example, generalized linear models come equipped with a coordinate
 descent solver (from `scikit-learn`), a built-in Orthant-Wise Limited memory
 Quasi-Newton solver [@gong2015], and the `pycasso` solver [@ge2019]. The choice
 of solver is left to the user as a hyperparameter.
