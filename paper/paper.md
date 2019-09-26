@@ -115,7 +115,7 @@ prediction accuracy for the response variable $y$.
     \label{alg:uoi}
     \hspace*{\algorithmicindent} \textbf{Input}:
     $X \in \mathbb{R}^{N\times p}$ design matrix \\
-    \hspace*{4.5em} $y \in \mathbb{R}^{n}$ response variable \\
+    \hspace*{4.5em} $y \in \mathbb{R}^{N}$ response variable \\
     \hspace*{4.5em} Regularization strengths $\left\{\lambda_j \right\}_{j=1}^{q}$ \\
     \hspace*{4.5em} Number of resamples $N_S$ and $N_E$ \\
     \hspace*{4.5em} Loss function $L(\beta; X, y)$
