@@ -22,7 +22,7 @@ header-includes:
 The increasing size and complexity of scientific data requires statistical
 analysis methods that scale and produce models that are both interpretable and
 predictive. Interpretability implies one can interpret the output of the model in
-terms of processes generating the data. This typically requires identification of
+terms of processes generating the data [@murdoch2019]. This typically requires identification of
 a small number of features in the actual data and accurate estimation of their
 contributions [@bickel2006]. Meanwhile, achieving predictive power requires
 optimizing the performance of some statistical measure such as precision,
