@@ -21,17 +21,18 @@ header-includes:
 
 The increasing size and complexity of scientific data requires statistical
 analysis methods that scale and produce models that are both interpretable and
-predictive. Interpretability implies one can interpret the output of the model in
-terms of processes generating the data [@murdoch2019]. This typically requires identification of
-a small number of features in the actual data and accurate estimation of their
-contributions [@bickel2006]. Meanwhile, achieving predictive power requires
-optimizing the performance of some statistical measure such as precision,
-mean squared error, etc. Across models, there is often a trade-off between interpretability and
-predictive power. This trade-off is particularly acute for scientific
-applications, where the output of the model is used to provide insight into the
-underlying physical processes that generated the data.
+predictive. Interpretability implies one can interpret the output of the model
+in terms of processes generating the data [@murdoch2019]. This typically
+requires identification of a small number of features in the actual data and
+accurate estimation of their contributions [@bickel2006]. Meanwhile, achieving
+predictive power requires optimizing the performance of some statistical measure
+such as precision, mean squared error, etc. Across inference procedures, there
+is often a trade-off between interpretability and predictive power. The impact
+of this trade-off is particularly acute for scientific applications, where the
+output of the model is used to provide insight into the underlying physical
+processes that generated the data.
 
-The recently introduced Union of Intersections (UoI) is a flexible, modular, and
+We recently introduced Union of Intersections (UoI), a flexible, modular, and
 scalable framework designed to enhance both the identification of features
 (model selection) as well as the estimation of the contributions of these
 features (model estimation) [@bouchard2017]. UoI-based methods leverage
@@ -40,26 +41,25 @@ parameters to build families of potential feature sets robust to perturbations
 of the data, and then average nearly unbiased parameter estimates of selected
 features to maximize predictive accuracy. Models inferred through the UoI
 framework are characterized by their usage of fewer parameters with little or no
-loss in predictive accuracy relative to benchmark approaches.
+loss in predictive accuracy, and reduced bias relative to benchmark approaches.
 
 `PyUoI` is a Python package containing implementations of a variety of UoI-based
 algorithms, encompassing regression, classification, and dimensionality
 reduction. In order to better facilitate its usage, `PyUoI`'s API is structured
 similarly to the `scikit-learn` package, which is a commonly used Python machine
-learning library [@sklearn_api]. Additionally, because the UoI framework is naturally
-scalable, `PyUoI` is equipped with `mpi4py` functionality to parallelize model
-fitting on large datasets.
+learning library [@sklearn_api]. Additionally, because the UoI framework is
+naturally scalable, `PyUoI` is equipped with `mpi4py` functionality to
+parallelize model fitting on large datasets.
 
 # Background
 
 The Union of Intersections is not a single method or algorithm, but a flexible
 statistical framework into which other algorithms can be inserted. In this
-section, we briefly describe UoI~Lasso~, the UoI implementation of
-lasso penalized regression. UoI~Lasso~ is similar in structure to the
-UoI versions of other lasso or elastic net penalized generalized linear models
-(logistic and poisson).
-We refer the user to existing literature on the UoI variants of column subset
-selection and non-negative matrix factorization [@bouchard2017; @ubaru2017].
+section, we briefly describe UoI~Lasso~, the UoI implementation of lasso
+penalized regression. UoI~Lasso~ is similar in structure to the UoI versions of
+other generalized linear models (logistic and poisson). We refer the user to
+existing literature on the UoI variants of column subset selection and
+non-negative matrix factorization [@bouchard2017; @ubaru2017].
 
 Linear regression consists of estimating parameters $\beta \in \mathbb{R}^p$
 that map a $p$-dimensional vector of features $x \in \mathbb{R}^p$ to the
@@ -85,8 +85,8 @@ where $|\beta|_1$ is the $\ell_1$-norm of the parameters. The $\ell_1$-norm is a
 convenient penalty because it will tend to force parameters to be set exactly
 equal to zero, performing feature selection [@tibshirani1994]. Typically,
 $\lambda$, the degree to which feature sparsity is enforced, is unknown and must
-be determined through cross-validation across a set of hyperparameters
-$\left\{\lambda_j\right\}_{j=1}^k$.
+be determined through cross-validation or a penalized score function across a
+set of hyperparameters $\left\{\lambda_j\right\}_{j=1}^k$.
 
 The key mathematical idea underlying UoI is to perform model selection through
 intersection (compressive) operations and model estimation through union
@@ -96,11 +96,12 @@ is as follows (see Algorithm 1 for a more detailed pseudocode):
 * **Model Selection:** For each $\lambda_j$, generate Lasso estimates on $N_S$
   resamples of the data (Line 2). The support $S_j$ (i.e., the set of non-zero
   parameters) for $\lambda_j$ consists of the features that persist in all model
-  fits across the resamples (Line 7).
+  fits across the resamples (i.e., through an intersection) (Line 7).
 * **Model Estimation:** For each support $S_j$, perform Ordinary Least Squares
   (OLS) on $N_E$ resamples of the data. The final model is obtained by averaging
-  across the supports chosen according to some model selection criteria, such as
-  optimally predicting on held-out data for each resample (Lines 15-16).
+  (i.e., unionizing) across the supports chosen according to some model
+  selection criteria, such as optimally predicting on held-out data for each
+  resample (Lines 15-16).
 
 Thus, the selection module ensures that, for each $\lambda_j$, only features
 that are stable to perturbations in the data (resamples) are allowed in the
@@ -158,7 +159,7 @@ prediction accuracy for the response variable $y$.
     * Logistic regression (Bernoulli and multinomial) (UoI~Logistic~).
     * Poisson regression (UoI~Poisson~).
 * `decomposition` (dimensionality reduction)
-    * Column subset selection (UoI~CSS~) [@mahoney2009].
+    * Column subset selection (UoI~CSS~).
     * Non-negative matrix factorization (UoI~NMF~).
 
 Similar to `scikit-learn`, each UoI algorithm has its own Python class. Instantiations
