@@ -1,8 +1,8 @@
 """
 .. _swimmer:
 
-UoI-NMF for parts-based decomposition
-=====================================
+UoI-NMF for robust parts-based decomposition of noisy data
+==========================================================
 
 This example will demonstrate parts-based decomposition with
 UoI-NMF on the swimmer dataset.
@@ -141,7 +141,7 @@ for i in range(len(indices)):
                       aspect='auto', cmap='gray')
 
 ###############################################################################
-# To see what DBSCAN is doing, let's look at a the bases samples.
+# To see what DBSCAN is doing, let's look at the bases samples.
 
 plt.figure()
 embedding = TSNE(n_components=2).fit_transform(uoi_nmf.bases_samples_)
