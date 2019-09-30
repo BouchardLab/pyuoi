@@ -11,7 +11,7 @@ factorization. In general, UoI is a statistical machine learning framework that
 leverages two concepts in model inference:
 
 #. Separating the selection and estimation problems to simultaneously achieve
-sparse models with low-bias and low-variance parameter estimates.
+   sparse models with low-bias and low-variance parameter estimates.
 #. Stability to perturbations in both selection and estimation.
 
 
