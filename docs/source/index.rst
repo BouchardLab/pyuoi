@@ -4,17 +4,16 @@
 PyUoI: The Union of Intersections Framework in Python
 =====================================================
 
-PyUoI is a set of concrete implementations of the Union of Intersections (UoI)
-framework, designed to produce sparse and predictive models for a variety of
-machine learning algorithms. In general, the UoI framework leverages two
-approaches to model fitting:
+PyUoI contains implementations of Union of Intersections framework for a variety
+of penalized generalized linear models as well as dimensionality reductions
+techniques such as column subset selection and non-negative matrix
+factorization. In general, UoI is a statistical machine learning framework that
+leverages two concepts in model inference:
 
-#. bootstrapping the data and fitting many models to find robust estimates and
-#. separating the selection and estimation phases to reduce bias.
+#. Separating the selection and estimation problems to simultaneously achieve
+sparse models with low-bias and low-variance parameter estimates.
+#. Stability to perturbations in both selection and estimation.
 
-PyUoI contains implementations of the UoI framework for a variety of penalized
-generalized linear models as well as dimensionality reductions techniques such
-as CUR decomposition and non-negative matrix factorization.
 
 PyUoI is designed to function similarly to scikit-learn, as it often builds
 upon scikit-learn's implementations of the aforementioned algorithms.
