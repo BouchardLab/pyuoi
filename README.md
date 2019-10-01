@@ -5,25 +5,53 @@
 [![Documentation Status](https://readthedocs.org/projects/pyuoi/badge/?version=latest)](https://pyuoi.readthedocs.io/en/latest/?badge=latest)
 
 
-This repo contains the currently developed implementations of the Union of Intersection
-(UoI) framework. See the NIPS paper (<a href="https://papers.nips.cc/paper/6708-union-of-intersections-uoi-for-interpretable-data-driven-discovery-and-prediction">Bouchard et al., 2017</a>) for more details.
+PyUoI contains implementations of Union of Intersections framework for a variety
+of penalized generalized linear models as well as dimensionality reductions
+techniques such as column subset selection and non-negative matrix
+factorization. In general, UoI is a statistical machine learning framework that
+leverages two concepts in model inference:
 
-## Installation
+1. Separating the selection and estimation problems to simultaneously achieve
+   sparse models with low-bias and low-variance parameter estimates.
+2. Stability to perturbations in both selection and estimation.
 
-PyUoI can easily be installed using `pip`:
+
+PyUoI is designed to function similarly to ``scikit-learn``, as it often builds
+upon ``scikit-learn``'s implementations of the aforementioned algorithms.
+
+Further details on the UoI framework can be found in the NeurIPS paper (<a href="https://papers.nips.cc/paper/6708-union-of-intersections-uoi-for-interpretable-data-driven-discovery-and-prediction">Bouchard et al., 2017</a>).
+
+# Installation
+
+PyUoI will be available soon on PyPI (installable with ``pip``):
 
 ```
 pip install PyUoI
 ```
 
-## Current Implementations of UoI
+and through conda-forge (installable with ``conda``):
 
-Our current implementations include:
+```
+conda install -c conda-forge pyuoi
+```
 
-* UoI<sub>Lasso</sub>
+# Features
 
-* UoI<sub>ElasticNet</sub>
+`PyUoI` is split up into two modules, with the following UoI algorithms:
 
-* UoI<sub>NMF</sub>
+* `linear_model` (generalized linear models)
+    * Lasso penalized linear regression UoI~Lasso~.
+    * Elastic-net penalized linear regression (UoI~ElasticNet~).
+    * Logistic regression (Bernoulli and multinomial) (UoI~Logistic~).
+    * Poisson regression (UoI~Poisson~).
+* `decomposition` (dimensionality reduction)
+    * Column subset selection (UoI~CSS~).
+    * Non-negative matrix factorization (UoI~NMF~).
 
-See the `notebooks` folder for Jupyter notebooks detailing use cases of these algorithms.
+Similar to `scikit-learn`, each UoI algorithm has its own Python class.
+
+# Documentation
+
+Please see our <a href="https://pyuoi.readthedocs.io/en/latest/">ReadTheDocs</a> page for an introduction to Union of Intersections, usage of PyUoI, and the API.
+
+# License
