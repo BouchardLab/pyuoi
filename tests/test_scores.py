@@ -165,14 +165,14 @@ def test_GeneralizedLinearRegressor_scoring_defaults():
 
     ll = -log_loss(y_train, fitter.predict_proba(X_train[:, support]),
                    labels=np.unique(y))
-
+    total_ll = ll * X_train.shape[0]
     # BIC - must use train data
     uoi = UoI_L1Logistic(estimation_score='BIC')
     assert(uoi._estimation_target == 0)
     uoi.classes_ = np.unique(y)
     score = -1 * uoi._score_predictions('BIC', fitter, X, y, support,
                                         (train_idxs, test_idxs))
-    assert_equal(BIC(ll, *X_train.T.shape), score)
+    assert_equal(BIC(total_ll, *X_train.T.shape), score)
 
     # AIC
     uoi = UoI_L1Logistic(estimation_score='AIC')
@@ -180,7 +180,7 @@ def test_GeneralizedLinearRegressor_scoring_defaults():
     uoi.classes_ = np.unique(y)
     score = -1 * uoi._score_predictions('AIC', fitter, X, y, support,
                                         (train_idxs, test_idxs))
-    assert_equal(AIC(ll, X_train.shape[1]), score)
+    assert_equal(AIC(total_ll, X_train.shape[1]), score)
 
     # AICc
     uoi = UoI_L1Logistic(estimation_score='AICc')
@@ -188,7 +188,7 @@ def test_GeneralizedLinearRegressor_scoring_defaults():
     uoi.classes_ = np.unique(y)
     score = -1 * uoi._score_predictions('AICc', fitter, X, y, support,
                                         (train_idxs, test_idxs))
-    assert_equal(AICc(ll, *X_train.T.shape), score)
+    assert_equal(AICc(total_ll, *X_train.T.shape), score)
 
 
 def test_estimation_target():
