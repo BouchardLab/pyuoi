@@ -584,11 +584,11 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
                 n_features += 1
             n_samples = X.shape[0]
             if metric == 'BIC':
-                score = utils.BIC(ll, n_features, n_samples)
+                score = utils.BIC(n_samples * ll, n_features, n_samples)
             elif metric == 'AIC':
-                score = utils.AIC(ll, n_features)
+                score = utils.AIC(n_samples * ll, n_features)
             elif metric == 'AICc':
-                score = utils.AICc(ll, n_features, n_samples)
+                score = utils.AICc(n_samples * ll, n_features, n_samples)
             else:
                 raise ValueError(metric + ' is not a valid metric.')
             # negate the score since lower information criterion is preferable

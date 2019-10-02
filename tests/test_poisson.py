@@ -130,6 +130,7 @@ def test_score_predictions():
                   [np.log(5), -4, -6]])
     y = 1. / np.log([2., 3., 4., 5.])
     support = np.array([True, False, False])
+    n_samples = y.size
 
     # create fitter by hand
     fitter = Poisson()
@@ -146,11 +147,13 @@ def test_score_predictions():
     assert_allclose(ll, -2.5)
 
     # test information criteria
+    total_ll = ll * n_samples
     aic = uoi_fitter._score_predictions(
         metric='AIC',
         fitter=fitter,
         X=X, y=y, support=support)
-    assert_allclose(aic, 2 * ll - 2)
+
+    assert_allclose(aic, 2 * total_ll - 2)
 
     aicc = uoi_fitter._score_predictions(
         metric='AICc',
@@ -162,7 +165,7 @@ def test_score_predictions():
         metric='BIC',
         fitter=fitter,
         X=X, y=y, support=support)
-    assert_allclose(bic, 2 * ll - np.log(y.size))
+    assert_allclose(bic, 2 * total_ll - np.log(y.size))
 
     # test invalid metric
     assert_raises(ValueError,
