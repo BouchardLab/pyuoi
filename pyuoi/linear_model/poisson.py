@@ -486,7 +486,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
             fit_intercept=fit_intercept,
             max_iter=max_iter,
             tol=tol,
-            warm_start=warm_start,
+            warm_start=False,
             solver=solver)
 
     def get_reg_params(self, X, y):
