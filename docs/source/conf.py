@@ -28,8 +28,8 @@ sys.path.insert(0, project_root)
 # -- Project information -----------------------------------------------------
 
 project = 'PyUoI'
-copyright = '2018, BouchardLab'
-author = 'BouchardLab'
+copyright = 'The Regents of the University of California, through Lawrence Berkeley National Laboratory'
+author = 'Contributors'
 
 # The short X.Y version
 version = ''

@@ -40,13 +40,13 @@ conda install -c conda-forge pyuoi
 `PyUoI` is split up into two modules, with the following UoI algorithms:
 
 * `linear_model` (generalized linear models)
-    * Lasso penalized linear regression UoI~Lasso~.
-    * Elastic-net penalized linear regression (UoI~ElasticNet~).
-    * Logistic regression (Bernoulli and multinomial) (UoI~Logistic~).
-    * Poisson regression (UoI~Poisson~).
+    * Lasso penalized linear regression UoI<sub>Lasso</sub>.
+    * Elastic-net penalized linear regression (UoI<sub>ElasticNet</sub>).
+    * Logistic regression (Bernoulli and multinomial) (UoI<sub>Logistic</sub>).
+    * Poisson regression (UoI<sub>Poisson</sub>).
 * `decomposition` (dimensionality reduction)
-    * Column subset selection (UoI~CSS~).
-    * Non-negative matrix factorization (UoI~NMF~).
+    * Column subset selection (UoI<sub>CSS</sub>).
+    * Non-negative matrix factorization (UoI<sub>NMF</sub>).
 
 Similar to `scikit-learn`, each UoI algorithm has its own Python class.
 
@@ -54,4 +54,10 @@ Similar to `scikit-learn`, each UoI algorithm has its own Python class.
 
 Please see our <a href="https://pyuoi.readthedocs.io/en/latest/">ReadTheDocs</a> page for an introduction to Union of Intersections, usage of PyUoI, and the API.
 
-# License
+# Copyright
+
+PyUol Copyright (c) 2019, The Regents of the University of California, through Lawrence Berkeley National Laboratory (subject to receipt of any required approvals from the U.S. Dept. of Energy).  All rights reserved.
+
+If you have questions about your rights to use or distribute this software, please contact Berkeley Lab's Innovation & Partnerships Office at  IPO@lbl.gov referring to " PyUol" (LBNL Ref 2019-157)."
+
+NOTICE.  This software was developed under funding from the U.S. Department of Energy.  As such, the U.S. Government has been granted for itself and others acting on its behalf a paid-up, nonexclusive, irrevocable, worldwide license in the Software to reproduce, prepare derivative works, and perform publicly and display publicly.  The U.S. Government is granted for itself and others acting on its behalf a paid-up, nonexclusive, irrevocable, worldwide license in the Software to reproduce, prepare derivative works, distribute copies to the public, perform publicly and display publicly, and to permit others to do so.
