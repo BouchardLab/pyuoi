@@ -5,7 +5,7 @@ PyUoI: The Union of Intersections Framework in Python
 =====================================================
 
 PyUoI contains implementations of Union of Intersections framework for a variety
-of penalized generalized linear models as well as dimensionality reductions
+of penalized generalized linear models as well as dimensionality reduction
 techniques such as column subset selection and non-negative matrix
 factorization. In general, UoI is a statistical machine learning framework that
 leverages two concepts in model inference:
