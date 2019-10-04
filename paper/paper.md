@@ -6,11 +6,35 @@ tags:
     - sparsity
     - interpretability
     - Python
+authors:
+    - name: Pratik S. Sachdeva
+      orcid: 0000-0002-6809-2437
+      affiliation: 1, 2, 3
+    - name: Jesse A. Livezey
+      orcid: 0000-0003-0494-8758
+      affiliation: 1, 3
+    - name: Andrew J. Tritt
+      orcid: 0000-0002-1617-449X
+      affiliation: 4
+    - name: Kristofer E. Bouchard
+      orcid: 0000-0002-1974-4603
+      affiliation: 1, 3, 4, 5
 affiliations:
-    - name: Redwood Center for Theoretical Neuroscience, University of California,
-            Berkeley, Berkeley, California
+    - name: Redwood Center for Theoretical Neuroscience, University of
+            California, Berkeley, Berkeley, California, USA
       index: 1
-    - name:
+    - name: Department of Physics, University of California, Berkeley, Berkeley,
+            California, USA
+      index: 2
+    - name: Biological Systems and Engineering Division, Lawrence Berkeley
+            National Laboratory, Berkeley, California, USA
+      index: 3
+    - name: Computational Research Division, Lawrence Berkeley National
+            Laboratory, Berkeley, California, USA
+      index: 4
+    - name: Helen Wills Neuroscience Institute, University of California,
+            Berkeley, Berkeley, California, USA
+      index: 5
 bibliography: paper.bib
 header-includes:
     - \usepackage{algorithm}
@@ -192,10 +216,11 @@ limited to these contexts.
 
 # Acknowledgements
 
-P.S.S. was supported by the Department of Defense (DoD) through the National
-Defense Science \& Engineering Graduate Fellowship (NDSEG) Program. K.E.B. and
-J.A.L. were supported through the Lawrence Berkeley National Laboratory-internal
-LDRD "Deep Learning for Science" led by Prabhat. A.J.T. was supported by the
+We thank the contributors to earlier versions of this software. P.S.S. was
+supported by the Department of Defense (DoD) through the National Defense
+Science \& Engineering Graduate Fellowship (NDSEG) Program. K.E.B. and J.A.L.
+were supported through the Lawrence Berkeley National Laboratory-internal LDRD
+"Deep Learning for Science" led by Prabhat. A.J.T. was supported by the
 Department of Energy project “Co-design for artificial intelligence coupled with
 computing at scale for extremely large, complex datasets” K.E.B. was funded by
 Lawrence Berkeley National Laboratory-internal LDRD "Neuro/Nano-Technology for
