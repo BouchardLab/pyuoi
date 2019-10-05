@@ -26,7 +26,7 @@ Further details on the UoI framework can be found in the NeurIPS paper (<a href=
 PyUoI will be available soon on PyPI (installable with ``pip``):
 
 ```
-pip install PyUoI
+pip install pyuoi
 ```
 
 and through conda-forge (installable with ``conda``):
@@ -37,7 +37,7 @@ conda install -c conda-forge pyuoi
 
 # Features
 
-`PyUoI` is split up into two modules, with the following UoI algorithms:
+PyUoI is split up into two modules, with the following UoI algorithms:
 
 * `linear_model` (generalized linear models)
     * Lasso penalized linear regression UoI<sub>Lasso</sub>.
