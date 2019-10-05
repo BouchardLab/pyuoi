@@ -9,16 +9,16 @@ tags:
 authors:
     - name: Pratik S. Sachdeva
       orcid: 0000-0002-6809-2437
-      affiliation: 1, 2, 3
+      affiliation: "1, 2, 3"
     - name: Jesse A. Livezey
       orcid: 0000-0003-0494-8758
-      affiliation: 1, 3
+      affiliation: "1, 3"
     - name: Andrew J. Tritt
       orcid: 0000-0002-1617-449X
       affiliation: 4
     - name: Kristofer E. Bouchard
       orcid: 0000-0002-1974-4603
-      affiliation: 1, 3, 4, 5
+      affiliation: "1, 3, 4, 5"
 affiliations:
     - name: Redwood Center for Theoretical Neuroscience, University of
             California, Berkeley, Berkeley, California, USA
@@ -35,6 +35,7 @@ affiliations:
     - name: Helen Wills Neuroscience Institute, University of California,
             Berkeley, Berkeley, California, USA
       index: 5
+date: 05 October 2019
 bibliography: paper.bib
 header-includes:
     - \usepackage{algorithm}
