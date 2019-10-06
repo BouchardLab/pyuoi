@@ -67,8 +67,8 @@ The latest development version of the code can be installed from https://github.
 .. code-block:: bash
 
     # use ssh
-    $ git clone git@github.com:BouchardLab/PyUoI.git
+    $ git clone git@github.com:BouchardLab/pyuoi.git
     # or use https
-    $ git clone https://github.com/BouchardLab/PyUoI.git
-    $ cd PyUoI
+    $ git clone https://github.com/BouchardLab/pyuoi.git
+    $ cd pyuoi
     $ pip install -e .[dev]
