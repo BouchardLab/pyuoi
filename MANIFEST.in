@@ -1,2 +1,4 @@
 include pyproject.toml
+requirements.txt
+requirements-dev.txt
 include LICENSE.txt
