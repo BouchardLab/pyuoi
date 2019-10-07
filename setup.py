@@ -103,7 +103,7 @@ setup(
     # for example:
     # $ pip install -e .[dev,test]
     extras_require={
-        'MPI': ['mpi4py'],
+        'perf': ['mpi4py', 'pycasso'],
         'dev': dev_requirements
     },
 

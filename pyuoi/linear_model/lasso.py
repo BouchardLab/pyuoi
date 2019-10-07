@@ -1,9 +1,13 @@
-import pycasso
 import numpy as np
 
 from sklearn.exceptions import NotFittedError
 from sklearn.linear_model import Lasso, LinearRegression
 from sklearn.linear_model.coordinate_descent import _alpha_grid
+try:
+    import pycasso
+except ImportError:
+    pycasso = None
+
 from .base import AbstractUoILinearRegressor
 
 
@@ -209,6 +213,8 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
                 random_state=random_state,
                 fit_intercept=fit_intercept)
         elif solver == 'pyc':
+            if pycasso is None:
+                raise ModuleNotFoundError('pycasso is not installed.')
             self._selection_lm = PycLasso(
                 fit_intercept=fit_intercept,
                 max_iter=max_iter)
