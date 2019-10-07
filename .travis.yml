@@ -14,7 +14,6 @@ before_install:
       if [ "$TRAVIS_OS_NAME" = "osx" ]; then
         brew update
         brew install openmpi pyenv-virtualenv
-        pyenv install --list
         pyenv install $PYTHON
         export PYENV_VERSION=$PYTHON
         export PATH="/Users/travis/.pyenv/shims:${PATH}"
