@@ -5,4 +5,5 @@ include LICENSE.txt
 include liblbfgs/*.h
 include liblbfgs/*.c
 include pyuoi/lbfgs/*.pyx
+exclude pyuoi/lbfgs/*.c
 recursive-include test* *.py
