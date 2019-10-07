@@ -219,7 +219,7 @@ def test_choice_of_solver():
 
 
 @pytest.mark.skipif(pycasso is not None, reason='pycasso is installed')
-@pytest.mark.xfail(raises=ModuleNotFoundError)
+@pytest.mark.xfail(raises=ImporError)
 def test_pycasso_error():
     """Tests whether an error is raised if pycasso is not installed.
     """

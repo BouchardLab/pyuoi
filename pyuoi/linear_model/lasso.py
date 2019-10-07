@@ -214,7 +214,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
                 fit_intercept=fit_intercept)
         elif solver == 'pyc':
             if pycasso is None:
-                raise ModuleNotFoundError('pycasso is not installed.')
+                raise ImportError('pycasso is not installed.')
             self._selection_lm = PycLasso(
                 fit_intercept=fit_intercept,
                 max_iter=max_iter)
