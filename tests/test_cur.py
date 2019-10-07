@@ -133,7 +133,7 @@ def test_CUR():
 
     cur = CUR(max_k=max_k)
 
-    cur.fit(X, c=3)
+    cur.fit_transform(X, c=3)
     column_indices = cur.column_indices_
     columns = cur.components_
 

@@ -219,7 +219,7 @@ def test_choice_of_solver():
 
 
 @pytest.mark.skipif(pycasso is not None, reason='pycasso is installed')
-@pytest.mark.xfail(raises=ImporError)
+@pytest.mark.xfail(raises=ImportError)
 def test_pycasso_error():
     """Tests whether an error is raised if pycasso is not installed.
     """
@@ -268,3 +268,15 @@ def test_pyclasso():
     y_pred = pyclasso.predict(X)
     scores = np.array([r2_score(y, y_pred[:, j]) for j in range(100)])
     assert(np.allclose(1, max(scores)))
+
+
+@pytest.mark.xfail(raises=ValueError)
+def test_lass_bad_est_score():
+    """Test that UoI Lasso raises an error when given a bad
+    estimation_score value.
+    """
+    X = np.random.randn(20, 5)
+    y = np.random.randn(20)
+
+    UoI_Lasso(estimation_score='z',
+              n_boots_sel=10, n_boots_est=10).fit(X, y)
