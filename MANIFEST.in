@@ -2,6 +2,6 @@ include pyproject.toml
 include requirements.txt
 include requirements-dev.txt
 include LICENSE.txt
-include liblbfgs/*.h
-include liblbfgs/*.c
-include pyuoi/lbfgs/*pyx
+include liblbfgs *.h *.c
+include pyuoi/lbfgs *pyx
+recursive-include test* *.py
