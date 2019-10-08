@@ -355,8 +355,7 @@ def test_l1logistic_sparse_input_no_center():
     classes = ['abc', 'de', 'fgh']
     y = np.array(classes)[rs.randint(3, size=10)]
 
-    UoI_L1Logistic(fit_intercept=True)
-
+    UoI_L1Logistic(fit_intercept=True).fit(X, y)
 
 
 @pytest.mark.xfail(raises=ValueError)
