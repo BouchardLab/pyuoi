@@ -94,6 +94,7 @@ def test_uoi_lasso_toy():
         solver='cd'
     )
     lasso.fit(X, y)
+    lasso.fit(X, y, verbose=True)
 
     assert_allclose(lasso.coef_, beta)
 
