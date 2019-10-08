@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 from numpy.testing import (assert_array_equal, assert_array_almost_equal_nulp,
                            assert_equal, assert_allclose)
@@ -6,6 +7,10 @@ from sklearn.datasets import make_regression
 from sklearn.linear_model import Lasso
 from sklearn.metrics import r2_score
 from sklearn.linear_model.coordinate_descent import _alpha_grid
+try:
+    import pycasso
+except ImportError:
+    pycasso = None
 
 from pyuoi import UoI_Lasso
 from pyuoi.linear_model.lasso import PycLasso
@@ -89,18 +94,20 @@ def test_uoi_lasso_toy():
         solver='cd'
     )
     lasso.fit(X, y)
+    lasso.fit(X, y, verbose=True)
 
     assert_allclose(lasso.coef_, beta)
 
-    lasso = UoI_Lasso(
-        fit_intercept=False,
-        selection_frac=0.75,
-        estimation_frac=0.75,
-        solver='pyc'
-    )
-    lasso.fit(X, y)
+    if pycasso is not None:
+        lasso = UoI_Lasso(
+            fit_intercept=False,
+            selection_frac=0.75,
+            estimation_frac=0.75,
+            solver='pyc'
+        )
+        lasso.fit(X, y)
 
-    assert_allclose(lasso.coef_, beta)
+        assert_allclose(lasso.coef_, beta)
 
 
 def test_get_reg_params():
@@ -201,6 +208,7 @@ def test_fit_intercept():
     assert not lasso._estimation_lm.fit_intercept
 
 
+@pytest.mark.skipif(pycasso is None, reason='pycasso not installed')
 def test_choice_of_solver():
     '''Tests whether one can correctly switch between solvers in UoI Lasso'''
 
@@ -211,6 +219,17 @@ def test_choice_of_solver():
     assert(isinstance(uoi2._selection_lm, PycLasso))
 
 
+@pytest.mark.skipif(pycasso is not None, reason='pycasso is installed')
+@pytest.mark.xfail(raises=ImportError)
+def test_pycasso_error():
+    """Tests whether an error is raised if pycasso is not installed.
+    """
+
+    uoi2 = UoI_Lasso(solver='pyc')
+    assert(isinstance(uoi2._selection_lm, PycLasso))
+
+
+@pytest.mark.skipif(pycasso is None, reason='pycasso not installed')
 def test_pyclasso():
     """Tests whether the PycLasso class is working"""
 
@@ -250,3 +269,15 @@ def test_pyclasso():
     y_pred = pyclasso.predict(X)
     scores = np.array([r2_score(y, y_pred[:, j]) for j in range(100)])
     assert(np.allclose(1, max(scores)))
+
+
+@pytest.mark.xfail(raises=ValueError)
+def test_lass_bad_est_score():
+    """Test that UoI Lasso raises an error when given a bad
+    estimation_score value.
+    """
+    X = np.random.randn(20, 5)
+    y = np.random.randn(20)
+
+    UoI_Lasso(estimation_score='z',
+              n_boots_sel=10, n_boots_est=10).fit(X, y)

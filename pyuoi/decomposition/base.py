@@ -37,6 +37,7 @@ class AbstractDecompositionModel(BaseEstimator, metaclass=_abc.ABCMeta):
         """
         pass
 
+    @_abc.abstractmethod
     def fit_transform(self, X):
         """Transform the data X according to the fitted decomposition.
 
@@ -50,5 +51,4 @@ class AbstractDecompositionModel(BaseEstimator, metaclass=_abc.ABCMeta):
         X_new : array-like, shape (n_samples, n_components)
             Transformed data.
         """
-        self.fit(X)
-        return self.transform(X)
+        pass
