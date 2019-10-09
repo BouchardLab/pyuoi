@@ -31,6 +31,18 @@ def test_ll():
     ll = log_likelihood_glm('poisson', y_true, y_pred)
     assert_almost_equal(ll, -2)
 
+    # poisson with all zeros
+    y_true = np.zeros(3)
+    y_pred = np.zeros(3)
+    ll = log_likelihood_glm('poisson', y_true, y_pred)
+    assert_equal(ll, 0.)
+
+    # poisson with all zeros, but predicted is not all zeros
+    y_pred = np.zeros(3)
+    y_true = np.array([0., 0., 1.])
+    ll = log_likelihood_glm('poisson', y_true, y_pred)
+    assert_equal(ll, -np.inf)
+
 
 def test_ll_error():
     """Tests that the log-likelihood function correctly raises an error when an
