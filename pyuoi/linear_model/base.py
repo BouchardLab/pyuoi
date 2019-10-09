@@ -207,6 +207,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         n_features = X.shape[1]
         n_coef = self.get_n_coef(X, y)
 
+        # check if the response variable is constant
         if np.unique(y).size == 1:
             self.coef_ = np.zeros((self.output_dim, n_features))
             self._fit_intercept(X, y)
