@@ -80,6 +80,15 @@ class Poisson(BaseEstimator):
         self.n_samples, self.n_features = X.shape
         X, y = self._pre_fit(X, y)
 
+        # check if the response variable is constant
+        if np.unique(y).size == 1:
+            self.coef_ = np.zeros(self.n_features)
+            if np.any(y):
+                self.intercept_ = np.log(y.mean())
+            else:
+                self.intercept_ = -np.inf
+            return self
+
         if self.solver == 'lbfgs':
             coef = np.zeros(self.n_features)
             intercept = 0
@@ -613,6 +622,8 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
             self.coef_ = np.squeeze(self.coef_)
         if self.standardize:
             sX = self._X_scaler
+            if self.fit_intercept:
+                self.intercept_ -= np.sum((sX.mean_ * self.coef_) / sX.scale_)
             self.coef_ /= sX.scale_
 
     def _fit_intercept(self, X, y):
@@ -623,7 +634,10 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         """
         if self.fit_intercept:
             mu = np.exp(np.dot(X, self.coef_.T))
-            self.intercept_ = np.log(np.mean(y) / np.mean(mu))
+            if np.any(y):
+                self.intercept_ = np.log(np.mean(y) / np.mean(mu))
+            else:
+                self.intercept_ = -np.inf
         else:
             self.intercept_ = np.zeros(1)
 
@@ -637,7 +651,10 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
 
 class PoissonInterceptFitterNoFeatures(object):
     def __init__(self, y):
-        self.intercept_ = np.log(y.mean())
+        if np.any(y):
+            self.intercept_ = np.log(y.mean())
+        else:
+            self.intercept_ = -np.inf
 
     def predict(self, X):
         """Predicts the response variable given a design matrix. The output is

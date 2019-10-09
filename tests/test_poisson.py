@@ -391,6 +391,56 @@ def test_poisson_with_sparsity():
     assert_equal(np.abs(poisson.coef_[0]), 0.)
 
 
+def test_poisson_intercept_fitter_all_zeros():
+    """Tests that the Poisson intercept fitter properly assigns an intercept
+    without warning when the response variable is all zeros."""
+    n_samples = 10
+
+    y = np.zeros(n_samples)
+
+    poisson = PoissonInterceptFitterNoFeatures(y)
+
+    assert_equal(poisson.intercept_, -np.inf)
+
+
+def test_Poisson_response_constant():
+    """Test that UoI Poisson correctly fits the data when the response variable
+    is constant."""
+    n_features = 5
+    n_samples = 100
+
+    X = np.random.normal(size=(n_samples, n_features))
+    y = np.zeros(n_samples)
+
+    poisson = Poisson()
+    poisson.fit(X, y)
+
+    assert_equal(poisson.intercept_, -np.inf)
+    assert_equal(poisson.coef_, np.zeros(n_features))
+
+    y += 1.
+    poisson.fit(X, y)
+
+    assert_equal(poisson.intercept_, 0.)
+    assert_equal(poisson.coef_, np.zeros(n_features))
+
+
+def test_UoI_Poisson_all_zeros():
+    """Test that UoI Poisson correctly fits the data when the response variable
+    is all zeros."""
+    n_features = 5
+    n_samples = 100
+
+    X = np.random.normal(size=(n_samples, n_features))
+    y = np.zeros(n_samples)
+
+    poisson = UoI_Poisson()
+    poisson.fit(X, y)
+
+    assert_equal(poisson.intercept_, -np.inf)
+    assert_equal(poisson.coef_, np.zeros(n_features))
+
+
 def test_UoI_Poisson():
     """Tests the UoI Poisson fitter with lbfgs solver."""
     n_features = 3

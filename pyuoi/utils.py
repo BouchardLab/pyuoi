@@ -50,12 +50,18 @@ def log_likelihood_glm(model, y_true, y_pred):
     """
     if model == 'normal':
         # this log-likelihood is calculated under the assumption that the
-        # variance is the value that maximize the log-likelihood
+        # variance is the value that maximizes the log-likelihood
         rss = (y_true - y_pred)**2
         n_samples = y_true.size
         ll = -n_samples / 2 * (1 + np.log(np.mean(rss)))
     elif model == 'poisson':
-        ll = np.mean(y_true * np.log(y_pred) - y_pred)
+        if not np.any(y_pred):
+            if np.any(y_true):
+                ll = -np.inf
+            else:
+                ll = 0.
+        else:
+            ll = np.mean(y_true * np.log(y_pred) - y_pred)
     else:
         raise ValueError('Model is not available.')
     return ll
