@@ -4,17 +4,17 @@
 Installation
 ============
 
-PyUoI will be available soon on PyPI (installable with ``pip``)
+PyUoI is available on PyPI:
 
-.. code-block:: bash
+```
+pip install pyuoi
+```
 
-    $ pip install pyuoi
+and will soon be through conda-forge:
 
-and through conda-forge (installable with ``conda``).
-
-.. code-block:: bash
-
-    $ conda install -c conda-forge pyuoi
+```
+conda install pyuoi -c conda-forge
+```
 
 ``pip`` and ``conda`` will install the required dependencies.
 
@@ -29,10 +29,10 @@ PyUoI requires
   * numpy
   * h5py
   * scikit-learn
-  * pycasso
 
 and optionally
 
+  * pycasso
   * mpi4py
 
 to run.
