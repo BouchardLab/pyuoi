@@ -3,7 +3,7 @@
 
 <img src="https://travis-ci.org/BouchardLab/PyUoI.svg?branch=master"> [![codecov](https://codecov.io/gh/BouchardLab/PyUoI/branch/master/graph/badge.svg)](https://codecov.io/gh/BouchardLab/PyUoI)
 [![Documentation Status](https://readthedocs.org/projects/pyuoi/badge/?version=latest)](https://pyuoi.readthedocs.io/en/latest/?badge=latest)
-
+![PyPI](https://img.shields.io/pypi/v/pyuoi)
 
 PyUoI contains implementations of Union of Intersections framework for a variety
 of penalized generalized linear models as well as dimensionality reductions
@@ -23,16 +23,16 @@ Further details on the UoI framework can be found in the NeurIPS paper (<a href=
 
 # Installation
 
-PyUoI will be available soon on PyPI (installable with ``pip``):
+PyUoI is available on PyPI:
 
 ```
 pip install pyuoi
 ```
 
-and through conda-forge (installable with ``conda``):
+and will soon be through conda-forge:
 
 ```
-conda install -c conda-forge pyuoi
+conda install pyuoi -c conda-forge
 ```
 
 # Features
