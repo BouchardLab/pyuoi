@@ -6,15 +6,15 @@ Installation
 
 PyUoI is available on PyPI:
 
-```
+``
 pip install pyuoi
-```
+``
 
 and will soon be through conda-forge:
 
-```
+``
 conda install pyuoi -c conda-forge
-```
+``
 
 ``pip`` and ``conda`` will install the required dependencies.
 
