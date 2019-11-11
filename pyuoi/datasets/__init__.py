@@ -35,7 +35,7 @@ def make_linear_regression(n_samples=100, n_features=5, n_informative=2,
     snr : float
         The signal-to-noise ratio, which informs the variance of the noise
         term.
-    beta : array-like or None
+    beta : np.ndarray or None
         The beta values to use. If None, beta values will be drawn from a
         uniform distribution.
     beta_low : float
@@ -191,7 +191,7 @@ def make_poisson_regression(n_samples=100, n_features=5, n_informative=2,
         The mean of the features in the design matrix.
     X_scale : float
         The standard deviation of the features in the design matrix.
-    beta : array-like or None
+    beta : np.ndarray or None
         The beta values to use. If None, beta values will be drawn from a gamma
         distribution.
     beta_shape : float
