@@ -148,3 +148,4 @@ embedding = TSNE(n_components=2).fit_transform(uoi_nmf.bases_samples_)
 sc = plt.scatter(embedding[:, 0], embedding[:, 1],
                  c=uoi_nmf.bases_samples_labels_, s=80, cmap="nipy_spectral")
 sc.set_facecolor('none')
+plt.show()
