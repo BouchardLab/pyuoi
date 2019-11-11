@@ -36,7 +36,6 @@ install:
 script:
     - flake8 pyuoi tests docs/gallery
     - pytest --cov=./ tests
-    - pytest --doctest-modules pyuoi
     - sphinx-build -W -b html docs/source docs/build
 after_success:
     - codecov
