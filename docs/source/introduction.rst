@@ -277,7 +277,7 @@ result in tight basis clusters. The final bases are chosen using a clustering
 algorithm -- DBSCAN -- to identify clusters of bases across bootstraps. A
 consensus procedure, such as the median, extracts the actual basis from each
 cluster. Finally, given a set of bases :math:`H`, the weights can be determined
- using non-negative least squares.
+using non-negative least squares.
 
 The above procedure is described in the following pseudocode:
 
@@ -289,7 +289,7 @@ The above procedure is described in the following pseudocode:
             for i in range(n_bootstraps):
                 Aj = Generate bootstrapped resample of the data matrix A
                 Hi, Wi = NMF(A, k)
-        
+
         Compute diss(Hi^k, H_j^k) and Gamma(k) and choose the best rank k_hat
         let Hk denote the bases fitted from rank k_hat
 
