@@ -1,6 +1,6 @@
-===========
+==============
 pyuoi.datasets
-===========
+==============
 
 Dataset utility functions for the ``pyuoi`` package.
 

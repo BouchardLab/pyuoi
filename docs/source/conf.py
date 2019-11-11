@@ -64,9 +64,9 @@ extensions = [
 
 sphinx_gallery_conf = {
     # path to your examples scripts
-    'examples_dirs': ['../gallery'],
+    'examples_dirs': ['../../examples'],
     # path where to save gallery generated examples
-    'gallery_dirs': ['examples'],
+    'gallery_dirs': ['auto_examples'],
     #'subsection_order': ExplicitOrder(['../gallery/general', '../gallery/domain']),
     'backreferences_dir': 'gen_modules/backreferences',
     'download_section_examples': False,
