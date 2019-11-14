@@ -538,6 +538,9 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
             if y.shape[1] > 1:
                 raise ValueError('y should either have shape ' +
                                  '(n_samples, ) or (n_samples, 1).')
+        else:
+            raise ValueError('y should either have shape ' +
+                             '(n_samples, ) or (n_samples, 1).')
         if self.standardize:
             self._y_scaler = StandardScaler(with_mean=self.fit_intercept)
             y = self._y_scaler.fit_transform(y)

@@ -138,6 +138,8 @@ def test_uoi_lasso_estimation_shape_match():
     message = 'y should either have shape'
     with pytest.raises(ValueError, match=message):
         lasso.fit(X, np.tile(y[:, np.newaxis], (1, 2)))
+    with pytest.raises(ValueError, match=message):
+        lasso.fit(X, y[:, np.newaxis, np.newaxis])
 
 
 def test_get_reg_params():
