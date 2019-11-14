@@ -532,19 +532,17 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
 
     def _pre_fit(self, X, y):
         X, y = super()._pre_fit(X, y)
+        if y.ndim == 1:
+            y = y[:, np.newaxis]
+        elif y.ndim == 2:
+            if y.shape[1] > 1:
+                raise ValueError('y should either have shape '+
+                                 '(n_samples, ) or (n_samples, 1).')
         if self.standardize:
             self._y_scaler = StandardScaler(with_mean=self.fit_intercept)
-            one_dim = False
-            if y.ndim == 1:
-                one_dim = True
-                y = y[:, np.newaxis]
             y = self._y_scaler.fit_transform(y)
-            if one_dim:
-                y = np.squeeze(y)
-        if y.ndim == 2:
-            self.output_dim = y.shape[1]
-        else:
-            self.output_dim = 1
+        y = np.squeeze(y)
+        self.output_dim = 1
         return X, y
 
     def _post_fit(self, X, y):

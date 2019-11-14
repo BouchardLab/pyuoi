@@ -131,6 +131,14 @@ def test_uoi_lasso_estimation_shape_match():
         lasso._score_predictions('r2', lasso, X, y[:, np.newaxis],
                                  support, boot_idxs)
 
+    # Check that second axis gets squeezed
+    lasso.fit(X, y[:, np.newaxis])
+
+    # Check that second axis gets squeezed
+    message = 'y should either have shape'
+    with pytest.raises(ValueError, match=message):
+        lasso.fit(X, np.tile(y[:, np.newaxis], (1, 2)))
+
 
 def test_get_reg_params():
     """Tests whether get_reg_params works correctly for UoI Lasso."""
