@@ -128,8 +128,31 @@ def test_uoi_lasso_estimation_shape_match():
                        'not the same shape.'):
         support = np.arange(2)
         boot_idxs = [np.arange(4)] * 2
-        lasso._score_predictions('r2', lasso, X, y[:, np.newaxis],
+        lasso.coef_ = np.array([[1, 4], [1, 4]])
+        lasso._score_predictions('r2', lasso, X, y,
                                  support, boot_idxs)
+
+    with pytest.raises(ValueError, match='y should either have'):
+        support = np.arange(2)
+        boot_idxs = [np.arange(4)] * 2
+        lasso._score_predictions('r2', lasso, X, y[:, np.newaxis, np.newaxis],
+                                 support, boot_idxs)
+
+
+def test_uoi_lasso_fit_shape_match():
+    """Test UoI Lasso on a toy example."""
+
+    X = np.array([
+        [-1, 2],
+        [4, 1],
+        [1, 3],
+        [4, 3],
+        [8, 11]], dtype=float)
+    beta = np.array([1, 4], dtype=float)
+    y = np.dot(X, beta)
+
+    lasso = UoI_Lasso()
+    lasso.fit(X, y)
 
     # Check that second axis gets squeezed
     lasso.fit(X, y[:, np.newaxis])
