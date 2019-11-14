@@ -536,7 +536,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
             y = y[:, np.newaxis]
         elif y.ndim == 2:
             if y.shape[1] > 1:
-                raise ValueError('y should either have shape '+
+                raise ValueError('y should either have shape ' +
                                  '(n_samples, ) or (n_samples, 1).')
         if self.standardize:
             self._y_scaler = StandardScaler(with_mean=self.fit_intercept)
