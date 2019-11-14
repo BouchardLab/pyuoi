@@ -598,14 +598,13 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
         # Select the data relevant for the estimation_score
         X = X[boot_idxs[self._estimation_target]]
         y = y[boot_idxs[self._estimation_target]]
+        y_pred = fitter.predict(X[:, support])
+        if y.shape != y_pred.shape:
+            raise ValueError('Targets and predictions are not the same shape.')
 
         if metric == 'r2':
-
-            y_pred = fitter.predict(X[:, support])
-
             score = r2_score(y, y_pred)
         else:
-            y_pred = fitter.predict(X[:, support])
             ll = utils.log_likelihood_glm(model='normal',
                                           y_true=y,
                                           y_pred=y_pred)
