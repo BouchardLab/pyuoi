@@ -345,7 +345,6 @@ def test_l1logistic_sparse_input():
     assert set(classes) >= set(y_hat)
 
 
-@pytest.mark.xfail(raises=ValueError)
 def test_l1logistic_sparse_input_no_center():
     """Test that multiclass L1 Logistic raises an error when asked to center
     sparse data.
@@ -355,10 +354,10 @@ def test_l1logistic_sparse_input_no_center():
     classes = ['abc', 'de', 'fgh']
     y = np.array(classes)[rs.randint(3, size=10)]
 
-    UoI_L1Logistic(fit_intercept=True).fit(X, y)
+    with pytest.raises(ValueError):
+        UoI_L1Logistic(fit_intercept=True).fit(X, y)
 
 
-@pytest.mark.xfail(raises=ValueError)
 def test_l1logistic_bad_est_score():
     """Test that multiclass L1 Logistic raises an error when given a bad
     estimation_score value.
@@ -366,8 +365,9 @@ def test_l1logistic_bad_est_score():
     X = np.random.randn(20, 5)
     y = np.ones(20)
 
-    UoI_L1Logistic(estimation_score='z',
-                   n_boots_sel=10, n_boots_est=10).fit(X, y)
+    with pytest.raises(ValueError):
+        UoI_L1Logistic(estimation_score='z',
+                       n_boots_sel=10, n_boots_est=10).fit(X, y)
 
 
 def test_reg_params():

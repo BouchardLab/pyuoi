@@ -110,6 +110,61 @@ def test_uoi_lasso_toy():
         assert_allclose(lasso.coef_, beta)
 
 
+def test_uoi_lasso_estimation_shape_match():
+    """Test UoI Lasso on a toy example."""
+
+    X = np.array([
+        [-1, 2],
+        [4, 1],
+        [1, 3],
+        [4, 3],
+        [8, 11]], dtype=float)
+    beta = np.array([1, 4], dtype=float)
+    y = np.dot(X, beta)
+
+    lasso = UoI_Lasso()
+    lasso.fit(X, y)
+    with pytest.raises(ValueError, match='Targets and predictions are ' +
+                       'not the same shape.'):
+        support = np.arange(2)
+        boot_idxs = [np.arange(4)] * 2
+        lasso.coef_ = np.array([[1, 4], [1, 4]])
+        lasso._score_predictions('r2', lasso, X, y,
+                                 support, boot_idxs)
+
+    with pytest.raises(ValueError, match='y should either have'):
+        support = np.arange(2)
+        boot_idxs = [np.arange(4)] * 2
+        lasso._score_predictions('r2', lasso, X, y[:, np.newaxis, np.newaxis],
+                                 support, boot_idxs)
+
+
+def test_uoi_lasso_fit_shape_match():
+    """Test UoI Lasso on a toy example."""
+
+    X = np.array([
+        [-1, 2],
+        [4, 1],
+        [1, 3],
+        [4, 3],
+        [8, 11]], dtype=float)
+    beta = np.array([1, 4], dtype=float)
+    y = np.dot(X, beta)
+
+    lasso = UoI_Lasso()
+    lasso.fit(X, y)
+
+    # Check that second axis gets squeezed
+    lasso.fit(X, y[:, np.newaxis])
+
+    # Check that second axis gets squeezed
+    message = 'y should either have shape'
+    with pytest.raises(ValueError, match=message):
+        lasso.fit(X, np.tile(y[:, np.newaxis], (1, 2)))
+    with pytest.raises(ValueError, match=message):
+        lasso.fit(X, y[:, np.newaxis, np.newaxis])
+
+
 def test_get_reg_params():
     """Tests whether get_reg_params works correctly for UoI Lasso."""
 
@@ -220,13 +275,13 @@ def test_choice_of_solver():
 
 
 @pytest.mark.skipif(pycasso is not None, reason='pycasso is installed')
-@pytest.mark.xfail(raises=ImportError)
 def test_pycasso_error():
     """Tests whether an error is raised if pycasso is not installed.
     """
 
-    uoi2 = UoI_Lasso(solver='pyc')
-    assert(isinstance(uoi2._selection_lm, PycLasso))
+    with pytest.raises(ImportError):
+        uoi2 = UoI_Lasso(solver='pyc')
+        assert(isinstance(uoi2._selection_lm, PycLasso))
 
 
 @pytest.mark.skipif(pycasso is None, reason='pycasso not installed')
@@ -271,7 +326,6 @@ def test_pyclasso():
     assert(np.allclose(1, max(scores)))
 
 
-@pytest.mark.xfail(raises=ValueError)
 def test_lass_bad_est_score():
     """Test that UoI Lasso raises an error when given a bad
     estimation_score value.
@@ -279,5 +333,6 @@ def test_lass_bad_est_score():
     X = np.random.randn(20, 5)
     y = np.random.randn(20)
 
-    UoI_Lasso(estimation_score='z',
-              n_boots_sel=10, n_boots_est=10).fit(X, y)
+    with pytest.raises(ValueError):
+        UoI_Lasso(estimation_score='z',
+                  n_boots_sel=10, n_boots_est=10).fit(X, y)
