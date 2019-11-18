@@ -14,6 +14,16 @@ except ImportError:
     pass
 
 
+def check_valid_ndarray(X):
+    """Checks whether X is a ndarray and returns a contiguous version.
+    """
+    if X is None:
+        return X
+    if not isinstance(X, np.ndarray):
+        raise ValueError('Must be a numpy ndarray.')
+    return np.ascontiguousarray(X)
+
+
 def load_data_MPI(h5_name, X_key='X', y_key='y', comm=None, root=0):
     """Load data from an HDF5 file and broadcast it across MPI ranks.
 
@@ -86,6 +96,8 @@ def Bcast_from_root(send, comm=None, root=0):
     send : ndarray
         Each rank will have a copy of the array from root.
     """
+
+    send = check_valid_ndarray(send)
     if comm is None:
         comm = MPI.COMM_WORLD
     rank = comm.rank
@@ -122,6 +134,7 @@ def Gatherv_rows(send, comm=None, root=0):
         Gatherv'ed array on root or None on other ranks.
     """
 
+    send = check_valid_ndarray(send)
     if comm is None:
         comm = MPI.COMM_WORLD
     rank = comm.rank
