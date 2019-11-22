@@ -198,12 +198,13 @@ negative binomial regression, gamma regression, etc.) are left as future work.
 However, given the inheritance structure of the `PyUoI` framework, these
 extensions should be straightforward for the interested user.
 
-Similar to `scikit-learn`, each UoI algorithm has its own Python class. Instantiations
-of these classes are created with specific hyperparameters and are fit to
-user-provided datasets. The hyperparameters allow the user to fine-tune the
-number of resamples, fraction of data in each resample, and the model selection
-criteria used in the estimation module (in Algorithm 1, test set accuracy is
-used, but the Akaike and Bayesian Information Criteria are also available).
+Similar to `scikit-learn`, each UoI algorithm has its own Python class.
+Instantiations of these classes are created with specific hyperparameters and
+are fit to user-provided datasets. The hyperparameters allow the user to
+fine-tune the number of resamples, fraction of data in each resample, and the
+model selection criteria used in the estimation module (in Algorithm 1, test set
+accuracy is used, but the Akaike and Bayesian Information Criteria are also
+available [@akaike1998; @schwarz1978]).
 
 Additionally, UoI is agnostic to the specific solver used for a given model.
 That is, the UoI framework operates on fits obtained from performing the
