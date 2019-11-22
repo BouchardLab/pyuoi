@@ -72,9 +72,13 @@ loss in predictive accuracy, and reduced bias relative to benchmark approaches.
 algorithms, encompassing regression, classification, and dimensionality
 reduction. In order to better facilitate its usage, `PyUoI`'s API is structured
 similarly to the `scikit-learn` package, which is a commonly used Python machine
-learning library [@sklearn_api]. Additionally, because the UoI framework is
-naturally scalable, `PyUoI` is equipped with `mpi4py` functionality to
-parallelize model fitting on large datasets.
+learning library [@scikit-learn; @sklearn_api].
+
+The UoI framework operates by fitting many models across resamples of the
+dataset and across a set of regularization parameters. Thus, since these fits
+can be performed in parallel, the UoI framework is naturally scalable. `PyUoI`
+is equipped with `mpi4py` functionality to parallelize model fitting on large
+datasets [@dalcin2005].
 
 # Background
 
@@ -86,27 +90,27 @@ other generalized linear models (logistic and poisson). We refer the user to
 existing literature on the UoI variants of column subset selection and
 non-negative matrix factorization [@bouchard2017; @ubaru2017].
 
-Linear regression consists of estimating parameters $\beta \in \mathbb{R}^p$
-that map a $p$-dimensional vector of features $x \in \mathbb{R}^p$ to the
-observation variable $y\in \mathbb{R}$, when the $N$ samples are corrupted by
-i.i.d Gaussian noise:
+Linear regression consists of estimating parameters $\boldsymbol{\beta} \in
+\mathbb{R}^{p\times 1}$ that map a $p$-dimensional vector of features
+$\mathbf{x} \in \mathbb{R}^{p \times 1}$ to the observation variable $y\in
+\mathbb{R}$, when the $N$ samples are corrupted by i.i.d Gaussian noise:
 
 \begin{equation}
-y = \beta^T x + \epsilon
+y = \boldsymbol{\beta}^T \mathbf{x} + \epsilon
 \end{equation}
 
 where $\epsilon \sim \mathcal{N}(0, \sigma^2)$ for each sample. When the true
-$\beta$ is thought to be sparse (i.e., some subset of the $\beta$ are exactly
-zero), an estimate of $\beta$ can be found by solving a constrained optimization
-problem of the form
+$\boldsymbol{\beta}$ is thought to be sparse (i.e., some subset of the $\beta$
+are exactly zero), an estimate of $\boldsymbol{\beta}$ can be found by solving a
+constrained optimization problem of the form
 
 \begin{equation}
-\hat{\beta} = \underset{\beta\in \mathbb{R}^p}{\text{argmin}}
-                \frac{1}{N}\sum_{i=1}^N(y_i - \beta \cdot x_i)^2
-                + \lambda |\beta|_1
+\hat{\boldsymbol{\beta}} = \underset{\boldsymbol{\beta}\in \mathbb{R}^p}{\text{argmin}}
+                \frac{1}{N}\sum_{i=1}^N(y_i - \boldsymbol{\beta}^T \mathbf{x}_i)^2
+                + \lambda |\boldsymbol{\beta}|_1
 \end{equation}
 
-where $|\beta|_1$ is the $\ell_1$-norm of the parameters. The $\ell_1$-norm is a
+where $|\boldsymbol{\beta}|_1$ is the $\ell_1$-norm of the parameters. The $\ell_1$-norm is a
 convenient penalty because it will tend to force parameters to be set exactly
 equal to zero, performing feature selection [@tibshirani1994]. Typically,
 $\lambda$, the degree to which feature sparsity is enforced, is unknown and must
@@ -141,18 +145,18 @@ prediction accuracy for the response variable $y$.
     \label{alg:uoi}
     \hspace*{\algorithmicindent} \textbf{Input}:
     $X \in \mathbb{R}^{N\times p}$ design matrix \\
-    \hspace*{4.5em} $y \in \mathbb{R}^{N}$ response variable \\
+    \hspace*{4.5em} $\mathbf{y} \in \mathbb{R}^{N\times 1}$ response variable \\
     \hspace*{4.5em} Regularization strengths $\left\{\lambda_j \right\}_{j=1}^{q}$ \\
     \hspace*{4.5em} Number of resamples $N_S$ and $N_E$ \\
-    \hspace*{4.5em} Loss function $L(\beta; X, y)$
+    \hspace*{4.5em} Loss function $L(\boldsymbol{\beta}; X, \mathbf{y} )$
 
     \begin{algorithmic}[1]
         \Statex \textit{Model Selection}
         \For{$k = 1$ to $N_S$}
-            \State Generate resample $X^k$, $y^k$
+            \State Generate resample $X^k$, $\mathbf{y}^k$
             \For{$j=1$ to $q$}
-                \State $\hat{\beta}^{jk}\leftarrow$ Lasso regression (penalty $\lambda_j$) of $y^k$ on $X^k$
-                \State $S_j^k \leftarrow \left\{i\right\}$ where $\hat{\beta}^{jk}_i \neq 0$
+                \State $\hat{\boldsymbol{\beta}}^{jk}\leftarrow$ Lasso regression (penalty $\lambda_j$) of $\mathbf{y}^k$ on $X^k$
+                \State $S_j^k \leftarrow \left\{i\right\}$ where $\hat{\boldsymbol{\beta}}^{jk}_i \neq 0$
             \EndFor
         \EndFor
         \For{$j = 1$ to $q$}
@@ -160,16 +164,16 @@ prediction accuracy for the response variable $y$.
         \EndFor
         \State \textit{Model Estimation}
         \For{$k=1$ to $N_E$}
-            \State Generate training $\left(X_T^k, y_T^k\right)$ and evaluation $\left(X_E^k, y_E^k\right)$ resamples
+            \State Generate training $\left(X_T^k, \mathbf{y}_T^k\right)$ and evaluation $\left(X_E^k, \mathbf{y}_E^k\right)$ resamples
             \For{$j=1$ to $q$}
                 \State $X_{T, j}^k, X_{E, j}^k \leftarrow $ $X_T^k, X_E^k$ with features $S_j$ extracted.
-                \State $\hat{\beta}^{jk} \leftarrow$ OLS Regression of $y_T^k$ on $X_{T,j}^k$
-                \State $\ell^{jk} \leftarrow L(\hat{\beta}^{jk}; X^k_{E, j}, y_E^k)$
+                \State $\hat{\boldsymbol{\beta}}^{jk} \leftarrow$ OLS Regression of $\mathbf{y}_T^k$ on $X_{T,j}^k$
+                \State $\ell^{jk} \leftarrow L(\hat{\boldsymbol{\beta}}^{jk}; X^k_{E, j}, \mathbf{y}_E^k)$
             \EndFor
-            \State $\hat{\beta}^k \leftarrow \underset{\hat{\beta}^{jk}}{\text{argmin}} \ \ell^{jk}$
+            \State $\hat{\boldsymbol{\beta}}^k \leftarrow \underset{\hat{\boldsymbol{\beta}}^{jk}}{\text{argmin}} \ \ell^{jk}$
         \EndFor
-        \State $\hat{\beta}^* = \underset{k}{\text{median}}\left(\hat{\beta}^k\right)$ \hfill $\triangleright$ \textit{ Union} \\
-        \Return $\hat{\beta}^*$
+        \State $\hat{\boldsymbol{\beta}}^* = \underset{k}{\text{median}}\left(\hat{\boldsymbol{\beta}}^k\right)$ \hfill $\triangleright$ \textit{ Union} \\
+        \Return $\hat{\boldsymbol{\beta}}^*$
     \end{algorithmic}
 \end{algorithm}
 
@@ -187,17 +191,28 @@ prediction accuracy for the response variable $y$.
     * Column subset selection (UoI~CSS~).
     * Non-negative matrix factorization (UoI~NMF~).
 
+The generalized linear models we have implemented include the most commonly used
+models in a variety of scientific disciplines, but particularly in the fields of
+neuroscience and genomics. Extensions to other generalized linear models (e.g.,
+negative binomial regression, gamma regression, etc.) are left as future work.
+However, given the inheritance structure of the `PyUoI` framework, these
+extensions should be straightforward for the interested user.
+
 Similar to `scikit-learn`, each UoI algorithm has its own Python class. Instantiations
 of these classes are created with specific hyperparameters and are fit to
 user-provided datasets. The hyperparameters allow the user to fine-tune the
 number of resamples, fraction of data in each resample, and the model selection
 criteria used in the estimation module (in Algorithm 1, test set accuracy is
 used, but the Akaike and Bayesian Information Criteria are also available).
-Additionally, `PyUoI` is agnostic to the specific solver used for a given model.
-For example, generalized linear models come equipped with a coordinate
-descent solver (from `scikit-learn`), a built-in Orthant-Wise Limited memory
-Quasi-Newton solver [@gong2015], and the `pycasso` solver [@ge2019]. The choice
-of solver is left to the user as a hyperparameter.
+
+Additionally, UoI is agnostic to the specific solver used for a given model.
+That is, the UoI framework operates on fits obtained from performing the
+optimization to a specified model (such as the lasso optimization problem for
+linear regression). In the case of `PyUoI`, the generalized linear models come
+equipped with a coordinate descent solver (from `scikit-learn`), a built-in
+Orthant-Wise Limited memory Quasi-Newton solver [@gong2015], and the `pycasso`
+solver [@ge2019]. The choice of solver is left to the user as a hyperparameter.
+However, `PyUoI` could be extended by the user to utilize other desired solvers.
 
 # Applications
 
@@ -212,8 +227,8 @@ We have used `PyUoI` largely in the realm of neuroscience and genomics
 * Extraction of characteristic single nucleotide polymorphisms for the
   prediction of phenotypes in mice.
 
-However, the algorithms implemented in `PyUoI` are broadly applicable and not
-limited to these contexts.
+However, the algorithms implemented in `PyUoI` are broadly applicable to problems
+where enforcement of sparsity at minimal cost to bias are desired.
 
 # Acknowledgements
 
@@ -223,7 +238,7 @@ Science \& Engineering Graduate Fellowship (NDSEG) Program. K.E.B. and J.A.L.
 were supported through the Lawrence Berkeley National Laboratory-internal LDRD
 "Deep Learning for Science" led by Prabhat. A.J.T. was supported by the
 Department of Energy project “Co-design for artificial intelligence coupled with
-computing at scale for extremely large, complex datasets” K.E.B. was funded by
+computing at scale for extremely large, complex datasets.” K.E.B. was funded by
 Lawrence Berkeley National Laboratory-internal LDRD "Neuro/Nano-Technology for
 BRAIN" led by Peter Denes.
 
