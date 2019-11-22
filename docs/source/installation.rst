@@ -4,7 +4,7 @@
 Installation
 ============
 
-PyUoI is available on PyPI:
+PyUoI is available for Python>=3.5 on PyPI:
 
 .. code-block:: bash
 
@@ -26,9 +26,9 @@ Runtime
 
 PyUoI requires
 
-  * numpy
-  * h5py
-  * scikit-learn
+  * numpy>=1.14
+  * h5py>=2.8
+  * scikit-learn>=0.20
 
 and optionally
 
