@@ -23,7 +23,7 @@ Further details on the UoI framework can be found in the NeurIPS paper (<a href=
 
 # Installation
 
-PyUoI is available on PyPI:
+PyUoI is available for Python>=3.5 on PyPI:
 
 ```
 pip install pyuoi
@@ -34,6 +34,36 @@ and will soon be through conda-forge:
 ```
 conda install pyuoi -c conda-forge
 ```
+
+# Requirements
+
+## Runtime
+
+PyUoI requires
+
+* numpy>=1.14
+* h5py>=2.8
+* scikit-learn>=0.20
+
+and optionally
+
+* pycasso
+* mpi4py
+
+to run.
+
+## Develop
+
+To develop PyUoI you will additionally need
+
+* cython
+
+to build from source and
+
+* pytest
+* flake8
+
+to run the tests and check formatting.
 
 # Features
 

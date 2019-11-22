@@ -10,7 +10,10 @@ from pyuoi.linear_model.utils import intersection
 from pyuoi.utils import check_logger
 
 import logging
-from mpi4py import MPI
+try:
+    from mpi4py import MPI
+except ImportError:
+    MPI = None
 
 
 def test_stability_selection_to_threshold_int():
@@ -313,6 +316,7 @@ def test_check_logger():
 
 
 @pytest.mark.fast
+@pytest.mark.skipif(MPI is None, reason='MPI not installed.')
 def test_check_logger_mpi():
     """Test that passing in a MPI communicatorj object works with
     check_logger"""
