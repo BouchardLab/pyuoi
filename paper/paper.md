@@ -75,9 +75,9 @@ similarly to the `scikit-learn` package, which is a commonly used Python machine
 learning library [@scikit-learn; @sklearn_api].
 
 The UoI framework operates by fitting many models across resamples of the
-dataset and across a set of regularization parameters. Thus, since these fits
-can be performed in parallel, the UoI framework is naturally scalable. `PyUoI`
-is equipped with `mpi4py` functionality to parallelize model fitting on large
+dataset and across a set of regularization parameters. Since these fits can be
+performed in parallel, the UoI framework is naturally scalable. `PyUoI` is
+equipped with `mpi4py` functionality to parallelize model fitting on large
 datasets [@dalcin2005].
 
 # Background
@@ -110,12 +110,13 @@ constrained optimization problem of the form
                 + \lambda |\boldsymbol{\beta}|_1
 \end{equation}
 
-where $|\boldsymbol{\beta}|_1$ is the $\ell_1$-norm of the parameters. The $\ell_1$-norm is a
-convenient penalty because it will tend to force parameters to be set exactly
-equal to zero, performing feature selection [@tibshirani1994]. Typically,
-$\lambda$, the degree to which feature sparsity is enforced, is unknown and must
-be determined through cross-validation or a penalized score function across a
-set of hyperparameters $\left\{\lambda_j\right\}_{j=1}^k$.
+where $|\boldsymbol{\beta}|_1$ is the $\ell_1$-norm of the parameters and $i$
+indexes data samples. The $\ell_1$-norm is a convenient penalty because it will
+tend to force parameters to be set exactly equal to zero, performing feature
+selection [@tibshirani1994]. Typically, $\lambda$, the degree to which feature
+sparsity is enforced, is unknown and must be determined through cross-validation
+or a penalized score function across a set of hyperparameters
+$\left\{\lambda_j\right\}_{j=1}^k$.
 
 The key mathematical idea underlying UoI is to perform model selection through
 intersection (compressive) operations and model estimation through union
@@ -192,7 +193,7 @@ prediction accuracy for the response variable $y$.
     * Non-negative matrix factorization (UoI~NMF~).
 
 The generalized linear models we have implemented include the most commonly used
-models in a variety of scientific disciplines, but particularly in the fields of
+models in a variety of scientific disciplines, particularly in the fields of
 neuroscience and genomics. Extensions to other generalized linear models (e.g.,
 negative binomial regression, gamma regression, etc.) are left as future work.
 However, given the inheritance structure of the `PyUoI` framework, these
@@ -208,12 +209,13 @@ available [@akaike1998; @schwarz1978]).
 
 Additionally, UoI is agnostic to the specific solver used for a given model.
 That is, the UoI framework operates on fits obtained from performing the
-optimization to a specified model (such as the lasso optimization problem for
+optimization for a specified model (such as the lasso optimization problem for
 linear regression). In the case of `PyUoI`, the generalized linear models come
 equipped with a coordinate descent solver (from `scikit-learn`), a built-in
 Orthant-Wise Limited memory Quasi-Newton solver [@gong2015], and the `pycasso`
 solver [@ge2019]. The choice of solver is left to the user as a hyperparameter.
-However, `PyUoI` could be extended by the user to utilize other desired solvers.
+If a different solver is desired, `PyUoI` could be extended by the user to
+utilize this solver in a straightforward manner.
 
 # Applications
 
