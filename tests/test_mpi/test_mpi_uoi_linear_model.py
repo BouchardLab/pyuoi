@@ -8,7 +8,10 @@ except ImportError:
     MPI = None
 
 from pyuoi.datasets import make_classification, make_poisson_regression
-from pyuoi.linear_model import UoI_Lasso, UoI_L1Logistic, UoI_ElasticNet, UoI_Poisson
+from pyuoi.linear_model import (UoI_Lasso,
+                                UoI_L1Logistic,
+                                UoI_ElasticNet,
+                                UoI_Poisson)
 
 
 @pytest.mark.skipif(MPI is None, reason='MPI not installed.')

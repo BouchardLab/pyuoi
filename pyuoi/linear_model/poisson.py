@@ -637,7 +637,9 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         if self.fit_intercept:
             mu = np.exp(np.dot(X, self.coef_.T))
             if np.any(y):
-                self.intercept_ = np.log(np.mean(y, keepdims=True) / np.mean(mu))
+                self.intercept_ = np.log(
+                    np.mean(y, keepdims=True) / np.mean(mu)
+                )
             else:
                 self.intercept_ = -np.inf * np.ones(1)
         else:
