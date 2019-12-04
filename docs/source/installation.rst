@@ -4,13 +4,13 @@
 Installation
 ============
 
-PyUoI is available for Python>=3.5 on PyPI:
+PyUoI is available for Python 3 on PyPI:
 
 .. code-block:: bash
 
     $ pip install pyuoi
 
-and will soon be through conda-forge:
+and through conda-forge:
 
 .. code-block:: bash
 

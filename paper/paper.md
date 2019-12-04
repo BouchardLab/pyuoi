@@ -100,7 +100,7 @@ y = \boldsymbol{\beta}^T \mathbf{x} + \epsilon
 \end{equation}
 
 where $\epsilon \sim \mathcal{N}(0, \sigma^2)$ for each sample. When the true
-$\boldsymbol{\beta}$ is thought to be sparse (i.e., some subset of the $\beta$
+$\boldsymbol{\beta}$ is thought to be sparse (i.e., some subset of the $\boldsymbol{\beta}$
 are exactly zero), an estimate of $\boldsymbol{\beta}$ can be found by solving a
 constrained optimization problem of the form
 
@@ -124,7 +124,7 @@ intersection (compressive) operations and model estimation through union
 selection profiles that are more robust and parameter estimates that have less bias. This can be
 contrasted with a typical Lasso fit wherein parameter selection and estimation are performed
 simultaneously. The Lasso procedure can lead to selection profiles that are not robust
-to data resampling and estimates that are biased by the penalty on $\beta$. For
+to data resampling and estimates that are biased by the penalty on $\boldsymbol{\beta}$. For
 UoI~Lasso~, the procedure is as follows (see Algorithm 1 for a more detailed pseudocode):
 
 * **Model Selection:** For each $\lambda_j$ in the Lasso path, generate estimates on $N_S$
@@ -148,7 +148,7 @@ and the degree of feature expansion via unions (quantified by $N_E$) can be bala
 prediction accuracy for the response variable $y$.
 
 \begin{algorithm}[t]
-    \caption{\textsc{UoI-Lasso}}
+    \caption{\textsc{UoI$_\textsc{Lasso}$}}
     \label{alg:uoi}
     \hspace*{\algorithmicindent} \textbf{Input}:
     $X \in \mathbb{R}^{N\times p}$ design matrix \\
