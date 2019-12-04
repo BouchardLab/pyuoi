@@ -3,7 +3,8 @@
 
 <img src="https://travis-ci.org/BouchardLab/PyUoI.svg?branch=master"> [![codecov](https://codecov.io/gh/BouchardLab/PyUoI/branch/master/graph/badge.svg)](https://codecov.io/gh/BouchardLab/PyUoI)
 [![Documentation Status](https://readthedocs.org/projects/pyuoi/badge/?version=latest)](https://pyuoi.readthedocs.io/en/latest/?badge=latest)
-![PyPI](https://img.shields.io/pypi/v/pyuoi)[![Anaconda-Server Badge](https://anaconda.org/conda-forge/pyuoi/badges/installer/conda.svg)](https://conda.anaconda.org/conda-forge)
+![PyPI](https://img.shields.io/pypi/v/pyuoi)
+[![Anaconda-Server Badge](https://anaconda.org/conda-forge/pyuoi/badges/installer/conda.svg)](https://conda.anaconda.org/conda-forge)
 
 PyUoI contains implementations of Union of Intersections framework for a variety
 of penalized generalized linear models as well as dimensionality reductions
