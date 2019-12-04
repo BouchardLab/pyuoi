@@ -318,6 +318,8 @@ class Poisson(BaseEstimator):
         """Rescale coefficients, if needed, after fitting."""
         if self.standardize:
             sX = self._X_scaler
+            if self.fit_intercept:
+                self.intercept_ -= np.sum((sX.mean_ * self.coef_) / sX.scale_)
             self.coef_ /= sX.scale_
 
     @staticmethod
@@ -635,9 +637,11 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         if self.fit_intercept:
             mu = np.exp(np.dot(X, self.coef_.T))
             if np.any(y):
-                self.intercept_ = np.log(np.mean(y) / np.mean(mu))
+                self.intercept_ = np.log(
+                    np.mean(y, keepdims=True) / np.mean(mu)
+                )
             else:
-                self.intercept_ = -np.inf
+                self.intercept_ = np.array(-np.inf)
         else:
             self.intercept_ = np.zeros(1)
 

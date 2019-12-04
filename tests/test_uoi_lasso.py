@@ -112,29 +112,26 @@ def test_uoi_lasso_toy():
 
 def test_uoi_lasso_estimation_shape_match():
     """Test UoI Lasso on a toy example."""
-
-    X = np.array([
-        [-1, 2],
-        [4, 1],
-        [1, 3],
-        [4, 3],
-        [8, 11]], dtype=float)
-    beta = np.array([1, 4], dtype=float)
-    y = np.dot(X, beta)
+    n_samples = 40
+    n_features = 10
+    X, y = make_regression(n_samples=n_samples,
+                           n_features=n_features,
+                           n_informative=5,
+                           random_state=1)
 
     lasso = UoI_Lasso()
     lasso.fit(X, y)
     with pytest.raises(ValueError, match='Targets and predictions are ' +
                        'not the same shape.'):
-        support = np.arange(2)
-        boot_idxs = [np.arange(4)] * 2
-        lasso.coef_ = np.array([[1, 4], [1, 4]])
+        support = np.ones(n_features).astype(bool)
+        boot_idxs = [np.arange(n_samples)] * 2
+        lasso.coef_ = np.random.randn(2, n_features)
         lasso._score_predictions('r2', lasso, X, y,
                                  support, boot_idxs)
 
     with pytest.raises(ValueError, match='y should either have'):
-        support = np.arange(2)
-        boot_idxs = [np.arange(4)] * 2
+        support = np.ones(n_features).astype(bool)
+        boot_idxs = [np.arange(n_samples)] * 2
         lasso._score_predictions('r2', lasso, X, y[:, np.newaxis, np.newaxis],
                                  support, boot_idxs)
 
@@ -142,17 +139,14 @@ def test_uoi_lasso_estimation_shape_match():
 def test_uoi_lasso_fit_shape_match():
     """Test UoI Lasso on a toy example."""
 
-    X = np.array([
-        [-1, 2],
-        [4, 1],
-        [1, 3],
-        [4, 3],
-        [8, 11]], dtype=float)
-    beta = np.array([1, 4], dtype=float)
-    y = np.dot(X, beta)
+    n_samples = 40
+    n_features = 10
+    X, y = make_regression(n_samples=n_samples,
+                           n_features=n_features,
+                           n_informative=5,
+                           random_state=1)
 
     lasso = UoI_Lasso()
-    lasso.fit(X, y)
 
     # Check that second axis gets squeezed
     lasso.fit(X, y[:, np.newaxis])
