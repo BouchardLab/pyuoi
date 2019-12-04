@@ -120,25 +120,31 @@ $\left\{\lambda_j\right\}_{j=1}^k$.
 
 The key mathematical idea underlying UoI is to perform model selection through
 intersection (compressive) operations and model estimation through union
-(expansive) operations, in that order. For UoI~Lasso~, the procedure
-is as follows (see Algorithm 1 for a more detailed pseudocode):
+(expansive) operations, in that order. This separation of parameter selection and estimation provides
+selection profiles that are more robust and parameter estimates that have less bias. This can be
+contrasted with a typical Lasso fit wherein parameter selection and estimation are performed
+simultaneously. The Lasso procedure can lead to selection profiles that are not robust
+to data resampling and estimates that are biased by the penalty on $\beta$. For
+UoI~Lasso~, the procedure is as follows (see Algorithm 1 for a more detailed pseudocode):
 
-* **Model Selection:** For each $\lambda_j$, generate Lasso estimates on $N_S$
+* **Model Selection:** For each $\lambda_j$ in the Lasso path, generate estimates on $N_S$
   resamples of the data (Line 2). The support $S_j$ (i.e., the set of non-zero
   parameters) for $\lambda_j$ consists of the features that persist in all model
   fits across the resamples (i.e., through an intersection) (Line 7).
 * **Model Estimation:** For each support $S_j$, perform Ordinary Least Squares
   (OLS) on $N_E$ resamples of the data. The final model is obtained by averaging
-  (i.e., unionizing) across the supports chosen according to some model
-  selection criteria, such as optimally predicting on held-out data for each
-  resample (Lines 15-16).
+  (i.e., taking the union) across the supports chosen according to some model
+  selection criteria for each resample (Lines 15-16). The model selection criteria can be
+  prediction quality on held-out data or penalized likelihood methods (e.g., AIC or BIC).
 
 Thus, the selection module ensures that, for each $\lambda_j$, only features
 that are stable to perturbations in the data (resamples) are allowed in the
-support $S_j$. Meanwhile, the estimation module ensures that only the predictive
-supports are averaged together in the final model. The degree of feature
-compression via intersections (quantified by $N_S$) and the degree of feature
-expansion via unions (quantified by $N_E$) can be balanced to maximize
+support $S_j$. This provides a family of resample-stable model supports with varying levels
+of sparsity due to $\lambda_j$ that can be used in estimation. Then, the estimation
+module ensures that the most predictive supports per resample are averaged together in
+the final model. The estimation module uses OLS rather than Lasso to provide parameter
+estimates with low bias. The degree of feature compression via intersections (quantified by $N_S$)
+and the degree of feature expansion via unions (quantified by $N_E$) can be balanced to maximize
 prediction accuracy for the response variable $y$.
 
 \begin{algorithm}[t]
