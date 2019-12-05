@@ -1,3 +1,9 @@
+# pdfs
+*.pdf
+
+# docs
+docs/
+
 # pip wheel metadata
 pip-wheel-metadata/
 
