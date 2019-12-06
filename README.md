@@ -5,6 +5,8 @@
 [![Documentation Status](https://readthedocs.org/projects/pyuoi/badge/?version=latest)](https://pyuoi.readthedocs.io/en/latest/?badge=latest)
 ![PyPI](https://img.shields.io/pypi/v/pyuoi)
 [![Anaconda-Server Badge](https://anaconda.org/conda-forge/pyuoi/badges/installer/conda.svg)](https://conda.anaconda.org/conda-forge)
+[![DOI](https://joss.theoj.org/papers/10.21105/joss.01799/status.svg)](https://doi.org/10.21105/joss.01799)
+
 
 PyUoI contains implementations of Union of Intersections framework for a variety
 of penalized generalized linear models as well as dimensionality reductions
