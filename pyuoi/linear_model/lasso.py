@@ -99,6 +99,21 @@ class PycLasso():
                 alphas = np.append(alphas, alphas[-1] / 2)
             self.alphas = alphas
 
+        # Sort in descending order
+        self.alphas = np.sort(self.alphas)[::-1]
+
+        # Pycasso requires the regularization path to include at
+        # least 3 regularization parameters. Add 'dummy parameters'
+        # whose solution we subsequently discard
+        dummy_path = False
+        if self.alphas.size < 3:
+            dummy_path = True
+            alphas = self.alphas
+            pathlength = alphas.size
+            while alphas.size < 3:
+                alphas = np.append(alphas, alphas[-1] / 2)
+            self.alphas = alphas
+
         self.solver = pycasso.Solver(X, y, family='gaussian',
                                      useintercept=self.fit_intercept,
                                      lambdas=self.alphas,
