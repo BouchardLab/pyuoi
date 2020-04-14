@@ -70,13 +70,21 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
     warm_start : bool
         When set to ``True``, reuse the solution of the previous call to fit as
         initialization, otherwise, just erase the previous solution
-    eps : float
-        Length of the L1 path. eps=1e-5 means that alpha_min / alpha_max = 1e-5
-    fit_intercept : bool
-        Whether to calculate the intercept for this model. If set to False, no
-        intercept will be used in calculations (e.g. data is expected to be
-        already centered).
-    standardize : bool
+
+    eps : float, default 1e-5
+        Length of the L1 path. eps=1e-5 means that
+        alpha_min / alpha_max = 1e-5
+
+    fit_intercept : boolean, default True
+        Whether to calculate the intercept for this model. If set
+        to False, no intercept will be used in calculations
+        (e.g. data is expected to be already centered).
+
+    replace : boolean, deafult False
+        Whether or not to sample with replacement when "bootstrapping"
+        in selection/estimation modules
+
+    standardize : boolean, default False
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.
     shared_support : bool
@@ -114,7 +122,7 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
                  estimation_frac=0.9, n_C=48, stability_selection=1.,
                  estimation_score='acc', estimation_target=None,
                  multi_class='auto', shared_support=True, warm_start=False,
-                 eps=1e-5, fit_intercept=True, standardize=True,
+                 eps=1e-5, fit_intercept=True, standardize=True, replace=False,
                  max_iter=10000, tol=1e-3, random_state=None, comm=None,
                  logger=None):
         super(UoI_L1Logistic, self).__init__(
@@ -127,6 +135,7 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
             estimation_target=estimation_target,
             random_state=random_state,
             fit_intercept=fit_intercept,
+            replace=replace,
             standardize=standardize,
             shared_support=shared_support,
             comm=comm,

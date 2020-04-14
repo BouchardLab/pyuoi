@@ -3,13 +3,13 @@ import numpy as np
 import logging
 from sklearn.linear_model.base import SparseCoefMixin
 from sklearn.metrics import r2_score, accuracy_score, log_loss
-from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
 from sklearn.preprocessing import StandardScaler
 
 from scipy.sparse import issparse, csr_matrix
 
 from pyuoi import utils
+from pyuoi.resampling import resample
 from pyuoi.mpi_utils import (Gatherv_rows, Bcast_from_root)
 
 from .utils import stability_selection_to_threshold, intersection
@@ -36,18 +36,26 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         bootstrap, during the estimation module. The remaining data is used
         to obtain validation scores. Small values of this parameters imply
         larger "perturbations" to the dataset.
-    stability_selection : int, float, or array-like
-        If int, treated as the number of bootstraps that a feature must appear
-        in to guarantee placement in selection profile. If float, must be
-        between 0 and 1, and is instead the proportion of bootstraps. If
-        array-like, must consist of either ints or floats between 0 and 1.
-        In this case, each entry in the array-like object will act as a
-        separate threshold for placement in the selection profile.
-    fit_intercept : bool
-        Whether to calculate the intercept for this model. If set to False,
-        no intercept will be used in calculations (e.g. data is expected to be
-        already centered).
-    standardize : bool
+
+    stability_selection : int, float, or array-like, default 1
+        If int, treated as the number of bootstraps that a feature must
+        appear in to guarantee placement in selection profile. If float,
+        must be between 0 and 1, and is instead the proportion of
+        bootstraps. If array-like, must consist of either ints or floats
+        between 0 and 1. In this case, each entry in the array-like object
+        will act as a separate threshold for placement in the selection
+        profile.
+
+    fit_intercept : boolean, default True
+        Whether to calculate the intercept for this model. If set
+        to False, no intercept will be used in calculations
+        (e.g. data is expected to be already centered).
+
+    replace : boolean, deafult False
+        Whether or not to sample with replacement when "bootstrapping"
+        in selection/estimation modules
+
+    standardize : boolean, default False
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.
     shared_support : bool
@@ -82,7 +90,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
 
     def __init__(self, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
-                 fit_intercept=True, standardize=True,
+                 fit_intercept=True, replace=False, standardize=True,
                  shared_support=True, max_iter=None, random_state=None,
                  comm=None, logger=None):
         # data split fractions
@@ -94,21 +102,25 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         # other hyperparameters
         self.stability_selection = stability_selection
         self.fit_intercept = fit_intercept
+        self.replace = replace
         self.standardize = standardize
         self.shared_support = shared_support
         self.max_iter = max_iter
         self.comm = comm
-        # preprocessing
-        if isinstance(random_state, int):
+
+        # Properly assign a RandomState instance to this fitter
+        if random_state is None:
+            self.random_state = np.random.RandomState()
+        elif isinstance(random_state, int):
             # make sure ranks use different seed
             if self.comm is not None:
                 random_state += self.comm.rank
             self.random_state = np.random.RandomState(random_state)
+        elif isinstance(random_state, np.random.RandomState):
+            self.random_state = random_state
         else:
-            if random_state is None:
-                self.random_state = np.random
-            else:
-                self.random_state = random_state
+            raise ValueError("Invalid type for random_state. Must be an integer"
+                             "np.random.RandomState instance or NoneType")
 
         # extract selection thresholds from user provided stability selection
         self.selection_thresholds_ = stability_selection_to_threshold(
@@ -134,6 +146,13 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
     def intersect(self, coef, thresholds):
         """Intersect coefficients across all thresholds."""
         pass
+
+    def _resample(self, idxs, sampling_frac, stratify):
+        """Do bootstrap (train/test split) depnding on whether replace is
+        set to true (false)"""
+
+        return resample('bootstrap', idxs, self.replace, self.random_state,
+                        sampling_frac=sampling_frac, stratify=stratify)
 
     def _pre_fit(self, X, y):
         """Perform class-specific setup for fit()."""
@@ -245,10 +264,9 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         for boot in range(self.n_boots_sel):
             if size > 1:
                 if rank == 0:
-                    rvals = train_test_split(np.arange(X.shape[0]),
-                                             test_size=1 - self.selection_frac,
-                                             stratify=stratify,
-                                             random_state=self.random_state)
+                    rvals = self._resample(np.arange(X.shape[0]),
+                                           sampling_frac=self.selection_frac,
+                                           stratify=stratify)
                 else:
                     rvals = [None] * 2
                 rvals = [Bcast_from_root(rval, self.comm, root=0)
@@ -256,11 +274,10 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                 if boot in my_boots.keys():
                     my_boots[boot] = rvals
             else:
-                my_boots[boot] = train_test_split(
+                my_boots[boot] = self._resample(
                     np.arange(X.shape[0]),
-                    test_size=1 - self.selection_frac,
-                    stratify=stratify,
-                    random_state=self.random_state)
+                    sampling_frac=self.selection_frac,
+                    stratify=stratify)
 
         # iterate over bootstraps
         curr_boot_idx = None
@@ -336,10 +353,9 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         for boot in range(self.n_boots_est):
             if size > 1:
                 if rank == 0:
-                    rvals = train_test_split(np.arange(X.shape[0]),
-                                             test_size=1 - self.estimation_frac,
-                                             stratify=stratify,
-                                             random_state=self.random_state)
+                    rvals = self._resample(np.arange(X.shape[0]),
+                                           sampling_frac=self.estimation_frac,
+                                           stratify=stratify)
                 else:
                     rvals = [None] * 2
                 rvals = [Bcast_from_root(rval, self.comm, root=0)
@@ -347,11 +363,10 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                 if boot in my_boots.keys():
                     my_boots[boot] = rvals
             else:
-                my_boots[boot] = train_test_split(
+                my_boots[boot] = self._resample(
                     np.arange(X.shape[0]),
-                    test_size=1 - self.estimation_frac,
-                    stratify=stratify,
-                    random_state=self.random_state)
+                    sampling_frac=self.selection_frac,
+                    stratify=stratify)
 
         # score (r2/AIC/AICc/BIC) for each bootstrap for each support
         scores = np.zeros(tasks.size)
@@ -498,7 +513,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
     def __init__(self, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
                  estimation_score='r2', estimation_target=None,
-                 copy_X=True, fit_intercept=True,
+                 copy_X=True, fit_intercept=True, replace=False,
                  standardize=True, random_state=None, max_iter=None,
                  comm=None, logger=None):
         super(AbstractUoILinearRegressor, self).__init__(
@@ -508,6 +523,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
             estimation_frac=estimation_frac,
             stability_selection=stability_selection,
             fit_intercept=fit_intercept,
+            replace=replace,
             standardize=standardize,
             max_iter=max_iter,
             random_state=random_state,
@@ -676,9 +692,9 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
     def __init__(self, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
                  estimation_score='acc', estimation_target=None,
-                 copy_X=True, fit_intercept=True, standardize=True,
-                 random_state=None, max_iter=None, shared_support=True,
-                 comm=None, logger=None):
+                 copy_X=True, fit_intercept=True, replace=False,
+                 standardize=True, random_state=None, max_iter=None,
+                 shared_support=True, comm=None, logger=None):
         super(AbstractUoIGeneralizedLinearRegressor, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,

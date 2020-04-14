@@ -84,17 +84,35 @@ class PycLasso():
         if self.alphas is None:
             raise Exception('Set alphas before fitting.')
 
+        # Sort in descending order
+        self.alphas = np.sort(self.alphas)[::-1]
+
+        # Pycasso requires the regularization path to include at
+        # least 3 regularization parameters.
+        dummy_path = False
+        if self.alphas.size < 3:
+            dummy_path = True
+            alphas = list(self.alphas)
+            pathlength = len(alphas)
+            while len(alphas) < 3:
+                alphas.append(alphas[-1] / 2)
+            self.alphas = np.array(alphas)
+
         self.solver = pycasso.Solver(X, y, family='gaussian',
                                      useintercept=self.fit_intercept,
                                      lambdas=self.alphas,
                                      penalty='l1',
                                      max_ite=self.max_iter)
         self.solver.train()
-        # Coefs across the entire solution path
-        self.coef_ = self.solver.result['beta']
-        self.intercept_ = self.solver.result['intercept']
+
+        if dummy_path:
+            self.coef_ = self.solver.result['beta'][0:pathlength, :]
+            self.intercept_ = self.solver.result['intercept'][0:pathlength]
+        else:
+            self.coef_ = self.solver.result['beta']
+            self.intercept_ = self.solver.result['intercept']
+
         self.isfitted = True
-        return self
 
 
 class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
@@ -146,7 +164,12 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         Whether to calculate the intercept for this model. If set
         to False, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
-    standardize : bool
+
+    replace : boolean, deafult False
+        Whether or not to sample with replacement when "bootstrapping"
+        in selection/estimation modules
+
+    standardize : boolean, default False
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations. This
         parameter is equivalent to ``normalize`` in ``scikit-learn`` models.
@@ -184,8 +207,8 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
                  estimation_frac=0.9, n_lambdas=48, stability_selection=1.,
                  estimation_score='r2', estimation_target=None, eps=1e-3,
                  warm_start=True, copy_X=True, fit_intercept=True,
-                 standardize=True, max_iter=1000, random_state=None,
-                 comm=None, logger=None,
+                 replace=False, standardize=True, max_iter=1000,
+                 random_state=None, comm=None, logger=None,
                  solver='cd'):
         super(UoI_Lasso, self).__init__(
             n_boots_sel=n_boots_sel,
@@ -196,6 +219,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
             stability_selection=stability_selection,
             copy_X=copy_X,
             fit_intercept=fit_intercept,
+            replace=replace,
             standardize=standardize,
             random_state=random_state,
             comm=comm,
@@ -238,6 +262,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         if self.solver == 'pyc':
             alphas = np.array([reg_param['alpha']
                                for reg_param in reg_param_values])
+
             self._selection_lm.set_params(alphas=alphas)
             self._selection_lm.fit(X, y)
 
