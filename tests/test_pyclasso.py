@@ -36,9 +36,4 @@ def test_pyclasso():
     pyc_losses = np.array([l1_loss(y, X, pyc_lasso.coef_[i, :], alphas[i])
                            for i in range(alphas.size)])
 
-    # Assert losses are within 0.5 %
-    prcnt_diff = np.abs(np.array([((skl_losses[i] - pyc_losses[i])
-                                 / skl_losses[i])
-                                 for i in range(skl_losses.size)]))
-
-    assert(np.all(prcnt_diff < 5e-2))
+    np.assert_allclose(skl_losses, pyc_losses, rtol=5e-2)

@@ -12,7 +12,7 @@ from .base import AbstractUoILinearRegressor
 
 
 class PycLasso():
-    """Lasso using the pycasso solver. Solves for an entire regularization path
+    r"""Lasso using the pycasso solver. Solves for an entire regularization path
     at once.
 
     Parameters
@@ -52,7 +52,7 @@ class PycLasso():
                 raise ValueError('Invalid parameter %s' % key)
 
     def predict(self, X):
-        """Predicts responses given a design matrix.
+        r"""Predicts responses given a design matrix.
 
         Parameters
         ----------
@@ -70,7 +70,7 @@ class PycLasso():
             raise NotFittedError('Estimator is not fit.')
 
     def fit(self, X, y):
-        """Fit data according to the pycasso object.
+        r"""Fit data according to the pycasso object.
 
         Parameters
         ----------
@@ -95,7 +95,7 @@ class PycLasso():
             alphas = list(self.alphas)
             pathlength = len(alphas)
             while len(alphas) < 3:
-                alphas.append(alphas[-1] / 2)
+                alphas.append(alphas[-1] * .999)
             self.alphas = np.array(alphas)
 
         self.solver = pycasso.Solver(X, y, family='gaussian',
@@ -164,11 +164,9 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         Whether to calculate the intercept for this model. If set
         to False, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
-
     replace : boolean, deafult False
         Whether or not to sample with replacement when "bootstrapping"
         in selection/estimation modules
-
     standardize : boolean, default False
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations. This

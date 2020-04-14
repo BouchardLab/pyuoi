@@ -5,27 +5,30 @@ from sklearn.utils import check_random_state
 
 
 def resample(type, x, replace=True, random_state=None, **kwargs):
-    """function resample: Takes the data in X and y and returns the appropriate
+    r"""Takes the data in X and y and returns the appropriate
     resampled versions.
 
+	Parameters
+    ----------
     type : str "bootstrap" | "block"
         type of resampling to do
-
     x : array-like with shape (n_samples,)
         A suitable array whose indices will be used as the basis for resampling.
-
     replace : bool
         Should we sample with replacement or not? True corresponds to a
         bootstrap, False to use sklearn train_test_split
-
     random_state : int or np.random.RandomState instance
         If an int or None, used to create a np.random.RandomState instance.
         Else, if already an instance of RandomState, used as-is to generate
         random samples
-
     **kwargs : arguments necessary to perform the desired resampling.
-    See functions below for necessary keyword arguments"""
+    See functions below for necessary keyword arguments
 
+	Returns
+    -------
+	train_idxs: ndarray, shape (n_train_samples, n_features)
+	test_idxs: ndarray, shape (n_test_samples, n_features)
+    """
     random_state = check_random_state(random_state)
 
     if type == 'bootstrap':
@@ -37,17 +40,26 @@ def resample(type, x, replace=True, random_state=None, **kwargs):
 
 
 def bootstrap(x, rand_state, replace, sampling_frac=0.9, stratify=None):
-    """Sample with replacement. For test idxs, we take the complement
-    of the unique boostrap indices to ensure there is no overlap. This
-    implies that test_frac does not necessarily equal 1 - train_frac
+    r"""Sample with or without replacement. For test idxs, we take the 
+    complement of the unique boostrap indices to ensure there is no overlap. 
+    This implies that test_frac does not necessarily equal 1 - train_frac
 
+	Parameters
+	----------
+	rand_state : np.random.RandomState instance
+		Use for random index selection
+	replace : bool
+		Sample with or without replacement
     sampling_frac : float between 0 and 1
         What fraction of x to allocate to test data
-
     stratify : array-like
         Class labels for stratified bootstrapping
-    """
 
+	Returns
+	-------
+	train_idxs: ndarray, shape (n_train_samples, n_features)
+	test_idxs: ndarray, shape (n_test_samples, n_features)
+    """
     if replace:
 
         if stratify is not None:
@@ -63,8 +75,7 @@ def bootstrap(x, rand_state, replace, sampling_frac=0.9, stratify=None):
                 class_train_idxs = rand_state.choice(class_idxs,
                                                      size=n_samples,
                                                      replace=True)
-                class_test_idxs = \
-                    list(set(class_idxs).difference(set(class_train_idxs)))
+                class_test_idxs = np.setdiff1d(class_idxs, class_train_idxs)
 
                 train_idxs.extend(class_train_idxs)
                 test_idxs.extend(class_test_idxs)
@@ -73,7 +84,7 @@ def bootstrap(x, rand_state, replace, sampling_frac=0.9, stratify=None):
 
             train_idxs = rand_state.choice(len(x), size=n_samples,
                                            replace=True)
-            test_idxs = list(set(np.arange(len(x))).difference(set(train_idxs)))
+            test_idxs = np.setdiff1d(np.arange(len(x)), train_idxs)
 
     else:
 
@@ -86,19 +97,30 @@ def bootstrap(x, rand_state, replace, sampling_frac=0.9, stratify=None):
 
 
 def block_bootstrap(x, rand_state, L, block_frac):
+    r"""Use a moving block bootstrap for resampling in VAR models. See
+	'The jackknife and the bootstrap for general stationary observations'
+	by Hans Kunsch, Annals of Statistics 1989, Vol 17, No. 3, 1217-1241		
 
+	Parameters
+	----------
+	rand_state : np.random.RandomState instance
+		Use for random index selection
+	L : int
+		Size of bootstrap blocks
+    block_frac : float between 0 and 1
+        What fraction of blocks to allocate to test data
+
+	Returns
+	-------
+	train_idxs: ndarray, shape (n_train_samples, n_features)
+	test_idxs: ndarray, shape (n_test_samples, n_features)
+    """    
     n = len(x)
 
-    # Ensure the L is a divisor of n
-    if n % L != 0:
-        raise ValueError("Block length must evenly divide"
-                         "the number of samples")
-
     # Divide the data set into overlapping blocks of length L
-    indices = np.arange(n)
     blocks = []
-    for i in range(indices.size - L + 1):
-        blocks.append(indices[i:i + L])
+    for i in range(x.size - L + 1):
+        blocks.append(x[i:i + L])
 
     n_sampled_blocks = int(np.round(len(blocks) * block_frac))
     selected_blocks = rand_state.choice(len(blocks),
@@ -112,8 +134,9 @@ def block_bootstrap(x, rand_state, L, block_frac):
 
     # Take the complement of the selected blocks
     # and stitch those together to give "test data"
-    test_idxs = []
-    for idx in set(np.arange(len(blocks))).difference(set(selected_blocks)):
-        test_idxs.extend(blocks[idx])
+    test_blocks = np.setdiff1d(np.arange(len(blocks)), selected_blocks)
+    train_idxs = []
+    for idx in selected_blocks:
+        train_idxs.extend(blocks[idx])
 
     return train_idxs, test_idxs
