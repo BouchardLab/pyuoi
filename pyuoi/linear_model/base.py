@@ -104,7 +104,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         self.comm = comm
 
         self.random_state = check_random_state(random_state)
-        
+
         # extract selection thresholds from user provided stability selection
         self.selection_thresholds_ = stability_selection_to_threshold(
             self.stability_selection, self.n_boots_sel)

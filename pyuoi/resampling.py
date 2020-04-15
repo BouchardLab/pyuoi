@@ -8,7 +8,7 @@ def resample(type, x, replace=True, random_state=None, **kwargs):
     r"""Takes the data in X and y and returns the appropriate
     resampled versions.
 
-	Parameters
+    Parameters
     ----------
     type : str "bootstrap" | "block"
         type of resampling to do
@@ -24,10 +24,10 @@ def resample(type, x, replace=True, random_state=None, **kwargs):
     **kwargs : arguments necessary to perform the desired resampling.
     See functions below for necessary keyword arguments
 
-	Returns
+    Returns
     -------
-	train_idxs: ndarray, shape (n_train_samples, n_features)
-	test_idxs: ndarray, shape (n_test_samples, n_features)
+    train_idxs: ndarray, shape (n_train_samples, n_features)
+    test_idxs: ndarray, shape (n_test_samples, n_features)
     """
     random_state = check_random_state(random_state)
 
@@ -40,25 +40,25 @@ def resample(type, x, replace=True, random_state=None, **kwargs):
 
 
 def bootstrap(x, rand_state, replace, sampling_frac=0.9, stratify=None):
-    r"""Sample with or without replacement. For test idxs, we take the 
-    complement of the unique boostrap indices to ensure there is no overlap. 
+    r"""Sample with or without replacement. For test idxs, we take the
+    complement of the unique boostrap indices to ensure there is no overlap.
     This implies that test_frac does not necessarily equal 1 - train_frac
 
-	Parameters
-	----------
-	rand_state : np.random.RandomState instance
-		Use for random index selection
-	replace : bool
-		Sample with or without replacement
+    Parameters
+    ----------
+    rand_state : np.random.RandomState instance
+        Use for random index selection
+    replace : bool
+        Sample with or without replacement
     sampling_frac : float between 0 and 1
         What fraction of x to allocate to test data
     stratify : array-like
         Class labels for stratified bootstrapping
 
-	Returns
-	-------
-	train_idxs: ndarray, shape (n_train_samples, n_features)
-	test_idxs: ndarray, shape (n_test_samples, n_features)
+    Returns
+    -------
+    train_idxs: ndarray, shape (n_train_samples, n_features)
+    test_idxs: ndarray, shape (n_test_samples, n_features)
     """
     if replace:
 
@@ -98,24 +98,25 @@ def bootstrap(x, rand_state, replace, sampling_frac=0.9, stratify=None):
 
 def block_bootstrap(x, rand_state, L, block_frac):
     r"""Use a moving block bootstrap for resampling in VAR models. See
-	'The jackknife and the bootstrap for general stationary observations'
-	by Hans Kunsch, Annals of Statistics 1989, Vol 17, No. 3, 1217-1241		
+    'The jackknife and the bootstrap for general stationary observations'
+    by Hans Kunsch, Annals of Statistics 1989, Vol 17, No. 3, 1217-1241
+    Test indices are returned for backwards compatibility, but in this case
+    may heavily overlap with training indices
 
-	Parameters
-	----------
-	rand_state : np.random.RandomState instance
-		Use for random index selection
-	L : int
-		Size of bootstrap blocks
+    Parameters
+    ----------
+    rand_state : np.random.RandomState instance
+        Use for random index selection
+    L : int
+        Size of bootstrap blocks
     block_frac : float between 0 and 1
         What fraction of blocks to allocate to test data
 
-	Returns
-	-------
-	train_idxs: ndarray, shape (n_train_samples, n_features)
-	test_idxs: ndarray, shape (n_test_samples, n_features)
-    """    
-    n = len(x)
+    Returns
+    ------
+    train_idxs: ndarray, shape (n_train_samples, n_features)
+    test_idxs: ndarray, shape (n_test_samples, n_features)
+    """
 
     # Divide the data set into overlapping blocks of length L
     blocks = []
@@ -135,8 +136,8 @@ def block_bootstrap(x, rand_state, L, block_frac):
     # Take the complement of the selected blocks
     # and stitch those together to give "test data"
     test_blocks = np.setdiff1d(np.arange(len(blocks)), selected_blocks)
-    train_idxs = []
-    for idx in selected_blocks:
-        train_idxs.extend(blocks[idx])
+    test_idxs = []
+    for idx in test_blocks:
+        test_idxs.extend(blocks[idx])
 
     return train_idxs, test_idxs
