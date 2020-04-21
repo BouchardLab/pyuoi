@@ -32,6 +32,7 @@ install:
     - python setup.py build
     - python setup.py develop
     - pip install pytest-cov
+    - pip install matplotlib
 script:
     - flake8 pyuoi tests docs/gallery
     - pytest --cov=./ tests
