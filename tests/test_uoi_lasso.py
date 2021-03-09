@@ -6,7 +6,7 @@ from numpy.testing import (assert_array_equal, assert_array_almost_equal_nulp,
 from sklearn.datasets import make_regression
 from sklearn.linear_model import Lasso
 from sklearn.metrics import r2_score
-from sklearn.linear_model.coordinate_descent import _alpha_grid
+from sklearn.linear_model._coordinate_descent import _alpha_grid
 try:
     import pycasso
 except ImportError:

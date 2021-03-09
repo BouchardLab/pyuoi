@@ -1,6 +1,6 @@
 import abc as _abc
 
-from sklearn.linear_model.base import BaseEstimator
+from sklearn.linear_model._base import BaseEstimator
 
 
 class AbstractDecompositionModel(BaseEstimator, metaclass=_abc.ABCMeta):

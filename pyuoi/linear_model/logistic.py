@@ -8,8 +8,6 @@ from sklearn.utils import (check_X_y, compute_class_weight,
                            check_consistent_length, check_array)
 from sklearn.utils.multiclass import check_classification_targets
 from sklearn.utils.extmath import safe_sparse_dot, log_logistic, squared_norm
-from sklearn.linear_model.logistic import (_check_multi_class,
-                                           _intercept_dot)
 from sklearn.preprocessing import StandardScaler
 
 from scipy.optimize import minimize
@@ -366,8 +364,6 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         -------
         self : object
         """
-        solver = 'lbfgs'
-
         if not isinstance(self.C, numbers.Number) or self.C < 0:
             raise ValueError("Penalty term must be positive; got (C=%r)"
                              % self.C)
@@ -388,8 +384,12 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         self.classes_ = np.unique(y)
         n_samples, n_features = X.shape
 
-        multi_class = _check_multi_class(self.multi_class, solver,
-                                         len(self.classes_))
+        multi_class = self.multi_class
+        if multi_class == 'auto':
+            if len(self.classes_) > 2:
+                multi_class = 'multinomial'
+            else:
+                multi_class = 'ovr'
 
         n_classes = len(self.classes_)
         classes_ = self.classes_
@@ -529,7 +529,6 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
     n_iter : array, shape (n_cs,)
         Actual number of iteration for each Cs.
     """
-    solver = 'lbfgs'
     if isinstance(Cs, numbers.Integral):
         Cs = np.logspace(-4, 4, Cs)
 
@@ -543,7 +542,11 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
 
     classes = np.unique(y)
 
-    multi_class = _check_multi_class(multi_class, solver, len(classes))
+    if multi_class == 'auto':
+        if len(classes) > 2:
+            multi_class = 'multinomial'
+        else:
+            multi_class = 'ovr'
 
     # If sample weights exist, convert them to array (support for lists)
     # and check length
@@ -559,7 +562,7 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
     # the class_weights are assigned after masking the labels with a OvR.
     le = LabelEncoder()
     if isinstance(class_weight, dict) or multi_class == 'multinomial':
-        class_weight_ = compute_class_weight(class_weight, classes, y)
+        class_weight_ = compute_class_weight(class_weight, classes=classes, y=y)
         sample_weight *= class_weight_[le.fit_transform(y)]
 
     # For doing a ovr, we need to mask the labels first. for the
@@ -574,8 +577,9 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
         # for compute_class_weight
 
         if class_weight == "balanced":
-            class_weight_ = compute_class_weight(class_weight, mask_classes,
-                                                 y_bin)
+            class_weight_ = compute_class_weight(class_weight,
+                                                 classes=mask_classes,
+                                                 y=y_bin)
             sample_weight *= class_weight_[le.fit_transform(y_bin)]
 
     else:
@@ -847,3 +851,34 @@ def _multinomial_loss_grad(w, X, Y, alpha, mask, sample_weight):
     if fit_intercept:
         grad[:, -1] = diff.sum(axis=0) / n_samples
     return loss, grad.ravel(), p
+
+
+def _intercept_dot(w, X, y):
+    """Computes y * np.dot(X, w).
+    It takes into consideration if the intercept should be fit or not.
+    Parameters
+    ----------
+    w : ndarray of shape (n_features,) or (n_features + 1,)
+        Coefficient vector.
+    X : {array-like, sparse matrix} of shape (n_samples, n_features)
+        Training data.
+    y : ndarray of shape (n_samples,)
+        Array of labels.
+    Returns
+    -------
+    w : ndarray of shape (n_features,)
+        Coefficient vector without the intercept weight (w[-1]) if the
+        intercept should be fit. Unchanged otherwise.
+    c : float
+        The intercept.
+    yz : float
+        y * np.dot(X, w).
+    """
+    c = 0.
+    if w.size == X.shape[1] + 1:
+        c = w[-1]
+        w = w[:-1]
+
+    z = safe_sparse_dot(X, w) + c
+    yz = y * z
+    return w, c, yz

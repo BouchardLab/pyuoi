@@ -1,6 +1,7 @@
 Portions of logistic.py including
 MaskedCoefLogisticRegression,
 _logistic_regression_path,
+_intercept_dot,
 _logistic_loss_and_grad, and
 _multinomial_loss_grad
 are based on code from scikit-learn. The scikit-learn license is below.

@@ -1,7 +1,7 @@
 import abc as _abc
 import numpy as np
 import logging
-from sklearn.linear_model.base import SparseCoefMixin
+from sklearn.linear_model._base import SparseCoefMixin
 from sklearn.metrics import r2_score, accuracy_score, log_loss
 from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
