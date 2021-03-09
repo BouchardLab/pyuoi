@@ -34,7 +34,7 @@ install:
     - python setup.py develop
     - pip install pytest-cov
 script:
-    - flake8 pyuoi tests docs/gallery
+    - flake8 pyuoi tests examples
     - pytest --cov=./ tests
     - sphinx-build -W -b html docs/source docs/build
 after_success:
