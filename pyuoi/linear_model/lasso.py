@@ -2,7 +2,7 @@ import numpy as np
 
 from sklearn.exceptions import NotFittedError
 from sklearn.linear_model import Lasso, LinearRegression
-from sklearn.linear_model.coordinate_descent import _alpha_grid
+from sklearn.linear_model._coordinate_descent import _alpha_grid
 try:
     import pycasso
 except ImportError:

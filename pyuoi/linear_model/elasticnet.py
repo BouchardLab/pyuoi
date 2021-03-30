@@ -3,7 +3,7 @@ import numpy as np
 from .base import AbstractUoILinearRegressor
 
 from sklearn.linear_model import LinearRegression
-from sklearn.linear_model.coordinate_descent import _alpha_grid
+from sklearn.linear_model._coordinate_descent import _alpha_grid
 from sklearn.linear_model import ElasticNet
 
 

@@ -1,4 +1,5 @@
 -r requirements.txt
+matplotlib
 pytest
 flake8
 cython
