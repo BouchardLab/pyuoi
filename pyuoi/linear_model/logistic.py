@@ -622,11 +622,9 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
                 X, Y, _, mask, _ = args
                 if mask is not None:
                     x0 = np.zeros_like(w0)
-                    n_classes = Y.shape[1]
-                    n_samples, n_features = X.shape
-                    fit_intercept = (w0.size == n_classes * (n_features + 1))
                     if fit_intercept:
-                        idxs = np.arange(n_features * n_classes, n_classes * (n_features + 1))
+                        idxs = np.arange(n_features * n_classes,
+                                         n_classes * (n_features + 1))
                     else:
                         idxs = np.array([], dtype=int)
                     idxs = np.concatenate([np.nonzero(mask.ravel())[0], idxs])
@@ -651,7 +649,21 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
     else:
         target = y_bin
         if penalty == 'l2':
-            func = _logistic_loss_and_grad
+            def func(x, *args):
+                X, Y, _, mask, _ = args
+                if mask is not None:
+                    x0 = np.zeros_like(w0)
+                    if fit_intercept:
+                        idxs = np.array([n_features], dtype=int)
+                    else:
+                        idxs = np.array([], dtype=int)
+                    idxs = np.concatenate([np.nonzero(mask.ravel())[0], idxs])
+                    x0[idxs] = x
+                    f, df = _logistic_loss_and_grad(x0, *args)
+                    df = df[idxs]
+                else:
+                    f, df = _logistic_loss_and_grad(x, *args)
+                return f, df
         else:
             def func(x, g, *args):
                 loss, grad = _logistic_loss_and_grad(x, *args)
@@ -664,19 +676,26 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
         iprint = [-1, 50, 1, 100, 101][
             np.searchsorted(np.array([0, 1, 2, 3]), verbose)]
         if penalty == 'l2':
-            fit_intercept = (w0.size == n_classes * (n_features + 1))
-            if fit_intercept:
-                idxs = np.arange(n_features * n_classes, n_classes * (n_features + 1))
+            if coef_mask is None:
+                w0, loss, info = optimize.fmin_l_bfgs_b(
+                    func, w0, fprime=None,
+                    args=(X, target, 1. / C, coef_mask, sample_weight),
+                    iprint=iprint, pgtol=tol, maxiter=max_iter)
             else:
-                idxs = np.array([], dtype=int)
-            idxs = np.concatenate([np.nonzero(coef_mask.ravel())[0], idxs])
-            wp = w0[idxs]
-            wp, loss, info = optimize.fmin_l_bfgs_b(
-                func, wp, fprime=None,
-                args=(X, target, 1. / C, coef_mask, sample_weight),
-                iprint=iprint, pgtol=tol, maxiter=max_iter)
-            w0 = np.zeros_like(w0)
-            w0[idxs] = wp
+                fit_intercept = (w0.size == n_classes * (n_features + 1))
+                if fit_intercept:
+                    idxs = np.arange(n_features * n_classes,
+                                     n_classes * (n_features + 1))
+                else:
+                    idxs = np.array([], dtype=int)
+                idxs = np.concatenate([np.nonzero(coef_mask.ravel())[0], idxs])
+                wp = w0[idxs]
+                wp, loss, info = optimize.fmin_l_bfgs_b(
+                    func, wp, fprime=None,
+                    args=(X, target, 1. / C, coef_mask, sample_weight),
+                    iprint=iprint, pgtol=tol, maxiter=max_iter)
+                w0 = np.zeros_like(w0)
+                w0[idxs] = wp
         else:
             zeros_seen = [0]
 
