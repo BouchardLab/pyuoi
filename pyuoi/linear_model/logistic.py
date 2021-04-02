@@ -541,9 +541,10 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
     _, n_features = X.shape
 
     classes = np.unique(y)
+    n_classes = len(classes)
 
     if multi_class == 'auto':
-        if len(classes) > 2:
+        if n_classes > 2:
             multi_class = 'multinomial'
         else:
             multi_class = 'ovr'
@@ -618,7 +619,23 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
             w0 = w0.ravel()
 
             def func(x, *args):
-                return _multinomial_loss_grad(x, *args)[0:2]
+                X, Y, _, mask, _ = args
+                if mask is not None:
+                    x0 = np.zeros_like(w0)
+                    n_classes = Y.shape[1]
+                    n_samples, n_features = X.shape
+                    fit_intercept = (w0.size == n_classes * (n_features + 1))
+                    if fit_intercept:
+                        idxs = np.arange(n_features * n_classes, n_classes * (n_features + 1))
+                    else:
+                        idxs = np.array([], dtype=int)
+                    idxs = np.concatenate([np.nonzero(mask.ravel())[0], idxs])
+                    x0[idxs] = x
+                    f, df = _multinomial_loss_grad(x0, *args)[0:2]
+                    df = df[idxs]
+                else:
+                    f, df = _multinomial_loss_grad(x, *args)[0:2]
+                return f, df
         else:
             w0 = w0.T.ravel().copy()
 
@@ -647,10 +664,19 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
         iprint = [-1, 50, 1, 100, 101][
             np.searchsorted(np.array([0, 1, 2, 3]), verbose)]
         if penalty == 'l2':
-            w0, loss, info = optimize.fmin_l_bfgs_b(
-                func, w0, fprime=None,
+            fit_intercept = (w0.size == n_classes * (n_features + 1))
+            if fit_intercept:
+                idxs = np.arange(n_features * n_classes, n_classes * (n_features + 1))
+            else:
+                idxs = np.array([], dtype=int)
+            idxs = np.concatenate([np.nonzero(coef_mask.ravel())[0], idxs])
+            wp = w0[idxs]
+            wp, loss, info = optimize.fmin_l_bfgs_b(
+                func, wp, fprime=None,
                 args=(X, target, 1. / C, coef_mask, sample_weight),
                 iprint=iprint, pgtol=tol, maxiter=max_iter)
+            w0 = np.zeros_like(w0)
+            w0[idxs] = wp
         else:
             zeros_seen = [0]
 
