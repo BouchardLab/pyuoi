@@ -126,7 +126,10 @@ def make_classification(n_samples=100, n_features=20, n_informative=2,
     if isinstance(random_state, int):
         rng = np.random.RandomState(random_state)
     else:
-        rng = random_state
+        if random_state is None:
+            rng = np.random
+        else:
+            rng = random_state
     n_not_informative = n_features - n_informative
 
     X = rng.randn(n_samples, n_features)

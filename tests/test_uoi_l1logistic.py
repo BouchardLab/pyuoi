@@ -1,18 +1,274 @@
-import pytest
+import pytest, numbers, warnings
 import numpy as np
 
 from numpy.testing import assert_array_equal, assert_allclose, assert_equal
 
 from scipy.sparse import rand as sprand
+from scipy import optimize
 
 from pyuoi import UoI_L1Logistic
 from pyuoi.linear_model.logistic import (fit_intercept_fixed_coef,
                                          MaskedCoefLogisticRegression,
-                                         LogisticInterceptFitterNoFeatures)
+                                         LogisticInterceptFitterNoFeatures,
+                                         _logistic_regression_path,
+                                         _multinomial_loss_grad,
+                                         _logistic_loss_and_grad)
 from sklearn.metrics import accuracy_score
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from sklearn.utils import (compute_class_weight,
+                           check_consistent_length, check_array)
+from sklearn.exceptions import ConvergenceWarning
 
 from pyuoi.datasets import make_classification
+from pyuoi.lbfgs import fmin_lbfgs, AllZeroLBFGSError
+
+
+def _logistic_regression_path_old(X, y, Cs=48, fit_intercept=True,
+                                  max_iter=100, tol=1e-4, verbose=0, coef=None,
+                                  class_weight=None, penalty='l2',
+                                  multi_class='auto',
+                                  check_input=True,
+                                  sample_weight=None,
+                                  l1_ratio=None, coef_mask=None):
+    """Compute a Logistic Regression model for a list of regularization
+    parameters.
+
+    This is the original function used to check the new indexing-based
+    version rather than the masking version implemented here.
+
+    Parameters
+    ----------
+    X : array-like or sparse matrix, shape (n_samples, n_features)
+        Input data.
+    y : array-like, shape (n_samples,) or (n_samples, n_targets)
+        Input data, target values.
+    Cs : int | array-like, shape (n_cs,)
+        List of values for the regularization parameter or integer specifying
+        the number of regularization parameters that should be used. In this
+        case, the parameters will be chosen in a logarithmic scale between
+        1e-4 and 1e4.
+    fit_intercept : bool
+        Whether to fit an intercept for the model. In this case the shape of
+        the returned array is (n_cs, n_features + 1).
+    max_iter : int
+        Maximum number of iterations for the solver.
+    tol : float
+        Stopping criterion. For the newton-cg and lbfgs solvers, the iteration
+        will stop when ``max{|g_i | i = 1, ..., n} <= tol``
+        where ``g_i`` is the i-th component of the gradient.
+    verbose : int
+        For the liblinear and lbfgs solvers set verbose to any positive
+        number for verbosity.
+    coef : array-like, shape (n_features,), default None
+        Initialization value for coefficients of logistic regression.
+        Useless for liblinear solver.
+    class_weight : dict or 'balanced', optional
+        Weights associated with classes in the form ``{class_label: weight}``.
+        If not given, all classes are supposed to have weight one.
+        The "balanced" mode uses the values of y to automatically adjust
+        weights inversely proportional to class frequencies in the input data
+        as ``n_samples / (n_classes * np.bincount(y))``.
+        Note that these weights will be multiplied with sample_weight (passed
+        through the fit method) if sample_weight is specified.
+    multi_class : str, {'multinomial', 'auto'}, default: 'auto'
+        For 'multinomial' the loss minimised is the multinomial loss fit
+        across the entire probability distribution, *even when the data is
+        binary*. 'auto' selects binary if the data is binary
+        and otherwise selects 'multinomial'.
+    check_input : bool, default True
+        If False, the input arrays X and y will not be checked.
+    sample_weight : array-like, shape(n_samples,) optional
+        Array of weights that are assigned to individual samples.
+        If not provided, then each sample is given unit weight.
+    coef_mask : array-like, shape (n_features), (n_classes, n_features) optional
+        Masking array for coef.
+    Returns
+    -------
+    coefs : ndarray, shape (n_cs, n_features) or (n_cs, n_features + 1)
+        List of coefficients for the Logistic Regression model. If
+        fit_intercept is set to True then the second dimension will be
+        n_features + 1, where the last item represents the intercept. For
+        ``multiclass='multinomial'``, the shape is (n_classes, n_cs,
+        n_features) or (n_classes, n_cs, n_features + 1).
+    Cs : ndarray
+        Grid of Cs used for cross-validation.
+    n_iter : array, shape (n_cs,)
+        Actual number of iteration for each Cs.
+    """
+    if isinstance(Cs, numbers.Integral):
+        Cs = np.logspace(-4, 4, Cs)
+
+    # Preprocessing.
+    if check_input:
+        X = check_array(X, accept_sparse='csr', dtype=np.float64,
+                        accept_large_sparse=True)
+        y = check_array(y, ensure_2d=False, dtype=None)
+        check_consistent_length(X, y)
+    _, n_features = X.shape
+
+    classes = np.unique(y)
+
+    if multi_class == 'auto':
+        if len(classes) > 2:
+            multi_class = 'multinomial'
+        else:
+            multi_class = 'ovr'
+
+    # If sample weights exist, convert them to array (support for lists)
+    # and check length
+    # Otherwise set them to 1 for all examples
+    if sample_weight is not None:
+        sample_weight = np.array(sample_weight, dtype=X.dtype, order='C')
+        check_consistent_length(y, sample_weight)
+    else:
+        sample_weight = np.ones(X.shape[0], dtype=X.dtype)
+
+    # If class_weights is a dict (provided by the user), the weights
+    # are assigned to the original labels. If it is "balanced", then
+    # the class_weights are assigned after masking the labels with a OvR.
+    le = LabelEncoder()
+    if isinstance(class_weight, dict) or multi_class == 'multinomial':
+        class_weight_ = compute_class_weight(class_weight, classes=classes, y=y)
+        sample_weight *= class_weight_[le.fit_transform(y)]
+
+    # For doing a ovr, we need to mask the labels first. for the
+    # multinomial case this is not necessary.
+    if multi_class == 'ovr':
+        coef_size = n_features
+        w0 = np.zeros(n_features + int(fit_intercept), dtype=X.dtype)
+        mask_classes = np.array([-1, 1])
+        mask = (y == 1)
+        y_bin = np.ones(y.shape, dtype=X.dtype)
+        y_bin[~mask] = -1.
+        # for compute_class_weight
+
+        if class_weight == "balanced":
+            class_weight_ = compute_class_weight(class_weight,
+                                                 classes=mask_classes,
+                                                 y=y_bin)
+            sample_weight *= class_weight_[le.fit_transform(y_bin)]
+
+    else:
+        coef_size = classes.size * n_features
+        lbin = OneHotEncoder(categories=[range(classes.size)], sparse=False)
+        Y_multi = lbin.fit_transform(y[:, np.newaxis])
+        if Y_multi.shape[1] == 1:
+            Y_multi = np.hstack([1 - Y_multi, Y_multi])
+        w0 = np.zeros((classes.size, n_features + int(fit_intercept)),
+                      dtype=X.dtype)
+        w0[:, -1] = LogisticInterceptFitterNoFeatures(y,
+                                                      classes.size).intercept_
+
+    if coef is not None:
+        # it must work both giving the bias term and not
+        if multi_class == 'ovr':
+            if coef.size not in (n_features, w0.size):
+                raise ValueError(
+                    'Initialization coef is of shape %d, expected shape '
+                    '%d or %d' % (coef.size, n_features, w0.size))
+            w0[:coef.size] = coef
+        else:
+            w0[:, :coef.shape[1]] = coef
+
+    # Mask initial array
+    if coef_mask is not None:
+        if multi_class == 'ovr':
+            w0[:n_features] *= coef_mask
+        else:
+            w0[:, :n_features] *= coef_mask
+
+    if multi_class == 'multinomial':
+        # fmin_l_bfgs_b and newton-cg accepts only ravelled parameters.
+        target = Y_multi
+        if penalty == 'l2':
+            w0 = w0.ravel()
+
+            def func(x, *args):
+                return _multinomial_loss_grad(x, *args)[0:2]
+        else:
+            w0 = w0.T.ravel().copy()
+
+            def inner_func(x, *args):
+                return _multinomial_loss_grad(x, *args)[0:2]
+
+            def func(x, g, *args):
+                x = x.reshape(-1, classes.size).T.ravel()
+                loss, grad = inner_func(x, *args)
+                grad = grad.reshape(classes.size, -1).T.ravel()
+                g[:] = grad
+                return loss
+    else:
+        target = y_bin
+        if penalty == 'l2':
+            func = _logistic_loss_and_grad
+        else:
+            def func(x, g, *args):
+                loss, grad = _logistic_loss_and_grad(x, *args)
+                g[:] = grad
+                return loss
+
+    coefs = list()
+    n_iter = np.zeros(len(Cs), dtype=np.int32)
+    for i, C in enumerate(Cs):
+        iprint = [-1, 50, 1, 100, 101][
+            np.searchsorted(np.array([0, 1, 2, 3]), verbose)]
+        if penalty == 'l2':
+            w0, loss, info = optimize.fmin_l_bfgs_b(
+                func, w0, fprime=None,
+                args=(X, target, 1. / C, coef_mask, sample_weight),
+                iprint=iprint, pgtol=tol, maxiter=max_iter)
+        else:
+            zeros_seen = [0]
+
+            def zero_coef(x, *args):
+                if multi_class == 'multinomial':
+                    x = x.reshape(-1, classes.size)[:-1]
+                else:
+                    x = x[:-1]
+                now_zeros = np.array_equiv(x, 0.)
+                if now_zeros:
+                    zeros_seen[0] += 1
+                else:
+                    zeros_seen[0] = 0
+                if zeros_seen[0] > 1:
+                    return -2048
+            try:
+                w0 = fmin_lbfgs(func, w0, orthantwise_c=1. / C,
+                                args=(X, target, 0., coef_mask, sample_weight),
+                                max_iterations=max_iter,
+                                epsilon=tol,
+                                orthantwise_end=coef_size,
+                                progress=zero_coef)
+            except AllZeroLBFGSError:
+                w0 *= 0.
+            info = None
+        if info is not None and info["warnflag"] == 1:
+            warnings.warn("lbfgs failed to converge. Increase the number "
+                          "of iterations.", ConvergenceWarning)
+        # In scipy <= 1.0.0, nit may exceed maxiter.
+        # See https://github.com/scipy/scipy/issues/7854.
+        if info is None:
+            n_iter_i = -1
+        else:
+            n_iter_i = min(info['nit'], max_iter)
+
+        if multi_class == 'multinomial':
+            n_classes = max(2, classes.size)
+            if penalty == 'l2':
+                multi_w0 = np.reshape(w0, (n_classes, -1))
+            else:
+                multi_w0 = np.reshape(w0, (-1, n_classes)).T
+            if coef_mask is not None:
+                multi_w0[:, :n_features] *= coef_mask
+            coefs.append(multi_w0.copy())
+        else:
+            if coef_mask is not None:
+                w0[:n_features] *= coef_mask
+            coefs.append(w0.copy())
+
+        n_iter[i] = n_iter_i
+
+    return np.array(coefs), np.array(Cs), n_iter
 
 
 def test_fit_intercept_fixed_coef():
@@ -216,6 +472,42 @@ def test_masked_logistic_standardize():
                     mask_idxs = set(mask_idxs.tolist())
                     assert mask_idxs.issubset(coef_idxs)
                     lr.fit(X, y, coef_mask=mask)
+
+
+def test_masking_with_indexing_binary():
+    """Check that indexing the masks gives the same results as masking with
+    binary logistic regression.
+    """
+    X, y, w, intercept = make_classification(n_samples=1000,
+                                             n_classes=2,
+                                             n_features=20,
+                                             n_informative=10,
+                                             random_state=0)
+    mask = (w != 0.).ravel()
+    coefs, _, _ = _logistic_regression_path(X, y, [10.], coef_mask=mask)
+    coefs_old, _, _ = _logistic_regression_path_old(X, y, [10.], coef_mask=mask)
+    assert_allclose(coefs, coefs_old)
+    coefs, _, _ = _logistic_regression_path(X, y, [10.])
+    coefs_old, _, _ = _logistic_regression_path_old(X, y, [10.])
+    assert_allclose(coefs, coefs_old)
+
+
+def test_masking_with_indexing_multiclass():
+    """Check that indexing the masks gives the same results as masking with
+    multiclass logistic regression.
+    """
+    X, y, w, intercept = make_classification(n_samples=1000,
+                                             n_classes=3,
+                                             n_features=20,
+                                             n_informative=10,
+                                             random_state=0)
+    mask = w != 0.
+    coefs, _, _ = _logistic_regression_path(X, y, [10.], coef_mask=mask)
+    coefs_old, _, _ = _logistic_regression_path_old(X, y, [10.], coef_mask=mask)
+    assert_allclose(coefs, coefs_old)
+    coefs, _, _ = _logistic_regression_path(X, y, [10.])
+    coefs_old, _, _ = _logistic_regression_path_old(X, y, [10.])
+    assert_allclose(coefs, coefs_old)
 
 
 def test_estimation_score_usage():

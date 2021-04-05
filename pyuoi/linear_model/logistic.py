@@ -617,20 +617,16 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
         target = Y_multi
         if penalty == 'l2':
             w0 = w0.ravel()
+            if coef_mask is not None:
+                x0 = np.zeros_like(w0)
 
             def func(x, *args):
                 X, Y, _, mask, _ = args
                 if mask is not None:
-                    x0 = np.zeros_like(w0)
-                    if fit_intercept:
-                        idxs = np.arange(n_features * n_classes,
-                                         n_classes * (n_features + 1))
-                    else:
-                        idxs = np.array([], dtype=int)
-                    idxs = np.concatenate([np.nonzero(mask.ravel())[0], idxs])
-                    x0[idxs] = x
+                    x0[mask] = x
+                    args = args[:3] + (None,) + (args[-1],)
                     f, df = _multinomial_loss_grad(x0, *args)[0:2]
-                    df = df[idxs]
+                    df = df[mask]
                 else:
                     f, df = _multinomial_loss_grad(x, *args)[0:2]
                 return f, df
@@ -649,18 +645,15 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
     else:
         target = y_bin
         if penalty == 'l2':
+            x0 = np.zeros_like(w0)
+
             def func(x, *args):
                 X, Y, _, mask, _ = args
                 if mask is not None:
-                    x0 = np.zeros_like(w0)
-                    if fit_intercept:
-                        idxs = np.array([n_features], dtype=int)
-                    else:
-                        idxs = np.array([], dtype=int)
-                    idxs = np.concatenate([np.nonzero(mask.ravel())[0], idxs])
-                    x0[idxs] = x
+                    x0[mask] = x
+                    args = args[:3] + (None,) + (args[-1],)
                     f, df = _logistic_loss_and_grad(x0, *args)
-                    df = df[idxs]
+                    df = df[mask]
                 else:
                     f, df = _logistic_loss_and_grad(x, *args)
                 return f, df
@@ -682,20 +675,22 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
                     args=(X, target, 1. / C, coef_mask, sample_weight),
                     iprint=iprint, pgtol=tol, maxiter=max_iter)
             else:
-                fit_intercept = (w0.size == n_classes * (n_features + 1))
                 if fit_intercept:
-                    idxs = np.arange(n_features * n_classes,
-                                     n_classes * (n_features + 1))
+                    if multi_class == 'multinomial':
+                        mask = np.concatenate([coef_mask,
+                                               np.ones(n_classes)[:, np.newaxis]], axis=1)
+                    else:
+                        mask = np.concatenate([coef_mask, np.ones(1)])
                 else:
-                    idxs = np.array([], dtype=int)
-                idxs = np.concatenate([np.nonzero(coef_mask.ravel())[0], idxs])
-                wp = w0[idxs]
+                    mask = coef_mask
+                mask = np.nonzero(mask.ravel())[0]
+                wp = w0[mask]
                 wp, loss, info = optimize.fmin_l_bfgs_b(
                     func, wp, fprime=None,
-                    args=(X, target, 1. / C, coef_mask, sample_weight),
+                    args=(X, target, 1. / C, mask, sample_weight),
                     iprint=iprint, pgtol=tol, maxiter=max_iter)
                 w0 = np.zeros_like(w0)
-                w0[idxs] = wp
+                w0[mask] = wp
         else:
             zeros_seen = [0]
 
@@ -734,16 +729,10 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
         if multi_class == 'multinomial':
             n_classes = max(2, classes.size)
             if penalty == 'l2':
-                multi_w0 = np.reshape(w0, (n_classes, -1))
+                w0 = np.reshape(w0, (n_classes, -1))
             else:
-                multi_w0 = np.reshape(w0, (-1, n_classes)).T
-            if coef_mask is not None:
-                multi_w0[:, :n_features] *= coef_mask
-            coefs.append(multi_w0.copy())
-        else:
-            if coef_mask is not None:
-                w0[:n_features] *= coef_mask
-            coefs.append(w0.copy())
+                w0 = np.reshape(w0, (-1, n_classes)).T
+        coefs.append(w0.copy())
 
         n_iter[i] = n_iter_i
 
