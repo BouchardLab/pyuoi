@@ -46,7 +46,7 @@ PyUoI requires
 
 * numpy>=1.14
 * h5py>=2.8
-* scikit-learn>=0.20
+* scikit-learn>=0.24
 
 and optionally
 
