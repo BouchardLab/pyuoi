@@ -474,40 +474,70 @@ def test_masked_logistic_standardize():
                     lr.fit(X, y, coef_mask=mask)
 
 
-def test_masking_with_indexing_binary():
+@pytest.mark.parametrize("n_classes,penalty,fit_intercept", [(3, "l2", True),
+                                                             (3, "l2", False),
+                                                             (3, "l1", True),
+                                                             (3, "l1", False),
+                                                             (2, "l2", True),
+                                                             (2, "l2", False),
+                                                             (2, "l1", True),
+                                                             (2, "l1", False)])
+def test_masking_with_indexing(n_classes, penalty, fit_intercept):
     """Check that indexing the masks gives the same results as masking with
-    binary logistic regression.
+    logistic regression.
     """
     X, y, w, intercept = make_classification(n_samples=1000,
-                                             n_classes=2,
-                                             n_features=20,
-                                             n_informative=10,
-                                             random_state=0)
-    mask = (w != 0.).ravel()
-    coefs, _, _ = _logistic_regression_path(X, y, [10.], coef_mask=mask)
-    coefs_old, _, _ = _logistic_regression_path_old(X, y, [10.], coef_mask=mask)
-    assert_allclose(coefs, coefs_old)
-    coefs, _, _ = _logistic_regression_path(X, y, [10.])
-    coefs_old, _, _ = _logistic_regression_path_old(X, y, [10.])
-    assert_allclose(coefs, coefs_old)
-
-
-def test_masking_with_indexing_multiclass():
-    """Check that indexing the masks gives the same results as masking with
-    multiclass logistic regression.
-    """
-    X, y, w, intercept = make_classification(n_samples=1000,
-                                             n_classes=3,
+                                             n_classes=n_classes,
                                              n_features=20,
                                              n_informative=10,
                                              random_state=0)
     mask = w != 0.
-    coefs, _, _ = _logistic_regression_path(X, y, [10.], coef_mask=mask)
-    coefs_old, _, _ = _logistic_regression_path_old(X, y, [10.], coef_mask=mask)
+    if n_classes == 2:
+        mask = mask.ravel()
+    coefs, _, _ = _logistic_regression_path(X, y, [10.], coef_mask=mask,
+                                            penalty=penalty,
+                                            fit_intercept=fit_intercept)
+    coefs_old, _, _ = _logistic_regression_path_old(X, y, [10.], coef_mask=mask,
+                                                    penalty=penalty,
+                                                    fit_intercept=fit_intercept)
     assert_allclose(coefs, coefs_old)
-    coefs, _, _ = _logistic_regression_path(X, y, [10.])
-    coefs_old, _, _ = _logistic_regression_path_old(X, y, [10.])
+    coefs, _, _ = _logistic_regression_path(X, y, [10.],
+                                            penalty=penalty,
+                                            fit_intercept=fit_intercept)
+    coefs_old, _, _ = _logistic_regression_path_old(X, y, [10.],
+                                                    penalty=penalty,
+                                                    fit_intercept=fit_intercept)
     assert_allclose(coefs, coefs_old)
+
+
+@pytest.mark.parametrize("n_classes,penalty,fit_intercept", [(3, "l2", True),
+                                                             (3, "l2", False),
+                                                             (3, "l1", True),
+                                                             (3, "l1", False),
+                                                             (2, "l2", True),
+                                                             (2, "l2", False),
+                                                             (2, "l1", True),
+                                                             (2, "l1", False)])
+def test_all_masked_with_indexing(n_classes, penalty, fit_intercept):
+    """Check masking all of the coef either works with intercept or raises an error.
+    """
+    X, y, w, intercept = make_classification(n_samples=1000,
+                                             n_classes=n_classes,
+                                             n_features=20,
+                                             n_informative=10,
+                                             random_state=0)
+    mask = np.zeros_like(w)
+    if n_classes == 2:
+        mask = mask.ravel()
+    coefs, _, _ = _logistic_regression_path(X, y, [10.], coef_mask=mask,
+                                            fit_intercept=fit_intercept)
+    if fit_intercept:
+        if n_classes == 2:
+            assert_equal(coefs[0][:-1], 0.)
+        else:
+            assert_equal(coefs[0][:, :-1], 0.)
+    else:
+        assert_equal(coefs[0], 0.)
 
 
 def test_estimation_score_usage():
