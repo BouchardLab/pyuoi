@@ -621,7 +621,7 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
                 x0 = np.zeros_like(w0)
 
             def func(x, *args):
-                X, Y, _, mask, _ = args
+                mask = args[3]
                 if mask is not None:
                     x0[mask] = x
                     args = args[:3] + (None,) + (args[-1],)
@@ -648,7 +648,7 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
             x0 = np.zeros_like(w0)
 
             def func(x, *args):
-                X, Y, _, mask, _ = args
+                mask = args[3]
                 if mask is not None:
                     x0[mask] = x
                     args = args[:3] + (None,) + (args[-1],)
