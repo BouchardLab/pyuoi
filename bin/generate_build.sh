@@ -1,6 +1,6 @@
 eval "$(conda shell.bash hook)"
 mkdir dist
-for py in 3.6 3.7; do
+for py in 3.6 3.7 3.8; do
   git clone https://github.com/BouchardLab/pyuoi.git
   cd pyuoi
   conda create -y -n temp_build_env python=$py

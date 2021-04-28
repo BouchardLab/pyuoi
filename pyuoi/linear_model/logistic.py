@@ -541,9 +541,10 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
     _, n_features = X.shape
 
     classes = np.unique(y)
+    n_classes = len(classes)
 
     if multi_class == 'auto':
-        if len(classes) > 2:
+        if n_classes > 2:
             multi_class = 'multinomial'
         else:
             multi_class = 'ovr'
@@ -616,9 +617,19 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
         target = Y_multi
         if penalty == 'l2':
             w0 = w0.ravel()
+            if coef_mask is not None:
+                x0 = np.zeros_like(w0)
 
             def func(x, *args):
-                return _multinomial_loss_grad(x, *args)[0:2]
+                mask = args[3]
+                if mask is not None:
+                    x0[mask] = x
+                    args = args[:3] + (None,) + (args[-1],)
+                    f, df = _multinomial_loss_grad(x0, *args)[0:2]
+                    df = df[mask]
+                else:
+                    f, df = _multinomial_loss_grad(x, *args)[0:2]
+                return f, df
         else:
             w0 = w0.T.ravel().copy()
 
@@ -634,7 +645,18 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
     else:
         target = y_bin
         if penalty == 'l2':
-            func = _logistic_loss_and_grad
+            x0 = np.zeros_like(w0)
+
+            def func(x, *args):
+                mask = args[3]
+                if mask is not None:
+                    x0[mask] = x
+                    args = args[:3] + (None,) + (args[-1],)
+                    f, df = _logistic_loss_and_grad(x0, *args)
+                    df = df[mask]
+                else:
+                    f, df = _logistic_loss_and_grad(x, *args)
+                return f, df
         else:
             def func(x, g, *args):
                 loss, grad = _logistic_loss_and_grad(x, *args)
@@ -644,63 +666,79 @@ def _logistic_regression_path(X, y, Cs=48, fit_intercept=True,
     coefs = list()
     n_iter = np.zeros(len(Cs), dtype=np.int32)
     for i, C in enumerate(Cs):
-        iprint = [-1, 50, 1, 100, 101][
-            np.searchsorted(np.array([0, 1, 2, 3]), verbose)]
-        if penalty == 'l2':
-            w0, loss, info = optimize.fmin_l_bfgs_b(
-                func, w0, fprime=None,
-                args=(X, target, 1. / C, coef_mask, sample_weight),
-                iprint=iprint, pgtol=tol, maxiter=max_iter)
-        else:
-            zeros_seen = [0]
+        if coef_mask is None or coef_mask.sum():
+            iprint = [-1, 50, 1, 100, 101][
+                np.searchsorted(np.array([0, 1, 2, 3]), verbose)]
+            if penalty == 'l2':
+                if coef_mask is None:
+                    w0, loss, info = optimize.fmin_l_bfgs_b(
+                        func, w0, fprime=None,
+                        args=(X, target, 1. / C, coef_mask, sample_weight),
+                        iprint=iprint, pgtol=tol, maxiter=max_iter)
+                else:
+                    if fit_intercept:
+                        if multi_class == 'multinomial':
+                            mask = [coef_mask,
+                                    np.ones(n_classes)[:, np.newaxis]]
+                            mask = np.concatenate(mask, axis=1)
+                        else:
+                            mask = np.concatenate([coef_mask, np.ones(1)])
+                    else:
+                        mask = coef_mask
+                    mask = np.nonzero(mask.ravel())[0]
+                    wp = w0[mask]
+                    wp, loss, info = optimize.fmin_l_bfgs_b(
+                        func, wp, fprime=None,
+                        args=(X, target, 1. / C, mask, sample_weight),
+                        iprint=iprint, pgtol=tol, maxiter=max_iter)
+                    w0 = np.zeros_like(w0)
+                    w0[mask] = wp
 
-            def zero_coef(x, *args):
-                if multi_class == 'multinomial':
-                    x = x.reshape(-1, classes.size)[:-1]
-                else:
-                    x = x[:-1]
-                now_zeros = np.array_equiv(x, 0.)
-                if now_zeros:
-                    zeros_seen[0] += 1
-                else:
-                    zeros_seen[0] = 0
-                if zeros_seen[0] > 1:
-                    return -2048
-            try:
-                w0 = fmin_lbfgs(func, w0, orthantwise_c=1. / C,
-                                args=(X, target, 0., coef_mask, sample_weight),
-                                max_iterations=max_iter,
-                                epsilon=tol,
-                                orthantwise_end=coef_size,
-                                progress=zero_coef)
-            except AllZeroLBFGSError:
-                w0 *= 0.
-            info = None
-        if info is not None and info["warnflag"] == 1:
-            warnings.warn("lbfgs failed to converge. Increase the number "
-                          "of iterations.", ConvergenceWarning)
-        # In scipy <= 1.0.0, nit may exceed maxiter.
-        # See https://github.com/scipy/scipy/issues/7854.
-        if info is None:
-            n_iter_i = -1
-        else:
-            n_iter_i = min(info['nit'], max_iter)
+            else:
+                zeros_seen = [0]
+
+                def zero_coef(x, *args):
+                    if multi_class == 'multinomial':
+                        x = x.reshape(-1, classes.size)[:-1]
+                    else:
+                        x = x[:-1]
+                    now_zeros = np.array_equiv(x, 0.)
+                    if now_zeros:
+                        zeros_seen[0] += 1
+                    else:
+                        zeros_seen[0] = 0
+                    if zeros_seen[0] > 1:
+                        return -2048
+                try:
+                    args = (X, target, 0., coef_mask, sample_weight)
+                    w0 = fmin_lbfgs(func, w0, orthantwise_c=1. / C,
+                                    args=args,
+                                    max_iterations=max_iter,
+                                    epsilon=tol,
+                                    orthantwise_end=coef_size,
+                                    progress=zero_coef)
+                except AllZeroLBFGSError:
+                    w0 *= 0.
+                info = None
+            if info is not None and info["warnflag"] == 1:
+                warnings.warn("lbfgs failed to converge. Increase the number "
+                              "of iterations.", ConvergenceWarning)
+            # In scipy <= 1.0.0, nit may exceed maxiter.
+            # See https://github.com/scipy/scipy/issues/7854.
+            if info is None:
+                n_iter_i = -1
+            else:
+                n_iter_i = min(info['nit'], max_iter)
+
+            n_iter[i] = n_iter_i
 
         if multi_class == 'multinomial':
             n_classes = max(2, classes.size)
             if penalty == 'l2':
-                multi_w0 = np.reshape(w0, (n_classes, -1))
+                w0 = np.reshape(w0, (n_classes, -1))
             else:
-                multi_w0 = np.reshape(w0, (-1, n_classes)).T
-            if coef_mask is not None:
-                multi_w0[:, :n_features] *= coef_mask
-            coefs.append(multi_w0.copy())
-        else:
-            if coef_mask is not None:
-                w0[:n_features] *= coef_mask
-            coefs.append(w0.copy())
-
-        n_iter[i] = n_iter_i
+                w0 = np.reshape(w0, (-1, n_classes)).T
+        coefs.append(w0.copy())
 
     return np.array(coefs), np.array(Cs), n_iter
 
