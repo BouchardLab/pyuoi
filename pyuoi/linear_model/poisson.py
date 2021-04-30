@@ -445,6 +445,10 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         RandomState instance used by ``np.random``.
     comm : MPI communicator
         If passed, the selection and estimation steps are parallelized.
+    logger : Logger
+        The logger to use for messages when ``verbose=True`` in ``fit``.
+        If *None* is passed, a logger that writes to ``sys.stdout`` will be
+        used.
 
     Attributes
     ----------

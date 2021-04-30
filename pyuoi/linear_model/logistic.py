@@ -32,11 +32,6 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
     n_boots_est : int
         The number of data bootstraps to use in the estimation module.
         Increasing this number will relax selection and decrease variance.
-    n_lambdas : int
-        The number of regularization values to use for selection.
-    alpha : list or ndarray
-        The parameter that trades off L1 versus L2 regularization for a given
-        lambda.
     selection_frac : float
         The fraction of the dataset to use for training in each resampled
         bootstrap, during the selection module. Small values of this parameter
@@ -46,10 +41,8 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
         bootstrap, during the estimation module. The remaining data is used
         to obtain validation scores. Small values of this parameters imply
         larger "perturbations" to the dataset.
-    estimation_target : string, "train" | "test"
-        Decide whether to assess the estimation_score on the train
-        or test data across each bootstrap. By deafult, a sensible
-        choice is made based on the chosen estimation_score
+    n_C : int
+        The number of regularization values to use for selection.
     stability_selection : int, float, or array-like
         If int, treated as the number of bootstraps that a feature must
         appear in to guarantee placement in selection profile. If float,
@@ -60,11 +53,19 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
         profile.
     estimation_score : string, "acc" | "log" | "AIC", | "AICc" | "BIC"
         Objective used to choose the best estimates per bootstrap.
+    estimation_target : string, "train" | "test"
+        Decide whether to assess the estimation_score on the train
+        or test data across each bootstrap. By deafult, a sensible
+        choice is made based on the chosen estimation_score
     multi_class : string, "auto" | "multinomial"
         For "multinomial" the loss minimised is the multinomial loss fit across
         the entire probability distribution, even when the data is binary.
         "auto" selects binary if the data is binary, and otherwise selects
         "multinomial".
+    shared_support : bool
+        For models with more than one output (multinomial logistic regression)
+        this determines whether all outputs share the same support or can
+        have independent supports.
     warm_start : bool
         When set to ``True``, reuse the solution of the previous call to fit as
         initialization, otherwise, just erase the previous solution
@@ -77,10 +78,6 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
     standardize : bool
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.
-    shared_support : bool
-        For models with more than one output (multinomial logistic regression)
-        this determines whether all outputs share the same support or can
-        have independent supports.
     max_iter : int
         Maximum number of iterations for iterative fitting methods.
     tol : float
@@ -93,6 +90,10 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
         RandomState instance used by `np.random`.
     comm : MPI communicator
         If passed, the selection and estimation steps are parallelized.
+    logger : Logger
+        The logger to use for messages when ``verbose=True`` in ``fit``.
+        If *None* is passed, a logger that writes to ``sys.stdout`` will be
+        used.
 
     Attributes
     ----------
