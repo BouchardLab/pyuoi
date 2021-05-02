@@ -297,11 +297,10 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         Tolerance for stopping criteria.
     C : float, optional (default=1.0)
         Inverse of regularization strength; must be a positive float.
-        Like in support vector machines, smaller values specify stronger
-        regularization.
+        Smaller values specify stronger regularization.
     fit_intercept : bool, optional (default=True)
-        Specifies if a constant (a.k.a. bias or intercept) should be
-        added to the decision function.
+        Specifies if a bias or intercept should be added to the decision
+        function.
     standardize : bool, default False
         If True, centers the design matrix across samples and rescales them to
         have standard deviation of 1.
@@ -313,7 +312,7 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         as ``n_samples / (n_classes * np.bincount(y))``.
         Note that these weights will be multiplied with sample_weight (passed
         through the fit method) if sample_weight is specified.
-    max_iter : int, optional (default=100)
+    max_iter : int, optional (default=10000)
         Maximum number of iterations taken for the solvers to converge.
     multi_class : str, {'multinomial', 'auto'}, optional (default='auto')
         For 'multinomial' the loss minimised is the multinomial loss fit
@@ -328,9 +327,8 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         initialization, otherwise, just erase the previous solution.
         Useless for liblinear solver.
     """
-    def __init__(self, penalty='l2', tol=1e-3, C=1.,
-                 fit_intercept=True, standardize=False, class_weight=None,
-                 max_iter=10000,
+    def __init__(self, penalty='l2', tol=1e-3, C=1., fit_intercept=True,
+                 standardize=False, class_weight=None, max_iter=10000,
                  multi_class='auto', verbose=0, warm_start=False):
         if multi_class not in ('multinomial', 'auto'):
             raise ValueError("multi_class should be 'multinomial' or " +
