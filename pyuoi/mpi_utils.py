@@ -16,6 +16,17 @@ except ImportError:
 
 def check_valid_ndarray(X):
     """Checks whether X is a ndarray and returns a contiguous version.
+
+    Parameters
+    ----------
+    X : ndarray, `None`, or other
+        Variable to check
+
+    Returns
+    -------
+    X : ndarray or `None`
+        If X is an ndarray, returns a contiguous potential copy. If X is `None`
+        returns `None`. If X is anything else, raises a `ValueError`
     """
     if X is None:
         return X

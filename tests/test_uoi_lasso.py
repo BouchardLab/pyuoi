@@ -80,6 +80,7 @@ def test_uoi_lasso_toy():
         [1, 3],
         [4, 3],
         [8, 11]], dtype=float)
+    X -= X.mean(axis=0, keepdims=True)
     beta = np.array([1, 4], dtype=float)
     y = np.dot(X, beta)
 
@@ -100,7 +101,6 @@ def test_uoi_lasso_toy():
 
     if pycasso is not None:
         lasso = UoI_Lasso(
-            fit_intercept=False,
             selection_frac=0.75,
             estimation_frac=0.75,
             solver='pyc'
@@ -282,8 +282,8 @@ def test_pycasso_error():
 def test_pyclasso():
     """Tests whether the PycLasso class is working"""
 
-    pyclasso = PycLasso(fit_intercept=False, max_iter=1000)
 
+    pyclasso = PycLasso()
     # Test that we can set params correctly
     pyclasso.set_params(fit_intercept=True)
     assert(pyclasso.fit_intercept)
@@ -312,12 +312,38 @@ def test_pyclasso():
     y = np.dot(X, beta)
 
     alphas = _alpha_grid(X, y)
-    pyclasso.set_params(alphas=alphas, fit_intercept=False)
+    pyclasso.set_params(alphas=alphas)
     pyclasso.fit(X, y)
     assert(np.array_equal(pyclasso.coef_.shape, (100, 3)))
     y_pred = pyclasso.predict(X)
     scores = np.array([r2_score(y, y_pred[:, j]) for j in range(100)])
     assert(np.allclose(1, max(scores)))
+
+
+@pytest.mark.skipif(pycasso is None, reason='pycasso not installed')
+def test_pyclasso_fit_intercept():
+    """Tests whether an error is raised when `fit_intercept=False`
+    with PycLasso."""
+
+    with pytest.raises(ValueError):
+        pyclasso = PycLasso(fit_intercept=False)
+
+    # Test that we can set params correctly
+    pyclasso = PycLasso(fit_intercept=True)
+    pyclasso.set_params(fit_intercept=False)
+    # Tests against a toy problem
+    X = np.array([
+        [-1, 2, 3],
+        [4, 1, -7],
+        [1, 3, 1],
+        [4, 3, 12],
+        [8, 11, 2]], dtype=float)
+    beta = np.array([1, 4, 2], dtype=float)
+    y = np.dot(X, beta)
+    alphas = _alpha_grid(X, y)
+    pyclasso.set_params(alphas=alphas)
+    with pytest.raises(ValueError):
+        pyclasso.fit(X, y)
 
 
 def test_lass_bad_est_score():

@@ -25,6 +25,8 @@ class PycLasso():
         no intercept will be used in calculations.
     max_iter : int
         Maximum number of iterations for pycasso solver.
+    tol : float
+        Stopping criteria for solver.
 
     Attributes
     ----------
@@ -33,13 +35,21 @@ class PycLasso():
     intercept_ : float
         Independent term in the linear model.
     """
-    def __init__(self, alphas=None, fit_intercept=False, max_iter=1000):
+    def __init__(self, alphas=None, fit_intercept=True, max_iter=1000,
+                 tol=1e-4):
+        if fit_intercept is False:
+            string = ('There is currently a bug in picasso that prevents ' +
+                      'its use with `fit_intercept=False.`' +
+                      'See https://github.com/jasonge27/picasso/' +
+                      'issues/25 for resolution.')
+            raise ValueError(string)
         self.max_iter = max_iter
         self.fit_intercept = fit_intercept
         self.alphas = alphas
 
         # Flag to prevent us from predicting before fitting
         self.isfitted = False
+        self.tol = tol
 
     def set_params(self, **kwargs):
         """Sets the parameters of this estimator."""
@@ -83,12 +93,19 @@ class PycLasso():
         """
         if self.alphas is None:
             raise Exception('Set alphas before fitting.')
+        if self.fit_intercept is False:
+            string = ('There is currently a bug in picasso that prevents ' +
+                      'its use with `fit_intercept=False.`' +
+                      'See https://github.com/jasonge27/picasso/' +
+                      'issues/25 for resolution.')
+            raise ValueError(string)
 
         self.solver = pycasso.Solver(X, y, family='gaussian',
                                      useintercept=self.fit_intercept,
                                      lambdas=self.alphas,
                                      penalty='l1',
-                                     max_ite=self.max_iter)
+                                     max_ite=self.max_iter,
+                                     prec=self.tol)
         self.solver.train()
         # Coefs across the entire solution path
         self.coef_ = self.solver.result['beta']
@@ -152,6 +169,8 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         parameter is equivalent to ``normalize`` in ``scikit-learn`` models.
     max_iter : int
         Maximum number of iterations for iterative fitting methods.
+    tol : float
+        Stopping criteria for solver.
     random_state : int, RandomState instance, or None
         The seed of the pseudo random number generator that selects a random
         feature to update.  If int, random_state is the seed used by the random
@@ -184,9 +203,8 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
                  estimation_frac=0.9, n_lambdas=48, stability_selection=1.,
                  estimation_score='r2', estimation_target=None, eps=1e-3,
                  warm_start=True, copy_X=True, fit_intercept=True,
-                 standardize=True, max_iter=1000, random_state=None,
-                 comm=None, logger=None,
-                 solver='cd'):
+                 standardize=True, max_iter=1000, tol=1e-4, random_state=None,
+                 comm=None, logger=None, solver='cd'):
         super(UoI_Lasso, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -205,19 +223,22 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         self.n_lambdas = n_lambdas
         self.eps = eps
         self.solver = solver
+        self.tol = tol
 
         if solver == 'cd':
             self._selection_lm = Lasso(
                 max_iter=max_iter,
                 warm_start=warm_start,
                 random_state=random_state,
-                fit_intercept=fit_intercept)
+                fit_intercept=fit_intercept,
+                tol=tol)
         elif solver == 'pyc':
             if pycasso is None:
                 raise ImportError('pycasso is not installed.')
             self._selection_lm = PycLasso(
                 fit_intercept=fit_intercept,
-                max_iter=max_iter)
+                max_iter=max_iter,
+                tol=tol)
 
         self._estimation_lm = LinearRegression(fit_intercept=fit_intercept)
 
