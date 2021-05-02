@@ -73,8 +73,7 @@ class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
         Length of the L1 path. eps=1e-5 means that alpha_min / alpha_max = 1e-5
     fit_intercept : bool
         Whether to calculate the intercept for this model. If set to False, no
-        intercept will be used in calculations (e.g. data is expected to be
-        already centered).
+        intercept will be used in calculations.
     standardize : bool
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.

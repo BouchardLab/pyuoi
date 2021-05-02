@@ -430,8 +430,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         If ``True``, X will be copied; else, it may be overwritten.
     fit_intercept : boolean
         Whether to calculate the intercept for this model. If set to ``False``,
-        no intercept will be used in calculations (e.g. data is expected to be
-        already centered).
+        no intercept will be used in calculations.
     standardize : bool
         If True, the regressors X will be standardized before regression by
         subtracting the mean and dividing by their standard deviations.
