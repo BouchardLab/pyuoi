@@ -1,0 +1,23 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+numpy = ">=1.14"
+h5py = ">=2.8"
+scikit-learn = ">=0.24"
+pandas = "*"
+matplotlib = "*"
+torch = "*"
+pyuoi = "*"
+xarray = "*"
+h5netcdf = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.9"
+
+[pipenv]
+allow_prereleases = true
