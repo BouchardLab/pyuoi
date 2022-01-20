@@ -64,6 +64,8 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
         subtracting the mean and dividing by their standard deviations.
     max_iter : int
         Maximum number of iterations for iterative fitting methods.
+    tol : float
+        Stopping criteria for solver.
     random_state : int, RandomState instance, or None
         The seed of the pseudo random number generator that selects a random
         feature to update.  If int, random_state is the seed used by the random
@@ -93,7 +95,8 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
                  estimation_score='r2', estimation_target=None,
                  warm_start=True, eps=1e-3, copy_X=True,
                  fit_intercept=True, standardize=True,
-                 max_iter=1000, random_state=None, comm=None, logger=None):
+                 max_iter=1000, tol=1e-4, random_state=None,
+                 comm=None, logger=None):
         super(UoI_ElasticNet, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -108,6 +111,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
             random_state=random_state,
             comm=comm,
             max_iter=max_iter,
+            tol=tol,
             logger=logger)
         self.n_lambdas = n_lambdas
         self.alphas = alphas
@@ -118,6 +122,7 @@ class UoI_ElasticNet(AbstractUoILinearRegressor, LinearRegression):
         self._selection_lm = ElasticNet(
             fit_intercept=fit_intercept,
             max_iter=max_iter,
+            tol=tol,
             copy_X=copy_X,
             warm_start=warm_start,
             random_state=random_state)
