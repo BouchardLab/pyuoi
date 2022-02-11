@@ -13,6 +13,7 @@ torch = "*"
 pyuoi = "*"
 xarray = "*"
 h5netcdf = "*"
+pyqt5 = "*"
 
 [dev-packages]
 

@@ -1,56 +1,87 @@
 from pyuoi.linear_model import UoI_L1Logistic
 from pyuoi.datasets import make_classification
+from matplotlib.widgets import Button
+
 
 import pandas as pd
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 import time
 import xarray as xr
 
 from sklearn.model_selection import train_test_split
 
+# filename = "/Users/josephgmaa/pyuoi/pyuoi/data/nolj_Recording_day7_overnight_636674151185633714_1_nolj.c3d.243.features.netcdf"
+
+filename = "/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_35_nolj.c3d.916.features.netcdf"
+
+df = xr.load_dataset(filename, engine='h5netcdf').to_dataframe()
+
+fig, ax = plt.subplots()
+plt.subplots_adjust(bottom=0.2)
+
+
+class Index(object):
+    global df  # used so you can access local list, funcs, here
+    global ax
+
+    def __init__(self):
+        self.ind = 0
+        self.line = None
+
+    def next(self, event):
+        if self.line:
+            self.line.pop(0).remove()
+            ax.clear()
+        ax.plot(df['behavior_name'].to_numpy(), alpha=0.5)
+        self.ind += 1
+        y = df.iloc[:, self.ind].to_numpy()
+        name = df.columns[self.ind]
+        self.line = ax.plot(y, alpha=0.5)  # set y value data
+        ax.title.set_text(name)  # set title of graph
+        plt.draw()
+
+    def prev(self, event):
+        if self.line:
+            self.line.pop(0).remove()
+            ax.clear()
+        ax.plot(df['behavior_name'].to_numpy(), alpha=0.5)
+        self.ind += 1
+        y = df.iloc[:, self.ind].to_numpy()
+        name = df.columns[self.ind]
+        self.line = ax.plot(y, alpha=0.5)  # set y value data
+        ax.title.set_text(name)  # set title of graph
+        plt.draw()
+
+
 def main():
-    start = time.time()
-    filename = "/Users/josephgmaa/pyuoi/pyuoi/data/nolj_Recording_day7_overnight_636674151185633714_1_nolj.c3d.243.features.netcdf"
-
-    df = xr.load_dataset(filename).to_dataframe()
-
-    rows, columns = df.shape
-
-    # Use the an1 columns with distance for the first pass.
-    indices = df.columns
-    # print(an1_indices)
-    # print([column for i, column in enumerate(
-    #     df.columns) if column.startswith('distance_an1')])
-
     pd.set_option('display.max_columns', None)
     pd.set_option('display.max_rows', None)
-    # X = df.loc[:, 'egocentric_an1_relative_velocity_an1_BodyCenter_x'].to_numpy()
-    X = df.iloc[:, indices].to_numpy()
-    print(X)
-    # Binarize ProneStill
-    map_prone_vs_others = {'Walk': 0, 'WetDogShake': 0, 'FaceGroom': 0, 'RScratch': 0, 'BadTracking': 0, 'RGroom': 0,
-                            'ProneStill': 1, 'AdjustPosture': 0}
-    # y = df['behavior_name'].map(map_prone_vs_others)
-    y = df['behavior_name'].to_numpy()
-    # print([column for column in df.columns.tolist() if 'velocity' in column])
 
-    fig, ax = plt.subplots()
-    ax.plot(y)
+    start = time.time()
+
+    callback = Index()
+    axprev = plt.axes([0.7, 0.05, 0.1, 0.075])
+    axnext = plt.axes([0.81, 0.05, 0.1, 0.075])
+    bnext = Button(axnext, 'Next')
+    bnext.on_clicked(callback.next)
+    bprev = Button(axprev, 'Previous')
+    bprev.on_clicked(callback.prev)
+
+    ax.plot(df['behavior_name'].to_numpy())
     plt.show()
 
     # for feature in df.columns:
-    # map_behavior_to_values = {'Walk': 100, 'WetDogShake': 200, 'FaceGroom': 300, 'RScratch': 400, 'BadTracking': 500, 'RGroom': 600,
-                            # 'ProneStill': 700, 'AdjustPosture': 800}
-    # df['behavior_values'] = df['behavior_name'].map(map_behavior_to_values)
-    # ax.plot(df['egocentric_an1_relative_velocity_an1_BodyCenter_x'])
-    # ax.scatter(df.index, df.behavior_values)
-    # ax.text(x=0,y=-100,s=[f"{key}: {value}" for key, value in map_behavior_to_values.items()], fontsize="small")
-    # plt.show()
-
-    # ax.plot(df['egocentric_an1_relative_velocity_an1_HeadCenter_y'])
-    # ax.plot(y)
-    # plt.show()
+    #     map_behavior_to_values = {'Walk': 100, 'WetDogShake': 200, 'FaceGroom': 300, 'RScratch': 400, 'BadTracking': 500, 'RGroom': 600,
+    #                               'ProneStill': 700, 'AdjustPosture': 800}
+    #     df['behavior_values'] = df['behavior_name'].map(map_behavior_to_values)
+    #     feature = ax.plot(df[feature])
+    #     ax.scatter(df.index, df.behavior_values)
+    #     ax.text(x=0, y=-100, s=[f"{key}: {value}" for key,
+    #             value in map_behavior_to_values.items()], fontsize="small")
+    #     plt.show()
+    #     del feature
 
     # # Run the classifier.
     # print('Running the classifier.')
