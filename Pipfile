@@ -9,16 +9,18 @@ h5py = ">=2.8"
 scikit-learn = ">=0.24"
 pandas = "*"
 matplotlib = "*"
-torch = "*"
-pyuoi = "*"
+pyuoi = {editable = true, path = "."}
 xarray = "*"
 h5netcdf = "*"
 pyqt5 = "*"
+cython = "*"
 
 [dev-packages]
+pylint = "*"
+autopep8 = "*"
 
 [requires]
-python_version = "3.9"
+python_version = "3.10"
 
 [pipenv]
 allow_prereleases = true

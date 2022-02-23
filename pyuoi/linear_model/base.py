@@ -261,6 +261,9 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                     test_size=1 - self.selection_frac,
                     stratify=stratify,
                     random_state=self.random_state)
+        # Write out linear coefficients later to binary .npy file.
+        x_linear_coefficients = []
+        y_linear_coefficients = []
 
         # iterate over bootstraps
         curr_boot_idx = None
@@ -285,6 +288,10 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             X_rep = X[idxs_train]
             y_rep = y[idxs_train]
 
+            # Write out the coefficients for regularization.
+            x_linear_coefficients.append(X_rep)
+            y_linear_coefficients.append(y_rep)
+
             # fit the coefficients
             if size > self.n_boots_sel:
                 msg = ("selection bootstrap %d, "
@@ -296,6 +303,10 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                 self._logger.info("selection bootstrap %d" % (boot_idx))
             selection_coefs[ii] = np.squeeze(
                 self.uoi_selection_sweep(X_rep, y_rep, my_reg_params))
+
+        np.savez(file="/Users/josephgmaa/pyuoi/pyuoi/data/features/coefficients/test.npz",
+                 x_coefficients=np.array(x_linear_coefficients),
+                 y_coefficients=np.array(y_linear_coefficients))
 
         # if distributed, gather selection coefficients to 0,
         # perform intersection, and broadcast results

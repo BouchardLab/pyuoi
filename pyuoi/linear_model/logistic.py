@@ -253,6 +253,7 @@ class LogisticInterceptFitterNoFeatures(object):
     y : ndarray
         Class labels.
     """
+
     def __init__(self, y, output_dim):
         self.output_dim = output_dim
         eps = 1e-10
@@ -328,6 +329,7 @@ class MaskedCoefLogisticRegression(LogisticRegression):
         initialization, otherwise, just erase the previous solution.
         Useless for liblinear solver.
     """
+
     def __init__(self, penalty='l2', tol=1e-3, C=1.,
                  fit_intercept=True, standardize=False, class_weight=None,
                  max_iter=10000,
