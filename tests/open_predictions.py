@@ -21,10 +21,10 @@ def graph_2d_subset_linear_classification_coefficients(key: str, data: NpzFile) 
         ax.set_title(key)
         ax.set_xlabel("frames")
         ax.set_ylabel("n_bootstraps")
-        x_coef = np.squeeze(data[key])
-        plot = ax.imshow(x_coef[:24, :10], interpolation='none',
+        coef = np.squeeze(data[key])
+        plot = ax.imshow(coef[:24, :10], interpolation='none',
                          extent=[0, 10, 24, 0])
-        plt.figtext(0, 0, str(x_coef[:24, :10]), fontsize=6)
+        plt.figtext(0, 0, str(coef[:24, :10]), fontsize=6)
         fig.colorbar(plot, ax=ax)
         plt.show()
         plt.close()
