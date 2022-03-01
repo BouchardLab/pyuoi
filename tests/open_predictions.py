@@ -17,20 +17,33 @@ def initialize_arg_parser():
 def main(file: str):
     """Prints the first and last 10 results from the file and generates a graph of results"""
 
-    with np.printoptions(edgeitems=10):
-        results = np.load(
-            file=file, allow_pickle=True)
+    if file.endswith(".npy"):
+        with np.printoptions(edgeitems=10):
+            results = np.load(
+                file=file, allow_pickle=True)
 
-        x, y = np.unique(results, return_counts=True)
+            x, y = np.unique(results, return_counts=True)
 
-        plt.bar(x, y)
-        plt.title(os.path.basename(file))
-        plt.show()
-        plt.close()
+            plt.bar(x, y)
+            plt.title(os.path.basename(file))
+            plt.show()
+            plt.close()
 
-        plt.scatter(np.arange(len(results)), results, s=0.3)
-        plt.show()
-        plt.close()
+            plt.scatter(np.arange(len(results)), results, s=0.3)
+            plt.show()
+            plt.close()
+    elif file.endswith(".npz"):
+        with np.load(file) as data:
+            for key in data.keys():
+                if key == "y_coefficients":
+                    fig, ax = plt.subplots()
+                    ax.set_title(key)
+                    ax.set_xlabel("frames")
+                    ax.set_ylabel("n_bootstraps")
+                    ax.imshow(data[key][:24, :10], interpolation='none',
+                              extent=[0, 10, 24, 0])
+                    plt.show()
+                    plt.close()
 
 
 if __name__ == "__main__":

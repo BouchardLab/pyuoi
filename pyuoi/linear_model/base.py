@@ -261,7 +261,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                     test_size=1 - self.selection_frac,
                     stratify=stratify,
                     random_state=self.random_state)
-        # Write out linear coefficients later to binary .npy file.
+        # (Joseph) Write out linear coefficients later to binary .npy file.
         x_linear_coefficients = []
         y_linear_coefficients = []
 
@@ -288,7 +288,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             X_rep = X[idxs_train]
             y_rep = y[idxs_train]
 
-            # Write out the coefficients for regularization.
+            # (Joseph) Write out the coefficients for regularization.
             x_linear_coefficients.append(X_rep)
             y_linear_coefficients.append(y_rep)
 
@@ -304,7 +304,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             selection_coefs[ii] = np.squeeze(
                 self.uoi_selection_sweep(X_rep, y_rep, my_reg_params))
 
-        np.savez(file="/Users/josephgmaa/pyuoi/pyuoi/data/features/coefficients/test.npz",
+        np.savez(file="/Users/josephgmaa/pyuoi/pyuoi/data/features/coefficients/test1.npz",
                  x_coefficients=np.array(x_linear_coefficients),
                  y_coefficients=np.array(y_linear_coefficients))
 
