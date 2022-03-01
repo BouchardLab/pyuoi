@@ -35,7 +35,18 @@ def main(file: str):
     elif file.endswith(".npz"):
         with np.load(file) as data:
             for key in data.keys():
-                if key == "y_coefficients":
+                if key == "x_coefficients":
+                    fig, ax = plt.subplots()
+                    ax.set_title(key)
+                    ax.set_xlabel("frames")
+                    ax.set_ylabel("n_bootstraps")
+                    x_coef = np.squeeze(data[key])
+                    plot = ax.imshow(x_coef[:24, :10], interpolation='none',
+                                     extent=[0, 10, 24, 0])
+                    fig.colorbar(plot, ax=ax)
+                    plt.show()
+                    plt.close()
+                elif key == "y_coefficients":
                     fig, ax = plt.subplots()
                     ax.set_title(key)
                     ax.set_xlabel("frames")
