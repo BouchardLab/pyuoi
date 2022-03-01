@@ -15,16 +15,19 @@ def initialize_arg_parser():
     return parser
 
 
-def graph_2d_subset_linear_classification_coefficients(key: str, data: NpzFile) -> None:
+def graph_2d_subset_linear_classification_coefficients(key: str, data: NpzFile, frame_start: int = 0, frame_end: int = 10) -> None:
+    """
+    Print out a subset of frames from the corresponding key in the data (.npz) file.
+    """
     with np.printoptions(precision=2, suppress=True):
         fig, ax = plt.subplots()
-        ax.set_title(key)
+        ax.set_title(f"{key} frames from: {frame_start} - {frame_end}")
         ax.set_xlabel("frames")
         ax.set_ylabel("n_bootstraps")
         coef = np.squeeze(data[key])
-        plot = ax.imshow(coef[:24, :10], interpolation='none',
+        plot = ax.imshow(coef[:24, frame_start:frame_end], interpolation='none',
                          extent=[0, 10, 24, 0])
-        plt.figtext(0, 0, str(coef[:24, :10]), fontsize=6)
+        plt.figtext(0, 0, str(coef[:24, frame_start:frame_end]), fontsize=6)
         fig.colorbar(plot, ax=ax)
         plt.show()
         plt.close()
@@ -53,10 +56,10 @@ def main(file: str):
             for key in data.keys():
                 if key == "x_coefficients":
                     graph_2d_subset_linear_classification_coefficients(
-                        key="x_coefficients", data=data)
+                        key="x_coefficients", data=data, frame_start=70000, frame_end=70010)
                 elif key == "y_coefficients":
                     graph_2d_subset_linear_classification_coefficients(
-                        key="y_coefficients", data=data)
+                        key="y_coefficients", data=data, frame_start=70000, frame_end=70010)
 
 
 if __name__ == "__main__":
