@@ -182,6 +182,6 @@ def write_timestamped_numpy_binary(filename: str, **data: np.array) -> None:
         saved_filename = os.path.join(
             saved_runs_directory, timestr + '.' + basename + '.npz')
 
-        np.savez(saved_filename, data)
+        np.savez(saved_filename, **data)
 
     print('File saved to: ', saved_filename)

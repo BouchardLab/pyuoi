@@ -53,7 +53,7 @@ def main(file: str):
             plt.show()
             plt.close()
     elif file.endswith(".npz"):
-        with np.load(file) as data:
+        with np.load(file, allow_pickle=True) as data:
             for key in data.keys():
                 if key == "x_coefficients":
                     for i in range(5):

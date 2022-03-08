@@ -31,6 +31,8 @@ def main(parsed_args: argparse.Namespace):
     Run argument parser with commands like:
 
     >>> python tests/test_rat7m_classifier.py --input_file /Users/josephgmaa/pyuoi/pyuoi/data/features/PCs/PCs-mavg-velocity_relative.netcdf
+
+    >>> python tests/test_rat7m_classifier.py --input_file /Users/josephgmaa/pyuoi/pyuoi/data/features/PCs/PCs-mavg-velocity_relative.netcdf --column_names PCA_mavg_velocity_relative_0 PCA_mavg_velocity_relative_1 PCA_mavg_velocity_relative_2 PCA_mavg_velocity_relative_3 PCA_mavg_velocity_relative_4
     """
     df = pd.DataFrame()
     for filename in parsed_args.input_file:
