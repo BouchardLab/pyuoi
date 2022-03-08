@@ -1,7 +1,8 @@
 import abc as _abc
-from asyncore import write
 import numpy as np
+import os
 import logging
+import json
 from sklearn.linear_model._base import SparseCoefMixin
 from sklearn.metrics import r2_score, accuracy_score, log_loss
 from sklearn.model_selection import train_test_split
@@ -12,7 +13,7 @@ from scipy.sparse import issparse, csr_matrix
 
 from pyuoi import utils
 from pyuoi.mpi_utils import (Gatherv_rows, Bcast_from_root)
-from pyuoi.utils import write_timestamped_numpy_binary
+from pyuoi.utils import write_timestamped_numpy_binary, generate_timestamp_filename, is_json_serializable
 
 from .utils import stability_selection_to_threshold, intersection
 from ..utils import check_logger
@@ -452,6 +453,13 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                                    axis=0).reshape(self.output_dim, n_features)
             self._fit_intercept(X, y)
         self._post_fit(X, y)
+
+        # (Joseph) Write out all parameters to JSON file for later introspection.
+        dirname, basename = os.path.dirname("/Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/run_parameters"), os.path.basename(
+            "/Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/run_parameters")
+        with open(generate_timestamp_filename(dirname=dirname, basename=basename, file_format=".json"), "w") as file:
+            json.dump({key: val for key, val in self.__dict__.items(
+            ) if is_json_serializable(val)}, file, sort_keys=True, indent=4)
 
         return self
 
