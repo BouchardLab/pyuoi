@@ -4,6 +4,8 @@ from numpy.lib.npyio import NpzFile
 import matplotlib.pyplot as plt
 import os
 import sys
+import json
+import base64
 
 
 def initialize_arg_parser():
@@ -12,6 +14,9 @@ def initialize_arg_parser():
     parser.add_argument('--input_file',
                         help='Path to the input file.',
                         default='/Users/josephgmaa/pyuoi/pyuoi/data/features/saved_runs/20220208-154256.nolj_Recording_day7_overnight_636674151185633714_5_nolj.c3d.1851.features.netcdf.npy')
+    parser.add_argument('--key',
+                        help='Key for reading JSON keys',
+                        default='coef_')
     return parser
 
 
@@ -34,8 +39,11 @@ def graph_2d_subset_x_linear_classification_coefficients(key: str, data: NpzFile
         plt.close()
 
 
-def main(file: str):
+def main(parsed_args: argparse.Namespace):
     """Prints the first and last 10 results from the file and generates a graph of results"""
+
+    file = parsed_args.input_file
+    key = parsed_args.key
 
     if file.endswith(".npy"):
         with np.printoptions(edgeitems=10):
@@ -59,10 +67,13 @@ def main(file: str):
                     for i in range(5):
                         graph_2d_subset_x_linear_classification_coefficients(
                             key="x_coefficients", data=data, frame_start=0, frame_end=1000, feature_idx=i)
+    elif file.endswith(".json"):
+        with open(file) as data:
+            attributes = json.load(data)
+            print(np.frombuffer(base64.b64decode(attributes[key])))
 
 
 if __name__ == "__main__":
     arg_parser = initialize_arg_parser()
     parsed_args = arg_parser.parse_args(sys.argv[1:])
-    if os.path.exists(parsed_args.input_file):
-        main(parsed_args.input_file)
+    main(parsed_args)

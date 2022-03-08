@@ -1,4 +1,5 @@
 import abc as _abc
+import base64
 import numpy as np
 import os
 import logging
@@ -455,11 +456,20 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         self._post_fit(X, y)
 
         # (Joseph) Write out all parameters to JSON file for later introspection.
-        dirname, basename = os.path.dirname("/Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/run_parameters"), os.path.basename(
-            "/Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/run_parameters")
+        filename = "/Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/run_parameters"
+        dirname, basename = os.path.dirname(filename), os.path.basename(
+            filename)
         with open(generate_timestamp_filename(dirname=dirname, basename=basename, file_format=".json"), "w") as file:
-            json.dump({key: val for key, val in self.__dict__.items(
-            ) if is_json_serializable(val)}, file, sort_keys=True, indent=4)
+            json_dump = {}
+            for key, val in self.__dict__.items():
+                if is_json_serializable(val):
+                    json_dump[key] = val
+                elif isinstance(val, np.ndarray):
+                    # Encode arrays as base64 strings.
+                    json_dump[key] = str(base64.b64encode(val), 'utf-8')
+            print(
+                f"JSON attributes written to {generate_timestamp_filename(dirname=dirname, basename=basename, file_format='.json')}.")
+            json.dump(json_dump, file, sort_keys=True, indent=4)
 
         return self
 
