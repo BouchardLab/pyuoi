@@ -15,7 +15,7 @@ def initialize_arg_parser():
     return parser
 
 
-def graph_2d_subset_linear_classification_coefficients(key: str, data: NpzFile, frame_start: int = 0, frame_end: int = 10, feature_idx: int = 0) -> None:
+def graph_2d_subset_x_linear_classification_coefficients(key: str, data: NpzFile, frame_start: int = 0, frame_end: int = 10, feature_idx: int = 0) -> None:
     """
     Print out a subset of frames from the corresponding key in the data (.npz) file.
     """
@@ -27,7 +27,7 @@ def graph_2d_subset_linear_classification_coefficients(key: str, data: NpzFile, 
         ax.set_ylabel("n_bootstraps")
         coef = data[key][:24, frame_start:frame_end, feature_idx]
         plot = ax.imshow(coef, interpolation='none',
-                         extent=[0, 24, 24, 0])
+                         extent=[0, 24, 24, 0], vmin=-15, vmax=15)
         plt.figtext(0, 0, str(coef[:24, frame_start:frame_end]), fontsize=6)
         fig.colorbar(plot, ax=ax)
         plt.show()
@@ -57,12 +57,8 @@ def main(file: str):
             for key in data.keys():
                 if key == "x_coefficients":
                     for i in range(5):
-                        graph_2d_subset_linear_classification_coefficients(
+                        graph_2d_subset_x_linear_classification_coefficients(
                             key="x_coefficients", data=data, frame_start=0, frame_end=1000, feature_idx=i)
-                elif key == "y_coefficients":
-                    for i in range(5):
-                        graph_2d_subset_linear_classification_coefficients(
-                            key="y_coefficients", data=data, frame_start=0, frame_end=1000, feature_idx=i)
 
 
 if __name__ == "__main__":
