@@ -9,24 +9,25 @@ import sys
 def initialize_arg_parser():
     parser = argparse.ArgumentParser(
         description='Read in numpy files and visualize frequency differences')
-    parser.add_argument('--inputFile',
+    parser.add_argument('--input_file',
                         help='Path to the input file.',
                         default='/Users/josephgmaa/pyuoi/pyuoi/data/features/saved_runs/20220208-154256.nolj_Recording_day7_overnight_636674151185633714_5_nolj.c3d.1851.features.netcdf.npy')
     return parser
 
 
-def graph_2d_subset_linear_classification_coefficients(key: str, data: NpzFile, frame_start: int = 0, frame_end: int = 10) -> None:
+def graph_2d_subset_linear_classification_coefficients(key: str, data: NpzFile, frame_start: int = 0, frame_end: int = 10, feature_idx: int = 0) -> None:
     """
     Print out a subset of frames from the corresponding key in the data (.npz) file.
     """
     with np.printoptions(precision=2, suppress=True):
         fig, ax = plt.subplots()
-        ax.set_title(f"{key} frames from: {frame_start} - {frame_end}")
+        ax.set_title(
+            f"{key} frames from feature index {feature_idx}: {frame_start} - {frame_end}")
         ax.set_xlabel("frames")
         ax.set_ylabel("n_bootstraps")
-        coef = np.squeeze(data[key])
-        plot = ax.imshow(coef[:24, frame_start:frame_end], interpolation='none',
-                         extent=[0, 10, 24, 0])
+        coef = data[key][:24, frame_start:frame_end, feature_idx]
+        plot = ax.imshow(coef, interpolation='none',
+                         extent=[0, 24, 24, 0])
         plt.figtext(0, 0, str(coef[:24, frame_start:frame_end]), fontsize=6)
         fig.colorbar(plot, ax=ax)
         plt.show()
@@ -55,15 +56,17 @@ def main(file: str):
         with np.load(file) as data:
             for key in data.keys():
                 if key == "x_coefficients":
-                    graph_2d_subset_linear_classification_coefficients(
-                        key="x_coefficients", data=data, frame_start=70000, frame_end=70010)
+                    for i in range(5):
+                        graph_2d_subset_linear_classification_coefficients(
+                            key="x_coefficients", data=data, frame_start=0, frame_end=1000, feature_idx=i)
                 elif key == "y_coefficients":
-                    graph_2d_subset_linear_classification_coefficients(
-                        key="y_coefficients", data=data, frame_start=70000, frame_end=70010)
+                    for i in range(5):
+                        graph_2d_subset_linear_classification_coefficients(
+                            key="y_coefficients", data=data, frame_start=0, frame_end=1000, feature_idx=i)
 
 
 if __name__ == "__main__":
     arg_parser = initialize_arg_parser()
     parsed_args = arg_parser.parse_args(sys.argv[1:])
-    if os.path.exists(parsed_args.inputFile):
-        main(parsed_args.inputFile)
+    if os.path.exists(parsed_args.input_file):
+        main(parsed_args.input_file)
