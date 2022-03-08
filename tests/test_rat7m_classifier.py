@@ -1,6 +1,7 @@
 from pyuoi import UoI_L1Logistic
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
+from pyuoi.utils import write_timestamped_numpy_binary
 import xarray as xr
 import numpy as np
 import pandas as pd
@@ -30,6 +31,8 @@ def main(parsed_args: argparse.Namespace):
     Run argument parser with commands like:
 
     >>> python tests/test_rat7m_classifier.py --input_file /Users/josephgmaa/pyuoi/pyuoi/data/features/PCs/PCs-mavg-velocity_relative.netcdf
+
+    >>> python tests/test_rat7m_classifier.py --input_file /Users/josephgmaa/pyuoi/pyuoi/data/features/PCs/PCs-mavg-velocity_relative.netcdf --column_names PCA_mavg_velocity_relative_0 PCA_mavg_velocity_relative_1 PCA_mavg_velocity_relative_2 PCA_mavg_velocity_relative_3 PCA_mavg_velocity_relative_4
     """
     df = pd.DataFrame()
     for filename in parsed_args.input_file:
@@ -56,21 +59,7 @@ def main(parsed_args: argparse.Namespace):
     print('Accuracy: ', accuracy_score(y_test, y_hat))
     print('Resulting values: ', y_hat)
 
-    basename, dirname = os.path.basename(filename), os.path.dirname(filename)
-
-    saved_runs_directory = os.path.join(dirname, 'saved_runs')
-
-    if not os.path.exists(saved_runs_directory):
-        os.makedirs(saved_runs_directory)
-
-    timestr = time.strftime("%Y%m%d-%H%M%S")
-
-    saved_filename = os.path.join(
-        saved_runs_directory, timestr + '.' + basename + '.npy')
-
-    np.save(saved_filename, y_hat)
-
-    print('File saved to: ', saved_filename)
+    write_timestamped_numpy_binary(filename=filename, data=y_hat)
 
 
 if __name__ == "__main__":
