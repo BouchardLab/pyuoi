@@ -1,6 +1,8 @@
 import numpy as np
 import sys
 import logging
+import os
+import time
 
 
 def softmax(y, axis=-1):
@@ -152,3 +154,34 @@ def check_logger(logger, name='uoi', comm=None):
         handler.setFormatter(logging.Formatter(fmt))
         ret.addHandler(handler)
     return ret
+
+
+def write_timestamped_numpy_binary(filename: str, **data: np.array) -> None:
+    """
+    Writes a numpy binary file with a timestamped prefix to a 'saved_runs' directory in the same directory.
+    """
+
+    basename, dirname = os.path.basename(filename), os.path.dirname(filename)
+
+    saved_runs_directory = os.path.join(dirname, 'saved_runs')
+
+    if not os.path.exists(saved_runs_directory):
+        os.makedirs(saved_runs_directory)
+
+    timestr = time.strftime("%Y%m%d-%H%M%S")
+
+    # Only process one keyword argument array.
+    if len(data) == 1:
+        saved_filename = os.path.join(
+            saved_runs_directory, timestr + '.' + basename + '.npy')
+
+        np.save(saved_filename, data)
+
+    # Process multiple keyworse argument arrays.
+    else:
+        saved_filename = os.path.join(
+            saved_runs_directory, timestr + '.' + basename + '.npz')
+
+        np.savez(saved_filename, data)
+
+    print('File saved to: ', saved_filename)

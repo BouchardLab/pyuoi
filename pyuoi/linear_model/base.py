@@ -1,4 +1,5 @@
 import abc as _abc
+from asyncore import write
 import numpy as np
 import logging
 from sklearn.linear_model._base import SparseCoefMixin
@@ -11,6 +12,7 @@ from scipy.sparse import issparse, csr_matrix
 
 from pyuoi import utils
 from pyuoi.mpi_utils import (Gatherv_rows, Bcast_from_root)
+from pyuoi.utils import write_timestamped_numpy_binary
 
 from .utils import stability_selection_to_threshold, intersection
 from ..utils import check_logger
@@ -304,9 +306,10 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             selection_coefs[ii] = np.squeeze(
                 self.uoi_selection_sweep(X_rep, y_rep, my_reg_params))
 
-        np.savez(file="/Users/josephgmaa/pyuoi/pyuoi/data/features/coefficients/test1.npz",
-                 x_coefficients=np.array(x_linear_coefficients),
-                 y_coefficients=np.array(y_linear_coefficients))
+        write_timestamped_numpy_binary(filename="/Users/josephgmaa/pyuoi/pyuoi/data/features/coefficients/coefficients",
+                                       x_coefficients=np.array(
+                                           x_linear_coefficients),
+                                       y_coefficients=np.array(y_linear_coefficients))
 
         # if distributed, gather selection coefficients to 0,
         # perform intersection, and broadcast results
