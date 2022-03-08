@@ -2,6 +2,7 @@ import argparse
 import numpy as np
 from numpy.lib.npyio import NpzFile
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import os
 import sys
 import json
@@ -39,6 +40,26 @@ def graph_2d_subset_x_linear_classification_coefficients(key: str, data: NpzFile
         plt.close()
 
 
+def graph_2d_support_matrix(support_matrix: np.ndarray, filename: str) -> None:
+    """
+    Graph a 2d support matrix in a plot.
+    """
+    fig, ax = plt.subplots()
+    ax.set_title(f"2d support matrix for run {filename}")
+    ax.set_xlabel("features")
+    ax.set_ylabel("regularization strength")
+    plot = ax.imshow(support_matrix, interpolation='none')
+    colors = [(val, plot.cmap(plot.norm(val))) for val in [True, False]]
+    patches = [mpatches.Patch(color=color, label=val) for val, color in colors]
+    y_ticks, x_ticks = support_matrix.shape
+    ax.set_xticks(np.arange(0, x_ticks, 1))
+    ax.set_yticks(np.arange(0, y_ticks, 1))
+
+    plt.legend(handles=patches)
+    plt.show()
+    plt.close()
+
+
 def main(parsed_args: argparse.Namespace):
     """Prints the first and last 10 results from the file and generates a graph of results"""
 
@@ -70,7 +91,13 @@ def main(parsed_args: argparse.Namespace):
     elif file.endswith(".json"):
         with open(file) as data:
             attributes = json.load(data)
-            print(np.frombuffer(base64.b64decode(attributes[key])))
+            if key == "supports_":
+                # The numpy matrices are flattened, so they have to be reshaped at read time.
+                shape = attributes[key][0]
+                base64_array = base64.b64decode(
+                    attributes[key][1])
+                array = np.frombuffer(base64_array, dtype="bool").reshape(shape)
+                graph_2d_support_matrix(support_matrix=array, filename=file)
 
 
 if __name__ == "__main__":

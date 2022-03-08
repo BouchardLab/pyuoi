@@ -466,7 +466,9 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                     json_dump[key] = val
                 elif isinstance(val, np.ndarray):
                     # Encode arrays as base64 strings.
-                    json_dump[key] = str(base64.b64encode(val), 'utf-8')
+                    print(key, val.shape, val)
+                    json_dump[key] = (val.shape, str(
+                        base64.b64encode(val), 'utf-8'))
             print(
                 f"JSON attributes written to {generate_timestamp_filename(dirname=dirname, basename=basename, file_format='.json')}.")
             json.dump(json_dump, file, sort_keys=True, indent=4)
