@@ -44,6 +44,7 @@ class PycLasso():
                       'issues/25 for resolution.')
             raise ValueError(string)
         self.max_iter = max_iter
+        self.tol = tol
         self.fit_intercept = fit_intercept
         self.alphas = alphas
 
@@ -219,6 +220,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
             comm=comm,
             estimation_score=estimation_score,
             max_iter=max_iter,
+            tol=tol,
             logger=logger)
         self.n_lambdas = n_lambdas
         self.eps = eps
@@ -228,10 +230,10 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         if solver == 'cd':
             self._selection_lm = Lasso(
                 max_iter=max_iter,
+                tol=tol,
                 warm_start=warm_start,
                 random_state=random_state,
-                fit_intercept=fit_intercept,
-                tol=tol)
+                fit_intercept=fit_intercept)
         elif solver == 'pyc':
             if pycasso is None:
                 raise ImportError('pycasso is not installed.')

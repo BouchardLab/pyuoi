@@ -56,6 +56,8 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         have independent supports.
     max_iter : int
         Maximum number of iterations for iterative fitting methods.
+    tol : float
+        Stopping criteria for solver.
     random_state : int, RandomState instance, or None
         The seed of the pseudo random number generator that selects a random
         feature to update.  If int, random_state is the seed used by the random
@@ -83,8 +85,8 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
     def __init__(self, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
                  fit_intercept=True, standardize=True,
-                 shared_support=True, max_iter=None, random_state=None,
-                 comm=None, logger=None):
+                 shared_support=True, max_iter=None, tol=None,
+                 random_state=None, comm=None, logger=None):
         # data split fractions
         self.selection_frac = selection_frac
         self.estimation_frac = estimation_frac
@@ -97,6 +99,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         self.standardize = standardize
         self.shared_support = shared_support
         self.max_iter = max_iter
+        self.tol = tol
         self.comm = comm
         # preprocessing
         if isinstance(random_state, int):
@@ -499,7 +502,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
                  estimation_frac=0.9, stability_selection=1.,
                  estimation_score='r2', estimation_target=None,
                  copy_X=True, fit_intercept=True,
-                 standardize=True, random_state=None, max_iter=None,
+                 standardize=True, random_state=None, max_iter=None, tol=None,
                  comm=None, logger=None):
         super(AbstractUoILinearRegressor, self).__init__(
             n_boots_sel=n_boots_sel,
@@ -510,6 +513,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
             fit_intercept=fit_intercept,
             standardize=standardize,
             max_iter=max_iter,
+            tol=tol,
             random_state=random_state,
             comm=comm,
             logger=logger)
@@ -677,8 +681,8 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
                  estimation_frac=0.9, stability_selection=1.,
                  estimation_score='acc', estimation_target=None,
                  copy_X=True, fit_intercept=True, standardize=True,
-                 random_state=None, max_iter=None, shared_support=True,
-                 comm=None, logger=None):
+                 random_state=None, max_iter=None, tol=None,
+                 shared_support=True, comm=None, logger=None):
         super(AbstractUoIGeneralizedLinearRegressor, self).__init__(
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -690,6 +694,7 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
             standardize=standardize,
             shared_support=shared_support,
             max_iter=max_iter,
+            tol=tol,
             comm=comm,
             logger=logger)
 
