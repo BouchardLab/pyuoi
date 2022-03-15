@@ -1,7 +1,9 @@
 import abc as _abc
-from asyncore import write
+import base64
 import numpy as np
+import os
 import logging
+import json
 from sklearn.linear_model._base import SparseCoefMixin
 from sklearn.metrics import r2_score, accuracy_score, log_loss
 from sklearn.model_selection import train_test_split
@@ -12,7 +14,7 @@ from scipy.sparse import issparse, csr_matrix
 
 from pyuoi import utils
 from pyuoi.mpi_utils import (Gatherv_rows, Bcast_from_root)
-from pyuoi.utils import write_timestamped_numpy_binary
+from pyuoi.utils import write_timestamped_numpy_binary, generate_timestamp_filename, is_json_serializable
 
 from .utils import stability_selection_to_threshold, intersection
 from ..utils import check_logger
@@ -452,6 +454,24 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                                    axis=0).reshape(self.output_dim, n_features)
             self._fit_intercept(X, y)
         self._post_fit(X, y)
+
+        # (Joseph) Write out all parameters to JSON file for later introspection.
+        filename = "/Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/run_parameters"
+        dirname, basename = os.path.dirname(filename), os.path.basename(
+            filename)
+        with open(generate_timestamp_filename(dirname=dirname, basename=basename, file_format=".json"), "w") as file:
+            json_dump = {}
+            for key, val in self.__dict__.items():
+                if is_json_serializable(val):
+                    json_dump[key] = val
+                elif isinstance(val, np.ndarray):
+                    # Encode arrays as base64 strings.
+                    print(key, val.shape, val)
+                    json_dump[key] = (val.shape, str(
+                        base64.b64encode(val), 'utf-8'))
+            print(
+                f"JSON attributes written to {generate_timestamp_filename(dirname=dirname, basename=basename, file_format='.json')}.")
+            json.dump(json_dump, file, sort_keys=True, indent=4)
 
         return self
 

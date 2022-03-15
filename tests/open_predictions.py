@@ -2,8 +2,11 @@ import argparse
 import numpy as np
 from numpy.lib.npyio import NpzFile
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import os
 import sys
+import json
+import base64
 
 
 def initialize_arg_parser():
@@ -12,6 +15,9 @@ def initialize_arg_parser():
     parser.add_argument('--input_file',
                         help='Path to the input file.',
                         default='/Users/josephgmaa/pyuoi/pyuoi/data/features/saved_runs/20220208-154256.nolj_Recording_day7_overnight_636674151185633714_5_nolj.c3d.1851.features.netcdf.npy')
+    parser.add_argument('--key',
+                        help='Key for reading JSON keys',
+                        default='coef_')
     return parser
 
 
@@ -34,8 +40,35 @@ def graph_2d_subset_x_linear_classification_coefficients(key: str, data: NpzFile
         plt.close()
 
 
-def main(file: str):
-    """Prints the first and last 10 results from the file and generates a graph of results"""
+def graph_2d_support_matrix(support_matrix: np.ndarray, filename: str) -> None:
+    """
+    Graph a 2d support matrix in a plot.
+    """
+    fig, ax = plt.subplots()
+    ax.set_title(f"2d support matrix for run {filename}")
+    ax.set_xlabel("features")
+    ax.set_ylabel("regularization strength")
+    plot = ax.imshow(support_matrix, interpolation='none')
+    colors = [(val, plot.cmap(plot.norm(val))) for val in [True, False]]
+    patches = [mpatches.Patch(color=color, label=val) for val, color in colors]
+    y_ticks, x_ticks = support_matrix.shape
+    ax.set_xticks(np.arange(0, x_ticks, 1))
+    ax.set_yticks(np.arange(0, y_ticks, 1))
+
+    plt.legend(handles=patches)
+    plt.show()
+    plt.close()
+
+
+def main(parsed_args: argparse.Namespace):
+    """
+    Prints the first and last 10 results from the file and generates a graph of results.
+
+    >>> python tests/open_predictions.py --input_file /Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/20220308-132544.run_parameters.json --key="supports_"
+    """
+
+    file = parsed_args.input_file
+    key = parsed_args.key
 
     if file.endswith(".npy"):
         with np.printoptions(edgeitems=10):
@@ -59,10 +92,26 @@ def main(file: str):
                     for i in range(5):
                         graph_2d_subset_x_linear_classification_coefficients(
                             key="x_coefficients", data=data, frame_start=0, frame_end=1000, feature_idx=i)
+    elif file.endswith(".json"):
+        with open(file) as data:
+            attributes = json.load(data)
+            if key == "supports_":
+                # The numpy matrices are flattened, so they have to be reshaped at read time.
+                shape = attributes[key][0]
+                base64_array = base64.b64decode(
+                    attributes[key][1])
+                array = np.frombuffer(base64_array, dtype="bool").reshape(shape)
+                graph_2d_support_matrix(support_matrix=array, filename=file)
+            elif key == "selection_thresholds_":
+                # The numpy matrices are flattened, so they have to be reshaped at read time.
+                shape = attributes[key][0]
+                base64_array = base64.b64decode(
+                    attributes[key][1])
+                array = np.frombuffer(
+                    base64_array, dtype=np.uint8).reshape(shape)
 
 
 if __name__ == "__main__":
     arg_parser = initialize_arg_parser()
     parsed_args = arg_parser.parse_args(sys.argv[1:])
-    if os.path.exists(parsed_args.input_file):
-        main(parsed_args.input_file)
+    main(parsed_args)

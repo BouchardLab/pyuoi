@@ -3,6 +3,7 @@ import sys
 import logging
 import os
 import time
+import json
 
 
 def softmax(y, axis=-1):
@@ -156,6 +157,22 @@ def check_logger(logger, name='uoi', comm=None):
     return ret
 
 
+def is_json_serializable(object: any) -> bool:
+    try:
+        json.dumps(object)
+        return True
+    except (TypeError, OverflowError):
+        return False
+
+
+def generate_timestamp_filename(dirname: str, basename: str, file_format: str) -> str:
+    """
+    Generate a timestamped filename for use in saving files.
+    """
+    timestr = time.strftime("%Y%m%d-%H%M%S")
+    return os.path.join(dirname, f"{timestr}.{basename}{file_format}")
+
+
 def write_timestamped_numpy_binary(filename: str, **data: np.array) -> None:
     """
     Writes a numpy binary file with a timestamped prefix to a 'saved_runs' directory in the same directory.
@@ -168,19 +185,17 @@ def write_timestamped_numpy_binary(filename: str, **data: np.array) -> None:
     if not os.path.exists(saved_runs_directory):
         os.makedirs(saved_runs_directory)
 
-    timestr = time.strftime("%Y%m%d-%H%M%S")
-
     # Only process one keyword argument array.
     if len(data) == 1:
-        saved_filename = os.path.join(
-            saved_runs_directory, timestr + '.' + basename + '.npy')
+        saved_filename = generate_timestamp_filename(
+            dirname=saved_runs_directory, basename=basename, file_format='.npy')
 
         np.save(saved_filename, data)
 
     # Process multiple keyworse argument arrays.
     else:
-        saved_filename = os.path.join(
-            saved_runs_directory, timestr + '.' + basename + '.npz')
+        saved_filename = saved_filename = generate_timestamp_filename(
+            dirname=saved_runs_directory, basename=basename, file_format='.npz')
 
         np.savez(saved_filename, **data)
 
