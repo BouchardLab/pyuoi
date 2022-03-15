@@ -61,7 +61,11 @@ def graph_2d_support_matrix(support_matrix: np.ndarray, filename: str) -> None:
 
 
 def main(parsed_args: argparse.Namespace):
-    """Prints the first and last 10 results from the file and generates a graph of results"""
+    """
+    Prints the first and last 10 results from the file and generates a graph of results.
+
+    >>> python tests/open_predictions.py --input_file /Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/20220308-132544.run_parameters.json --key="supports_"
+    """
 
     file = parsed_args.input_file
     key = parsed_args.key
@@ -98,6 +102,13 @@ def main(parsed_args: argparse.Namespace):
                     attributes[key][1])
                 array = np.frombuffer(base64_array, dtype="bool").reshape(shape)
                 graph_2d_support_matrix(support_matrix=array, filename=file)
+            elif key == "selection_thresholds_":
+                # The numpy matrices are flattened, so they have to be reshaped at read time.
+                shape = attributes[key][0]
+                base64_array = base64.b64decode(
+                    attributes[key][1])
+                array = np.frombuffer(
+                    base64_array, dtype=np.uint8).reshape(shape)
 
 
 if __name__ == "__main__":

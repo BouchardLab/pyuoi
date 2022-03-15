@@ -5,8 +5,6 @@ from pyuoi.utils import write_timestamped_numpy_binary
 import xarray as xr
 import numpy as np
 import pandas as pd
-import os
-import time
 import argparse
 import sys
 
@@ -39,7 +37,6 @@ def main(parsed_args: argparse.Namespace):
         df = pd.concat([df, xr.load_dataset(
             filename, engine='h5netcdf').to_dataframe()])
 
-    # Use only the egocentric relative velocities for the training
     row_indices = np.arange(start=0, stop=df.shape[0]).tolist()
     df = df.iloc[row_indices, :]
     column_indices = [
