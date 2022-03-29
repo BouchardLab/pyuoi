@@ -115,7 +115,7 @@ def main(parsed_args: argparse.Namespace):
                            "input_files": parsed_args.input_files,
                            "column_names": parsed_args.column_names, "train_test_split_seed": parsed_args.training_seed, "l1log_seed": parsed_args.model_seed})
 
-    # write_timestamped_numpy_binary(filename=filename, data=y_hat)
+    write_timestamped_numpy_binary(filename=filename, data=y_hat)
 
 
 if __name__ == "__main__":
