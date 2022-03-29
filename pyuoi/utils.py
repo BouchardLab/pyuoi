@@ -4,6 +4,7 @@ import logging
 import os
 import time
 import json
+import base64
 
 
 def softmax(y, axis=-1):
@@ -163,6 +164,27 @@ def is_json_serializable(object: any) -> bool:
         return True
     except (TypeError, OverflowError):
         return False
+
+
+def dump_json(model: "AbstractUoILinearModel", filename: str, results: dict) -> None:
+    """
+    Writes out all model values to JSON.
+    """
+    dirname, basename = os.path.dirname(filename), os.path.basename(
+        filename)
+    with open(generate_timestamp_filename(dirname=dirname, basename=basename, file_format=".json"), "w") as file:
+        json_dump = {}
+        for dump in (model.__dict__, results):
+            for key, val in dump.items():
+                if is_json_serializable(val):
+                    json_dump[key] = val
+                elif isinstance(val, np.ndarray):
+                    # Encode arrays as base64 strings.
+                    json_dump[key] = (val.shape, str(
+                        base64.b64encode(val), 'utf-8'))
+        print(
+            f"JSON attributes written to {generate_timestamp_filename(dirname=dirname, basename=basename, file_format='.json')}.")
+        json.dump(json_dump, file, sort_keys=True, indent=4)
 
 
 def generate_timestamp_filename(dirname: str, basename: str, file_format: str) -> str:
