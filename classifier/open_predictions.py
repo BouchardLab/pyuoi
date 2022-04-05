@@ -6,7 +6,7 @@ import matplotlib.patches as mpatches
 from sklearn.model_selection import train_test_split
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.preprocessing import label_binarize
-from sklearn.metrics import confusion_matrix, precision_recall_fscore_support, roc_curve, RocCurveDisplay, auc
+from sklearn.metrics import roc_curve, auc
 from sklearn.svm import LinearSVC
 import os
 import sys
@@ -162,11 +162,6 @@ def main(parsed_args: argparse.Namespace):
                     plt.legend(loc="lower right")
                     plt.show()
 
-                # for i in range(len(np.unique(predicted))):
-                #     for exp, pred in zip(expected, predicted):
-
-                #         print(exp, "\n", pred)
-                #         RocCurveDisplay.from_predictions(exp, pred)
 
 
 if __name__ == "__main__":
