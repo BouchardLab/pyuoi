@@ -3,6 +3,11 @@ import numpy as np
 from numpy.lib.npyio import NpzFile
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+from sklearn.model_selection import train_test_split
+from sklearn.multiclass import OneVsRestClassifier
+from sklearn.preprocessing import label_binarize
+from sklearn.metrics import confusion_matrix, precision_recall_fscore_support, roc_curve, RocCurveDisplay, auc
+from sklearn.svm import LinearSVC
 import os
 import sys
 import json
@@ -64,7 +69,7 @@ def main(parsed_args: argparse.Namespace):
     """
     Prints the first and last 10 results from the file and generates a graph of results.
 
-    >>> python tests/open_predictions.py --input_file /Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/20220308-132544.run_parameters.json --key="supports_"
+    >>> python classifier/open_predictions.py --input_file /Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/20220308-132544.run_parameters.json --key="supports_"
     """
 
     file = parsed_args.input_file
@@ -109,6 +114,59 @@ def main(parsed_args: argparse.Namespace):
                     attributes[key][1])
                 array = np.frombuffer(
                     base64_array, dtype=np.uint8).reshape(shape)
+            elif key == "accuracy":
+                shape = attributes["expected_output"][0]
+                base64_array = base64.b64decode(
+                    attributes["expected_output"][1])
+                expected = np.frombuffer(
+                    base64_array, dtype=np.uint64).reshape(shape)
+
+                shape = attributes["predicted_output"][0]
+                base64_array = base64.b64decode(
+                    attributes["predicted_output"][1])
+                predicted = np.frombuffer(
+                    base64_array, dtype=np.uint64).reshape(shape)
+
+                classes = np.unique(expected)
+                print(classes)
+
+                x = label_binarize(expected, classes=classes)
+                y = label_binarize(predicted, classes=classes)
+                n_classes = len(np.unique(predicted))
+
+                x_train, x_test, y_train, y_test = train_test_split(
+                    x, y, test_size=0.33, random_state=0)
+
+                # Use the ovr classifier.
+                classifier = OneVsRestClassifier(LinearSVC(random_state=0))
+                y_score = classifier.fit(
+                    x_train, y_train).decision_function(x_test)
+
+                # Compute ROC curve and ROC area for each class.
+                fpr, tpr, roc_auc = {}, {}, {}
+                for i in range(n_classes):
+                    fpr[i], tpr[i], _ = roc_curve(y_test[:, i], y_score[:, i])
+                    roc_auc[i] = auc(fpr[i], tpr[i])
+
+                # Plot of a ROC curve for a specific class
+                for i in range(n_classes):
+                    plt.figure()
+                    plt.plot(fpr[i], tpr[i],
+                             label='ROC curve (area = %0.2f)' % roc_auc[i])
+                    plt.plot([0, 1], [0, 1], 'k--')
+                    plt.xlim([0.0, 1.0])
+                    plt.ylim([0.0, 1.05])
+                    plt.xlabel('False Positive Rate')
+                    plt.ylabel('True Positive Rate')
+                    plt.title(f'Receiver operating characteristic {classes[i]}')
+                    plt.legend(loc="lower right")
+                    plt.show()
+
+                # for i in range(len(np.unique(predicted))):
+                #     for exp, pred in zip(expected, predicted):
+
+                #         print(exp, "\n", pred)
+                #         RocCurveDisplay.from_predictions(exp, pred)
 
 
 if __name__ == "__main__":

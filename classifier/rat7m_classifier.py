@@ -5,6 +5,7 @@ from pyuoi.utils import write_timestamped_numpy_binary, dump_json
 from scipy.special import rel_entr
 from scipy.spatial.distance import jensenshannon
 from pyuoi.datasets import make_classification
+from sklearn.metrics import precision_recall_fscore_support
 import xarray as xr
 import numpy as np
 import pandas as pd
@@ -64,7 +65,6 @@ def main(parsed_args: argparse.Namespace):
 
         x_train, x_test, y_train, y_test = train_test_split(
             x, y, random_state=parsed_args.training_seed)
-
     else:
         df = pd.DataFrame()
         for filename in parsed_args.input_files:
@@ -107,6 +107,7 @@ def main(parsed_args: argparse.Namespace):
     if parsed_args.dump:
         dump_json(model=l1log, filename="/Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/run_parameters",
                   results={"accuracy": accuracy,
+                           "expected_output": y_test,
                            "predicted_output": y_hat,
                            "kl_divergence_y_hat_given_y": kl_divergence_y_hat_given_y,
                            "kl_divergence_y_given_y_hat": kl_divergence_y_given_y_hat,
