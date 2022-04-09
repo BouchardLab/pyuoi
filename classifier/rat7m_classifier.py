@@ -56,7 +56,7 @@ def main(parsed_args: argparse.Namespace):
     if parsed_args.use_small_dataset:
         n_features = 20
         n_inf = 10
-        x, y, _, _ = make_classification(n_samples=200,
+        x, y, _, _ = make_classification(n_samples=1000,
                                          random_state=10,
                                          n_classes=5,
                                          n_informative=n_inf,

@@ -6,7 +6,7 @@ import matplotlib.patches as mpatches
 from sklearn.model_selection import train_test_split
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.preprocessing import label_binarize
-from sklearn.metrics import roc_curve, auc, precision_recall_curve
+from sklearn.metrics import roc_curve, auc, precision_recall_curve, PrecisionRecallDisplay
 from sklearn.svm import LinearSVC
 import os
 import sys
@@ -130,8 +130,6 @@ def main(parsed_args: argparse.Namespace):
                 prediction_probabilities = read_numpy_binary_array(
                     attributes=attributes, key="prediction_probabilities", dtype=np.float64)
 
-                print(prediction_probabilities)
-
                 classes = np.unique(expected)
 
                 x = label_binarize(expected, classes=classes)
@@ -174,6 +172,11 @@ def main(parsed_args: argparse.Namespace):
                     plt.title(f'Receiver operating characteristic {classes[i]}')
                     plt.legend(loc="lower right")
                     plt.show()
+
+                    display = PrecisionRecallDisplay.from_predictions(
+                        y_test[:, i], y_score[:, i], name="LinearSVC")
+                    _ = display.ax_.set_title(
+                        f"2-class Precision-Recall curve for class: {i}")
 
 
 if __name__ == "__main__":
