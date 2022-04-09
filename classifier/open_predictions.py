@@ -6,7 +6,7 @@ import matplotlib.patches as mpatches
 from sklearn.model_selection import train_test_split
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.preprocessing import label_binarize
-from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import roc_curve, auc, precision_recall_curve
 from sklearn.svm import LinearSVC
 import os
 import sys
@@ -24,6 +24,17 @@ def initialize_arg_parser():
                         help='Key for reading JSON keys',
                         default='coef_')
     return parser
+
+
+def read_numpy_binary_array(attributes: dict, key: str, dtype: np.dtype) -> np.array:
+    """
+    Read in numpy array from binary file format. The numpy matrices are flattened, so they have to be reshaped at read time.
+    """
+    shape = attributes[key][0]
+    base64_array = base64.b64decode(
+        attributes[key][1])
+    array = np.frombuffer(base64_array, dtype=dtype).reshape(shape)
+    return array
 
 
 def graph_2d_subset_x_linear_classification_coefficients(key: str, data: NpzFile, frame_start: int = 0, frame_end: int = 10, feature_idx: int = 0) -> None:
@@ -70,6 +81,8 @@ def main(parsed_args: argparse.Namespace):
     Prints the first and last 10 results from the file and generates a graph of results.
 
     >>> python classifier/open_predictions.py --input_file /Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/20220308-132544.run_parameters.json --key="supports_"
+
+    >>> python classifier/open_predictions.py --input_file /Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/20220405-165906.run_parameters.json --key="accuracy"
     """
 
     file = parsed_args.input_file
@@ -101,34 +114,25 @@ def main(parsed_args: argparse.Namespace):
         with open(file) as data:
             attributes = json.load(data)
             if key == "supports_":
-                # The numpy matrices are flattened, so they have to be reshaped at read time.
-                shape = attributes[key][0]
-                base64_array = base64.b64decode(
-                    attributes[key][1])
-                array = np.frombuffer(base64_array, dtype="bool").reshape(shape)
+                array = read_numpy_binary_array(
+                    attributes=attributes, key=key, dtype=bool)
                 graph_2d_support_matrix(support_matrix=array, filename=file)
             elif key == "selection_thresholds_":
-                # The numpy matrices are flattened, so they have to be reshaped at read time.
-                shape = attributes[key][0]
-                base64_array = base64.b64decode(
-                    attributes[key][1])
-                array = np.frombuffer(
-                    base64_array, dtype=np.uint8).reshape(shape)
+                array = read_numpy_binary_array(
+                    attributes=attributes, key=key, dtype=np.uint8)
             elif key == "accuracy":
-                shape = attributes["expected_output"][0]
-                base64_array = base64.b64decode(
-                    attributes["expected_output"][1])
-                expected = np.frombuffer(
-                    base64_array, dtype=np.uint64).reshape(shape)
+                expected = read_numpy_binary_array(
+                    attributes=attributes, key="expected_output", dtype=np.uint64)
 
-                shape = attributes["predicted_output"][0]
-                base64_array = base64.b64decode(
-                    attributes["predicted_output"][1])
-                predicted = np.frombuffer(
-                    base64_array, dtype=np.uint64).reshape(shape)
+                predicted = read_numpy_binary_array(
+                    attributes=attributes, key="predicted_output", dtype=np.uint64)
+
+                prediction_probabilities = read_numpy_binary_array(
+                    attributes=attributes, key="prediction_probabilities", dtype=np.float64)
+
+                print(prediction_probabilities)
 
                 classes = np.unique(expected)
-                print(classes)
 
                 x = label_binarize(expected, classes=classes)
                 y = label_binarize(predicted, classes=classes)
@@ -136,6 +140,9 @@ def main(parsed_args: argparse.Namespace):
 
                 x_train, x_test, y_train, y_test = train_test_split(
                     x, y, test_size=0.33, random_state=0)
+
+                probabilities_x_train, probabilities_x_test, probabilities_y_train, probabilities_y_test = train_test_split(
+                    x, prediction_probabilities, test_size=0.33, random_state=0)
 
                 # Use the ovr classifier.
                 classifier = OneVsRestClassifier(LinearSVC(random_state=0))
@@ -147,12 +154,18 @@ def main(parsed_args: argparse.Namespace):
                 for i in range(n_classes):
                     fpr[i], tpr[i], _ = roc_curve(y_test[:, i], y_score[:, i])
                     roc_auc[i] = auc(fpr[i], tpr[i])
+                    fpr[i + n_classes], tpr[i + n_classes], _ = roc_curve(
+                        y_test[:, i], probabilities_y_test[:, i])
+                    roc_auc[i +
+                            n_classes] = auc(fpr[i + n_classes], tpr[i + n_classes])
 
                 # Plot of a ROC curve for a specific class
                 for i in range(n_classes):
                     plt.figure()
                     plt.plot(fpr[i], tpr[i],
                              label='ROC curve (area = %0.2f)' % roc_auc[i])
+                    plt.plot(fpr[i + n_classes], tpr[i + n_classes],
+                             label='ROC curve with prediction probabilities (area = %0.2f)' % roc_auc[i])
                     plt.plot([0, 1], [0, 1], 'k--')
                     plt.xlim([0.0, 1.0])
                     plt.ylim([0.0, 1.05])
@@ -161,7 +174,6 @@ def main(parsed_args: argparse.Namespace):
                     plt.title(f'Receiver operating characteristic {classes[i]}')
                     plt.legend(loc="lower right")
                     plt.show()
-
 
 
 if __name__ == "__main__":

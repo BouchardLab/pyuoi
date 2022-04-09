@@ -1,3 +1,4 @@
+from sklearn import multiclass
 from pyuoi import UoI_L1Logistic
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
@@ -107,14 +108,19 @@ def main(parsed_args: argparse.Namespace):
     if parsed_args.dump:
         dump_json(model=l1log, filename="/Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/run_parameters",
                   results={"accuracy": accuracy,
+                           "coefficients": l1log.coef_,
                            "expected_output": y_test,
                            "predicted_output": y_hat,
                            "kl_divergence_y_hat_given_y": kl_divergence_y_hat_given_y,
                            "kl_divergence_y_given_y_hat": kl_divergence_y_given_y_hat,
                            "jensenshannon_predictions":
                            jensenshannon_predictions,
+                           "prediction_probabilities":
+                           l1log.predict_proba(x_test),
                            "input_files": parsed_args.input_files,
                            "column_names": parsed_args.column_names, "train_test_split_seed": parsed_args.training_seed, "l1log_seed": parsed_args.model_seed})
+
+    print(l1log.predict_proba(x_test))
 
     write_timestamped_numpy_binary(filename=filename, data=y_hat)
 
