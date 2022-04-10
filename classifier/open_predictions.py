@@ -6,7 +6,7 @@ import matplotlib.patches as mpatches
 from sklearn.model_selection import train_test_split
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.preprocessing import label_binarize
-from sklearn.metrics import roc_curve, auc, precision_recall_curve, PrecisionRecallDisplay
+from sklearn.metrics import ConfusionMatrixDisplay, roc_curve, auc, PrecisionRecallDisplay
 from sklearn.svm import LinearSVC
 import os
 import sys
@@ -117,6 +117,15 @@ def main(parsed_args: argparse.Namespace):
                 array = read_numpy_binary_array(
                     attributes=attributes, key=key, dtype=bool)
                 graph_2d_support_matrix(support_matrix=array, filename=file)
+            elif key == "metrics":
+                expected = read_numpy_binary_array(
+                    attributes=attributes, key="expected_output", dtype=np.uint64)
+
+                predicted = read_numpy_binary_array(
+                    attributes=attributes, key="predicted_output", dtype=np.uint64)
+
+                ConfusionMatrixDisplay.from_predictions(expected, predicted)
+                plt.show()
             elif key == "selection_thresholds_":
                 array = read_numpy_binary_array(
                     attributes=attributes, key=key, dtype=np.uint8)
@@ -131,10 +140,10 @@ def main(parsed_args: argparse.Namespace):
                     attributes=attributes, key="prediction_probabilities", dtype=np.float64)
 
                 classes = np.unique(expected)
+                n_classes = len(np.unique(predicted))
 
                 x = label_binarize(expected, classes=classes)
                 y = label_binarize(predicted, classes=classes)
-                n_classes = len(np.unique(predicted))
 
                 x_train, x_test, y_train, y_test = train_test_split(
                     x, y, test_size=0.33, random_state=0)
@@ -159,6 +168,11 @@ def main(parsed_args: argparse.Namespace):
 
                 # Plot of a ROC curve for a specific class
                 for i in range(n_classes):
+                    display = PrecisionRecallDisplay.from_predictions(
+                        y_test[:, i], y_score[:, i], name="LinearSVC")
+                    _ = display.ax_.set_title(
+                        f"2-class Precision-Recall curve for class: {i}")
+
                     plt.figure()
                     plt.plot(fpr[i], tpr[i],
                              label='ROC curve (area = %0.2f)' % roc_auc[i])
@@ -172,11 +186,6 @@ def main(parsed_args: argparse.Namespace):
                     plt.title(f'Receiver operating characteristic {classes[i]}')
                     plt.legend(loc="lower right")
                     plt.show()
-
-                    display = PrecisionRecallDisplay.from_predictions(
-                        y_test[:, i], y_score[:, i], name="LinearSVC")
-                    _ = display.ax_.set_title(
-                        f"2-class Precision-Recall curve for class: {i}")
 
 
 if __name__ == "__main__":
