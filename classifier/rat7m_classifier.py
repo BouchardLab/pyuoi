@@ -1,4 +1,5 @@
 from sklearn import multiclass
+from sklearn.preprocessing import LabelEncoder
 from pyuoi import UoI_L1Logistic
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
@@ -92,7 +93,14 @@ def main(parsed_args: argparse.Namespace):
     accuracy = accuracy_score(y_test, y_hat)
     print('y_test: ', y_test)
     print('y_hat: ', y_hat)
-    y_test_freq, y_hat_freq = np.bincount(y_test), np.bincount(y_hat)
+    if y_test.dtype != np.int64:
+        le = LabelEncoder()
+        le.fit(y_test)
+        y_test_freq = np.bincount(le.transform(y_test))
+        y_hat_freq = np.bincount(le.transform(y_hat))
+    else:
+        y_test_freq = np.bincount(y_test)
+        y_hat_freq = np.bincount(y_hat)
     print('y_test_freq: ', y_test_freq)
     print('y_hat_freq: ', y_hat_freq)
 
