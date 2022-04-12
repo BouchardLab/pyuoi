@@ -4,4 +4,4 @@ pytest
 flake8
 cython
 sphinx-gallery
-sphinx_rtd_theme
+sphinx-rtd-theme
