@@ -2,7 +2,6 @@ import pytest
 from numpy.testing import assert_array_equal, assert_array_almost_equal
 
 from pyuoi.lbfgs import LBFGS, fmin_lbfgs
-from pyuoi.lbfgs._lowlevel import LBFGSError
 import numpy as np
 
 

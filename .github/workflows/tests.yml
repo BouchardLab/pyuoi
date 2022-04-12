@@ -24,13 +24,14 @@ jobs:
       - name: Install dependencies
         run: |
 
-          if [ "${{matrix.os}}" = "ubuntu-latest" ]; then
-                  sudo apt-get update
-                  sudo apt-get install -y openmpi-bin libopenmpi-dev gcc
-          fi
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
-          python -m pip install codecov pytest-cov pycasso mpi4py
+          if [ "${{matrix.os}}" = "ubuntu-latest" ]; then
+            sudo apt-get update
+            sudo apt-get install -y openmpi-bin libopenmpi-dev gcc
+            python -m pip install mpi4py
+          fi
+          python -m pip install codecov pytest-cov pycasso
           python -m pip install -e .
       - name: Lint with flake8
         run: |

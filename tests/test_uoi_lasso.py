@@ -282,7 +282,6 @@ def test_pycasso_error():
 def test_pyclasso():
     """Tests whether the PycLasso class is working"""
 
-
     pyclasso = PycLasso()
     # Test that we can set params correctly
     pyclasso.set_params(fit_intercept=True)
