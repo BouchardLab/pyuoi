@@ -130,14 +130,20 @@ def main(parsed_args: argparse.Namespace):
                 array = read_numpy_binary_array(
                     attributes=attributes, key=key, dtype=np.uint8)
             elif key == "accuracy":
+                print("Reading binary arrays.")
                 expected = read_numpy_binary_array(
-                    attributes=attributes, key="expected_output", dtype=np.uint64)
+                    attributes=attributes, key="expected_output", dtype=np.int64)
 
                 predicted = read_numpy_binary_array(
-                    attributes=attributes, key="predicted_output", dtype=np.uint64)
+                    attributes=attributes, key="predicted_output", dtype=np.int64)
 
                 prediction_probabilities = read_numpy_binary_array(
                     attributes=attributes, key="prediction_probabilities", dtype=np.float64)
+                print("Finished reading binary arrays.")
+
+                print(expected, predicted)
+                print(f"Expected counts: {np.bincount(expected)}")
+                print(f"Predicted counts: {np.bincount(predicted)}")
 
                 classes = np.unique(expected)
                 n_classes = len(np.unique(predicted))
@@ -177,7 +183,7 @@ def main(parsed_args: argparse.Namespace):
                     plt.plot(fpr[i], tpr[i],
                              label='ROC curve (area = %0.2f)' % roc_auc[i])
                     plt.plot(fpr[i + n_classes], tpr[i + n_classes],
-                             label='ROC curve with prediction probabilities (area = %0.2f)' % roc_auc[i])
+                             label='ROC curve with prediction probabilities (area = %0.2f)' % roc_auc[i + n_classes])
                     plt.plot([0, 1], [0, 1], 'k--')
                     plt.xlim([0.0, 1.0])
                     plt.ylim([0.0, 1.05])

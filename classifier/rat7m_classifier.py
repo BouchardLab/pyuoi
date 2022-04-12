@@ -77,10 +77,13 @@ def main(parsed_args: argparse.Namespace):
         df = df.iloc[row_indices, :]
         column_indices = [
             i for i in df.columns if any(i in word for word in parsed_args.column_names)]
+
         y = df['behavior_name'].to_numpy()
+        le = LabelEncoder()
+        le.fit(y)
 
         x_train, x_test, y_train, y_test = train_test_split(
-            df.loc[:, column_indices].to_numpy(), y, random_state=parsed_args.training_seed)
+            df.loc[:, column_indices].to_numpy(), le.transform(y), random_state=parsed_args.training_seed)
 
     assert x_train.shape[
         1] > 0, f"X train dataset should have at least 1 input feature. Try checking that the column names match the input dataset: {list(df.columns)}"
@@ -93,14 +96,8 @@ def main(parsed_args: argparse.Namespace):
     accuracy = accuracy_score(y_test, y_hat)
     print('y_test: ', y_test)
     print('y_hat: ', y_hat)
-    if y_test.dtype != np.int64:
-        le = LabelEncoder()
-        le.fit(y_test)
-        y_test_freq = np.bincount(le.transform(y_test))
-        y_hat_freq = np.bincount(le.transform(y_hat))
-    else:
-        y_test_freq = np.bincount(y_test)
-        y_hat_freq = np.bincount(y_hat)
+    y_test_freq = np.bincount(y_test)
+    y_hat_freq = np.bincount(y_hat)
     print('y_test_freq: ', y_test_freq)
     print('y_hat_freq: ', y_hat_freq)
 
@@ -127,8 +124,6 @@ def main(parsed_args: argparse.Namespace):
                            l1log.predict_proba(x_test),
                            "input_files": parsed_args.input_files,
                            "column_names": parsed_args.column_names, "train_test_split_seed": parsed_args.training_seed, "l1log_seed": parsed_args.model_seed})
-
-    print(l1log.predict_proba(x_test))
 
     write_timestamped_numpy_binary(filename=filename, data=y_hat)
 
