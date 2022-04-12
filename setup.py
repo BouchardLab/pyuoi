@@ -36,7 +36,7 @@ include_dirs = ['liblbfgs', np.get_include()]
 
 ext_modules = cythonize(
     [Extension('pyuoi.lbfgs._lowlevel',
-               ['pyuoi/lbfgs/_lowlevel.pyx', 'liblbfgs/lbfgs.c'],
+               ['src/pyuoi/lbfgs/_lowlevel.pyx', 'liblbfgs/lbfgs.c'],
                include_dirs=include_dirs)])
 
 
