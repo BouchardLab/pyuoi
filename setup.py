@@ -75,9 +75,9 @@ setup(
         # Specify the Python versions you support here. In particular, ensure
         # that you indicate whether you support Python 2, Python 3 or both.
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
     ],
 
     # What does your project relate to?
@@ -85,8 +85,9 @@ setup(
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
+    package_dir={'': 'src'},
     packages=find_packages(),
-    package_data={'pyuoi': ['data/*']},
+    package_data={'pyuoi': ['data/*.h5']},
 
     # Alternatively, if you want to distribute just a my_module.py, uncomment
     # this:
