@@ -1,13 +1,13 @@
-from sklearn import multiclass
 from sklearn.preprocessing import LabelEncoder
 from pyuoi import UoI_L1Logistic
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
-from pyuoi.utils import write_timestamped_numpy_binary, dump_json
+from pyuoi.utils import write_timestamped_numpy_binary, dump_json, generate_timestamp_filename
 from scipy.special import rel_entr
 from scipy.spatial.distance import jensenshannon
 from pyuoi.datasets import make_classification
-from sklearn.metrics import precision_recall_fscore_support
+import os
+import pickle
 import xarray as xr
 import numpy as np
 import pandas as pd
@@ -46,7 +46,7 @@ def main(parsed_args: argparse.Namespace):
     """
     Run argument parser with commands:
 
-    >>> python classifier/rat7m_classifier.py --input_files /Users/josephgmaa/pyuoi/pyuoi/data/features/PCs/PCs-mavg-velocity_relative.netcdf PCA_mavg_velocity_relative_0
+    >>> python classifier/rat7m_classifier.py --input_files /Users/josephgmaa/pyuoi/pyuoi/data/features/PCs/PCs-mavg-velocity_relative.netcdf --column_names PCA_mavg_velocity_relative_0
 
     >>> python classifier/rat7m_classifier.py --input_files /Users/josephgmaa/pyuoi/pyuoi/data/features/PCs/PCs-mavg-velocity_relative.netcdf --column_names PCA_mavg_velocity_relative_0 PCA_mavg_velocity_relative_1 PCA_mavg_velocity_relative_2 PCA_mavg_velocity_relative_3 PCA_mavg_velocity_relative_4
 
@@ -64,6 +64,9 @@ def main(parsed_args: argparse.Namespace):
                                          n_features=n_features,
                                          shared_support=True,
                                          w_scale=4.)
+
+        le = LabelEncoder()
+        le.fit(y)
 
         x_train, x_test, y_train, y_test = train_test_split(
             x, y, random_state=parsed_args.training_seed)
@@ -111,11 +114,20 @@ def main(parsed_args: argparse.Namespace):
     filename = "/Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/run_parameters"
 
     if parsed_args.dump:
-        dump_json(model=l1log, filename="/Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/run_parameters",
+        # Dump the associated label encoder.
+        le_filename = generate_timestamp_filename(
+            dirname=os.path.dirname(filename), basename="label_encoder", file_format=".pkl")
+        with open(le_filename, 'wb+') as f:
+            pickle.dump(le, f)
+        print(
+            f'Label encoder written to {le_filename}.')
+
+        dump_json(model=l1log, filename=filename,
                   results={"accuracy": accuracy,
                            "coefficients": l1log.coef_,
                            "expected_output": y_test,
                            "predicted_output": y_hat,
+                           "label_encoder": le,
                            "kl_divergence_y_hat_given_y": kl_divergence_y_hat_given_y,
                            "kl_divergence_y_given_y_hat": kl_divergence_y_given_y_hat,
                            "jensenshannon_predictions":
@@ -123,7 +135,9 @@ def main(parsed_args: argparse.Namespace):
                            "prediction_probabilities":
                            l1log.predict_proba(x_test),
                            "input_files": parsed_args.input_files,
-                           "column_names": parsed_args.column_names, "train_test_split_seed": parsed_args.training_seed, "l1log_seed": parsed_args.model_seed})
+                           "column_names": parsed_args.column_names,
+                           "label_encoder": le_filename,
+                           "train_test_split_seed": parsed_args.training_seed, "l1log_seed": parsed_args.model_seed})
 
     write_timestamped_numpy_binary(filename=filename, data=y_hat)
 

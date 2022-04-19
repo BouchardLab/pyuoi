@@ -8,6 +8,7 @@ from sklearn.multiclass import OneVsRestClassifier
 from sklearn.preprocessing import label_binarize
 from sklearn.metrics import ConfusionMatrixDisplay, roc_curve, auc, PrecisionRecallDisplay
 from sklearn.svm import LinearSVC
+import pickle
 import os
 import sys
 import json
@@ -141,12 +142,15 @@ def main(parsed_args: argparse.Namespace):
                     attributes=attributes, key="prediction_probabilities", dtype=np.float64)
                 print("Finished reading binary arrays.")
 
+                with open(attributes['label_encoder'], 'rb') as label_encoder_pickle_file:
+                    label_encoder = pickle.load(label_encoder_pickle_file)
+
                 print(expected, predicted)
                 print(f"Expected counts: {np.bincount(expected)}")
                 print(f"Predicted counts: {np.bincount(predicted)}")
 
                 classes = np.unique(expected)
-                n_classes = len(np.unique(predicted))
+                n_classes = len(np.unique(expected))
 
                 x = label_binarize(expected, classes=classes)
                 y = label_binarize(predicted, classes=classes)
@@ -174,24 +178,31 @@ def main(parsed_args: argparse.Namespace):
 
                 # Plot of a ROC curve for a specific class
                 for i in range(n_classes):
-                    display = PrecisionRecallDisplay.from_predictions(
-                        y_test[:, i], y_score[:, i], name="LinearSVC")
-                    _ = display.ax_.set_title(
-                        f"2-class Precision-Recall curve for class: {i}")
+                    # Display only if the class is predicted at least once
+                    if sum(y_test[:, i] == 1):
+                        display = PrecisionRecallDisplay.from_predictions(
+                            y_test[:, i], y_score[:, i], name="LinearSVC")
+                        no_skill = sum(y_test[:, i] == 1) / len(y_test[:, i])
+                        display.ax_.plot(
+                            [0, 1], [no_skill, no_skill], linestyle='--', label='No skill')
+                        _ = display.ax_.set_title(
+                            f"2-class Precision-Recall curve for class: {label_encoder.inverse_transform(np.array([classes[i]]))}")
+                        display.ax_.legend()
 
-                    plt.figure()
-                    plt.plot(fpr[i], tpr[i],
-                             label='ROC curve (area = %0.2f)' % roc_auc[i])
-                    plt.plot(fpr[i + n_classes], tpr[i + n_classes],
-                             label='ROC curve with prediction probabilities (area = %0.2f)' % roc_auc[i + n_classes])
-                    plt.plot([0, 1], [0, 1], 'k--')
-                    plt.xlim([0.0, 1.0])
-                    plt.ylim([0.0, 1.05])
-                    plt.xlabel('False Positive Rate')
-                    plt.ylabel('True Positive Rate')
-                    plt.title(f'Receiver operating characteristic {classes[i]}')
-                    plt.legend(loc="lower right")
-                    plt.show()
+                        plt.figure()
+                        plt.plot(fpr[i], tpr[i],
+                                 label='ROC curve from LinearSVC (area = %0.2f)' % roc_auc[i])
+                        plt.plot(fpr[i + n_classes], tpr[i + n_classes],
+                                 label='ROC curve from pyuoi (area = %0.2f)' % roc_auc[i + n_classes])
+                        plt.plot([0, 1], [0, 1], 'k--')
+                        plt.xlim([0.0, 1.0])
+                        plt.ylim([0.0, 1.05])
+                        plt.xlabel('False Positive Rate')
+                        plt.ylabel('True Positive Rate')
+                        plt.title(
+                            f'Receiver operating characteristic {label_encoder.inverse_transform(np.array([classes[i]]))}')
+                        plt.legend(loc="lower right")
+                        plt.show()
 
 
 if __name__ == "__main__":
