@@ -77,7 +77,7 @@ def graph_2d_support_matrix(support_matrix: np.ndarray, filename: str) -> None:
     plt.close()
 
 
-def main(parsed_args: argparse.Namespace):
+def main(parsed_args: argparse.Namespace, debug: bool = False):
     """
     Prints the first and last 10 results from the file and generates a graph of results.
 
@@ -159,7 +159,7 @@ def main(parsed_args: argparse.Namespace):
                     x, y, test_size=0.33, random_state=0)
 
                 probabilities_x_train, probabilities_x_test, probabilities_y_train, probabilities_y_test = train_test_split(
-                    x, prediction_probabilities, test_size=0.33, random_state=0)
+                    x, prediction_probabilities, test_size=0.33, random_state=0)                
 
                 # Use the ovr classifier.
                 classifier = OneVsRestClassifier(LinearSVC(random_state=0))
@@ -169,12 +169,21 @@ def main(parsed_args: argparse.Namespace):
                 # Compute ROC curve and ROC area for each class.
                 fpr, tpr, roc_auc = {}, {}, {}
                 for i in range(n_classes):
-                    fpr[i], tpr[i], _ = roc_curve(y_test[:, i], y_score[:, i])
-                    roc_auc[i] = auc(fpr[i], tpr[i])
                     fpr[i + n_classes], tpr[i + n_classes], _ = roc_curve(
-                        y_test[:, i], probabilities_y_test[:, i])
+                        np.argmax(probabilities_y_test, axis=1), np.amax(y_score, axis=1), pos_label=i)
+                    if debug:
+                        print(f'probabilities_y_test {np.argmax(probabilities_y_test, axis=1)}')
+                        print(f'expected {expected}')
+                        print(f'y_score {np.argmax(y_score, axis=1)}')
+                        print(f'prediction_probabilities {prediction_probabilities[:,i]}')
+                        print(prediction_probabilities)
+                        with np.printoptions(threshold=np.inf):
+                            print(fpr, tpr)
                     roc_auc[i +
                             n_classes] = auc(fpr[i + n_classes], tpr[i + n_classes])
+
+                ConfusionMatrixDisplay.from_predictions(expected, predicted)
+                plt.show()
 
                 # Plot of a ROC curve for a specific class
                 for i in range(n_classes):
@@ -190,8 +199,8 @@ def main(parsed_args: argparse.Namespace):
                         display.ax_.legend()
 
                         plt.figure()
-                        plt.plot(fpr[i], tpr[i],
-                                 label='ROC curve from LinearSVC (area = %0.2f)' % roc_auc[i])
+                        # plt.plot(fpr[i], tpr[i],
+                        #          label='ROC curve from LinearSVC (area = %0.2f)' % roc_auc[i])
                         plt.plot(fpr[i + n_classes], tpr[i + n_classes],
                                  label='ROC curve from pyuoi (area = %0.2f)' % roc_auc[i + n_classes])
                         plt.plot([0, 1], [0, 1], 'k--')
