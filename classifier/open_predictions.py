@@ -6,7 +6,7 @@ import matplotlib.patches as mpatches
 from sklearn.model_selection import train_test_split
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.preprocessing import label_binarize
-from sklearn.metrics import ConfusionMatrixDisplay, roc_curve, auc, PrecisionRecallDisplay
+from sklearn.metrics import ConfusionMatrixDisplay, auc, PrecisionRecallDisplay
 from sklearn.svm import LinearSVC
 import pickle
 import os
@@ -77,7 +77,7 @@ def graph_2d_support_matrix(support_matrix: np.ndarray, filename: str) -> None:
     plt.close()
 
 
-def main(parsed_args: argparse.Namespace, debug: bool = False):
+def main(parsed_args: argparse.Namespace, debug: bool = True):
     """
     Prints the first and last 10 results from the file and generates a graph of results.
 
@@ -140,14 +140,14 @@ def main(parsed_args: argparse.Namespace, debug: bool = False):
 
                 prediction_probabilities = read_numpy_binary_array(
                     attributes=attributes, key="prediction_probabilities", dtype=np.float64)
-                print("Finished reading binary arrays.")
+                # print("Finished reading binary arrays.")
 
                 with open(attributes['label_encoder'], 'rb') as label_encoder_pickle_file:
                     label_encoder = pickle.load(label_encoder_pickle_file)
 
-                print(expected, predicted)
-                print(f"Expected counts: {np.bincount(expected)}")
-                print(f"Predicted counts: {np.bincount(predicted)}")
+                # print(expected, predicted)
+                # print(f"Expected counts: {np.bincount(expected)}")
+                # print(f"Predicted counts: {np.bincount(predicted)}")
 
                 classes = np.unique(expected)
                 n_classes = len(np.unique(expected))
@@ -159,7 +159,7 @@ def main(parsed_args: argparse.Namespace, debug: bool = False):
                     x, y, test_size=0.33, random_state=0)
 
                 probabilities_x_train, probabilities_x_test, probabilities_y_train, probabilities_y_test = train_test_split(
-                    x, prediction_probabilities, test_size=0.33, random_state=0)                
+                    x, prediction_probabilities, test_size=0.33, random_state=0)
 
                 # Use the ovr classifier.
                 classifier = OneVsRestClassifier(LinearSVC(random_state=0))
@@ -169,14 +169,22 @@ def main(parsed_args: argparse.Namespace, debug: bool = False):
                 # Compute ROC curve and ROC area for each class.
                 fpr, tpr, roc_auc = {}, {}, {}
                 for i in range(n_classes):
-                    fpr[i + n_classes], tpr[i + n_classes], _ = roc_curve(
-                        np.argmax(probabilities_y_test, axis=1), np.amax(y_score, axis=1), pos_label=i)
+                    # fpr[i + n_classes], tpr[i + n_classes], _ = roc_curve(
+                    # np.argmax(y_test, axis=1), probabilities_y_test[:, i])
                     if debug:
-                        print(f'probabilities_y_test {np.argmax(probabilities_y_test, axis=1)}')
-                        print(f'expected {expected}')
-                        print(f'y_score {np.argmax(y_score, axis=1)}')
-                        print(f'prediction_probabilities {prediction_probabilities[:,i]}')
-                        print(prediction_probabilities)
+                        print(np.argmax(y_test, axis=0),
+                              probabilities_y_test[:, i])
+                        # print(f'y_test: {np.argmax(y_test, axis=1)}')
+                        # print(
+                        #     f'probabilities_y_test {np.argmax(probabilities_y_test, axis=1)}')
+                        # print(f'expected {expected}')
+                        # print(f'y_score: {y_score}')
+                        # print(f'y_score {np.amax(y_score, axis=1)}')
+                        # print(
+                        #     f'central tendencies: mean: {np.mean(np.amax(y_score, axis=1))} median: {np.median(np.amax(y_score, axis=1))}')
+                        # print(
+                        #     f'prediction_probabilities {prediction_probabilities[:,i]}')
+                        # print(prediction_probabilities)
                         with np.printoptions(threshold=np.inf):
                             print(fpr, tpr)
                     roc_auc[i +
