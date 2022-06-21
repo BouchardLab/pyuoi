@@ -2,10 +2,13 @@ from sklearn.preprocessing import LabelEncoder
 from pyuoi import UoI_L1Logistic
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
+from pyuoi import datasets
 from pyuoi.utils import write_timestamped_numpy_binary, dump_json, generate_timestamp_filename
 from scipy.special import rel_entr
 from scipy.spatial.distance import jensenshannon
 from pyuoi.datasets import make_classification
+from itertools import combinations
+import matplotlib.pyplot as plt
 import os
 import pickle
 import xarray as xr
@@ -13,6 +16,12 @@ import numpy as np
 import pandas as pd
 import argparse
 import sys
+
+
+def absolute_file_paths(directory):
+    for dirpath, _, filenames in os.walk(directory):
+        for f in filenames:
+            yield os.path.abspath(os.path.join(dirpath, f))
 
 
 def initialize_arg_parser():
@@ -39,6 +48,8 @@ def initialize_arg_parser():
     parser.add_argument("--use_small_dataset",
                         help="Whether to use a small dataset for debugging",
                         default=False, type=bool)
+    parser.add_argument("--grid_search",
+                        help="Grid search through all the netcdfs in the directory. Takes the first 5 columns as values to automate the search.", default="/Users/josephgmaa/pyuoi/pyuoi/data/features/PCs/", type=str)
     return parser
 
 
@@ -53,6 +64,8 @@ def main(parsed_args: argparse.Namespace):
     To run with a small dataset for debugging, pass in the flag --use_small_dataset:
 
     >>> python classifier/rat7m_classifier.py --use_small_dataset True
+
+    >>> python classifier/rat7m_classifier.py --grid_search /Users/josephgmaa/pyuoi/pyuoi/data/features/PCs/  
     """
     if parsed_args.use_small_dataset:
         n_features = 20
@@ -70,6 +83,46 @@ def main(parsed_args: argparse.Namespace):
 
         x_train, x_test, y_train, y_test = train_test_split(
             x, y, random_state=parsed_args.training_seed)
+    elif parsed_args.grid_search:
+        # Load all netcdfs into dataframes from the parent directory.
+        pc_netcdfs = [file for file in absolute_file_paths(
+            parsed_args.grid_search) if file.endswith(".netcdf")]
+        for files in combinations(pc_netcdfs, 3):
+            df = pd.DataFrame()
+            for i, filename in enumerate(files):
+                dataset = xr.load_dataset(
+                    filename, engine="h5netcdf").to_dataframe()
+                if i == 0:
+                    df['behavior_name'] = dataset['behavior_name']
+                df = df.reset_index(drop=True)
+                df = pd.concat([df, dataset.iloc[:, 0:5]], axis=1)
+            y = df['behavior_name']
+            df = df.iloc[::50, :]
+            # df.plot()
+            # plt.show()
+            # Remove this break later to test all
+            break
+
+        y = df['behavior_name'].to_numpy()
+        le = LabelEncoder()
+        le.fit(y)
+
+        x_train, x_test, y_train, y_test = train_test_split(
+            df.loc[:, df.columns != 'behavior_name'].to_numpy(), le.transform(y), random_state=parsed_args.training_seed)
+
+        l1log = UoI_L1Logistic(random_state=parsed_args.model_seed, multi_class='multinomial').fit(
+            x_train, y_train, verbose=True)
+
+        y_hat = l1log.predict(x_test)
+
+        accuracy = accuracy_score(y_test, y_hat)
+        print('y_test: ', y_test)
+        print('y_hat: ', y_hat)
+        y_test_freq = np.bincount(y_test)
+        y_hat_freq = np.bincount(y_hat)
+        print('y_test_freq: ', y_test_freq)
+        print('y_hat_freq: ', y_hat_freq)
+        return
     else:
         df = pd.DataFrame()
         for filename in parsed_args.input_files:
