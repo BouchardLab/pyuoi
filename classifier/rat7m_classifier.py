@@ -2,7 +2,6 @@ from sklearn.preprocessing import LabelEncoder
 from pyuoi import UoI_L1Logistic
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
-from pyuoi import datasets
 from pyuoi.utils import write_timestamped_numpy_binary, dump_json, generate_timestamp_filename
 from scipy.special import rel_entr
 from scipy.spatial.distance import jensenshannon
@@ -98,30 +97,58 @@ def main(parsed_args: argparse.Namespace):
                 df = pd.concat([df, dataset.iloc[:, 0:5]], axis=1)
             y = df['behavior_name']
             df = df.iloc[::50, :]
-            # df.plot()
-            # plt.show()
-            # Remove this break later to test all
-            break
 
-        y = df['behavior_name'].to_numpy()
-        le = LabelEncoder()
-        le.fit(y)
+            y = df['behavior_name'].to_numpy()
+            le = LabelEncoder()
+            le.fit(y)
 
-        x_train, x_test, y_train, y_test = train_test_split(
-            df.loc[:, df.columns != 'behavior_name'].to_numpy(), le.transform(y), random_state=parsed_args.training_seed)
+            x_train, x_test, y_train, y_test = train_test_split(
+                df.loc[:, df.columns != 'behavior_name'].to_numpy(), le.transform(y), random_state=parsed_args.training_seed)
 
-        l1log = UoI_L1Logistic(random_state=parsed_args.model_seed, multi_class='multinomial').fit(
-            x_train, y_train, verbose=True)
+            l1log = UoI_L1Logistic(random_state=parsed_args.model_seed, multi_class='multinomial').fit(
+                x_train, y_train, verbose=True)
 
-        y_hat = l1log.predict(x_test)
+            y_hat = l1log.predict(x_test)
 
-        accuracy = accuracy_score(y_test, y_hat)
-        print('y_test: ', y_test)
-        print('y_hat: ', y_hat)
-        y_test_freq = np.bincount(y_test)
-        y_hat_freq = np.bincount(y_hat)
-        print('y_test_freq: ', y_test_freq)
-        print('y_hat_freq: ', y_hat_freq)
+            accuracy = accuracy_score(y_test, y_hat)
+            print('y_test: ', y_test)
+            print('y_hat: ', y_hat)
+            y_test_freq = np.bincount(y_test)
+            y_hat_freq = np.bincount(y_hat)
+            print('y_test_freq: ', y_test_freq)
+            print('y_hat_freq: ', y_hat_freq)
+
+            kl_divergence_y_hat_given_y = rel_entr(y_hat_freq, y_test_freq)
+            kl_divergence_y_given_y_hat = rel_entr(y_test_freq, y_hat_freq)
+            jensenshannon_predictions = jensenshannon(y_test_freq, y_hat_freq)
+
+            print(f"Accuracy: {accuracy}")
+            print(f"Resulting values: {y_hat}")
+
+            # Dump the associated label encoder.
+            le_filename = generate_timestamp_filename(
+                dirname=os.path.dirname(filename), basename="label_encoder", file_format=".pkl")
+            with open(le_filename, 'wb+') as f:
+                pickle.dump(le, f)
+            print(
+                f'Label encoder written to {le_filename}.')
+
+            dump_json(model=l1log, filename=filename,
+                      results={"accuracy": accuracy,
+                               "coefficients": l1log.coef_,
+                               "expected_output": y_test,
+                               "predicted_output": y_hat,
+                               "label_encoder": le,
+                               "kl_divergence_y_hat_given_y": kl_divergence_y_hat_given_y,
+                               "kl_divergence_y_given_y_hat": kl_divergence_y_given_y_hat,
+                               "jensenshannon_predictions":
+                               jensenshannon_predictions,
+                               "prediction_probabilities":
+                               l1log.predict_proba(x_test),
+                               "input_files": parsed_args.input_files,
+                               "column_names": parsed_args.column_names,
+                               "label_encoder": le_filename,
+                               "train_test_split_seed": parsed_args.training_seed, "l1log_seed": parsed_args.model_seed})
         return
     else:
         df = pd.DataFrame()

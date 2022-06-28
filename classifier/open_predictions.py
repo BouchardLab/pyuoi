@@ -6,7 +6,7 @@ import matplotlib.patches as mpatches
 from sklearn.model_selection import train_test_split
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.preprocessing import label_binarize
-from sklearn.metrics import ConfusionMatrixDisplay, auc, PrecisionRecallDisplay
+from sklearn.metrics import ConfusionMatrixDisplay, auc, PrecisionRecallDisplay, roc_curve
 from sklearn.svm import LinearSVC
 import pickle
 import os
@@ -24,6 +24,9 @@ def initialize_arg_parser():
     parser.add_argument('--key',
                         help='Key for reading JSON keys',
                         default='coef_')
+    parser.add_argument('--output_graphs',
+                        help="Output matplotlib graphs from run",
+                        default=True, type=bool)
     return parser
 
 
@@ -140,14 +143,9 @@ def main(parsed_args: argparse.Namespace, debug: bool = True):
 
                 prediction_probabilities = read_numpy_binary_array(
                     attributes=attributes, key="prediction_probabilities", dtype=np.float64)
-                # print("Finished reading binary arrays.")
 
                 with open(attributes['label_encoder'], 'rb') as label_encoder_pickle_file:
                     label_encoder = pickle.load(label_encoder_pickle_file)
-
-                # print(expected, predicted)
-                # print(f"Expected counts: {np.bincount(expected)}")
-                # print(f"Predicted counts: {np.bincount(predicted)}")
 
                 classes = np.unique(expected)
                 n_classes = len(np.unique(expected))
@@ -169,29 +167,18 @@ def main(parsed_args: argparse.Namespace, debug: bool = True):
                 # Compute ROC curve and ROC area for each class.
                 fpr, tpr, roc_auc = {}, {}, {}
                 for i in range(n_classes):
-                    # fpr[i + n_classes], tpr[i + n_classes], _ = roc_curve(
-                    # np.argmax(y_test, axis=1), probabilities_y_test[:, i])
                     if debug:
-                        print(np.argmax(y_test, axis=0),
-                              probabilities_y_test[:, i])
-                        # print(f'y_test: {np.argmax(y_test, axis=1)}')
-                        # print(
-                        #     f'probabilities_y_test {np.argmax(probabilities_y_test, axis=1)}')
-                        # print(f'expected {expected}')
-                        # print(f'y_score: {y_score}')
-                        # print(f'y_score {np.amax(y_score, axis=1)}')
-                        # print(
-                        #     f'central tendencies: mean: {np.mean(np.amax(y_score, axis=1))} median: {np.median(np.amax(y_score, axis=1))}')
-                        # print(
-                        #     f'prediction_probabilities {prediction_probabilities[:,i]}')
-                        # print(prediction_probabilities)
                         with np.printoptions(threshold=np.inf):
                             print(fpr, tpr)
+                    fpr[i], tpr[i], _ = roc_curve(y_test[:, i], y_score[:, i])
+                    roc_auc[i] = auc(fpr[i], tpr[i])
+                    fpr[i + n_classes], tpr[i + n_classes], _ = roc_curve(
+                        y_test[:, i], probabilities_y_test[:, i])
                     roc_auc[i +
-                            n_classes] = auc(fpr[i + n_classes], tpr[i + n_classes])
-
-                ConfusionMatrixDisplay.from_predictions(expected, predicted)
-                plt.show()
+                            n_classes] = auc(fpr.get(i + n_classes), tpr.get(i + n_classes))
+                if not parsed_args.output_graphs:
+                    ConfusionMatrixDisplay.from_predictions(expected, predicted)
+                    plt.show()
 
                 # Plot of a ROC curve for a specific class
                 for i in range(n_classes):
@@ -205,10 +192,7 @@ def main(parsed_args: argparse.Namespace, debug: bool = True):
                         _ = display.ax_.set_title(
                             f"2-class Precision-Recall curve for class: {label_encoder.inverse_transform(np.array([classes[i]]))}")
                         display.ax_.legend()
-
                         plt.figure()
-                        # plt.plot(fpr[i], tpr[i],
-                        #          label='ROC curve from LinearSVC (area = %0.2f)' % roc_auc[i])
                         plt.plot(fpr[i + n_classes], tpr[i + n_classes],
                                  label='ROC curve from pyuoi (area = %0.2f)' % roc_auc[i + n_classes])
                         plt.plot([0, 1], [0, 1], 'k--')
@@ -219,7 +203,13 @@ def main(parsed_args: argparse.Namespace, debug: bool = True):
                         plt.title(
                             f'Receiver operating characteristic {label_encoder.inverse_transform(np.array([classes[i]]))}')
                         plt.legend(loc="lower right")
-                        plt.show()
+                        if parsed_args.output_graphs:
+                            print(
+                                f"{os.path.join('/Users/josephgmaa/pyuoi/pyuoi/data/features/PCs/roc_curves', os.path.basename(parsed_args.input_file))}_{i}_ROC_curve.png")
+                            plt.savefig(
+                                f"{os.path.join('/Users/josephgmaa/pyuoi/pyuoi/data/features/PCs/roc_curves', os.path.basename(parsed_args.input_file))}_{i}_ROC_curve.png")
+                        else:
+                            plt.show()
 
 
 if __name__ == "__main__":
