@@ -1,0 +1,149 @@
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_23_nolj.c3d.393.features.netcdf
+AdjustPosture    2256
+Walk              880
+LScratch          800
+ProneStill        279
+BadTracking       200
+LGroom            200
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_18_nolj.c3d.130.features.netcdf
+Walk             2453
+ProneStill        823
+AdjustPosture     100
+FaceGroom         100
+WetDogShake        99
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_23_nolj.c3d.401.features.netcdf
+Rear             5600
+ProneStill        310
+AdjustPosture     300
+RScratch          250
+Walk               88
+Investigate        50
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_27_nolj.c3d.602.features.netcdf
+Walk    10408
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_37_nolj.c3d.1012.features.netcdf
+Walk        2023
+LScratch     698
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_34_nolj.c3d.781.features.netcdf
+Walk    4197
+Rear    1435
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_22_nolj.c3d.328.features.netcdf
+Walk             2206
+Rear              649
+AdjustPosture     350
+ProneStill        100
+Investigate        50
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_15_nolj.c3d.99.features.netcdf
+Walk    26975
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_34_nolj.c3d.802.features.netcdf
+Rear             2566
+FaceGroom         450
+AdjustPosture     150
+WetDogShake        50
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_18_nolj.c3d.158.features.netcdf
+Walk    7153
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_27_nolj.c3d.619.features.netcdf
+RScratch         1354
+AdjustPosture     250
+ProneStill        150
+WetDogShake        73
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_24_nolj.c3d.449.features.netcdf
+AdjustPosture    850
+ProneStill       628
+Walk             250
+Investigate      100
+WetDogShake       50
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_25_nolj.c3d.503.features.netcdf
+RGroom           1600
+Walk              713
+AdjustPosture      50
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_35_nolj.c3d.916.features.netcdf
+Walk    1518
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_24_nolj.c3d.465.features.netcdf
+Rear             2436
+FaceGroom         550
+Walk              242
+AdjustPosture      50
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_4_nolj.c3d.1605.features.netcdf
+Walk    2638
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_41_nolj.c3d.1283.features.netcdf
+AdjustPosture    630
+Walk             500
+ProneStill       268
+WetDogShake      100
+RScratch          50
+LScratch          50
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_5_nolj.c3d.1851.features.netcdf
+RScratch         1850
+ProneStill       1483
+RGroom            950
+AdjustPosture     150
+Rear               50
+WetDogShake        50
+Walk               50
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_39_nolj.c3d.1118.features.netcdf
+Walk           6698
+Investigate    1597
+ProneStill      600
+FaceGroom        50
+Name: behavior_name, dtype: int64
+
+
+/Users/josephgmaa/pyuoi/pyuoi/data/features/nolj_Recording_day7_overnight_636674151185633714_46_nolj.c3d.1523.features.netcdf
+Walk    2372
+Name: behavior_name, dtype: int64
+
+
