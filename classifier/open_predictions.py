@@ -1,4 +1,6 @@
 import argparse
+from tkinter import N
+from turtle import color
 import numpy as np
 from numpy.lib.npyio import NpzFile
 import matplotlib.pyplot as plt
@@ -26,7 +28,7 @@ def initialize_arg_parser():
                         default='coef_')
     parser.add_argument('--output_graphs',
                         help="Output matplotlib graphs from run",
-                        default=True, type=bool)
+                        default=False, type=bool)
     return parser
 
 
@@ -82,9 +84,9 @@ def graph_2d_support_matrix(support_matrix: np.ndarray, filename: str) -> None:
 
 def main(parsed_args: argparse.Namespace, debug: bool = False):
     """
-    Prints the first and last 10 results from the file and generates a graph of results.
+    Prints the first and last 10 results from the file and generates a graph of results. The following commands are meant to be used as examples.
 
-    >>> python classifier/open_predictions.py --input_file /Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/20220308-132544.run_parameters.json --key="supports_"
+    >>> python classifier/open_predictions.py --input_file /Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/20220712-142558.run_parameters.json --key="supports_"
 
     >>> python classifier/open_predictions.py --input_file /Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/20220712-142558.run_parameters.json --key="accuracy"
     """
@@ -161,14 +163,43 @@ def main(parsed_args: argparse.Namespace, debug: bool = False):
 
                 # Compute ROC curve and ROC area for each class.
                 fpr, tpr, roc_auc = {}, {}, {}
+                print(f'There are {n_classes} classes')
                 for i in range(n_classes):
+                    print(f'predicted instances: {y_test[:, i]}')
+                    print(f'probabilities of y {y_test[:, i]}')
+                    plt.figure()
+                    plt.title(
+                        'Predicted instances of simulated data from a single class')
+                    plt.bar(range(len(y_test)), y_test[:, i])
+                    plt.show()
+                    plt.figure()
+                    plt.title(
+                        'Predicted probabilities for simulated data from a single class')
+                    plt.bar(range(len(y_test)), probabilities_y_test[:, i])
+                    plt.show()
                     if debug:
                         with np.printoptions(threshold=np.inf):
                             print(fpr, tpr)
-                    # TODO(Joseph) Remove one of the fpr calculations
-                    fpr[i], tpr[i], _ = roc_curve(
-                        y_test[:, i], probabilities_y_test[:, i])
+                    fpr[i], tpr[i], thresholds = roc_curve(
+                        y_test[:, i], probabilities_y_test[:, i], drop_intermediate=False)
+                    print(f'Thresholds: {thresholds}')
+                    plt.figure()
+                    plt.title(
+                        'Automatically generated thresholds by sklearn')
+                    plt.bar(range(len(y_test) + 1), thresholds)
+                    plt.show()
                     roc_auc[i] = auc(fpr[i], tpr[i])
+                    print(f'fpr: {fpr} \ntpr: {tpr}')
+                    plt.figure()
+                    plt.title(
+                        'FPR and TPR calculations for simulated data from a single class')
+                    plt.bar(range(len(y_test) + 1),
+                            fpr[i], color='r', alpha=0.5, label="fpr")
+                    plt.bar(range(len(y_test) + 1),
+                            tpr[i], color='g', alpha=0.5, label="tpr")
+                    plt.legend()
+                    plt.show()
+                    break
                 if not parsed_args.output_graphs:
                     ConfusionMatrixDisplay.from_predictions(expected, predicted)
                     plt.show()
@@ -191,11 +222,12 @@ def main(parsed_args: argparse.Namespace, debug: bool = False):
                         plt.legend(loc="lower right")
                         if parsed_args.output_graphs:
                             print(
-                                f"{os.path.join('/Users/josephgmaa/pyuoi/pyuoi/data/features/PCs/roc_curves', os.path.basename(parsed_args.input_file))}_{i}_ROC_curve.png")
+                                f"Save ROC curves to: {os.path.join('/Users/josephgmaa/pyuoi/pyuoi/data/features/PCs/roc_curves', os.path.basename(parsed_args.input_file))}_{i}_ROC_curve.png")
                             plt.savefig(
                                 f"{os.path.join('/Users/josephgmaa/pyuoi/pyuoi/data/features/PCs/roc_curves', os.path.basename(parsed_args.input_file))}_{i}_ROC_curve.png")
                         else:
                             plt.show()
+                        break
 
 
 if __name__ == "__main__":
