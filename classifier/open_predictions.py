@@ -159,11 +159,6 @@ def main(parsed_args: argparse.Namespace, debug: bool = False):
                 probabilities_x_train, probabilities_x_test, probabilities_y_train, probabilities_y_test = train_test_split(
                     x, prediction_probabilities, test_size=0.33, random_state=0)
 
-                # Use the ovr classifier.
-                classifier = OneVsRestClassifier(LinearSVC(random_state=0))
-                y_score = classifier.fit(
-                    x_train, y_train).decision_function(x_test)
-
                 # Compute ROC curve and ROC area for each class.
                 fpr, tpr, roc_auc = {}, {}, {}
                 for i in range(n_classes):
