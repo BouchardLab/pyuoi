@@ -94,6 +94,7 @@ def main(parsed_args: argparse.Namespace):
                 if i == 0:
                     df['behavior_name'] = dataset['behavior_name']
                 df = df.reset_index(drop=True)
+                # We choose to use the first 5 PCs of each class
                 df = pd.concat([df, dataset.iloc[:, 0:5]], axis=1)
             y = df['behavior_name']
             df = df.iloc[::50, :]
@@ -133,6 +134,7 @@ def main(parsed_args: argparse.Namespace):
             print(
                 f'Label encoder written to {le_filename}.')
 
+            #TODO(Joseph): Double check that the model performs poorly using combinations of PCs that weren't originally used to make the model. Should do some reading on shuffling to generate a null distribution.
             dump_json(model=l1log, filename=filename,
                       results={"accuracy": accuracy,
                                "coefficients": l1log.coef_,

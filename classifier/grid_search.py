@@ -13,7 +13,7 @@ def main():
             process = subprocess.Popen([
                 "python", "classifier/open_predictions.py", "--input_file", file, '--key=accuracy', "--output_graphs", "True"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             print(subprocess.list2cmdline([
-                "python", "classifier/open_predictions.py", "--input_file", file, '--key=accuracy', "--output_graphs", "True"]))
+                "python", "classifier/open_predictions.py", "--input_file", file, '--key=accuracy', "--output_graphs"]))
             _, _ = process.communicate()
     print("Finished.")
 

@@ -80,13 +80,13 @@ def graph_2d_support_matrix(support_matrix: np.ndarray, filename: str) -> None:
     plt.close()
 
 
-def main(parsed_args: argparse.Namespace, debug: bool = True):
+def main(parsed_args: argparse.Namespace, debug: bool = False):
     """
     Prints the first and last 10 results from the file and generates a graph of results.
 
     >>> python classifier/open_predictions.py --input_file /Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/20220308-132544.run_parameters.json --key="supports_"
 
-    >>> python classifier/open_predictions.py --input_file /Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/20220405-165906.run_parameters.json --key="accuracy"
+    >>> python classifier/open_predictions.py --input_file /Users/josephgmaa/pyuoi/pyuoi/data/features/run_parameters/20220712-142558.run_parameters.json --key="accuracy"
     """
 
     file = parsed_args.input_file
@@ -170,12 +170,10 @@ def main(parsed_args: argparse.Namespace, debug: bool = True):
                     if debug:
                         with np.printoptions(threshold=np.inf):
                             print(fpr, tpr)
-                    fpr[i], tpr[i], _ = roc_curve(y_test[:, i], y_score[:, i])
-                    roc_auc[i] = auc(fpr[i], tpr[i])
-                    fpr[i + n_classes], tpr[i + n_classes], _ = roc_curve(
+                    # TODO(Joseph) Remove one of the fpr calculations
+                    fpr[i], tpr[i], _ = roc_curve(
                         y_test[:, i], probabilities_y_test[:, i])
-                    roc_auc[i +
-                            n_classes] = auc(fpr.get(i + n_classes), tpr.get(i + n_classes))
+                    roc_auc[i] = auc(fpr[i], tpr[i])
                 if not parsed_args.output_graphs:
                     ConfusionMatrixDisplay.from_predictions(expected, predicted)
                     plt.show()
@@ -183,23 +181,16 @@ def main(parsed_args: argparse.Namespace, debug: bool = True):
                 # Plot of a ROC curve for a specific class
                 for i in range(n_classes):
                     # Display only if the class is predicted at least once
-                    if sum(y_test[:, i] == 1):
-                        display = PrecisionRecallDisplay.from_predictions(
-                            y_test[:, i], y_score[:, i], name="LinearSVC")
-                        no_skill = sum(y_test[:, i] == 1) / len(y_test[:, i])
-                        display.ax_.plot(
-                            [0, 1], [no_skill, no_skill], linestyle='--', label='No skill')
-                        _ = display.ax_.set_title(
-                            f"2-class Precision-Recall curve for class: {label_encoder.inverse_transform(np.array([classes[i]]))}")
-                        display.ax_.legend()
+                    if sum(y_test[:, i] >= 1):
                         plt.figure()
-                        plt.plot(fpr[i + n_classes], tpr[i + n_classes],
-                                 label='ROC curve from pyuoi (area = %0.2f)' % roc_auc[i + n_classes])
+                        plt.plot(fpr[i], tpr[i],
+                                 label='ROC curve from pyuoi (area = %0.5f)' % roc_auc[i])
                         plt.plot([0, 1], [0, 1], 'k--')
                         plt.xlim([0.0, 1.0])
                         plt.ylim([0.0, 1.05])
                         plt.xlabel('False Positive Rate')
                         plt.ylabel('True Positive Rate')
+                        # TODO(Joseph): Add the features that generate the ROC curves
                         plt.title(
                             f'Receiver operating characteristic {label_encoder.inverse_transform(np.array([classes[i]]))}')
                         plt.legend(loc="lower right")
