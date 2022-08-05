@@ -1,6 +1,7 @@
 import numpy as np
 import sys
 import logging
+from sklearn.model_selection import train_test_split
 
 
 def softmax(y, axis=-1):
@@ -152,3 +153,11 @@ def check_logger(logger, name='uoi', comm=None):
         handler.setFormatter(logging.Formatter(fmt))
         ret.addHandler(handler)
     return ret
+
+
+def resample(X, train_frac, stratify, random_state):
+    rvals = train_test_split(np.arange(X.shape[0]),
+                             test_size=1 - train_frac,
+                             stratify=stratify,
+                             random_state=random_state)
+    return rvals

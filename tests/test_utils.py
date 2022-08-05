@@ -7,7 +7,7 @@ from numpy.testing import assert_raises
 from pyuoi.linear_model.utils import stability_selection_to_threshold
 from pyuoi.linear_model.utils import intersection
 
-from pyuoi.utils import check_logger
+from pyuoi.utils import check_logger, resample
 
 import logging
 try:
@@ -331,3 +331,23 @@ def test_check_logger_exists():
     logger = logging.getLogger()
     ret = check_logger(logger)
     assert ret is logger
+
+
+def test_class_stratify_check():
+    selection_frac = 0.9
+    idx = np.arange(100)
+    y = np.tile(np.arange(5), 20)
+    train, test = resample(idx, selection_frac=selection_frac, random_state=0, stratify=y)
+
+    if int(np.ceil(len(idx) * selection_frac)) != len(train):
+        raise ValueError("Incorrect train size")
+    if (len(idx) - int(np.ceil(len(idx) * selection_frac))) != len(test):
+        raise ValueError("Incorrect test size")
+
+    classes, dist = np.unique(y, return_counts=True)
+
+    for cl, di in zip(classes, dist):
+        if int(np.ceil(di * selection_frac)) != sum(y[train] == cl):
+            raise ValueError(f"Incorrect train class size {cl}")
+        if di - int(np.ceil(di * selection_frac)) != sum(y[test] == cl):
+            raise ValueError(f"Incorrect test class size {cl}")
