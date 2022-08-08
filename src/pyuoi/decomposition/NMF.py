@@ -119,7 +119,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
                 raise ValueError('dbscan must be an instance, not a class.')
             self.cluster = cluster
         else:
-            self.cluster = DBSCAN(min_samples=self.n_boots / 2)
+            self.cluster = DBSCAN(min_samples=max(self.n_boots // 2, 1))
 
         # initialize non-negative regression solver
         if nnreg is None:
@@ -423,7 +423,7 @@ class UoI_NMF(UoI_NMF_Base):
 
         # create DBSCAN solver
         if db_min_samples is None:
-            db_min_samples = n_boots / 2
+            db_min_samples = max(n_boots // 2, 1)
         dbscan = DBSCAN(eps=db_eps,
                         min_samples=db_min_samples,
                         metric=db_metric,
