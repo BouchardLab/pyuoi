@@ -101,7 +101,7 @@ def test_LinearRegressor_scoring_defaults():
     support = np.ones(X.shape[1]).astype(bool)
     # r2 - must use test data
     uoi = UoI_Lasso(estimation_score='r2')
-    assert(uoi._estimation_target == 1)
+    assert uoi._estimation_target == 1
 
     score = uoi._score_predictions('r2', fitter, X, y, support,
                                    (train_idxs, test_idxs))
@@ -111,14 +111,14 @@ def test_LinearRegressor_scoring_defaults():
                             fitter.predict(X_train[:, support]))
     # BIC - must use train data
     uoi = UoI_Lasso(estimation_score='BIC')
-    assert(uoi._estimation_target == 0)
+    assert uoi._estimation_target == 0
     score = -1 * uoi._score_predictions('BIC', fitter, X, y, support,
                                         (train_idxs, test_idxs))
     assert_equal(BIC(ll, *X_train.T.shape), score)
 
     # AIC - must use train data
     uoi = UoI_Lasso(estimation_score='AIC')
-    assert(uoi._estimation_target == 0)
+    assert uoi._estimation_target == 0
 
     score = -1 * uoi._score_predictions('AIC', fitter, X, y, support,
                                         (train_idxs, test_idxs))
@@ -126,7 +126,7 @@ def test_LinearRegressor_scoring_defaults():
 
     # AICc - must use train data
     uoi = UoI_Lasso(estimation_score='AICc')
-    assert(uoi._estimation_target == 0)
+    assert uoi._estimation_target == 0
 
     score = -1 * uoi._score_predictions('AICc', fitter, X, y, support,
                                         (train_idxs, test_idxs))
@@ -158,7 +158,7 @@ def test_GeneralizedLinearRegressor_scoring_defaults():
 
     # acc - must use test data
     uoi = UoI_L1Logistic(estimation_score='acc')
-    assert(uoi._estimation_target == 1)
+    assert uoi._estimation_target == 1
     uoi.classes_ = np.unique(y)
     score = uoi._score_predictions('acc', fitter, X, y, support,
                                    (train_idxs, test_idxs))
@@ -166,7 +166,7 @@ def test_GeneralizedLinearRegressor_scoring_defaults():
 
     # log - must use test data. Note the sign difference
     uoi = UoI_L1Logistic(estimation_score='log')
-    assert(uoi._estimation_target == 1)
+    assert uoi._estimation_target == 1
     uoi.classes_ = np.unique(y)
     score = uoi._score_predictions('log', fitter, X, y, support,
                                    (train_idxs, test_idxs))
@@ -180,7 +180,7 @@ def test_GeneralizedLinearRegressor_scoring_defaults():
     total_ll = ll * X_train.shape[0]
     # BIC - must use train data
     uoi = UoI_L1Logistic(estimation_score='BIC')
-    assert(uoi._estimation_target == 0)
+    assert uoi._estimation_target == 0
     uoi.classes_ = np.unique(y)
     score = -1 * uoi._score_predictions('BIC', fitter, X, y, support,
                                         (train_idxs, test_idxs))
@@ -188,7 +188,7 @@ def test_GeneralizedLinearRegressor_scoring_defaults():
 
     # AIC
     uoi = UoI_L1Logistic(estimation_score='AIC')
-    assert(uoi._estimation_target == 0)
+    assert uoi._estimation_target == 0
     uoi.classes_ = np.unique(y)
     score = -1 * uoi._score_predictions('AIC', fitter, X, y, support,
                                         (train_idxs, test_idxs))
@@ -196,7 +196,7 @@ def test_GeneralizedLinearRegressor_scoring_defaults():
 
     # AICc
     uoi = UoI_L1Logistic(estimation_score='AICc')
-    assert(uoi._estimation_target == 0)
+    assert uoi._estimation_target == 0
     uoi.classes_ = np.unique(y)
     score = -1 * uoi._score_predictions('AICc', fitter, X, y, support,
                                         (train_idxs, test_idxs))
@@ -210,7 +210,7 @@ def test_estimation_target():
     uoi = UoI_Lasso(estimation_score='r2', estimation_target='train')
 
     # train gets converted to the index 0
-    assert(uoi._estimation_target == 0)
+    assert uoi._estimation_target == 0
 
     # Assess BIC on test data
     uoi = UoI_Lasso(estimation_score='BIC', estimation_target='test')
@@ -219,25 +219,25 @@ def test_estimation_target():
     uoi = UoI_ElasticNet(estimation_score='r2', estimation_target='train')
 
     # train gets converted to the index 0
-    assert(uoi._estimation_target == 0)
+    assert uoi._estimation_target == 0
 
     # Assess BIC on test data
     uoi = UoI_ElasticNet(estimation_score='BIC', estimation_target='test')
 
-    assert(uoi._estimation_target == 1)
+    assert uoi._estimation_target == 1
 
     uoi = UoI_L1Logistic(estimation_score='acc', estimation_target='train')
 
-    assert(uoi._estimation_target == 0)
+    assert uoi._estimation_target == 0
 
     uoi = UoI_L1Logistic(estimation_score='BIC', estimation_target='test')
 
-    assert(uoi._estimation_target == 1)
+    assert uoi._estimation_target == 1
 
     uoi = UoI_Poisson(estimation_score='acc', estimation_target='train')
 
-    assert(uoi._estimation_target == 0)
+    assert uoi._estimation_target == 0
 
     uoi = UoI_Poisson(estimation_score='BIC', estimation_target='test')
 
-    assert(uoi._estimation_target == 1)
+    assert uoi._estimation_target == 1

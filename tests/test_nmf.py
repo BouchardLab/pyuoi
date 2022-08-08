@@ -39,7 +39,7 @@ def test_UoI_NMF_Base_initialization():
     assert_array_equal(uoi.ranks, np.arange(2, ranks + 1))
     assert uoi.nmf.solver == 'mu'
     assert uoi.nmf.beta_loss == 'kullback-leibler'
-    assert uoi.cluster.min_samples == n_boots / 2
+    assert uoi.cluster.min_samples == max(n_boots // 2, 1)
 
 
 @pytest.mark.fast
@@ -51,7 +51,7 @@ def test_UoI_NMF_initialization():
     assert_array_equal(uoi.ranks, np.arange(2, ranks + 1))
     assert uoi.nmf.solver == 'mu'
     assert uoi.nmf.beta_loss == 'kullback-leibler'
-    assert uoi.cluster.min_samples == n_boots / 2
+    assert uoi.cluster.min_samples == max(n_boots // 2, 1)
     assert uoi.cons_meth == np.mean
 
 

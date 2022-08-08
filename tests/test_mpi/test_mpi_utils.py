@@ -128,4 +128,4 @@ def test_Gatherv_random_rows():
     data = Gatherv_rows(data, comm, root)
 
     if rank == root:
-        assert(data.shape[0] == np.sum(sizes))
+        assert data.shape[0] == np.sum(sizes)

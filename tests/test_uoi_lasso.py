@@ -262,10 +262,10 @@ def test_choice_of_solver():
     '''Tests whether one can correctly switch between solvers in UoI Lasso'''
 
     uoi1 = UoI_Lasso(solver='cd')
-    assert(isinstance(uoi1._selection_lm, Lasso))
+    assert isinstance(uoi1._selection_lm, Lasso)
 
     uoi2 = UoI_Lasso(solver='pyc')
-    assert(isinstance(uoi2._selection_lm, PycLasso))
+    assert isinstance(uoi2._selection_lm, PycLasso)
 
 
 @pytest.mark.skipif(pycasso is not None, reason='pycasso is installed')
@@ -275,7 +275,7 @@ def test_pycasso_error():
 
     with pytest.raises(ImportError):
         uoi2 = UoI_Lasso(solver='pyc')
-        assert(isinstance(uoi2._selection_lm, PycLasso))
+        assert isinstance(uoi2._selection_lm, PycLasso)
 
 
 @pytest.mark.skipif(pycasso is None, reason='pycasso not installed')
@@ -285,11 +285,11 @@ def test_pyclasso():
     pyclasso = PycLasso()
     # Test that we can set params correctly
     pyclasso.set_params(fit_intercept=True)
-    assert(pyclasso.fit_intercept)
+    assert pyclasso.fit_intercept
     pyclasso.set_params(max_iter=500)
-    assert(pyclasso.max_iter == 500)
+    assert pyclasso.max_iter == 500
     pyclasso.set_params(alphas=np.arange(100))
-    assert(np.array_equal(pyclasso.alphas, np.arange(100)))
+    assert np.array_equal(pyclasso.alphas, np.arange(100))
 
     # Test that spurious parameters are rejected
     try:
@@ -313,10 +313,10 @@ def test_pyclasso():
     alphas = _alpha_grid(X, y)
     pyclasso.set_params(alphas=alphas)
     pyclasso.fit(X, y)
-    assert(np.array_equal(pyclasso.coef_.shape, (100, 3)))
+    assert np.array_equal(pyclasso.coef_.shape, (100, 3))
     y_pred = pyclasso.predict(X)
     scores = np.array([r2_score(y, y_pred[:, j]) for j in range(100)])
-    assert(np.allclose(1, max(scores)))
+    assert np.allclose(1, max(scores))
 
 
 @pytest.mark.skipif(pycasso is None, reason='pycasso not installed')
