@@ -73,7 +73,7 @@ for i in range(len(indices)):
 # ``min_pts`` should be half of the number of bootstraps.
 
 nboot = 20
-min_pts = nboot / 2
+min_pts = max(nboot // 2, 1)
 ranks = [16]
 
 shape = corrupted.shape
