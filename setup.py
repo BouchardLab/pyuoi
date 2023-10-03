@@ -86,7 +86,8 @@ setup(
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
     package_dir={'': 'src'},
-    packages=find_packages(),
+    packages=find_packages() + 
+        find_packages(where="./src"),
     package_data={'pyuoi': ['data/*.h5']},
 
     # Alternatively, if you want to distribute just a my_module.py, uncomment
