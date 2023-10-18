@@ -108,7 +108,7 @@ cdef class CallbackData(object):
 # Callback into Python evaluation callable.
 cdef lbfgsfloatval_t call_eval(void *cb_data_v,
                                lbfgsconst_p x, lbfgsfloatval_t *g,
-                               int n, lbfgsfloatval_t step):
+                               int n, lbfgsfloatval_t step) noexcept:
     cdef object cb_data
     cdef np.npy_intp tshape[1]
 
@@ -126,7 +126,7 @@ cdef int call_progress(void *cb_data_v,
                        lbfgsconst_p x, lbfgsconst_p g,
                        lbfgsfloatval_t fx,
                        lbfgsfloatval_t xnorm, lbfgsfloatval_t gnorm,
-                       lbfgsfloatval_t step, int n, int k, int ls):
+                       lbfgsfloatval_t step, int n, int k, int ls) noexcept:
     cdef object cb_data
     cdef np.npy_intp tshape[1]
 
