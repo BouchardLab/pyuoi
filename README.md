@@ -68,6 +68,15 @@ to build from source and
 
 to run the tests and check formatting.
 
+PyUoI has been built and tested on Python 3.9.18 with
+
+* numpy==1.26.1
+* h5py==3.10.0
+* scikit-learn==1.3.1
+* cython==3.0.4
+* pytest==7.4.2
+* flake8==6.1.0
+
 # Features
 
 PyUoI is split up into two modules, with the following UoI algorithms:
