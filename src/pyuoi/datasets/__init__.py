@@ -127,7 +127,7 @@ def make_classification(n_samples=100, n_features=20, n_informative=2,
         rng = np.random.RandomState(random_state)
     else:
         if random_state is None:
-            rng = np.random
+            rng = np.random.RandomState()
         else:
             rng = random_state
     n_not_informative = n_features - n_informative
