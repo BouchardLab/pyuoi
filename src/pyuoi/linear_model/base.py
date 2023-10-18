@@ -109,7 +109,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             self.random_state = np.random.RandomState(random_state)
         else:
             if random_state is None:
-                self.random_state = np.random
+                self.random_state = np.random.RandomState()
             else:
                 self.random_state = random_state
 

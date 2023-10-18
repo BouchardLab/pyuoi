@@ -141,7 +141,7 @@ class UoI_NMF_Base(AbstractDecompositionModel):
 
         # initialize random state
         if random_state is None:
-            self._rand = np.random
+            self._rand = np.random.RandomState()
         else:
             if isinstance(random_state, int):
                 self._rand = np.random.RandomState(random_state)
