@@ -3,7 +3,6 @@ import numpy as np
 import logging
 from sklearn.linear_model._base import SparseCoefMixin
 from sklearn.metrics import r2_score, accuracy_score, log_loss
-from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
 from sklearn.preprocessing import StandardScaler
 
@@ -13,7 +12,7 @@ from pyuoi import utils
 from pyuoi.mpi_utils import (Gatherv_rows, Bcast_from_root)
 
 from .utils import stability_selection_to_threshold, intersection
-from ..utils import check_logger
+from ..utils import check_logger, resample
 
 
 class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
@@ -248,10 +247,10 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         for boot in range(self.n_boots_sel):
             if size > 1:
                 if rank == 0:
-                    rvals = train_test_split(np.arange(X.shape[0]),
-                                             test_size=1 - self.selection_frac,
-                                             stratify=stratify,
-                                             random_state=self.random_state)
+                    rvals = resample(np.arange(X.shape[0]),
+                                     train_frac=self.selection_frac,
+                                     stratify=stratify,
+                                     random_state=self.random_state)
                 else:
                     rvals = [None] * 2
                 rvals = [Bcast_from_root(rval, self.comm, root=0)
@@ -259,9 +258,9 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                 if boot in my_boots.keys():
                     my_boots[boot] = rvals
             else:
-                my_boots[boot] = train_test_split(
+                my_boots[boot] = resample(
                     np.arange(X.shape[0]),
-                    test_size=1 - self.selection_frac,
+                    train_frac=self.selection_frac,
                     stratify=stratify,
                     random_state=self.random_state)
 
@@ -339,10 +338,10 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         for boot in range(self.n_boots_est):
             if size > 1:
                 if rank == 0:
-                    rvals = train_test_split(np.arange(X.shape[0]),
-                                             test_size=1 - self.estimation_frac,
-                                             stratify=stratify,
-                                             random_state=self.random_state)
+                    rvals = resample(np.arange(X.shape[0]),
+                                     train_frac=self.estimation_frac,
+                                     stratify=stratify,
+                                     random_state=self.random_state)
                 else:
                     rvals = [None] * 2
                 rvals = [Bcast_from_root(rval, self.comm, root=0)
@@ -350,9 +349,9 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                 if boot in my_boots.keys():
                     my_boots[boot] = rvals
             else:
-                my_boots[boot] = train_test_split(
+                my_boots[boot] = resample(
                     np.arange(X.shape[0]),
-                    test_size=1 - self.estimation_frac,
+                    train_frac=self.estimation_frac,
                     stratify=stratify,
                     random_state=self.random_state)
 
