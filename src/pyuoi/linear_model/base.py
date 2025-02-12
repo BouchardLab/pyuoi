@@ -82,12 +82,14 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         for estimation for a given regularization parameter value (row).
     """
 
-    def __init__(self, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
+    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
                  fit_intercept=True, standardize=True,
                  shared_support=True, max_iter=None, tol=None,
                  random_state=None, comm=None, logger=None):
         # data split fractions
+        self.n_real_features = n_real_features  #n_real_features = 1 ==> not fitting a VAR model
+        self.fit_VAR = fit_VAR        
         self.selection_frac = selection_frac
         self.estimation_frac = estimation_frac
         # number of bootstraps
@@ -246,9 +248,10 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             my_boots = dict((task_idx, None) for task_idx in tasks)
 
         for boot in range(self.n_boots_sel):
-            if size > 1:
+            if size > 1: #MPI
                 if rank == 0:
-                    rvals = train_test_split(np.arange(X.shape[0]),
+                    # rvals[0] is the training_set_idx, rvals[1] is the test_set_idx
+                    rvals = train_test_split(np.arange(X.shape[0]//self.n_real_features),
                                              test_size=1 - self.selection_frac,
                                              stratify=stratify,
                                              random_state=self.random_state)
@@ -258,12 +261,25 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                          for rval in rvals]
                 if boot in my_boots.keys():
                     my_boots[boot] = rvals
-            else:
+            else: #non-MPI
                 my_boots[boot] = train_test_split(
-                    np.arange(X.shape[0]),
+                    np.arange(X.shape[0]//self.n_real_features),
                     test_size=1 - self.selection_frac,
                     stratify=stratify,
                     random_state=self.random_state)
+        
+        if self.fit_VAR:
+            n_real_samples = X.shape[0]//self.n_real_features #caveat: actually it's n_real_samples - lag
+            for i in my_boots:
+                for k in range(2):  #iterating over the training and test bootstrap index
+                    #bootstrap idx populating
+                    partial_idx = my_boots[i][k] #this is a list too!!! of the representative idx of the concatenated VAR sample
+                    all_idx = [partial_idx+j*(n_real_samples) for j in range(self.n_real_features)]
+                    all_idx = np.hstack(all_idx)
+                    my_boots[i][k] = all_idx
+            
+     
+
 
         # iterate over bootstraps
         curr_boot_idx = None
@@ -287,6 +303,8 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             idxs_train, idxs_test = my_boots[boot_idx]
             X_rep = X[idxs_train]
             y_rep = y[idxs_train]
+            
+  
 
             # fit the coefficients
             if size > self.n_boots_sel:
@@ -330,16 +348,19 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         # Estimation Module #
         #####################
         # set up data arrays
+        
         tasks = np.array_split(np.arange(self.n_boots_est *
                                          self.n_supports_), size)[rank]
         my_boots = dict((task_idx // self.n_supports_, None)
                         for task_idx in tasks)
         estimates = np.zeros((tasks.size, n_coef))
+        
 
+      
         for boot in range(self.n_boots_est):
             if size > 1:
                 if rank == 0:
-                    rvals = train_test_split(np.arange(X.shape[0]),
+                    rvals = train_test_split(np.arange(X.shape[0]//self.n_real_features),
                                              test_size=1 - self.estimation_frac,
                                              stratify=stratify,
                                              random_state=self.random_state)
@@ -351,35 +372,57 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                     my_boots[boot] = rvals
             else:
                 my_boots[boot] = train_test_split(
-                    np.arange(X.shape[0]),
+                    np.arange(X.shape[0]//self.n_real_features),
                     test_size=1 - self.estimation_frac,
                     stratify=stratify,
                     random_state=self.random_state)
 
         # score (r2/AIC/AICc/BIC) for each bootstrap for each support
         scores = np.zeros(tasks.size)
-
+        
+        if self.fit_VAR:        
+            for i in my_boots:
+                for k in range(2):  #iterating over the traning and test bootstrap index
+                    #bootstrap idx populating
+                    partial_idx = my_boots[i][k]
+                    all_idx = [partial_idx+j*(n_real_samples) for j in range(self.n_real_features)]
+                    all_idx = np.hstack(all_idx)
+                    my_boots[i][k] = all_idx
+                
+                
         # iterate over bootstrap samples and supports
+        
         for ii, task_idx in enumerate(tasks):
+            
             boot_idx = task_idx // self.n_supports_
             support_idx = task_idx % self.n_supports_
             support = self.supports_[support_idx]
             # draw a resampled bootstrap
             idxs_train, idxs_test = my_boots[boot_idx]
+            
+ 
             X_rep = X[idxs_train]
             y_rep = y[idxs_train]
+            
+
             self._logger.info("estimation bootstrap %d, support %d"
                               % (boot_idx, support_idx))
+            
+            
             if np.any(support):
+                
 
                 # compute the estimate and store the fitted coefficients
                 if self.shared_support:
                     self._estimation_lm.fit(X_rep[:, support], y_rep)
+       
+                    
                     estimates[ii, np.tile(support, self.output_dim)] = \
                         self._estimation_lm.coef_.ravel()
                 else:
                     self._estimation_lm.fit(X_rep, y_rep, coef_mask=support)
                     estimates[ii] = self._estimation_lm.coef_.ravel()
+
 
                 scores[ii] = self._score_predictions(
                     metric=self.estimation_score,
@@ -476,6 +519,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             # rerun fit
             self._selection_lm.fit(X, y)
             # store coefficients
+            
             coefs[reg_param_idx] = self._selection_lm.coef_.ravel()
 
         return coefs
@@ -498,13 +542,15 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
 
     _default_est_targets = {'r2': 1, 'AIC': 0, 'AICc': 0, 'BIC': 0}
 
-    def __init__(self, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
+    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
                  estimation_score='r2', estimation_target=None,
                  copy_X=True, fit_intercept=True,
                  standardize=True, random_state=None, max_iter=None, tol=None,
                  comm=None, logger=None):
         super(AbstractUoILinearRegressor, self).__init__(
+            n_real_features = n_real_features,
+            fit_VAR = fit_VAR,   
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
             selection_frac=selection_frac,
@@ -531,7 +577,9 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
             else:
                 estimation_target = self._train_test_map[estimation_target]
         else:
+            
             estimation_target = self._default_est_targets[estimation_score]
+            
         self._estimation_target = estimation_target
 
     def _pre_fit(self, X, y):
@@ -677,13 +725,15 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
     _default_est_targets = {'log': 1, 'AIC': 0, 'AICc': 0,
                             'BIC': 0, 'acc': 1}
 
-    def __init__(self, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
+    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=1.,
                  estimation_score='acc', estimation_target=None,
                  copy_X=True, fit_intercept=True, standardize=True,
                  random_state=None, max_iter=None, tol=None,
                  shared_support=True, comm=None, logger=None):
         super(AbstractUoIGeneralizedLinearRegressor, self).__init__(
+            n_real_features = n_real_features,
+            fit_VAR = fit_VAR,  
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
             selection_frac=selection_frac,
@@ -710,6 +760,7 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
             else:
                 estimation_target = self._train_test_map[estimation_target]
         else:
+            
             estimation_target = self._default_est_targets[estimation_score]
 
         self._estimation_target = estimation_target

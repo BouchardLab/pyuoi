@@ -160,12 +160,15 @@ def Gatherv_rows(send, comm=None, root=0):
     if rank == root:
         rec_shape = (tot[0],) + shape[1:]
         rec = np.empty(rec_shape, dtype=dtype)
-        sizes = [size * np.prod(rec_shape[1:]) for size in rank_sizes]
-        disps = np.insert(np.cumsum(sizes), 0, 0)[:-1]
+        sizes = [(size * np.prod(rec_shape[1:])).astype(np.int64) for size in rank_sizes]
+        disps = (np.insert(np.cumsum(sizes), 0, 0)[:-1]).astype(np.int64)
+
     else:
         rec = None
         sizes = None
         disps = None
 
+
     comm.Gatherv(send, [rec, sizes, disps, _np2mpi[dtype]], root=0)
     return rec
+

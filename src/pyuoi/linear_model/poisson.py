@@ -173,8 +173,12 @@ class Poisson(BaseEstimator):
         mu : array_like, shape (n_samples)
             The predicted response values, i.e. the conditional means.
         """
-        check_is_fitted(self, ['coef_', 'intercept_'])
-        mu = np.exp(self.intercept_ + np.dot(X, self.coef_))
+        if self.fit_intercept:
+            check_is_fitted(self, ['coef_', 'intercept_'])
+            mu = np.exp(self.intercept_ + np.dot(X, self.coef_))
+        else:
+            check_is_fitted(self, ['coef_'])
+            mu = np.exp(np.dot(X, self.coef_))
         return mu
 
     def _cd(self, X, y, sample_weight=None):
@@ -459,15 +463,17 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         Boolean array indicating whether a given regressor (column) is selected
         for estimation for a given regularization parameter value (row).
     """
-    def __init__(self, n_boots_sel=24, n_boots_est=24, n_lambdas=48,
+    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=24, n_boots_est=24, n_lambdas=48,
                  alphas=np.array([1.]), selection_frac=0.8,
                  estimation_frac=0.8, stability_selection=1.,
                  estimation_score='log', estimation_target=None,
                  solver='lbfgs', warm_start=True,
-                 eps=1e-3, tol=1e-5, copy_X=True, fit_intercept=True,
+                 eps=1e-3, tol=1e-5,  fit_intercept=True,
                  standardize=True, max_iter=1000,
                  random_state=None, comm=None, logger=None):
         super(UoI_Poisson, self).__init__(
+            n_real_features = n_real_features,
+            fit_VAR = fit_VAR, 
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
             selection_frac=selection_frac,
@@ -475,7 +481,6 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
             stability_selection=stability_selection,
             estimation_score=estimation_score,
             estimation_target=estimation_target,
-            copy_X=copy_X,
             fit_intercept=fit_intercept,
             random_state=random_state,
             comm=comm,
@@ -586,6 +591,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
             y = y[boot_idxs[self._estimation_target]]
 
         # for Poisson, use predict_mean to calculate the "predicted" values
+        
         y_pred = fitter.predict_mean(X[:, support])
         # calculate the log-likelihood
         ll = utils.log_likelihood_glm(model='poisson', y_true=y, y_pred=y_pred)
