@@ -200,8 +200,8 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         boolean array indicating whether a given regressor (column) is selected
         for estimation for a given regularization parameter value (row).
     """
-    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
-                 estimation_frac=0.9, n_lambdas=48, stability_selection=1.,
+    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=12, n_boots_est=12, selection_frac=0.9,
+                 estimation_frac=0.9, n_lambdas=48, stability_selection=0.75,
                  estimation_score='r2', estimation_target=None, eps=1e-3,
                  warm_start=True, copy_X=True, fit_intercept=True,
                  standardize=True, max_iter=1000, tol=1e-4, random_state=None,

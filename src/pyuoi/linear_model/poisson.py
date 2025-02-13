@@ -463,9 +463,9 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         Boolean array indicating whether a given regressor (column) is selected
         for estimation for a given regularization parameter value (row).
     """
-    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=24, n_boots_est=24, n_lambdas=48,
+    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=12, n_boots_est=12, n_lambdas=48,
                  alphas=np.array([1.]), selection_frac=0.8,
-                 estimation_frac=0.8, stability_selection=1.,
+                 estimation_frac=0.8, stability_selection=0.75,
                  estimation_score='log', estimation_target=None,
                  solver='lbfgs', warm_start=True,
                  eps=1e-3, tol=1e-5,  fit_intercept=True,

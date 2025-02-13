@@ -82,8 +82,8 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         for estimation for a given regularization parameter value (row).
     """
 
-    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
-                 estimation_frac=0.9, stability_selection=1.,
+    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=12, n_boots_est=12, selection_frac=0.9,
+                 estimation_frac=0.9, stability_selection=0.75,
                  fit_intercept=True, standardize=True,
                  shared_support=True, max_iter=None, tol=None,
                  random_state=None, comm=None, logger=None):
@@ -542,8 +542,8 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
 
     _default_est_targets = {'r2': 1, 'AIC': 0, 'AICc': 0, 'BIC': 0}
 
-    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
-                 estimation_frac=0.9, stability_selection=1.,
+    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=12, n_boots_est=12, selection_frac=0.9,
+                 estimation_frac=0.9, stability_selection=0.75,
                  estimation_score='r2', estimation_target=None,
                  copy_X=True, fit_intercept=True,
                  standardize=True, random_state=None, max_iter=None, tol=None,
@@ -725,8 +725,8 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
     _default_est_targets = {'log': 1, 'AIC': 0, 'AICc': 0,
                             'BIC': 0, 'acc': 1}
 
-    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=24, n_boots_est=24, selection_frac=0.9,
-                 estimation_frac=0.9, stability_selection=1.,
+    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=12, n_boots_est=12, selection_frac=0.9,
+                 estimation_frac=0.9, stability_selection=0.75,
                  estimation_score='acc', estimation_target=None,
                  copy_X=True, fit_intercept=True, standardize=True,
                  random_state=None, max_iter=None, tol=None,
