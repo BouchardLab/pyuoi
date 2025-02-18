@@ -17,15 +17,13 @@ models with minimal bias.
 # 1 response variable.
 
 
-import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
 
 from sklearn.linear_model import LinearRegression, LassoCV
 
 from pyuoi.linear_model import UoI_Lasso
 from pyuoi.datasets import make_linear_regression
-import pandas as pd
+#import pandas as pd
 from scipy.linalg import solve_discrete_lyapunov
 from scipy.special import expit  # logistic function
 from sklearn.metrics import precision_score, recall_score, f1_score
@@ -75,7 +73,7 @@ def vectorization_mbb(data, n_boots):
 
 
 def mbbs_df(data, n_blocks=10, block_length=None):
-    # number of datapoints
+    # moving block bootstrap for data in panda dataframe format
     n = len(data)
     
     # assign a default value for block_length
@@ -98,7 +96,7 @@ def mbbs_df(data, n_blocks=10, block_length=None):
     return mbbs_sample
 
 def mbbs_np(data, n_blocks=10, block_length=None):
-    # data should be a numpy array
+    # # moving block bootstrap for data in numpy array format
     if not isinstance(data, np.ndarray):
         raise TypeError("Input data must be a numpy array")
     

@@ -7,7 +7,7 @@ from sklearn.exceptions import ConvergenceWarning
 from sklearn.utils import (check_X_y, compute_class_weight,
                            check_consistent_length, check_array)
 from sklearn.utils.multiclass import check_classification_targets
-from sklearn.utils.extmath import safe_sparse_dot, log_logistic, squared_norm
+from sklearn.utils.extmath import safe_sparse_dot, squared_norm
 from sklearn.preprocessing import StandardScaler
 
 from scipy.optimize import minimize
@@ -19,6 +19,41 @@ import numpy as np
 from .base import AbstractUoIGeneralizedLinearRegressor
 from ..utils import sigmoid, softmax
 from ..lbfgs import fmin_lbfgs, AllZeroLBFGSError
+
+def stable_log_logistic(X):
+    """
+    Compute log(1 / (1 + exp(-x))) in a numerically stable way.
+    
+    This implementation handles both positive and negative inputs safely
+    by using the identity: log(1 / (1 + exp(-x))) = -log(1 + exp(-x))
+    
+    For large negative values, we use the approximation log(1 + exp(-x)) ≈ -x
+    For large positive values, we use the approximation log(1 + exp(-x)) ≈ 0
+    
+    Parameters
+    ----------
+    X : array-like
+        Input array
+    
+    Returns
+    -------
+    array-like
+        Log-logistic transformation of input
+    """
+    X = np.asarray(X)
+    
+    # Initialize output array
+    out = np.zeros_like(X, dtype=np.float64)
+    
+    # Handle positive values
+    pos_mask = X > 0
+    out[pos_mask] = -np.log1p(np.exp(-X[pos_mask]))
+    
+    # Handle negative values
+    neg_mask = ~pos_mask
+    out[neg_mask] = X[neg_mask] - np.log1p(np.exp(X[neg_mask]))
+    
+    return out
 
 
 class UoI_L1Logistic(AbstractUoIGeneralizedLinearRegressor, LogisticRegression):
@@ -823,7 +858,7 @@ def _logistic_loss_and_grad(w, X, y, alpha, mask, sample_weight=None):
         sample_weight = np.ones(n_samples)
 
     # Logistic loss is the negative of the log of the logistic function.
-    out = -np.sum(sample_weight * log_logistic(yz)) / n_samples
+    out = -np.sum(sample_weight * stable_log_logistic(yz)) / n_samples
     out += .5 * alpha * np.dot(w, w)
 
     z = expit(yz)
