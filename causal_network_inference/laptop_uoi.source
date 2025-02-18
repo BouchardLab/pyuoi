@@ -1,0 +1,34 @@
+#!/bin/bash
+
+IMG=balewski/casual-net:p1l
+
+echo launch image $IMG
+echo you are launching Podman image ...  remeber to exit
+
+JNB_PORT=''
+WORK_DIR=/2025_UoI-VAR
+DATA_VAULT=/shared_volumes/dataVault2025
+
+echo "The number of arguments is: $#"
+#  encoded variables:    jnb
+PORT=8839
+for var in "$@"; do
+  echo "The length of argument '$var' is: ${#var}"
+  if [[ "jnb" ==  $var ]];  then
+      JNB_PORT=" -p  ${PORT}:${PORT}"
+      echo added  $JNB_PORT
+      echo "  cd notebooks;  jupyter notebook --ip 0.0.0.0 --no-browser --allow-root --port  $PORT "
+  fi
+  # ... more ...
+done
+    
+eval podman run -it --network=host  \
+     --volume /shared_volumes/$WORK_DIR:$WORK_DIR \
+     --volume $DATA_VAULT:/dataVault2025 \
+     -e My_dataVault=/dataVault2025/data_tmp \
+     --workdir $WORK_DIR \
+     $IMG /bin/bash
+
+#       --user $(id -u):$(id -g)  $JNB_PORT \
+#      --volume /shared_volumes/$WORK_DIR/opt:/opt \
+    

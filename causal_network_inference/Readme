@@ -1,0 +1,50 @@
+Deplyting software - for now as root
+Must be repeated for each image start
+
+
+cd pyuoi
+pip install -e .[dev]
+
+cd ../toys/
+
+mkdir 2025_UoI-VAR
+cd  2025_UoI-VAR
+git clone -b uoi-var https://github.com/BouchardLab/pyuoi.git
+
+# build podman image using podman build  -f ubu24-casual-net.dockerfile -t balewski/casual-net:p1 .
+
+
+# start image
+
+IMG=balewski/casual-net:p1
+WORK_DIR=/2025_UoI-VAR
+DATA_VAULT=/shared_volumes/dataVault2025
+
+eval podman run -it  \
+    --volume /shared_volumes/$WORK_DIR:$WORK_DIR \
+    --volume $DATA_VAULT:/dataVault2025 \
+    --workdir $WORK_DIR \
+    $IMG /bin/bash
+
+# inside image
+cd pyuoi
+pip install -e .[dev]
+
+python <<EOF
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+
+from sklearn.linear_model import LinearRegression, LassoCV
+
+from pyuoi.linear_model import *
+from pyuoi.datasets import make_linear_regression
+import pandas as pd
+from scipy.linalg import solve_discrete_lyapunov
+from examples.var_utils import *
+from tqdm import tqdm
+EOF
+
+
+
+
