@@ -28,7 +28,7 @@ from sklearn.linear_model import LinearRegression, LassoCV
 from pyuoi.linear_model import *
 from pyuoi.datasets import make_linear_regression
 
-sys.path.append(os.path.abspath("../pyuoi"))
+sys.path.append(os.path.abspath("../../"))
 from examples.var_utils import *
 
 #...!...!....................

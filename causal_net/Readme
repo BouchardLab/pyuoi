@@ -27,7 +27,8 @@ eval podman run -it  \
     $IMG /bin/bash
 
 # inside image
-cd pyuoi
+cd ../pyuoi
+cd /2025_UoI-VAR
 pip install -e .[dev]
 
 python <<EOF
