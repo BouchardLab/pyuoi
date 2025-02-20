@@ -30,8 +30,8 @@ done
 podman-hpc run -it \
    --volume $CFSH/$BASE_DIR:$BASE_DIR \
    --volume $CFSH/$WORK_DIR:$WORK_DIR \
-   --volume ${DATA_VAULT}:/dataVault \
-   --volume ${DATA_VAULT}/$DATA_DIR:/data_tmp \
+   --volume ${DATA_VAULT}:/dataVault2025 \
+   --volume ${DATA_VAULT}/$DATA_DIR:/causalNet_tmp \
    -e DISPLAY  --net=host -v $HOME:$HOME -e HOME  \
    --workdir $WORK_DIR \
    $IMG /bin/bash
