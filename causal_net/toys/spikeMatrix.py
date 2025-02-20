@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-
-
 import pickle
 import numpy as np
 np.set_printoptions(precision=3)

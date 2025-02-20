@@ -1,9 +1,9 @@
 FROM ubuntu:24.04
 # qiskit1.2
 
-# podman build  -f ubu24-casual-net.dockerfile -t balewski/casual-net:p1k .
+# podman-hpc build  -f ubu24-casual-net.dockerfile -t balewski/casual-net:p1l .
 # on PM use 'podman-hpc' instead of 'podman' and all should work
-# additionaly do 1 time: podman-hpc migrate balewski/ubuXX-qiskit-qml:p1
+# additionaly do 1 time:  podman-hpc migrate balewski/casual-net:p1k
 
 # Set non-interactive mode for apt-get
 ARG DEBIAN_FRONTEND=noninteractive
@@ -31,8 +31,15 @@ RUN echo "2d-AAAAAAAAAAAAAAAAAAAAAAAAAAAAA python libs" && \
     /opt/venv/bin/pip install --upgrade pip && \
     /opt/venv/bin/pip install matplotlib h5py scipy jupyter notebook bitstring lmfit pytest
 
+# Install MPI and mpi4py
+#RUN echo "2e-AAAAAAAAAAAAAAAAAAAAAAAAAAAAA mpi4py" && \
+#    apt-get install -y libopenmpi-dev openmpi-bin && \
+#    /opt/venv/bin/pip install mpi4py
+
+#RUN  apt-get install -y  xterm python3-pip    x11-apps
+
 # Final cleanup
 RUN apt-get clean
-
+ 
 # Set the default command to bash
 CMD ["/bin/bash"]
