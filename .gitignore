@@ -108,4 +108,8 @@ ENV/
 .vscode
 
 # lbfgs solver stuff
-pyuoi/lbfgs/_lowlevel.c
+_lowlevel.c
+
+*~
+out/
+*.prof

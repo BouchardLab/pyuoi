@@ -17,6 +17,7 @@ Use case: XXX
 '''
 import sys,os,hashlib
 import numpy as np
+import pickle
 from pprint import pprint
 from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
 
@@ -26,6 +27,7 @@ def commandline_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v","--verb",type=int, help="increase debug verbosity", default=1)
     parser.add_argument("--inpPath",default='/global/cfs/cdirs/m2043/causal_inference/DIV13',help="raw input data")
+    
     parser.add_argument("--sessionName",  default='HET_80k_1',help='raw data session name')
     parser.add_argument("--basePath",default='out',help="head dir for set of experiments")
     parser.add_argument("--activityName",  default=None,help='(optional) output file name')
@@ -33,11 +35,11 @@ def commandline_parser():
     # .... activity speciffic speciffic, 
     parser.add_argument('--tau_decay_ms', default=1.1, type=float, help='Exponential decay constant')
     parser.add_argument('--num_tau', default=10., type=float, help='cut-off of decay shape')
-    parser.add_argument('--max_time', default=1.2, type=float, help='cut-off of time for raw data')
+    parser.add_argument('-T','--maxTime_min', default=1.2, type=float, help='cut-off of time for raw data')
     parser.add_argument('--numNeurons', default=10, type=int, help='num of from full dataset')
 
     args = parser.parse_args()
-    
+    args.inpPath='/dataVault2025/causalNet_tmp/'  # on laptop
     for arg in vars(args):
         print( 'myArgs:',arg, getattr(args, arg))
 
@@ -52,22 +54,67 @@ def buildPayloadMeta(args):
     pd['session_name']=args.sessionName
     pd['tau_decay']=args.tau_decay_ms/1000.
     pd['num_tau']=args.num_tau
-    pd['max_time']=args.max_time
+    pd['max_time']=args.maxTime_min*60
     md={ 'payload':pd}
     if args.verb>1:  print('\nBMD:');pprint(md)
     return md
 
 #...!...!....................
-def harvest_sampler_submitMeta(md,args):
-    inpF=os.path.join(args.inpPath,args.sessionName,'spike_matrix.npy')
+def read_spike_dict(md,args):
+    inpF=os.path.join(args.inpPath,args.sessionName,'spike_dict.pkl')
+    print('inpF:',inpF)
     assert os.path.exists(inpF)
     # Load the dictionary from the .pkl file
-    with open(filepath, "rb") as f:
+    with open(inpF, "rb") as f:
         spike_dict = pickle.load(f)
 
     pmd=md['payload']
     pmd['sampling_freq'] = 10000  # Hz
-    aaa
+    #....  select clip time bin
+    clipTbin=int(pmd['max_time'] * pmd['sampling_freq'])
+    pmd['clip_time_bin']=clipTbin
+    pprint(pmd)
+    
+    # neuron ID  MEA chip
+    meaIdL=np.array(sorted(spike_dict))
+
+    # ... down select neurons
+    if len(meaIdL) > args.numNeurons: meaIdL=meaIdL[:args.numNeurons]
+    print('RSD: meaID list:',meaIdL)
+
+
+    spikeD={}
+    for k in meaIdL:
+        rec=np.array(spike_dict[k])
+        rec2=rec[rec<clipTbin]
+        print('meaId:',k,len(rec),len(rec2))
+        spikeD[k]=rec2
+    return  spikeD
+
+
+# Function to Add Exponential Decay to Spikes
+def add_spike_decay(binary_data, sampling_rate=10000, tau_decay=0.01,num_tau=5):
+    """
+    Adds exponential decay to each binary spike.
+    - binary_data: Binary spike data (0s and 1s)
+    - sampling_rate: Sampling rate in Hz
+    - tau_decay: Decay constant in seconds
+    """
+    y_pred = np.zeros_like(binary_data,dtype=np.float64)
+    decay_samples = num_tau*int(tau_decay * sampling_rate)
+    
+    # Apply exponential decay to each spike
+    for i in range(len(binary_data)):
+        if binary_data[i] == 1:
+            # Create an exponential decay curve
+            decay_curve = np.exp(-np.arange(decay_samples) / (tau_decay * sampling_rate))
+            end = min(i + decay_samples, len(binary_data))
+            y_pred[i:end] += decay_curve[:end-i]
+
+    return y_pred
+
+
+
 #...!...!....................
 def harvest_sampler_submitMeta(job,md,args):
     sd=md['submit']
@@ -91,7 +138,7 @@ def harvest_sampler_submitMeta(job,md,args):
         md['short_name']=args.expName
 
 #...!...!....................
-def construct_random_inputs(md,verb=1):
+def XXXconstruct_random_inputs(md,verb=1):
     pmd=md['payload']
     num_addr=pmd['num_addr']
     nq_data=pmd['nq_data']
@@ -161,10 +208,11 @@ if __name__ == "__main__":
     expMD=buildPayloadMeta(args)
    
     pprint(expMD)
-    expD=construct_random_inputs(expMD,args)
+    #expD=construct_random_inputs(expMD,args)
 
     # read raw data
-    rawSpikeD=read_spike_dict(expMD,args)
+    binSpikeD=read_spike_dict(expMD,args)
+    
     yyy
     # generate parametric circuit
     nq_addr, nq_data = args.numQubits

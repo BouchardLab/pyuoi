@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
 
 import numpy as np
+import matplotlib as mpl
+if 1:
+    print('disable Xterm')
+    mpl.use('Agg')  # to plot w/o X-server
+else:
+    mpl.use('TkAgg')
+  
 import matplotlib.pyplot as plt
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
 
 # This function returns binary spike locations as a numpy array.
+#...!...!....................
+
 def gen_spike_data(sampling_rate=10_000,tmax_sec=2, spikeFreq=50):
     """
     Generates synthetic binary spike data.
@@ -23,6 +32,8 @@ def gen_spike_data(sampling_rate=10_000,tmax_sec=2, spikeFreq=50):
     return time, binary_data
 
 # Function to Add Exponential Decay to Spikes
+#...!...!....................
+
 def add_spike_decay(binary_data, sampling_rate=10000, tau_decay=0.01,num_tau=5):
     """
     Adds exponential decay to each binary spike.
@@ -45,6 +56,7 @@ def add_spike_decay(binary_data, sampling_rate=10000, tau_decay=0.01,num_tau=5):
 
 
 # Visualization Function
+#...!...!....................
 def visualize(time, binary_data, y_pred):
     fig, ax = plt.subplots(figsize=(15, 5))
 
@@ -65,11 +77,19 @@ def visualize(time, binary_data, y_pred):
     ax.grid(True)
 
     plt.tight_layout()
+    outF='out/activation.png'
+    plt.savefig(outF)
+    print('saved:',outF)
     plt.show()
+    
 
-# Main Function
-def main():
-    # Parameters
+#=================================
+#  M A I N 
+#=================================
+
+# Run the main function
+if __name__ == "__main__":
+   # Parameters
     sampling_rate = 10000  # 10 kHz
     tmax_sec = 0.1         # 0.5 seconds duration
     spikeFreq = 200        # 50 spikes per second
@@ -84,8 +104,4 @@ def main():
 
     # Visualization
     visualize(time, binary_data, y_pred)
-
-
-# Run the main function
-if __name__ == "__main__":
-    main()
+    
