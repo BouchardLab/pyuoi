@@ -9,4 +9,4 @@ usage: prep_input.py [-h] [-v VERB] [--inpPath INPPATH] [--sessionName SESSIONNA
 
 
 B) = = = = =   plot features = = = = = =
- ./plot_features.py 
+ ./plot_features.py --inpName  HET_80k_1-5f7a800 

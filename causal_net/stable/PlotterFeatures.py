@@ -50,7 +50,7 @@ class Plotter(PlotterBackbone):
         pmd=md['payload']
         plm=md['plot']
         nfeat=min(10,pmd['num_feature'])
-        ntime=pmd['num_tume_bin']
+        ntime=pmd['num_time_bin']
         
         figId=self.smart_append(figId)        
         nrow,ncol=nfeat,1
@@ -71,59 +71,14 @@ class Plotter(PlotterBackbone):
             #ax.bar(timeV, spikeV, width=width, color='black', label='Binary Spike Locations')
             #ax.plot(timeV,spikeV, color='black')
             #.... decorations
+            ax.grid()
             if 'time_rangeLR' in plm:  ax.set_xlim(tuple(plm['time_rangeLR']))
 
             if k==nrow-1: ax.set_xlabel('Time (s)')
             ax.set_ylabel('Amplitude feat=%d'%j)
-            if k==0:ax.set_title('Spikes with Exponential Decay, data=%s'%md['short_name'] )
+            
         return
 
-        topTit=[ 'job: '+md['short_name'], 'Residual ',smd['backend']]
-
-        
-        #....... plot data .....
-        rdata=bigD['rec_udata'].flatten()
-        tdata=bigD['inp_udata'].flatten()
-        #....  left column ....
-        ax = self.plt.subplot(nrow,ncol,1)
-           
-        ax.scatter(tdata,rdata,alpha=0.6,s=4)
-        ax.set(xlabel='true value',ylabel='reco')
-        compute_correlation_and_draw_line(ax, tdata, rdata)
-        ax.set_aspect(1.)
-        ax.set_xlim(xrL,xrR);ax.set_ylim(xrL,xrR)
-        x12 = np.array([min(tdata), max(tdata)])
-        ax.plot(x12,x12,ls='--',c='k',lw=0.7)           
-        ax.set_title(topTit[0]) 
-
-        #..... right column ....
-        ax = self.plt.subplot(nrow,ncol,3)
-        res_data = rdata - tdata
-        h = ax.hist2d(rdata, res_data, bins=20, cmap='Blues',cmin=0.1)
-        self.plt.colorbar(h[3], ax=ax)
-
-        compute_correlation_and_draw_line(ax, rdata , res_data) 
-        ax.axhline(0.,ls='--',c='k',lw=1.0)
-
-        ax.set_ylabel('reco-true')
-        ax.set(xlabel='reco value',ylabel='reco-true')
-        ax.set_title(topTit[1])
-
-        ax.set_xlim(xrL,xrR); ax.set_ylim(-resMX,resMX)
-        ax.grid()
-        if 'ibm' in smd['backend']: 
-            txt='phys:%s'%(tmd['phys_qubits'])
-            ax.text(0.05, 0.1, txt, fontsize=10, color='m', ha='left', va='top',transform=ax.transAxes)
- 
-        #..... middle column ....
-        ax = self.plt.subplot(nrow,ncol,2) 
-        plot_histogram(ax,  res_data)
-        ax.set_title(topTit[2])
-        xLab= 'reco-true'
-        ax.set(xlabel=xLab,ylabel='num pixels')
-        ax.axvline(0.,ls='--',c='k',lw=1.0)
-        ax.set_xlim(-resMX,resMX)
-        
         # .... decorations ....
         # Overlay the text on top of the plots
         txt=summary_column(md)
@@ -141,3 +96,38 @@ class Plotter(PlotterBackbone):
         fig=self.plt.figure(figId,facecolor='white', figsize=(12,4))
 
         make_it_work
+
+#...!...!..................
+    def input_features_dense(self,bigD,md,figId=1):
+        pprint(md)
+        pmd=md['payload']
+        plm=md['plot']
+        nfeat=min(9,pmd['num_feature'])
+        ntime=pmd['num_time_bin']
+        nrow,ncol=nfeat,1
+         
+        #axes=self.blank_share2D(nrow=nrow,ncol=ncol, figsize=(12,1.5*nrow),figId=figId)
+        #axes=self.blank_share2D(nrow=nrow,ncol=ncol, figsize=(20,0.6*nrow),figId=figId)  
+
+        timeV=bigD['time']
+        featIdL=bigD['feature_id']
+        width =0.0005 
+        for k in range(nrow):
+            ax = axes[k]
+            j=k+1
+            featV=bigD['feature'][j]
+            fid=featIdL[k]
+            spikeV=bigD['spike'][j].astype(float)
+            # Plot Exponential Decay as Filled Area
+            ax.fill_between(timeV, 0,featV , color='red', alpha=0.3, label='feature=%d'%fid)
+
+            # .... decorations ....
+            ax.legend()
+            ax.set_ylim(0,2.1)
+            ax.set_ylabel('Ampl')
+            if k==0:ax.set_title('Spikes with Exponential Decay, data=%s'%md['short_name'] )
+            
+            
+        # common
+        if 'time_rangeLR' in plm:  ax.set_xlim(tuple(plm['time_rangeLR']))
+        ax.set_xlabel('Time (s)')

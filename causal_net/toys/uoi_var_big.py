@@ -52,12 +52,12 @@ def make_gauss_data( n_features, n_samples, lag   ):
 #=================================
 if __name__ == "__main__":
     np.set_printoptions(precision=3)
-    n_features = 20;    n_samples = 1000;    lag = 1;
+    n_features = 10;    n_samples = 1000;    lag = 1;
     maxIter=1000
     fitTol=1e-4
     
     data, transition_matrices=make_gauss_data( n_features, n_samples, lag)
-    
+    print('data:',data.shape,data.dtype)
     
     dense_matrices = [M.toarray() for M in  transition_matrices]
 

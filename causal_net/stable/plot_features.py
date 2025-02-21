@@ -69,14 +69,16 @@ if __name__=="__main__":
     # ....  plotting ........
     args.prjName=expMD['short_name']
     expMD['plot']={}
-    #expMD['plot']['time_rangeLR']=[0.8,1.]
-    #expMD['plot']['time_rangeLR']=[7.5,7.9]
-    #expMD['plot']['time_rangeLR']=[7.5,7.9]
+    #expMD['plot']['time_rangeLR']=[0.,10.]
+    #expMD['plot']['time_rangeLR']=[7.4,7.85]
+    #expMD['plot']['time_rangeLR']=[0,10]
 
     plot=Plotter(args)
    
     if 'a' in args.showPlots:
         plot.input_features(expD,expMD,figId=1)
+    if 'b' in args.showPlots:
+        plot.input_features_dense(expD,expMD,figId=2)
 
     if 'c' in args.showPlots:
         not_tested
