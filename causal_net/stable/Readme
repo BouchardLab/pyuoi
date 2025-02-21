@@ -1,0 +1,12 @@
+- - - -  Pipleine for HPC scale data processing - - - -
+
+A)  unpack binary spikes, add decays tails, clip features and time axis
+./prep_input.py -h
+usage: prep_input.py [-h] [-v VERB] [--inpPath INPPATH] [--sessionName SESSIONNAME] [--basePath BASEPATH] [--outName OUTNAME]
+[--tau_decay_ms TAU_DECAY_MS TAU_DECAY_MS]
+[--time_rebin TIME_REBIN] [-T MAXTIME_MIN] [--numNeurons NUMNEURONS]
+
+
+
+B) = = = = =   plot features = = = = = =
+ ./plot_features.py 

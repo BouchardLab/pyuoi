@@ -30,21 +30,23 @@ def commandline_parser():
     
     parser.add_argument("--sessionName",  default='HET_80k_1',help='raw data session name')
     parser.add_argument("--basePath",default='out',help="head dir for set of experiments")
-    parser.add_argument("--activityName",  default=None,help='(optional) output file name')
+    parser.add_argument("--outName",  default=None,help='(optional) output file name')
  
     # .... activity speciffic speciffic, 
-    parser.add_argument('--tau_decay_ms', default=1.1, type=float, help='Exponential decay constant')
-    parser.add_argument('--num_tau', default=10., type=float, help='cut-off of decay shape')
-    parser.add_argument('-T','--maxTime_min', default=1.2, type=float, help='cut-off of time for raw data')
-    parser.add_argument('--numNeurons', default=10, type=int, help='num of from full dataset')
+    parser.add_argument('--tau_decay_ms', default=[1.1, 10.],  nargs=2, type=float, help='Exponential decay constant and tail length')
+    parser.add_argument('--time_rebin', default=1, type=int, help='rebin of raw time axis')
+    parser.add_argument('-T','--maxTime', default=1.2, type=float, help='cut-off of time for raw data')
+    parser.add_argument('--num_feature', default=10, type=int, help='num of from full dataset')
 
     args = parser.parse_args()
     args.inpPath='/dataVault2025/causalNet_tmp/'  # on laptop
+    args.dataPath=os.path.join(args.basePath,'input')
     for arg in vars(args):
         print( 'myArgs:',arg, getattr(args, arg))
 
     assert os.path.exists(args.inpPath)
-    #assert len(args.numQubits)==2
+    assert os.path.exists(args.dataPath)
+    
     return args
 
 #...!...!....................
@@ -52,10 +54,16 @@ def buildPayloadMeta(args):
     pd={}  # payload
     pd['raw_input_path']=args.inpPath
     pd['session_name']=args.sessionName
-    pd['tau_decay']=args.tau_decay_ms/1000.
-    pd['num_tau']=args.num_tau
-    pd['max_time']=args.maxTime_min*60
+    pd['tau_decay']=[ x/1000. for x in args.tau_decay_ms]
+    pd['max_time']=args.maxTime
     md={ 'payload':pd}
+    myHN=hashlib.md5(os.urandom(32)).hexdigest()[:6]
+    md['hash']=myHN
+    if args.outName==None:
+        md['short_name']='%s-%s'%(args.sessionName,md['hash'])
+    else:
+        md['short_name']=args.outName
+
     if args.verb>1:  print('\nBMD:');pprint(md)
     return md
 
@@ -68,132 +76,76 @@ def read_spike_dict(md,args):
     with open(inpF, "rb") as f:
         spike_dict = pickle.load(f)
 
+    raw_sampling_freq=10000  # Hz
     pmd=md['payload']
-    pmd['sampling_freq'] = 10000  # Hz
+    pmd['sampling_freq'] =raw_sampling_freq/args.time_rebin
+    
     #....  select clip time bin
     clipTbin=int(pmd['max_time'] * pmd['sampling_freq'])
-    pmd['clip_time_bin']=clipTbin
+    pmd['num_tume_bin']=clipTbin
     pprint(pmd)
     
     # neuron ID  MEA chip
     meaIdL=np.array(sorted(spike_dict))
 
     # ... down select neurons
-    if len(meaIdL) > args.numNeurons: meaIdL=meaIdL[:args.numNeurons]
+    if len(meaIdL) > args.num_feature: meaIdL=meaIdL[:args.num_feature]
     print('RSD: meaID list:',meaIdL)
-
-
+    pmd['num_feature']=len(meaIdL)
+    pmd['feature_id']=meaIdL
+    
     spikeD={}
     for k in meaIdL:
-        rec=np.array(spike_dict[k])
-        rec2=rec[rec<clipTbin]
+        rec=np.array(spike_dict[k])/args.time_rebin
+        rec2=rec[rec<clipTbin].astype(int)
         print('meaId:',k,len(rec),len(rec2))
         spikeD[k]=rec2
+    print(rec2)
+    
     return  spikeD
 
-
-# Function to Add Exponential Decay to Spikes
-def add_spike_decay(binary_data, sampling_rate=10000, tau_decay=0.01,num_tau=5):
+#...!...!....................
+def build_decay_data(bSpikeD,md):
+    pmd=md['payload']
+    nfeat=pmd['num_feature']
+    ntime=pmd['num_tume_bin']
+    actA=np.zeros((nfeat,ntime),dtype=np.float16)
+    spikeA=np.zeros((nfeat,ntime),dtype=np.bool_)
+    for k in range(nfeat):
+        print('k',k)
+        fid=pmd['feature_id'][k]
+        add_spike_decay(bSpikeD[fid],pmd['tau_decay'],pmd['sampling_freq'],actA[k])
+        spikeA[k][bSpikeD[fid]]=True  # unpack spikes
+        
+    timeV = np.linspace(0, pmd['max_time'],  ntime)
+    print('ttt',timeV[:5], timeV[-5:])
+    print('qqq',bSpikeD[fid].shape, bSpikeD[fid].dtype)
+    bigD={'feature':actA,'time':timeV,'spike':spikeA}
+    return bigD
+    
+#...!...!....................
+def add_spike_decay(bSpikeL,tauV,sampling_rate,dataV):
     """
     Adds exponential decay to each binary spike.
-    - binary_data: Binary spike data (0s and 1s)
+    - bSpikeL: list of time bins with spikes
     - sampling_rate: Sampling rate in Hz
     - tau_decay: Decay constant in seconds
+    - tail_len
     """
-    y_pred = np.zeros_like(binary_data,dtype=np.float64)
-    decay_samples = num_tau*int(tau_decay * sampling_rate)
+    #y_pred = np.zeros_like(binary_data,dtype=np.float64)
+    tau_decay,tail_len=tauV
+    decay_samples = int(tail_len * sampling_rate)
+    assert decay_samples>1  # decay is just a spike
     
+    # Create an exponential decay curve
+    decay_curve = np.exp(-np.arange(decay_samples) / (tau_decay * sampling_rate))
+       
     # Apply exponential decay to each spike
-    for i in range(len(binary_data)):
-        if binary_data[i] == 1:
-            # Create an exponential decay curve
-            decay_curve = np.exp(-np.arange(decay_samples) / (tau_decay * sampling_rate))
-            end = min(i + decay_samples, len(binary_data))
-            y_pred[i:end] += decay_curve[:end-i]
-
-    return y_pred
-
-
-
-#...!...!....................
-def harvest_sampler_submitMeta(job,md,args):
-    sd=md['submit']
-    sd['job_id']=job.job_id()
-    backN=args.backend
-    sd['backend']=backN     #  job.backend().name  V2
+    for i in bSpikeL:
+        end = min(i + decay_samples, dataV.shape[0])
+        #print(i,end)
+        dataV[i:end] += decay_curve[:end-i]
     
-    t1=localtime()
-    sd['date']=dateT2Str(t1)
-    sd['unix_time']=int(time())
-    sd['provider']=args.provider
-    print('bbb',args.backend,args.expName)
-    if args.expName==None:
-        # the  6 chars in job id , as handy job identiffier
-        md['hash']=sd['job_id'].replace('-','')[3:9] # those are still visible on the IBMQ-web
-        tag=args.backend.split('_')[0]
-        md['short_name']='%s_%s'%(tag,md['hash'])
-    else:
-        myHN=hashlib.md5(os.urandom(32)).hexdigest()[:6]
-        md['hash']=myHN
-        md['short_name']=args.expName
-
-#...!...!....................
-def XXXconstruct_random_inputs(md,verb=1):
-    pmd=md['payload']
-    num_addr=pmd['num_addr']
-    nq_data=pmd['nq_data']
-    n_img=pmd['num_sample']
-
-    # generate float random data
-    data_inp = np.random.uniform(-1, 1., size=(num_addr, nq_data, n_img))
-    if verb>2:
-        print('input data=',data_inp.shape,repr(data_inp))
-    bigD={'inp_udata': data_inp}
- 
-    return bigD
-
-#...!...!....................
-def harvest_sampler_results(job,md,bigD,T0=None):  # many circuits
-    pmd=md['payload']
-    qa={}
-    jobRes=job.result()
-    #counts=jobRes[0].data.c.get_counts()
-    
-    if T0!=None:  # when run locally
-        elaT=time()-T0
-        print(' job done, elaT=%.1f min'%(elaT/60.))
-        qa['running_duration']=elaT
-    else:
-        jobMetr=job.metrics()
-        #print('HSR:jobMetr:',jobMetr)
-        qa['timestamp_running']=jobMetr['timestamps']['running']
-        qa['quantum_seconds']=jobMetr['usage']['quantum_seconds']
-        qa['all_circ_executions']=jobMetr['executions']
-        
-        if jobMetr['num_circuits']>0:
-            qa['one_circ_depth']=jobMetr['circuit_depths'][0]
-        else:
-            qa['one_circ_depth']=None
-    
-    #1pprint(jobRes[0])
-    nCirc=len(jobRes)  # number of circuit in the job
-    jstat=str(job.status())
-    
-    countsL=[ jobRes[i].data.c.get_counts() for i in range(nCirc) ]
-
-    # collect job performance info
-    res0cl=jobRes[0].data.c
-    qa['status']=jstat
-    qa['num_circ']=nCirc
-    qa['shots']=res0cl.num_shots
-    
-    qa['num_clbits']=res0cl.num_bits
-    
-    print('job QA'); pprint(qa)
-    md['job_qa']=qa
-    bigD['rec_udata'], bigD['rec_udata_err'] =  qcrank_reco_from_yields(countsL,pmd['nq_addr'],pmd['nq_data'])
-
-    return bigD
 
 
 #=================================
@@ -204,125 +156,22 @@ def harvest_sampler_results(job,md,bigD,T0=None):  # many circuits
 if __name__ == "__main__":
 
     args=commandline_parser()
-    np.set_printoptions(precision=3)
+    np.set_printoptions(precision=5)
     expMD=buildPayloadMeta(args)
    
     pprint(expMD)
-    #expD=construct_random_inputs(expMD,args)
+    #=construct_random_inputs(expMD,args)
 
     # read raw data
     binSpikeD=read_spike_dict(expMD,args)
+    expD=build_decay_data(binSpikeD,expMD)
     
-    yyy
-    # generate parametric circuit
-    nq_addr, nq_data = args.numQubits
-    qcrankObj = QCrankV2( nq_addr, nq_data, useCZ=args.useCZ,measure=True,barrier=not args.noBarrier )
-        
-    qcP=qcrankObj.circuit
-    cxDepth=qcP.depth(filter_function=lambda x: x.operation.name == 'cz')
-    print('.... PARAMETRIZED IDEAL CIRCUIT .............., cx-depth=%d'%cxDepth)
-    nqTot=qcP.num_qubits
-    print('M: ideal gates count:', qcP.count_ops())
-    if args.verb>2 or nq_addr<4:  print(qcrankObj.circuit.draw())
-      
-    if args.exportQPY:
-        from qiskit import qpy
-        circF='./qcrank_nqa%d_nqd%d.qpy'%(nq_addr,nq_data)
-        with open(circF, 'wb') as fd:
-            qpy.dump(qc, fd)
-        print('\nSaved circ1:',circF)
-        exit(0)
-
-    
-    # ------  construct sampler(.) job ------
-    runLocal=True  # ideal or fake backend
-    outPath=os.path.join(args.basePath,'meas') 
-    if 'ideal' in args.backend: 
-        qcT=qcP
-        transBackN='ideal'
-        backend = AerSimulator()
-    else:
-        print('M: activate QiskitRuntimeService() ...')
-        service = QiskitRuntimeService()
-        if  'fake' in args.backend:
-            transBackN=args.backend.replace('fake_','ibm_')
-            hw_backend = service.backend(transBackN)
-            backend = AerSimulator.from_backend(hw_backend) # overwrite ideal-backend
-            print('fake noisy backend =', backend.name)
-        else:
-            outPath=os.path.join(args.basePath,'jobs')
-            assert 'ibm' in args.backend
-            backend = service.backend(args.backend)  # overwrite ideal-backend
-            print('use true HW backend =', backend.name)          
-            runLocal=False
-            outPath=os.path.join(args.basePath,'jobs')
-        qcT =  transpile(qcP, backend,optimization_level=3)
-        qcrankObj.circuit=qcT  # pass transpiled parametric circuit back
-        cxDepth=qcT.depth(filter_function=lambda x: x.operation.name == 'cz')
-        print('.... PARAMETRIZED Transpiled (%s) CIRCUIT .............., cx-depth=%d'%(backend.name,cxDepth))
-        print('M: transpiled gates count:', qcT.count_ops())
-        if args.verb>2 or nq_addr<4:  print(qcT.draw('text', idle_wires=False))
-                
-        
-    circ_depth_aziz(qcP,'ideal')
-    circ_depth_aziz(qcT,'transpiled')
-    harvest_circ_transpMeta(qcT,expMD,backend.name)
-    assert os.path.exists(outPath)
-   
-    print('M: run on backend:',backend.name)
-
-    # -------- bind the data to parametrized circuit  -------
-    qcrankObj.bind_data(expD['inp_udata'])
-    
-    # generate the instantiated circuits
-    qcEL = qcrankObj.instantiate_circuits()
-    nCirc=len(qcEL)
-    if args.verb>2 :
-        print(f'.... FIRST INSTANTIATED CIRCUIT .............. of {nCirc}')
-        print(qcEL[0].draw())
-        
-    print('M: execution-ready %d circuits with %d qubits backend=%s'%(nCirc,nqTot,backend.name))
-                            
-    if not args.executeCircuit:
-        pprint(expMD)
-        print('\nNO execution of circuit, use -E to execute the job\n')
-        exit(0)
-        
-    # ----- submission ----------
-    numShots=expMD['submit']['num_shots']
-    print('M:job starting, nCirc=%d  nq=%d  shots/circ=%d at %s  ...'%(nCirc,qcEL[0].num_qubits,numShots,args.backend),backend)
-   
-    options = SamplerOptions()
-    options.default_shots=numShots
-    
-    if expMD['submit']['random_compilation']: # erro mit  - works only for real HW
-        options.twirling.enable_gates = True
-        options.twirling.enable_measure = True
-        options.twirling.num_randomizations=60
-        print('M: enabled RandComp')
-
-
-    sampler = Sampler(mode=backend, options=options)
-    T0=time()
-    job = sampler.run(tuple(qcEL))
-   
-    harvest_sampler_submitMeta(job,expMD,args)    
-    if args.verb>1: pprint(expMD)
-    
-    if runLocal:
-        harvest_sampler_results(job,expMD,expD,T0=T0)
-        print('M: got results')
-        #...... WRITE  MEAS OUTPUT .........
-        outF=os.path.join(outPath,expMD['short_name']+'.meas.h5')
-        write4_data_hdf5(expD,outF,expMD)        
-        print('   ./postproc_qcrank.py  --expName   %s   -p a    -Y\n'%(expMD['short_name']))
-    else:
-        #...... WRITE  SUBMIT OUTPUT .........
-        outF=os.path.join(outPath,expMD['short_name']+'.ibm.h5')
-        write4_data_hdf5(expD,outF,expMD)
-        print('M:end --expName   %s   %s  %s  jid=%s'%(expMD['short_name'],expMD['hash'],backend.name ,expMD['submit']['job_id']))
-        print('   ./retrieve_ibmq_job.py --expName   %s   \n'%(expMD['short_name'] ))
-
+    #...... WRITE   OUTPUT .........
+    outF=os.path.join(args.dataPath,expMD['short_name']+'.act.h5')
+    write4_data_hdf5(expD,outF,expMD)
+    print('   ./plot_features.py  --inpName   %s   \n'%(expMD['short_name'] ))
+    print('   ./fit_uoiVar.py  --inpName   %s   \n'%(expMD['short_name'] ))
+    pprint(expMD)
 
 
     
