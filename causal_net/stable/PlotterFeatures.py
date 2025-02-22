@@ -54,7 +54,7 @@ class Plotter(PlotterBackbone):
         
         figId=self.smart_append(figId)        
         nrow,ncol=nfeat,1
-        fig=self.plt.figure(figId,facecolor='white', figsize=(12,1.5*nrow))
+        fig=self.plt.figure(figId,facecolor='white', figsize=(10,1.5*nrow))
 
         timeV=bigD['time']
         

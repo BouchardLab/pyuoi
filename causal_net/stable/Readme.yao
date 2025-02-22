@@ -1,0 +1,24 @@
+Hi Yao,
+I finished a portion of the work.
+
+1) 
+With the code I build, prep_input.py, I pre-processed data from 1 session: HET_80k_1
+for all ~550 fetaures the binary  spikes were replaced by exponential decay with tau=1ms and activation was ‘unrolled’ back.
+
+I run code 3x with rebinning 1, 2, and 5, resulting with 10Khz, 5kHz, and 2kHz sampling.
+The files are stored here:
+/global/cfs/cdirs/m2043/causal_inference/DIV13/features> ls -lh
+total 7.9G
+-rw-r--r-- 1 balewski nstaff 4.6G Feb 21 23:21 HET_80k_1-10kHz_1ms.act.h5
+-rw-r--r-- 1 balewski nstaff 942M Feb 21 23:20 HET_80k_1-2kHz_1ms.act.h5
+-rw-r--r-- 1 balewski nstaff 2.3G Feb 21 23:21 HET_80k_1-5kHz_1ms.act.h5
+
+Each HDF5 file  contains huge array of all recorded (features,  timeBins)
+
+2) Program fit_uoiVar.py
+allows to clip  number of features and select range in time bins as well ass define other parameters for the UoI-Var fit, like the lag.
+Here how you can use it
+./fit_uoiVar.py --dataPath /global/cfs/cdirs/m2043/causal_inference/DIV13/features --inpName HET_80k_1-2kHz_1ms --time_range 7 7.6 --lag_depth 8 --num_feature 5
+
+I run some test on my laptop and got the following speeds.  For some reason the same code runs 2x slower on PM CPu node allocated with
+ salloc -q interactive -C cpu -t 4:00:00 -A m2043

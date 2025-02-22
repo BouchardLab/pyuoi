@@ -10,7 +10,8 @@ Use sampler and manual transpiler
 Dependence:  qiskit 1.2
 
 
-Use case: XXX
+Use case: 
+XXXX
 ./submit_ibmq_job.py -E  --numQubits 3 3 --numSample 15 --numShot 8000  --backend   ibm_brussels  
 
 
@@ -26,7 +27,7 @@ import argparse
 def commandline_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v","--verb",type=int, help="increase debug verbosity", default=1)
-    parser.add_argument("--inpPath",default='/global/cfs/cdirs/m2043/causal_inference/DIV13',help="raw input data")
+    parser.add_argument("--inpPath",default='/m2043/DIV13/',help="raw input data")
     
     parser.add_argument("--sessionName",  default='HET_80k_1',help='raw data session name')
     parser.add_argument("--basePath",default='out',help="head dir for set of experiments")
@@ -34,12 +35,13 @@ def commandline_parser():
  
     # .... activity speciffic speciffic, 
     parser.add_argument('--tau_decay_ms', default=[1., 10.],  nargs=2, type=float, help='Exponential decay constant and tail length')
-    parser.add_argument('--time_rebin', default=1, type=int, help='rebin of raw time axis')
+    parser.add_argument('--time_rebin', default=5, type=int, help='rebin of raw time axis')
     parser.add_argument('-T','--maxTime', default=300.5, type=float, help='cut-off of time for raw data')
     parser.add_argument('--num_feature', default=None, type=int, help='num of features from full dataset')
 
     args = parser.parse_args()
-    args.inpPath='/dataVault2025/causalNet_tmp/'  # on laptop
+    #args.inpPath='/dataVault2025/causalNet_tmp'  # on laptop
+    #args.inpPath='/global/cfs/cdirs/m2043/causal_inference/DIV13'  # bare PM
     args.dataPath=os.path.join(args.basePath,'input')
     for arg in vars(args):
         print( 'myArgs:',arg, getattr(args, arg))
@@ -87,7 +89,7 @@ def read_spike_dict(md,args):
     #pprint(pmd)
     
     # neuron ID  MEA chip
-    meaIdL=np.array(sorted(spike_dict))
+    meaIdL=np.array(sorted(spike_dict))  # here order of feat_id is settled
     maxFeat=len(meaIdL)
     # ... down select neurons
     if  args.num_feature!=None:  meaIdL=meaIdL[:args.num_feature]
@@ -96,13 +98,17 @@ def read_spike_dict(md,args):
     pmd['feature_id']=meaIdL
     #pprint(md)
     spikeD={}
+    spikeCntL=np.zeros(pmd['num_feature'],dtype=int)
     maxTbin=0
     dead_idL=[]
+    j=0
     for k in meaIdL:
         rec=np.array(spike_dict[k])/args.time_rebin        
         rec2=rec[rec<clipTbin].astype(int)
         #print('meaId:',k,len(rec),len(rec2))
         spikeD[k]=rec2
+        spikeCntL[j]=len(rec2)
+        j+=1
         if len(rec2)==0: dead_idL.append(int(k))
         else:
             mxTb=np.max(rec2)
@@ -112,10 +118,10 @@ def read_spike_dict(md,args):
     pmd['last_spike_time_bin']=int(maxTbin)
     pmd['num_time_bin']=clipTbin
     pmd['dead_id']=dead_idL
-    return  spikeD
+    return  spikeD,spikeCntL
 
 #...!...!....................
-def build_decay_data(bSpikeD,md):
+def build_decay_data(bSpikeD,md): 
     pmd=md['payload']
     nfeat=pmd['num_feature']
     ntime=pmd['num_time_bin']
@@ -169,16 +175,19 @@ if __name__ == "__main__":
     np.set_printoptions(precision=5)
     expMD=buildPayloadMeta(args)
    
-    #pprint(expMD)
+    #
    
     # read raw data
-    binSpikeD=read_spike_dict(expMD,args)
-   
+    binSpikeD,spikeCntL=read_spike_dict(expMD,args)
+    #pprint(expMD)
+    #pprint(spikeCntL)
+    
     expD=build_decay_data(binSpikeD,expMD)
     # it is too long , displays badly
     for xx in [ 'feature_id', 'dead_id']:
         expD[xx]=np.array( expMD['payload'].pop(xx),dtype=int)
-
+    expD['spike_cnt']=spikeCntL
+        
     pprint(expMD)
     #...... WRITE   OUTPUT .........
     outF=os.path.join(args.dataPath,expMD['short_name']+'.act.h5')

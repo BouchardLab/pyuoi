@@ -3,7 +3,14 @@ __author__ = "Jan Balewski"
 __email__ = "janstar1122@gmail.com"
 
 '''
- plot input features
+ fit UoI-VAR
+
+Perlmutter
+inside image
+./fit_uoiVar.py --dataPath /m2043/DIV13/features --inpName HET_80k_1-2kHz_1ms
+
+bare metal
+./fit_uoiVar.py --dataPath /global/cfs/cdirs/m2043/causal_inference/DIV13/features --inpName HET_80k_1-2kHz_1ms --time_range 7 7.6 --lag_depth 8 --num_feature 5 
 
 '''
 
@@ -17,13 +24,12 @@ from pyuoi.linear_model import *
 sys.path.append(os.path.abspath("../../"))
 from examples.var_utils import *
 
-
-
 import argparse
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v","--verbosity",type=int,choices=[0, 1, 2,3,4],  help="increase output verbosity", default=1, dest='verb')
-    parser.add_argument("--basePath",default='out',help="head dir for set of experimentst")
+    parser.add_argument("--basePath",default='out',help="head dir for any results")
+    parser.add_argument("--dataPath",default=None,help="direct input path")
                         
     parser.add_argument("--inpName",  required=True,help='name of input data')
     parser.add_argument("--fitName",  default=None,help='fit name')
@@ -37,8 +43,10 @@ def get_parser():
     parser.add_argument('--fit_tol', default=1e-4, type=float, help='uoi fit stop condition')
     
     args = parser.parse_args()
-    # make arguments  more flexible 
-    args.dataPath=os.path.join(args.basePath,'input')
+    # make arguments  more flexible
+    if args.dataPath==None:
+        args.dataPath=os.path.join(args.basePath,'input')
+    
     args.modelPath=os.path.join(args.basePath,'model')
    
       

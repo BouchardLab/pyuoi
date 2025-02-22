@@ -1,17 +1,18 @@
 #!/bin/bash
-#  salloc -q interactive -C cpu -t 4:00:00 -A nstaff 
+#  salloc -q interactive -C cpu -t 4:00:00 -A m2043
 
 IMG=balewski/casual-net:p1m  # no MPI
 #IMG=balewski/casual-net:p1n  # with MPI, not loading python modules
 
 CFSH=/global/cfs/cdirs/mpccc/balewski/
+M2043=/global/cfs/cdirs/m2043/causal_inference
 
 echo launch image $IMG
 echo you are launching Podman-HPC image ...  remeber to exit
 
 JNB_PORT=' '
 BASE_DIR=/2025_UoI-VAR   # here git has home
-WORK_DIR=$BASE_DIR/causal_network_inference/
+WORK_DIR=$BASE_DIR/causal_net
 DATA_VAULT=${CFSH}/bioDataVault2025
 DATA_DIR=/data_tmp
 
@@ -27,12 +28,15 @@ for var in "$@"; do
   # ... more ...
 done
 
+echo " DO: cd ..; pip install -e .[dev] ; cd -"
 podman-hpc run -it \
    --volume $CFSH/$BASE_DIR:$BASE_DIR \
    --volume $CFSH/$WORK_DIR:$WORK_DIR \
+   --volume $M2043:/m2043 \
    --volume ${DATA_VAULT}:/dataVault2025 \
    --volume ${DATA_VAULT}/$DATA_DIR:/causalNet_tmp \
    -e DISPLAY  --net=host -v $HOME:$HOME -e HOME  \
+   -e HDF5_USE_FILE_LOCKING='FALSE' \
    --workdir $WORK_DIR \
    $IMG /bin/bash
 
