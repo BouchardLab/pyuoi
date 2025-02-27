@@ -14,8 +14,8 @@ from pprint import pprint
 import numpy as np
 from PlotterFeatures import Plotter
 
-
 import argparse
+#...!...!....................
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v","--verbosity",type=int,choices=[0, 1, 2,3,4],  help="increase output verbosity", default=1, dest='verb')
@@ -23,7 +23,7 @@ def get_parser():
     
     parser.add_argument( "-Y","--noXterm", dest='noXterm',  action='store_false', default=True, help="enables X-term for interactive mode")         
     parser.add_argument("--basePath",default='out',help="head dir for set of experimentst")
-                        
+    parser.add_argument('--time_range' , default=[0., 1.0],  nargs=2,   type=float, help='fit data time range')
     parser.add_argument("--inpName",  default='exp_62a21daf',help='IBMQ experiment name assigned during submission')
     
     args = parser.parse_args()
@@ -34,17 +34,14 @@ def get_parser():
       
     print( 'myArg-program:',parser.prog)
     for arg in vars(args):  print( 'myArg:',arg, getattr(args, arg))
-    
+
+    if args.time_range!=None: assert args.time_range[0] < args.time_range[1] 
     assert os.path.exists(args.dataPath)
     assert os.path.exists(args.outPath)
     return args
 
 
 #...!...!....................
-def XXpostproc_qcrank(bigD,md):
-    pom=md['postproc']
-
-
 
 #=================================
 #=================================
@@ -72,6 +69,7 @@ if __name__=="__main__":
     #expMD['plot']['time_rangeLR']=[0.,10.]
     #expMD['plot']['time_rangeLR']=[7.4,7.85]
     #expMD['plot']['time_rangeLR']=[0,10]
+    if args.time_range!=None: expMD['plot']['time_rangeLR']=args.time_range
 
     plot=Plotter(args)
    
@@ -79,10 +77,6 @@ if __name__=="__main__":
         plot.input_features(expD,expMD,figId=1)
     if 'b' in args.showPlots:
         plot.input_features_dense(expD,expMD,figId=2)
-
-    if 'c' in args.showPlots:
-        not_tested
-        plot.xyz()
 
     plot.display_all()
     print('M:done')

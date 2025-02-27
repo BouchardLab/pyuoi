@@ -36,12 +36,11 @@ def commandline_parser():
     # .... activity speciffic speciffic, 
     parser.add_argument('--tau_decay_ms', default=[1., 10.],  nargs=2, type=float, help='Exponential decay constant and tail length')
     parser.add_argument('--time_rebin', default=5, type=int, help='rebin of raw time axis')
-    parser.add_argument('-T','--maxTime', default=300.5, type=float, help='cut-off of time for raw data')
     parser.add_argument('--num_feature', default=None, type=int, help='num of features from full dataset')
 
     args = parser.parse_args()
     #args.inpPath='/dataVault2025/causalNet_tmp'  # on laptop
-    #args.inpPath='/global/cfs/cdirs/m2043/causal_inference/DIV13'  # bare PM
+    args.inpPath='/global/cfs/cdirs/m2043/causal_inference/DIV13'  # bare PM
     args.dataPath=os.path.join(args.basePath,'input')
     for arg in vars(args):
         print( 'myArgs:',arg, getattr(args, arg))
@@ -57,7 +56,6 @@ def buildPayloadMeta(args):
     pd['raw_input_path']=args.inpPath
     pd['session_name']=args.sessionName
     pd['tau_decay']=[ x/1000. for x in args.tau_decay_ms]
-    pd['max_time']=args.maxTime
     md={ 'payload':pd}
     myHN=hashlib.md5(os.urandom(32)).hexdigest()[:7]
     md['hash']=myHN
@@ -68,6 +66,19 @@ def buildPayloadMeta(args):
 
     if args.verb>1:  print('\nBMD:');pprint(md)
     return md
+
+#...!...!....................
+def qa_neuron(fid,spikeT):
+    print(fid,spikeT.shape)
+    print('qa fid=%d nspike=%d'%(fid,spikeT.shape[0]))
+    delT=spikeT[1:] - spikeT[:-1]
+    mind=np.min(delT)
+    #imin=delT.index(mind)
+    imin=int(np.where(delT == mind)[0] ) # first occurence
+    print('mind:',mind,'imin=',imin)
+    for i in range(imin-2,imin+3):
+        print(i,spikeT[i]) #,spikeT[i+1]-spikeT[i])
+    rrr
 
 #...!...!....................
 def read_spike_dict(md,args):
@@ -81,12 +92,7 @@ def read_spike_dict(md,args):
 
     raw_sampling_freq=10000  # Hz
     assert raw_sampling_freq%args.time_rebin==0 #tmp
-    pmd['sampling_freq'] =raw_sampling_freq/args.time_rebin
-    assert pmd['sampling_freq']>=2000  # final sampling freq (Hz)
-    
-    #....  select clip time bin
-    clipTbin=int(pmd['max_time'] * pmd['sampling_freq'])
-    #pprint(pmd)
+    pmd['sampling_freq'] =raw_sampling_freq/args.time_rebin   
     
     # neuron ID  MEA chip
     meaIdL=np.array(sorted(spike_dict))  # here order of feat_id is settled
@@ -96,7 +102,7 @@ def read_spike_dict(md,args):
     print('RSD: meaID list:',meaIdL)
     pmd['num_feature']=len(meaIdL)
     pmd['feature_id']=meaIdL
-    #pprint(md)
+    
     spikeD={}
     spikeCntL=np.zeros(pmd['num_feature'],dtype=int)
     maxTbin=0
@@ -104,19 +110,23 @@ def read_spike_dict(md,args):
     j=0
     for k in meaIdL:
         rec=np.array(spike_dict[k])/args.time_rebin        
-        rec2=rec[rec<clipTbin].astype(int)
-        #print('meaId:',k,len(rec),len(rec2))
-        spikeD[k]=rec2
-        spikeCntL[j]=len(rec2)
+        spikeD[k]=rec.astype(int)
+        spikeCntL[j]=len(rec)
         j+=1
-        if len(rec2)==0: dead_idL.append(int(k))
-        else:
-            mxTb=np.max(rec2)
-            if maxTbin< mxTb: maxTbin=mxTb
-
-    #print(rec2)
-    pmd['last_spike_time_bin']=int(maxTbin)
-    pmd['num_time_bin']=clipTbin
+        if len(rec)==0:
+            dead_idL.append(int(k))
+            continue        
+        mxTb=np.max(rec)
+        if maxTbin< mxTb: maxTbin=mxTb
+        #... check for smalest dist
+        delV=rec[1:] - rec[:-1]
+        dtm=np.min(delV) #/pmd['sampling_freq']*1000
+        print('k,dtm',k,dtm)
+        if k==8: qa_neuron(k,spikeD[k])
+        if k>10 : aa
+        
+    pmd['num_time_bin']=int(maxTbin)+1
+    pmd['max_time']=pmd['num_time_bin']/pmd['sampling_freq']
     pmd['dead_id']=dead_idL
     return  spikeD,spikeCntL
 
@@ -192,7 +202,7 @@ if __name__ == "__main__":
     #...... WRITE   OUTPUT .........
     outF=os.path.join(args.dataPath,expMD['short_name']+'.act.h5')
     write4_data_hdf5(expD,outF,expMD)
-    print('   ./plot_features.py  --inpName   %s   '%(expMD['short_name'] ))
+    print('   ./plot_features.py  --inpName   %s   -Y '%(expMD['short_name'] ))
     print('   ./fit_uoiVar.py  --inpName   %s   \n'%(expMD['short_name'] ))
    
 

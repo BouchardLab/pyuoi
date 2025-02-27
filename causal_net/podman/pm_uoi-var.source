@@ -2,7 +2,7 @@
 #  salloc -q interactive -C cpu -t 4:00:00 -A m2043
 
 IMG=balewski/casual-net:p1m  # no MPI
-#IMG=balewski/casual-net:p1n  # with MPI, not loading python modules
+IMG=balewski/causal-net:p2a  # with MPI,  from Neil
 
 CFSH=/global/cfs/cdirs/mpccc/balewski/
 M2043=/global/cfs/cdirs/m2043/causal_inference

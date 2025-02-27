@@ -76,7 +76,7 @@ class Plotter(PlotterBackbone):
 
             if k==nrow-1: ax.set_xlabel('Time (s)')
             ax.set_ylabel('Amplitude feat=%d'%j)
-            
+            print('draw k=',k)
         return
 
         # .... decorations ....
