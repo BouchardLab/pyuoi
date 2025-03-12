@@ -3,6 +3,7 @@
 
 IMG=balewski/casual-net:p1m  # no MPI
 IMG=balewski/causal-net:p2a  # with MPI,  from Neil
+IMG=balewski/causal-net:m1b   # with MPI,  from Neil + UOI code in
 
 CFSH=/global/cfs/cdirs/mpccc/balewski/
 M2043=/global/cfs/cdirs/m2043/causal_inference
@@ -28,7 +29,6 @@ for var in "$@"; do
   # ... more ...
 done
 
-echo " DO: cd ..; pip install -e .[dev] ; cd -"
 podman-hpc run -it \
    --volume $CFSH/$BASE_DIR:$BASE_DIR \
    --volume $CFSH/$WORK_DIR:$WORK_DIR \

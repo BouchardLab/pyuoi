@@ -15,9 +15,9 @@ from time import time
 # boolean for whether comparing fitting result from single vs multiple process
 compare = False
 
-n_features = 20
-n_samples = 400
-lag = 2
+n_features = 30
+n_samples = 1000
+lag = 10
 
 # srun -n 64 python uoi_var_mpi_check.py
 

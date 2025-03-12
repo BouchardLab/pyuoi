@@ -1,6 +1,6 @@
-# podman-hpc build  -f ubu24-causal-net.dockerfile -t balewski/causal-net:p2a .
+# podman-hpc build  -f ubu22-cuda-mpi-causal-net.dockerfile -t balewski/causal-net:m1a .
 # on PM use 'podman-hpc' instead of 'podman' and all should work
-# additionaly do 1 time:  podman-hpc migrate balewski/casual-net:p1k
+# additionaly do 1 time:  podman-hpc migrate balewski/causal-net:m1b 
 
 FROM nvcr.io/nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
 
@@ -68,7 +68,20 @@ RUN git clone -b v2.11 https://github.com/open-mpi/hwloc.git hwloc          && \
 RUN pip install setuptools numpy
 RUN python -m pip install mpi4py -i https://pypi.anaconda.org/mpi4py/simple
 RUN pip install matplotlib pytest flake8 cython sphinx-gallery sphinx-rtd-theme
-RUN pip install h5py scikit-learn
+RUN pip install h5py 
+
+# Install ML  libraries
+RUN echo "2c-AAAAAAAAAAAAAAAAAAAAAAAAAAAAA math libs" && \
+    pip install scikit-learn pandas seaborn[stats] networkx[default] tqdm
+
+
+# Clone the repository and install in editable mode
+RUN git clone -b uoi-var https://github.com/BouchardLab/pyuoi.git /opt/pyuoi \
+    && cd /opt/pyuoi \
+    && pip install -e .[dev]
+
+# Add /opt/pyuoi/examples to PYTHONPATH
+ENV PYTHONPATH="/opt/pyuoi/examples:${PYTHONPATH}"
 
 # Final cleanup
 RUN apt-get clean
