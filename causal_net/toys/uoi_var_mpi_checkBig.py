@@ -15,9 +15,9 @@ from time import time
 # boolean for whether comparing fitting result from single vs multiple process
 compare = False
 
-n_features = 60
-n_samples = 1000
-lag = 1
+n_features = 20
+n_samples = 400
+lag = 2
 
 # srun -n 64 python uoi_var_mpi_check.py
 
@@ -57,7 +57,7 @@ uoi_lasso.fit(X, Y)
 end = time()
 B_model_mpi = uoi_lasso.coef_
 
-if comm.rank == 0:
+if  comm.rank == 0 :
     print("Fitting complete in "+str(end - start)+" seconds.", flush = True)
 
 if compare:

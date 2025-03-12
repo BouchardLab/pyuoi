@@ -1,6 +1,6 @@
 #!/bin/bash
 
-IMG=balewski/casual-net:p1l
+IMG=balewski/causal-net:p2b
 
 echo launch image $IMG
 echo you are launching Podman image ...  remeber to exit
