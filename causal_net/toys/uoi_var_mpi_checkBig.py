@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
 import sys,os
-import numpy as np
-from time import time
-
-from mpi4py import MPI
 print('M: MPI loaded')
-#sys.path.append(os.path.abspath("../../src/pyuoi"))
 from pyuoi.linear_model import *
 sys.path.append(os.path.abspath("../../"))
 from examples.var_utils import *
 
+import numpy as np
 
-n_features = 10
-n_samples = 10
+#from pyuoi.linear_model import *
+#from var_utils import *
+
+from mpi4py import MPI
+from time import time
+# boolean for whether comparing fitting result from single vs multiple process
+compare = False
+
+n_features = 60
+n_samples = 1000
 lag = 1
 
+# srun -n 64 python uoi_var_mpi_check.py
 
 data, transition_matrices, cov = generate_sparse_stationary_var_process(
     n_features,
@@ -26,28 +31,36 @@ data, transition_matrices, cov = generate_sparse_stationary_var_process(
     random_state = 42
 
 )
-
+print('data generated nFeat=%d, nSamp=%d'%(n_features,n_samples))
 dense_matrices = [M.toarray() for M in  transition_matrices]
 # vecortized the ground truth transition matrices
 B_truth = np.vstack([m.T for m in dense_matrices]).T.flatten()     
 X,Y = vectorization(data, lag)
 
 
-#fitting with single process
-uoi_lasso = UoI_Lasso(n_real_features = n_features, fit_VAR = True, random_state=42)
-T0=time()
-uoi_lasso.fit(X, Y)
-T1=time()
-B_model = uoi_lasso.coef_
+if compare:
+    #fitting with single process
+    uoi_lasso = UoI_Lasso(n_real_features = n_features, fit_VAR = True, random_state=42)
+    uoi_lasso.fit(X, Y)
+    B_model = uoi_lasso.coef_
 
 
 #fitting with multiple processes
 comm = MPI.COMM_WORLD
 
 uoi_lasso = UoI_Lasso(n_real_features = n_features, fit_VAR = True, random_state=42,comm = comm)
+
+
+start = time()
+
 uoi_lasso.fit(X, Y)
+end = time()
 B_model_mpi = uoi_lasso.coef_
 
-print(np.allclose(B_model, B_model_mpi))
-elaT=T1-T0
-print('fit time %.1f sec'%(elaT))
+if comm.rank == 0:
+    print("Fitting complete in "+str(end - start)+" seconds.", flush = True)
+
+if compare:
+    print(np.allclose(B_model, B_model_mpi))
+
+

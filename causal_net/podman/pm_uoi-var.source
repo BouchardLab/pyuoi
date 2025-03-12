@@ -1,5 +1,5 @@
 #!/bin/bash
-#  salloc -q interactive -C cpu -t 4:00:00 -A m2043
+#  salloc -q interactive -C cpu -t 2:00:00 -A m2043
 
 IMG=balewski/casual-net:p1m  # no MPI
 IMG=balewski/causal-net:p2a  # with MPI,  from Neil
