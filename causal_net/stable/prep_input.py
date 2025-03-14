@@ -35,13 +35,13 @@ def commandline_parser():
  
     # .... activity speciffic speciffic, 
     parser.add_argument('--tau_decay_ms', default=[1., 10.],  nargs=2, type=float, help='Exponential decay constant and tail length')
-    parser.add_argument('--time_rebin', default=5, type=int, help='rebin of raw time axis')
-    parser.add_argument('--num_feature', default=None, type=int, help='num of features from full dataset')
+    parser.add_argument('--time_rebin', default=10, type=int, help='rebin of raw time axis')
+    parser.add_argument('--num_feature', default=None, type=int, help='num of input features from full dataset')
 
     args = parser.parse_args()
     #args.inpPath='/dataVault2025/causalNet_tmp'  # on laptop
     args.inpPath='/global/cfs/cdirs/m2043/causal_inference/DIV13'  # bare PM
-    args.dataPath=os.path.join(args.basePath,'input')
+    args.dataPath=os.path.join(args.basePath,'features')
     for arg in vars(args):
         print( 'myArgs:',arg, getattr(args, arg))
 
@@ -68,7 +68,7 @@ def buildPayloadMeta(args):
     return md
 
 #...!...!....................
-def qa_neuron(fid,spikeT):
+def qa_neuron(fid,spikeT): #???
     print(fid,spikeT.shape)
     print('qa fid=%d nspike=%d'%(fid,spikeT.shape[0]))
     delT=spikeT[1:] - spikeT[:-1]
@@ -91,26 +91,26 @@ def read_spike_dict(md,args):
         spike_dict = pickle.load(f)
 
     raw_sampling_freq=10000  # Hz
-    assert raw_sampling_freq%args.time_rebin==0 #tmp
+    assert raw_sampling_freq%args.time_rebin==0 
     pmd['sampling_freq'] =raw_sampling_freq/args.time_rebin   
     
     # neuron ID  MEA chip
-    meaIdL=np.array(sorted(spike_dict))  # here order of feat_id is settled
+    meaIdL=np.array(sorted(spike_dict))  # here order of feature_id is settled
     maxFeat=len(meaIdL)
     # ... down select neurons
     if  args.num_feature!=None:  meaIdL=meaIdL[:args.num_feature]
-    print('RSD: meaID list:',meaIdL)
+    if args.verb>1: print('RSD: meaID list:',meaIdL)
     pmd['num_feature']=len(meaIdL)
     pmd['feature_id']=meaIdL
     
     spikeD={}
-    spikeCntL=np.zeros(pmd['num_feature'],dtype=int)
+    spikeCntL=np.zeros(pmd['num_feature'],dtype=int)  # num spikes per  neuron
     maxTbin=0
     dead_idL=[]
     j=0
     for k in meaIdL:
         rec=np.array(spike_dict[k])/args.time_rebin        
-        spikeD[k]=rec.astype(int)
+        spikeD[k]=rec.astype(int) # time-bin may repeat 
         spikeCntL[j]=len(rec)
         j+=1
         if len(rec)==0:
@@ -119,11 +119,7 @@ def read_spike_dict(md,args):
         mxTb=np.max(rec)
         if maxTbin< mxTb: maxTbin=mxTb
         #... check for smalest dist
-        delV=rec[1:] - rec[:-1]
-        dtm=np.min(delV) #/pmd['sampling_freq']*1000
-        print('k,dtm',k,dtm)
-        if k==8: qa_neuron(k,spikeD[k])
-        if k>10 : aa
+        #qa_neuron(k,spikeD[k])
         
     pmd['num_time_bin']=int(maxTbin)+1
     pmd['max_time']=pmd['num_time_bin']/pmd['sampling_freq']
@@ -150,7 +146,7 @@ def build_decay_data(bSpikeD,md):
     return bigD
     
 #...!...!....................
-def add_spike_decay(bSpikeL,tauV,sampling_rate,dataV):
+def add_spike_decay(bSpikeV,tauV,sampling_rate,dataV):
     """
     Adds exponential decay to each binary spike.
     - bSpikeL: list of time bins with spikes
@@ -167,11 +163,32 @@ def add_spike_decay(bSpikeL,tauV,sampling_rate,dataV):
     decay_curve = np.exp(-np.arange(decay_samples) / (tau_decay * sampling_rate))
        
     # Apply exponential decay to each spike
-    for i in bSpikeL:
+    for i in bSpikeV:
         end = min(i + decay_samples, dataV.shape[0])
         #print(i,end)
         dataV[i:end] += decay_curve[:end-i]
     
+#...!...!....................
+def mon_spike_freq(bSpikeD,md,twindow_sec=60.): 
+    pmd=md['payload']
+    pmd['qa_twindow_sec']=twindow_sec
+    nfeat=pmd['num_feature']
+    ntime=pmd['num_time_bin']
+    twindow_bin=int( pmd['sampling_freq'] * twindow_sec)
+    num_window=1+ntime//twindow_bin
+    freqA=np.zeros((nfeat,num_window),dtype=np.float32)
+    for k in range(nfeat):        
+        fid=pmd['feature_id'][k]
+        bSpikeV=bSpikeD[fid]//twindow_bin
+        countV = np.bincount(bSpikeV)
+        mxb=countV.shape[0]
+        
+        #print('ss',bSpikeV.shape,num_window,mxb);
+        #print(freqV[:30])
+        freqA[k][:mxb]=countV/twindow_sec
+       
+    return freqA
+
 
 
 #=================================
@@ -185,24 +202,25 @@ if __name__ == "__main__":
     np.set_printoptions(precision=5)
     expMD=buildPayloadMeta(args)
    
-    #
-   
     # read raw data
     binSpikeD,spikeCntL=read_spike_dict(expMD,args)
     #pprint(expMD)
     #pprint(spikeCntL)
-    
     expD=build_decay_data(binSpikeD,expMD)
-    # it is too long , displays badly
+    #... QA
+    expD['spike_freq']=mon_spike_freq(binSpikeD,expMD,twindow_sec=10.)   
+
+    # it is too long , displays badly, move it to big data
     for xx in [ 'feature_id', 'dead_id']:
         expD[xx]=np.array( expMD['payload'].pop(xx),dtype=int)
-    expD['spike_cnt']=spikeCntL
-        
+    expD['avr_spike_freq']=spikeCntL/expMD['payload']['max_time']
+
+     
     pprint(expMD)
     #...... WRITE   OUTPUT .........
     outF=os.path.join(args.dataPath,expMD['short_name']+'.act.h5')
     write4_data_hdf5(expD,outF,expMD)
-    print('   ./plot_features.py  --inpName   %s   -Y '%(expMD['short_name'] ))
+    print('   ./plot_features.py  --inpName   %s  -p a b  -Y '%(expMD['short_name'] ))
     print('   ./fit_uoiVar.py  --inpName   %s   \n'%(expMD['short_name'] ))
    
 

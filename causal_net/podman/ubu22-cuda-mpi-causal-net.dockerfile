@@ -1,34 +1,33 @@
+# From Neil Metha, Mar 13 --> 
 # podman-hpc build  -f ubu22-cuda-mpi-causal-net.dockerfile -t balewski/causal-net:m1a .
 # on PM use 'podman-hpc' instead of 'podman' and all should work
 # additionaly do 1 time:  podman-hpc migrate balewski/causal-net:m1b 
 
 FROM nvcr.io/nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
-
 WORKDIR /opt
 ENV DEBIAN_FRONTEND noninteractive
-ENV TZ=America/Los_Angeles
 
 RUN \
-    apt-get update        &&   \   
-    apt-get install --yes      \   
-        build-essential autoconf cmake flex bison zlib1g-dev   \   
-        fftw-dev fftw3 apbs libicu-dev libbz2-dev libgmp-dev   \   
+    apt-get update        &&   \  
+    apt-get install --yes      \  
+        build-essential autoconf cmake flex bison zlib1g-dev   \  
+        fftw-dev fftw3 apbs libicu-dev libbz2-dev libgmp-dev   \  
         bc libblas-dev liblapack-dev git libtool swig uuid-dev \
-        libfftw3-dev automake lsb-core libxc-dev libgsl-dev    \   
-        unzip libhdf5-serial-dev ffmpeg libcurl4-openssl-dev   \   
+        libfftw3-dev automake lsb-core libxc-dev libgsl-dev    \  
+        unzip libhdf5-serial-dev ffmpeg libcurl4-openssl-dev   \  
         libedit-dev libyaml-cpp-dev make libquadmath0 gfortran \
         python3-yaml automake pkg-config libc6-dev libzmq3-dev \
-        libjansson-dev liblz4-dev libarchive-dev python3-pip   \   
-        libsqlite3-dev lua5.1 liblua5.1-dev lua-posix jq opam  \   
-        python3-dev python3-cffi python3-ply python3-sphinx    \   
-        aspell aspell-en valgrind libyaml-cpp-dev wget vim     \   
+        libjansson-dev liblz4-dev libarchive-dev python3-pip   \  
+        libsqlite3-dev lua5.1 liblua5.1-dev lua-posix jq opam  \  
+        python3-dev python3-cffi python3-ply python3-sphinx    \  
+        aspell aspell-en valgrind libyaml-cpp-dev wget vim     \  
         make libzmq3-dev python3-yaml time valgrind  libeigen3-dev \
         ocaml ocamlbuild ocaml-findlib indent libnum-ocaml libnum-ocaml-dev \
-        fig2dev texinfo ghostscript                            \   
-        mlocate python3-jsonschema python-is-python3         &&\ 
-    apt-get clean all 
+        fig2dev texinfo ghostscript                            \  
+        mlocate python3-jsonschema python-is-python3         &&\
+    apt-get clean all
 
- 
+
 WORKDIR /opt
 ARG mpich=4.2.2
 ARG mpich_prefix=mpich-$mpich
@@ -53,38 +52,29 @@ ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/cuda/lib64/stubs
 ENV PATH=$PATH:/usr/local/cuda-11.8/targets/x86_64-linux/lib/stubs
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/cuda-11.8/targets/x86_64-linux/lib/stubs
 
-RUN ln -s /usr/local/cuda-11.8/targets/x86_64-linux/lib/stubs/libnvidia-ml.so /usr/local/cuda-11.8/targets/x86_64-linux/lib/stubs/libnvidia-ml.so.1 
+RUN ln -s /usr/local/cuda-11.8/targets/x86_64-linux/lib/stubs/libnvidia-ml.so /usr/local/cuda-11.8/targets/x86_64-linux/lib/stubs/libnvidia-ml.so.1
 
 #Install HWLOC
-WORKDIR /opt 
+WORKDIR /opt
 RUN git clone -b v2.11 https://github.com/open-mpi/hwloc.git hwloc          && \
     cd hwloc                                                                && \
     ./autogen.sh                                                            && \
     ./configure                                                             && \
     make -j 16                                                              && \
-    make install 
+    make install
 
 
 RUN pip install setuptools numpy
 RUN python -m pip install mpi4py -i https://pypi.anaconda.org/mpi4py/simple
 RUN pip install matplotlib pytest flake8 cython sphinx-gallery sphinx-rtd-theme
-RUN pip install h5py 
-
-# Install ML  libraries
-RUN echo "2c-AAAAAAAAAAAAAAAAAAAAAAAAAAAAA math libs" && \
-    pip install scikit-learn pandas seaborn[stats] networkx[default] tqdm
-
+RUN pip install h5py scikit-learn
+RUN pip install pandas tqdm
 
 # Clone the repository and install in editable mode
-RUN git clone -b uoi-var https://github.com/BouchardLab/pyuoi.git /opt/pyuoi \
-    && cd /opt/pyuoi \
-    && pip install -e .[dev]
+WORKDIR /opt
+RUN git clone -b uoi-var https://github.com/BouchardLab/pyuoi.git
+RUN cd /opt/pyuoi                                                           && \
+    pip install -e .[dev]
 
 # Add /opt/pyuoi/examples to PYTHONPATH
-ENV PYTHONPATH="/opt/pyuoi/examples:${PYTHONPATH}"
-
-# Final cleanup
-RUN apt-get clean
- 
-# Set the default command to bash
-CMD ["/bin/bash"]
+ENV PYTHONPATH=$PYTHONPATH:/opt/pyuoi/examples

@@ -28,7 +28,7 @@ def get_parser():
     
     args = parser.parse_args()
     # make arguments  more flexible 
-    args.dataPath=os.path.join(args.basePath,'input')
+    args.dataPath=os.path.join(args.basePath,'features')
     args.outPath=os.path.join(args.basePath,'post')
     args.showPlots=''.join(args.showPlots)
       
@@ -67,9 +67,9 @@ if __name__=="__main__":
     args.prjName=expMD['short_name']
     expMD['plot']={}
     #expMD['plot']['time_rangeLR']=[0.,10.]
-    #expMD['plot']['time_rangeLR']=[7.4,7.85]
+    expMD['plot']['time_rangeLR']=[7.4,7.85]
     #expMD['plot']['time_rangeLR']=[0,10]
-    if args.time_range!=None: expMD['plot']['time_rangeLR']=args.time_range
+    #if args.time_range!=None: expMD['plot']['time_rangeLR']=args.time_range
 
     plot=Plotter(args)
    
@@ -77,6 +77,12 @@ if __name__=="__main__":
         plot.input_features(expD,expMD,figId=1)
     if 'b' in args.showPlots:
         plot.input_features_dense(expD,expMD,figId=2)
+
+    if 'c' in args.showPlots:
+        plot.global_qa(expD,expMD,figId=2)
+        
+    if 'd' in args.showPlots:
+        plot.detailed_qa(expD,expMD,figId=2)
 
     plot.display_all()
     print('M:done')

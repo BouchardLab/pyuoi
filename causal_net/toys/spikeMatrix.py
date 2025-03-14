@@ -4,7 +4,10 @@ import pickle
 import numpy as np
 np.set_printoptions(precision=3)
 
-filepath = "/dataVault2025/causalNet_tmp/HET_80k_1_spike_dict.pkl"
+fileN='spike_dict.pkl'
+
+# abs path
+filepath = "/global/cfs/cdirs/m2043/causal_inference/DIV13/HET_80k_1/"+fileN
 
 # Load the dictionary from the .pkl file
 with open(filepath, "rb") as f:
@@ -60,7 +63,7 @@ for neuron_idx, (neuron_id, spikes) in enumerate(spike_dict.items()):
 print("Binary Spike Matrix:")
 print(spike_matrix)
 
-file_path = ""  #add filepath
+file_path = "out/spike.npy" 
 
 # Save the matrix
 np.save(file_path, spike_matrix)

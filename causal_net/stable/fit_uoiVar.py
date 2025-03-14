@@ -23,6 +23,8 @@ import numpy as np
 from pyuoi.linear_model import *
 sys.path.append(os.path.abspath("../../"))
 from examples.var_utils import *
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
 
 import argparse
 def get_parser():
@@ -39,19 +41,17 @@ def get_parser():
     parser.add_argument('--time_range' , default=[0., 1.0],  nargs=2,   type=float, help='fit data time range')
     parser.add_argument('--test_time_range' , default=None,  nargs=2,   type=float, help='test data range')
     parser.add_argument('--lag_depth', default=10, type=int, help='depth of auotorgeression')
-    parser.add_argument('--max_iter', default=500, type=int, help='uoi fit limit')
-    parser.add_argument('--fit_tol', default=1e-4, type=float, help='uoi fit stop condition')
     
     args = parser.parse_args()
     # make arguments  more flexible
     if args.dataPath==None:
-        args.dataPath=os.path.join(args.basePath,'input')
+        args.dataPath=os.path.join(args.basePath,'features')
     
     args.modelPath=os.path.join(args.basePath,'model')
    
-      
-    print( 'myArg-program:',parser.prog)
-    for arg in vars(args):  print( 'myArg:',arg, getattr(args, arg))
+    if  comm.rank == 0 :  
+        print( 'myArg-program:',parser.prog)
+        for arg in vars(args):  print( 'myArg:',arg, getattr(args, arg))
     
     assert os.path.exists(args.dataPath)
     assert os.path.exists(args.modelPath)
@@ -74,8 +74,6 @@ def uoiVar_predict(bigD,md):
 def fit_uoiVar(bigD,md,args):
     pmd=md['payload']
     nfeat=min(pmd['num_feature'],args.num_feature)
-    maxIter=args.max_iter
-    fitTol=args.fit_tol
     lag=args.lag_depth
 
     data=bigD['feature'][:nfeat]
@@ -87,17 +85,17 @@ def fit_uoiVar(bigD,md,args):
         
     data=data.T # to match UoI input format
     print('fit data:',data.shape,data.dtype)
+
         
     X,Y = vectorization(data, lag)
     print('fX:',X.shape)
     print('fY:',Y.shape)
-
+    
     fim={};  md['fit_uoi']=fim
-    fim['max_iter']=maxIter
-    fim['fit_tol']=fitTol
     fim['lag_depth']=lag
     fim['X_shape']=list(X.shape)
     fim['data_shape']=list(data.shape)
+    fim['num_rank']=comm.Get_size()
 
     fim['hash']=hashlib.md5(os.urandom(32)).hexdigest()[:6]
     if args.fitName==None:
@@ -105,10 +103,17 @@ def fit_uoiVar(bigD,md,args):
     else:
         md['short_name']=args.fitName
 
-
-    uoi_var = UoI_Lasso(n_real_features = nfeat, fit_VAR = True, max_iter=maxIter, tol=fitTol)
+    if 1 and  comm.rank == 0: # dump input array
+        dataF='%s-%s.npy'%(args.inpName,fim['hash'])
+        # Save array to a file
+        np.save(dataF, data)  # Saves in binary .npy format
+        print('Saved:',dataF,'shape:',data.shape)
+        exit(0)
+        
+    uoi_var = UoI_Lasso(n_real_features = nfeat, fit_VAR = True, random_state=42,comm = comm)
     t0=time()
     uoi_var.fit(X, Y)
+    if  comm.rank != 0 : exit(0)   # hack
     elaT=time()-t0
     fim['fit_time']=elaT
     model = uoi_var.coef_
@@ -139,7 +144,7 @@ if __name__=="__main__":
         
     fit_uoiVar(expD,expMD,args)
     #uoiVar_predict(expD,expMD)
-
+    
     #...... WRITE   OUTPUT .........
     outF=os.path.join(args.modelPath,expMD['short_name']+'.fit.h5')
     write4_data_hdf5(expD,outF,expMD)
@@ -147,6 +152,6 @@ if __name__=="__main__":
     fim=expMD['fit_uoi']
     
     print('SUM2 %s fit time %.1f sec'%(expMD['short_name'],expMD['fit_uoi']['fit_time']))
-    print('SUM0,job_name,fit_time,num_feat,num_tbin,lag_depth,max_iter,fit_tol')
-    print('SUM1,%s,%.1f,%d,%d,%d,%d,%1e\n'%(expMD['short_name'],fim['fit_time'],fim['data_shape'][1],fim['data_shape'][0],fim['lag_depth'],fim['max_iter'],fim['fit_tol']))
+    print('SUM0,job_name,fit_time,num_feat,num_tbin,lag_depth,num_rank')
+    print('SUM1,%s,%.1f,%d,%d,%d,%d\n'%(expMD['short_name'],fim['fit_time'],fim['data_shape'][1],fim['data_shape'][0],fim['lag_depth'],fim['num_rank']))
 

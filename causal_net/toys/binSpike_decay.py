@@ -2,7 +2,7 @@
 
 import numpy as np
 import matplotlib as mpl
-if 1:
+if 0:
     print('disable Xterm')
     mpl.use('Agg')  # to plot w/o X-server
 else:
