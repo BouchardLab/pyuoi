@@ -6,6 +6,9 @@ __email__ = "janstar1122@gmail.com"
  fit UoI-VAR
 
 Perlmutter
+ IMG=nersc/casual-net:v1 
+ export OMP_NUM_THREADS=2
+ salloc -q interactive -C cpu --image=$IMG -t 2:00:00 -A m2043 -N 4
 
 shifter ./fit_uoiVar.py --dataPath /global/cfs/cdirs/m2043/causal_inference/DIV13/features --inpName HET_80k_1_samp1kHz 
 >>> 60 sec
@@ -23,10 +26,17 @@ free ram: 217
 free ram 94
 >>> Total Execution Time: 232.385 sec
 
- srun -n32 shifter ./fit_uoiVar.py --dataPath /global/cfs/cdirs/m2043/causal_inference/DIV13/features --inpName HET_80k_1_samp1kHz  --time_range 4 9 --lag_depth 3 --num_feature 50 
->>>OOM
+ srun -n32 shifter ./fit_uoiVar.py --dataPath /global/cfs/cdirs/m2043/causal_inference/DIV13/features --inpName HET_80k_1_samp1kHz  --time_range 5 9 --lag_depth 4 --num_feature 40 
 
--n16
+>>> mydata:(4000, 40) lag:4 myRank:32  X:(159840, 6400)  Y:(159840,)
+>>> Total Execution Time: 420.666 sec
+
+
+ srun -n16 shifter ./fit_uoiVar.py --dataPath /global/cfs/cdirs/m2043/causal_inference/DIV13/features --inpName HET_80k_1_samp1kHz  --time_range 2 9 --lag_depth 5 --num_feature 40 
+
+>>> mydata:(7000, 40)  lag:5  myRank:16  X:(279800, 8000)  Y:(279800,)
+>>> Total Execution Time: 1531.637 sec
+
 
 
 ''' 
@@ -123,8 +133,8 @@ def fit_uoiVar_M():
     num_samp,num_feat=mydata.shape  
     X,Y = vectorization(mydata, lag)
     if rank == 0:
-        bigD,md=expD,expMD
-        print(rank, 'mydata:',mydata.shape,'fX:',X.shape, 'fY:',Y.shape,'lag=%d muRank=%d'%(lag,comm.Get_size()),flush=True)
+        bigD,md=expD,expMD 
+        print('mydata:%s  lag:%d  myRank:%d  X:%s  Y:%s'%(mydata.shape,lag,comm.Get_size(),X.shape,Y.shape),flush=True)
         fim={};  md['fit_uoi']=fim
         fim['lag_depth']=lag
         fim['X_shape']=list(X.shape)

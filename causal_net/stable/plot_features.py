@@ -5,6 +5,10 @@ __email__ = "janstar1122@gmail.com"
 '''
  plot input features
 
+ses=HET_80k_1 ; ses2=${ses}_samp1kHz
+./prep_input.py --sessionName $ses --outName $ses2  --basePath /global/cfs/cdirs/m2043/causal_inference/DIV13
+./plot_features.py  --inpName   $ses2 -p  d -Y
+
 '''
 
 import os
@@ -29,7 +33,7 @@ def get_parser():
     args = parser.parse_args()
     # make arguments  more flexible 
     args.dataPath=os.path.join(args.basePath,'features')
-    args.outPath=os.path.join(args.basePath,'post')
+    args.outPath=os.path.join(args.basePath,'postproc')
     args.showPlots=''.join(args.showPlots)
       
     print( 'myArg-program:',parser.prog)

@@ -10,9 +10,12 @@ Use sampler and manual transpiler
 Dependence:  qiskit 1.2
 
 
-Use case: 
-XXXX
-./submit_ibmq_job.py -E  --numQubits 3 3 --numSample 15 --numShot 8000  --backend   ibm_brussels  
+Use case:
+
+basePath=/global/cfs/cdirs/m2043/causal_inference/DIV13
+ses=HET_80k_1 ; ses2=${ses}_samp1kHz
+./prep_input.py --sessionName $ses --outName $ses2  --basePath $basePath
+./plot_features.py   --basePath $basePath --inpName   $ses2 -p  d -Y
 
 
 '''
@@ -208,7 +211,7 @@ if __name__ == "__main__":
     #pprint(spikeCntL)
     expD=build_decay_data(binSpikeD,expMD)
     #... QA
-    expD['spike_freq']=mon_spike_freq(binSpikeD,expMD,twindow_sec=10.)   
+    expD['spike_freq']=mon_spike_freq(binSpikeD,expMD,twindow_sec=5.)   
 
     # it is too long , displays badly, move it to big data
     for xx in [ 'feature_id', 'dead_id']:

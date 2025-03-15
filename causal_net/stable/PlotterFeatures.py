@@ -47,7 +47,7 @@ def plot_spike_frequencies(spike_freq, Twindow,plt,figId,tit0):
     nfeat, ntime = spike_freq.shape
 
     # Create 3 subplots: (color bar, heatmap, mean freq line plot)
-    fig, axes = plt.subplots(nrows=3, figsize=(10, 8), gridspec_kw={'height_ratios': [0.3, 4, 1]}, 
+    fig, axes = plt.subplots(nrows=3, figsize=(10, 8), gridspec_kw={'height_ratios': [0.2, 4, 1]}, 
                              num=figId)  # Removed sharex=True
 
     # Mask values where spike_freq <= 0.5
