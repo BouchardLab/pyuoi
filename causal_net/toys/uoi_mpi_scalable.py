@@ -29,6 +29,8 @@ from time import time, sleep
 
 # Record script start time
 script_start_time = time()
+omp_threads = os.environ.get("OMP_NUM_THREADS", "Not Set")
+assert omp_threads=='2'
 
 from pyuoi.linear_model import *
 sys.path.append(os.path.abspath("../../"))
@@ -46,20 +48,9 @@ def generate_dummy_data(num_feat, num_samp, lag):
         num_feat, num_samp, lag=lag, sparsity=0.5, spectral_radius=rad,
         process_type='gaussian', random_state=42
     )
-    
-    # Vectorize transition matrices
-    dense_matrices = [M.toarray() for M in transition_matrices]
-    B_truth = np.vstack([m.T for m in dense_matrices]).T.flatten()
-    X, Y = vectorization(data, lag)
-    return X, Y
+       
+    return data
 
-def read_data(inpF, lag):
-    print(' Load array back from file:',inpF, flush=True)    
-    mydata = np.load(inpF)
-    num_samp,num_feat=mydata.shape
-    X,Y = vectorization(mydata, lag)
-    print('fX:',X.shape, 'fY:',Y.shape,flush=True)
-    return X,Y,num_feat, num_samp 
 
 #...!...!....................
 def main(num_feat, num_samp, lag, inpName):
@@ -80,18 +71,22 @@ def main(num_feat, num_samp, lag, inpName):
         if inpName==None:
             # Generate dummy data (Only rank 0)
             print("Generating data... nFeat=%d, nSamp=%d, lag=%d" % (num_feat, num_samp, lag), flush=True)
-            X, Y = generate_dummy_data(num_feat, num_samp, lag)
+            mydata = generate_dummy_data(num_feat, num_samp, lag)
         else:
-            X, Y,num_feat, num_samp = read_data(inpName, lag)
-              
+            print(' Load array back from file:',inpName, flush=True)    
+            mydata = np.load(inpName)
+            num_samp,num_feat=mydata.shape  
     else:
-        X = None
-        Y = None
+        mydata = None
 
-    # Broadcast X, Y to all ranks
-    X = comm.bcast(X, root=0)
-    Y = comm.bcast(Y, root=0)
+    # Broadcast data to all ranks
+    mydata = comm.bcast(mydata, root=0)
+    
 
+    X, Y = vectorization(mydata, lag)
+    if rank == 0:
+        print('mydata:',mydata.shape,'fX:',X.shape, 'fY:',Y.shape,flush=True)
+     
     # All ranks: Initialize and fit UoI_Lasso
     uoi_lasso = UoI_Lasso(n_real_features=num_feat, fit_VAR=True, random_state=42, comm=comm)
 

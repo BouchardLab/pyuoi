@@ -6,13 +6,30 @@ __email__ = "janstar1122@gmail.com"
  fit UoI-VAR
 
 Perlmutter
-inside image
-./fit_uoiVar.py --dataPath /m2043/DIV13/features --inpName HET_80k_1-2kHz_1ms
 
-bare metal
-./fit_uoiVar.py --dataPath /global/cfs/cdirs/m2043/causal_inference/DIV13/features --inpName HET_80k_1-2kHz_1ms --time_range 7 7.6 --lag_depth 8 --num_feature 5 
+shifter ./fit_uoiVar.py --dataPath /global/cfs/cdirs/m2043/causal_inference/DIV13/features --inpName HET_80k_1_samp1kHz 
+>>> 60 sec
 
-'''
+ srun -n64 shifter ./fit_uoiVar.py --dataPath /global/cfs/cdirs/m2043/causal_inference/DIV13/features --inpName HET_80k_1_samp1kHz  --time_range 7 9 --lag_depth 2 --num_feature 20 
+>>> fit data: (2000, 20)
+>>> Total Execution Time: 15.825 sec
+
+--time_range 5 9  --num_feature 40 
+>>> fit data: (4000, 40)
+free ram: 217
+>>> Total Execution Time: 141.401 sec
+
+ --time_range 5 9 --lag_depth 3 --num_feature 40 
+free ram 94
+>>> Total Execution Time: 232.385 sec
+
+ srun -n32 shifter ./fit_uoiVar.py --dataPath /global/cfs/cdirs/m2043/causal_inference/DIV13/features --inpName HET_80k_1_samp1kHz  --time_range 4 9 --lag_depth 3 --num_feature 50 
+>>>OOM
+
+-n16
+
+
+''' 
 
 import os,sys,hashlib
 from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
@@ -24,6 +41,11 @@ from pyuoi.linear_model import *
 sys.path.append(os.path.abspath("../../"))
 from examples.var_utils import *
 from mpi4py import MPI
+
+# Record script start time
+script_start_time = time()
+omp_threads = os.environ.get("OMP_NUM_THREADS", "Not Set")
+assert omp_threads=='2'
 comm = MPI.COMM_WORLD
 
 import argparse
@@ -52,6 +74,7 @@ def get_parser():
     if  comm.rank == 0 :  
         print( 'myArg-program:',parser.prog)
         for arg in vars(args):  print( 'myArg:',arg, getattr(args, arg))
+        print('',flush=True)
     
     assert os.path.exists(args.dataPath)
     assert os.path.exists(args.modelPath)
@@ -69,13 +92,19 @@ def uoiVar_predict(bigD,md):
     print('pX:',X.shape)
     print('pY:',Y.shape)
     UoI_Lasso.predict(X)
-    
+
+
 #...!...!....................
-def fit_uoiVar(bigD,md,args):
+def rank0_init_uoiVar(args):   
+    inpF=args.inpName+'.act.h5'
+    bigD,md=read4_data_hdf5(os.path.join(args.dataPath,inpF))
     pmd=md['payload']
     nfeat=min(pmd['num_feature'],args.num_feature)
-    lag=args.lag_depth
-
+    if args.verb>=2:
+        print('M:expMD:');  pprint(expMD)
+        if args.verb>=3:
+            print(expD)
+        stop2
     data=bigD['feature'][:nfeat]
     if args.time_range:  #.... clip data
         tL,tR=[int(x*pmd['sampling_freq']) for x in args.time_range ]
@@ -85,44 +114,70 @@ def fit_uoiVar(bigD,md,args):
         
     data=data.T # to match UoI input format
     print('fit data:',data.shape,data.dtype)
+    bigD['fit_data']=data
+    return bigD,md
 
-        
-    X,Y = vectorization(data, lag)
-    print('fX:',X.shape)
-    print('fY:',Y.shape)
-    
-    fim={};  md['fit_uoi']=fim
-    fim['lag_depth']=lag
-    fim['X_shape']=list(X.shape)
-    fim['data_shape']=list(data.shape)
-    fim['num_rank']=comm.Get_size()
+#...!...!....................
+def fit_uoiVar_M():   
+    lag=args.lag_depth
+    num_samp,num_feat=mydata.shape  
+    X,Y = vectorization(mydata, lag)
+    if rank == 0:
+        bigD,md=expD,expMD
+        print(rank, 'mydata:',mydata.shape,'fX:',X.shape, 'fY:',Y.shape,'lag=%d muRank=%d'%(lag,comm.Get_size()),flush=True)
+        fim={};  md['fit_uoi']=fim
+        fim['lag_depth']=lag
+        fim['X_shape']=list(X.shape)
+        fim['data_shape']=list(mydata.shape)
+        fim['num_rank']=comm.Get_size()
 
-    fim['hash']=hashlib.md5(os.urandom(32)).hexdigest()[:6]
-    if args.fitName==None:
-        md['short_name']='fit-%s'%(fim['hash'])
-    else:
-        md['short_name']=args.fitName
+        fim['hash']=hashlib.md5(os.urandom(32)).hexdigest()[:6]
+        if args.fitName==None:
+            md['short_name']='fit-%s'%(fim['hash'])
+        else:
+            md['short_name']=args.fitName
 
-    if 1 and  comm.rank == 0: # dump input array
+    if 0 and  comm.rank == 0: # dump input array
         dataF='%s-%s.npy'%(args.inpName,fim['hash'])
         # Save array to a file
         np.save(dataF, data)  # Saves in binary .npy format
         print('Saved:',dataF,'shape:',data.shape)
         exit(0)
-        
-    uoi_var = UoI_Lasso(n_real_features = nfeat, fit_VAR = True, random_state=42,comm = comm)
-    t0=time()
-    uoi_var.fit(X, Y)
-    if  comm.rank != 0 : exit(0)   # hack
-    elaT=time()-t0
-    fim['fit_time']=elaT
-    model = uoi_var.coef_
-    bigD['fit_model']=model
-    bigD['fit_data']=data
-    B_model = model.reshape((nfeat,nfeat,-1)).T
-    print('B_model:',B_model.shape, 'lag;',lag)
-    
 
+    # All ranks: Initialize and fit UoI_Lasso
+    uoi_lasso = UoI_Lasso(n_real_features=num_feat, fit_VAR=True, random_state=42, comm=comm)
+
+    start_time = time()
+    uoi_lasso.fit(X, Y)
+    fit_time = time() - start_time
+
+    # Rank 0 collects all fit times
+    fit_times = comm.gather(fit_time, root=0)
+
+    if rank != 0:  exit(0)
+    
+    avg_time = np.mean(fit_times)
+    min_time = np.min(fit_times)
+    max_time = np.max(fit_times)
+    total_time = time() - script_start_time  # Total execution time from script start
+
+    print("------------------------------------------------------------")
+    print("Fitting complete in %.1f sec | numRanks=%d" % (total_time, fim['num_rank']))
+    print("Avg Fit Time: %.1f sec | Min: %.1f sec | Max: %.1f sec" % (avg_time, min_time, max_time))
+    print("Total Execution Time: %.3f sec" % total_time)
+    print("------------------------------------------------------------", flush=True)
+
+    # Extract model coefficients
+    B_model = uoi_lasso.coef_
+    A_model = [B_model.reshape(num_feat, num_feat * lag).T[i * num_feat:(i + 1) * num_feat].T for i in range(lag)]
+    A_model = np.array(A_model)
+
+    print("B_model: (%d,) | A_model: (%d, %d, %d)" % (B_model.shape[0], A_model.shape[0], A_model.shape[1], A_model.shape[2]))
+  
+    fim['fit_time']=float(max_time)
+    fim['total_run_time']=total_time
+    model = uoi_lasso.coef_
+    bigD['fit_model']=model
 
 #=================================
 #=================================
@@ -132,19 +187,20 @@ def fit_uoiVar(bigD,md,args):
 if __name__=="__main__":
     args=get_parser()
     np.set_printoptions(precision=3)
-                    
-    inpF=args.inpName+'.act.h5'
-    expD,expMD=read4_data_hdf5(os.path.join(args.dataPath,inpF))
-    
-    if args.verb>=2:
-        print('M:expMD:');  pprint(expMD)
-        if args.verb>=3:
-            print(expD)
-        stop2
-        
-    fit_uoiVar(expD,expMD,args)
-    #uoiVar_predict(expD,expMD)
-    
+
+    rank = comm.Get_rank()
+
+    if rank == 0:
+        expD,expMD= rank0_init_uoiVar(args)
+        mydata=expD['fit_data']
+    else:
+        mydata = None
+
+    # Broadcast data to all ranks
+    mydata = comm.bcast(mydata, root=0)
+      
+    fit_uoiVar_M()  # only rank0 will proceed this function
+     
     #...... WRITE   OUTPUT .........
     outF=os.path.join(args.modelPath,expMD['short_name']+'.fit.h5')
     write4_data_hdf5(expD,outF,expMD)
