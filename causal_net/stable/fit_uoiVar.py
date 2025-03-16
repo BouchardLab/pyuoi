@@ -10,12 +10,16 @@ Perlmutter
  export OMP_NUM_THREADS=2
  salloc -q interactive -C cpu --image=$IMG -t 2:00:00 -A m2043 -N 4
 
-shifter ./fit_uoiVar.py --dataPath /global/cfs/cdirs/m2043/causal_inference/DIV13/features --inpName HET_80k_1_samp1kHz 
->>> 60 sec
+dataPath=/global/cfs/cdirs/m2043/causal_inference/DIV13/features 
 
- srun -n64 shifter ./fit_uoiVar.py --dataPath /global/cfs/cdirs/m2043/causal_inference/DIV13/features --inpName HET_80k_1_samp1kHz  --time_range 7 9 --lag_depth 2 --num_feature 20 
+shifter ./fit_uoiVar.py --dataPath $dataPath  --inpName HET_80k_1_samp1kHz  --time_range 7 9 
+>>> mydata:(2000, 8)  lag:10  myRank:1  X:(15920, 640)  Y:(15920,)
+>>> Total Execution Time: 137.324 sec
+
+ srun -n64 shifter ./fit_uoiVar.py --dataPath $dataPath --inpName HET_80k_1_samp1kHz  --time_range 7 9 --lag_depth 2 --num_feature 20 
 >>> fit data: (2000, 20)
 >>> Total Execution Time: 15.825 sec
+>>> Total Execution Time: 24.664 sec  for freq-selected
 
 --time_range 5 9  --num_feature 40 
 >>> fit data: (4000, 40)
@@ -26,13 +30,13 @@ free ram: 217
 free ram 94
 >>> Total Execution Time: 232.385 sec
 
- srun -n32 shifter ./fit_uoiVar.py --dataPath /global/cfs/cdirs/m2043/causal_inference/DIV13/features --inpName HET_80k_1_samp1kHz  --time_range 5 9 --lag_depth 4 --num_feature 40 
+ srun -n32 shifter ./fit_uoiVar.py --dataPath $dataPath  --inpName HET_80k_1_samp1kHz  --time_range 5 9 --lag_depth 4 --num_feature 40 
 
 >>> mydata:(4000, 40) lag:4 myRank:32  X:(159840, 6400)  Y:(159840,)
 >>> Total Execution Time: 420.666 sec
 
 
- srun -n16 shifter ./fit_uoiVar.py --dataPath /global/cfs/cdirs/m2043/causal_inference/DIV13/features --inpName HET_80k_1_samp1kHz  --time_range 2 9 --lag_depth 5 --num_feature 40 
+ srun -n16 shifter ./fit_uoiVar.py --dataPath  $dataPath  --inpName HET_80k_1_samp1kHz  --time_range 2 9 --lag_depth 5 --num_feature 40 
 
 >>> mydata:(7000, 40)  lag:5  myRank:16  X:(279800, 8000)  Y:(279800,)
 >>> Total Execution Time: 1531.637 sec
@@ -69,13 +73,15 @@ def get_parser():
     parser.add_argument("--fitName",  default=None,help='fit name')
 
     #.... fit params
+    parser.add_argument('--minSpikeFreq', default=4., type=float, help='minimal spike rate for used neureons')
     parser.add_argument('--num_feature', default=8, type=int, help='num of from full dataset')
-    parser.add_argument('--time_range' , default=[0., 1.0],  nargs=2,   type=float, help='fit data time range')
-    parser.add_argument('--test_time_range' , default=None,  nargs=2,   type=float, help='test data range')
+    parser.add_argument('--time_range' , default=[7., 9.],  nargs=2,   type=float, help='fit data time range')
+    
     parser.add_argument('--lag_depth', default=10, type=int, help='depth of auotorgeression')
     
     args = parser.parse_args()
     # make arguments  more flexible
+    args.rndSeed=42
     if args.dataPath==None:
         args.dataPath=os.path.join(args.basePath,'features')
     
@@ -103,28 +109,76 @@ def uoiVar_predict(bigD,md):
     print('pY:',Y.shape)
     UoI_Lasso.predict(X)
 
+        
+#...!...!....................
+def downselect_features(featData,freqData,bigD,md,args): 
+    pmd=md['payload']
+    sem=md['selector']
+    pprint(pmd)
+
+    mxfeat=freqData.shape[0]
+    # Boolean mask: True where A > freqThr1
+    mask = freqData > sem['min_freq_thres']
+
+    # Create 2D list: Outer index = ntbin, Inner list = feature indices
+    featIdxV = np.where(mask[:])[0]
+    print('mxFeat available:',featIdxV.shape)
+
+    nfeat=args.num_feature
+    if featIdxV.shape[0]> nfeat:
+        # Randomly select nfeat elements from featIdxV (without replacement)
+        featIdxV= np.random.choice(featIdxV, size=nfeat, replace=False)
+    else:
+        nfeat=featIdxV.shape[0]
+    #freqData=freqData[featIdxV]
+    print('sel nfeat=%d'%nfeat)
+
+    # Get corresponding frequencies
+    selected_frequencies = freqData[featIdxV]
+
+    # Get sorted indices in descending order based on frequency
+    sorted_indices = np.argsort(-selected_frequencies)  # Negative sign for descending order
+
+    # Reorder featIdxV accordingly
+    featIdxV = featIdxV[sorted_indices]
+    bigD['sel_feat_idx']=featIdxV
+    bigD['sel_feat_freq']=freqData[featIdxV]
+    sem['sel_freq_range']=(bigD['sel_feat_freq'][[0,-1]]).tolist()
+    sem['rnd_seed']=args.rndSeed
+    for i in range(nfeat):
+        idx=featIdxV[i]
+        print('i=%d  feature idx=%d  freq=%.1f (Hz)'%(i,idx,freqData[idx]))
+        
+        #if it >10: break
+    bigD['sel_data']=featData[featIdxV] # down-selected features 
+    
 
 #...!...!....................
 def rank0_init_uoiVar(args):   
     inpF=args.inpName+'.act.h5'
     bigD,md=read4_data_hdf5(os.path.join(args.dataPath,inpF))
     pmd=md['payload']
-    nfeat=min(pmd['num_feature'],args.num_feature)
+    sem={}  # data-selector metadata
+    md['selector']=sem
+    
     if args.verb>=2:
         print('M:expMD:');  pprint(expMD)
         if args.verb>=3:
             print(expD)
         stop2
-    data=bigD['feature'][:nfeat]
-    if args.time_range:  #.... clip data
-        tL,tR=[int(x*pmd['sampling_freq']) for x in args.time_range ]
-        print('FUV tbinLR:',tL,tR)
-        assert tL < pmd['num_time_bin']
-        data=data[:,tL:tR]
+    featData=bigD['feature']
         
-    data=data.T # to match UoI input format
-    print('fit data:',data.shape,data.dtype)
-    bigD['fit_data']=data
+    #.... clip data
+    tL,tR=[int(x*pmd['sampling_freq']) for x in args.time_range ]
+    print('FUV tbinLR:',tL,tR)
+    assert tR < pmd['num_time_bin']
+    featData=featData[:,tL:tR]
+    itL=int(args.time_range[0]/(pmd['qa_twindow_sec']))
+    #print('tt', args.time_range,itL)
+    sem['sel_time_start']=args.time_range[0]
+    sem['min_freq_thres']=args.minSpikeFreq
+    freqData=bigD['spike_freq'][:,itL]  # 2D  [features, timeBin]
+    downselect_features(featData,freqData, bigD,md,args)   
     return bigD,md
 
 #...!...!....................
@@ -155,7 +209,7 @@ def fit_uoiVar_M():
         exit(0)
 
     # All ranks: Initialize and fit UoI_Lasso
-    uoi_lasso = UoI_Lasso(n_real_features=num_feat, fit_VAR=True, random_state=42, comm=comm)
+    uoi_lasso = UoI_Lasso(n_real_features=num_feat, fit_VAR=True, random_state=args.rndSeed, comm=comm)
 
     start_time = time()
     uoi_lasso.fit(X, Y)
@@ -186,8 +240,8 @@ def fit_uoiVar_M():
   
     fim['fit_time']=float(max_time)
     fim['total_run_time']=total_time
-    model = uoi_lasso.coef_
-    bigD['fit_model']=model
+    bigD['fit_B_model']=B_model
+    bigD['fit_A_model']=A_model
 
 #=================================
 #=================================
@@ -197,27 +251,35 @@ def fit_uoiVar_M():
 if __name__=="__main__":
     args=get_parser()
     np.set_printoptions(precision=3)
-
+    np.random.seed(args.rndSeed)
+    
     rank = comm.Get_rank()
 
     if rank == 0:
         expD,expMD= rank0_init_uoiVar(args)
-        mydata=expD['fit_data']
+        mydata=expD['sel_data'].T
     else:
         mydata = None
 
     # Broadcast data to all ranks
     mydata = comm.bcast(mydata, root=0)
       
-    fit_uoiVar_M()  # only rank0 will proceed this function
-     
+    fit_uoiVar_M()
+    # only rank0 will proceed further
+
+    #.... reduce output size
+    for xx in ['feature','spike','time']:
+        expD.pop(xx)
+
+    
     #...... WRITE   OUTPUT .........
-    outF=os.path.join(args.modelPath,expMD['short_name']+'.fit.h5')
+    outF=os.path.join(args.modelPath,expMD['short_name']+'.model.h5')
     write4_data_hdf5(expD,outF,expMD)
-    pprint(expMD)
+    #pprint(expMD)
     fim=expMD['fit_uoi']
     
     print('SUM2 %s fit time %.1f sec'%(expMD['short_name'],expMD['fit_uoi']['fit_time']))
     print('SUM0,job_name,fit_time,num_feat,num_tbin,lag_depth,num_rank')
     print('SUM1,%s,%.1f,%d,%d,%d,%d\n'%(expMD['short_name'],fim['fit_time'],fim['data_shape'][1],fim['data_shape'][0],fim['lag_depth'],fim['num_rank']))
 
+    print(' ./postproc_ouiVar.py -e %s '%expMD['short_name'])

@@ -199,7 +199,7 @@ class Plotter(PlotterBackbone):
     def detailed_qa(self,bigD,md,figId=3):
 
         pmd=md['payload']
-        tit='session '+md['short_name']
+        tit=md['short_name']+' session, '
 
         figId=self.smart_append(figId)        
         nrow,ncol=1,2
