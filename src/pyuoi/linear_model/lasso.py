@@ -8,7 +8,7 @@ try:
 except ImportError:
     pycasso = None
 
-from .base import AbstractUoILinearRegressor
+from .base_VAR import AbstractUoILinearRegressor
 
 
 class PycLasso():
