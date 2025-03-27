@@ -15,6 +15,7 @@ from pyuoi.mpi_utils import (Gatherv_rows, Bcast_from_root)
 from .utils import stability_selection_to_threshold, intersection
 from ..utils import check_logger
 import gc
+from copy import deepcopy
 
 def vectorization_bootstrap(raw_data, sample_idx, lag):
     # vectorize the VAR bootstrap data for use with LASSO algorithm
@@ -67,6 +68,24 @@ def vectorization(raw_data, lag):
     X, Y = check_X_y(X, Y, accept_sparse=['csr', 'csc', 'coo'],
                  y_numeric=True, multi_output=True)    
     return X, Y
+
+def intermediate_data(raw_data, lag):
+    # produce the linear system used to find regularization path
+    
+    # flipup so the last time sample in data is now first row
+    data = deepcopy(raw_data)
+    data = np.flipud(data)
+    n_samples = data.shape[0]
+    n_features = data.shape[1]
+    
+    # shape of Y: (T - D) X (n_features)   *T - D: total number of samples - lag
+    Y = data[: n_samples-lag]
+    
+    # X.shape: (n_samples - lag) X (lag * n_features); 
+    X_row = [np.hstack(data[i : lag+i]) for i in range(1,n_samples-lag+1)]
+    X = np.vstack(X_row)
+  
+    return X, Y     
 
 class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
     r"""An abstract base class for UoI ``linear_model`` classes.
@@ -156,6 +175,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         self.tol = tol
         self.comm = comm
         self.output_dim = 1  # by vectorization construction
+        self.VAR_coef_ = None
         # preprocessing
         if isinstance(random_state, int):
             # make sure ranks use different seed
@@ -295,16 +315,14 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             rank = self.comm.rank
             size = self.comm.size
 
-
-
-        # scaling the entrie vectorized data and picking the regularization parameters
-        
-        
+        # z-score scaling the raw data and picking the regularization parameters
         if rank == 0:
             data = self._pre_fit_VAR(data)
 
             # only used for getting regularization parameters
-            X_all, y_all = vectorization(data, lag)      
+            #X_all, y_all = vectorization(data, lag)      
+            X_all, y_all = intermediate_data(data, lag)
+            
             # choose the regularization parameters for selection sweep                
             reg_params_ = self.get_reg_params(X_all, y_all)
 
@@ -564,7 +582,12 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                     fitter=fitter,
                     X=X_score, y=y_score,
                     support=np.zeros(X.shape[1], dtype=bool))
-
+                
+        # clear memory
+        del X
+        del y 
+        gc.collect()
+        
         if size > 1:
             estimates = Gatherv_rows(send=estimates, comm=self.comm,
                                      root=0)
@@ -585,8 +608,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                 coef = np.median(best_estimates,
                                  axis=0).reshape(self.output_dim, n_features)
                 self.coef_ = coef
-                if X_all is None:
-                    X_all, y_all = vectorization(data, lag)    
+                X_all, y_all = vectorization(data, lag)    
                 self._fit_intercept(X_all, y_all)
             self.estimates_ = Bcast_from_root(estimates, self.comm, root=0)
             self.scores_ = Bcast_from_root(scores, self.comm, root=0)
@@ -607,15 +629,15 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             # take the median across estimates for the final, bagged estimate
             self.coef_ = np.median(best_estimates,
                                    axis=0).reshape(self.output_dim, n_features)
-            if X_all is None:
-                X_all, y_all = vectorization(data, lag)               
+        
+            X_all, y_all = vectorization(data, lag)               
             self._fit_intercept(X_all, y_all)
             
         if rank == 0:
             self._post_fit_VAR(lag, data.shape[1])
         
         if size > 1:
-            self.VAR_coef_ = Bcast_from_root(self.VAR_coef, self.comm, root=0)
+            self.VAR_coef_ = Bcast_from_root(self.VAR_coef_, self.comm, root=0)
 
         return self
 

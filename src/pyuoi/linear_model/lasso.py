@@ -252,7 +252,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
             l1_ratio=1.0,
             fit_intercept=self.fit_intercept,
             eps=self.eps,
-            n_alphas=self.n_lambdas)
+            n_alphas=self.n_lambdas, copy_X = True)
 
         return [{'alpha': a} for a in alphas]
 
