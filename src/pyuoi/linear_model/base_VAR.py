@@ -7,7 +7,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
 from sklearn.preprocessing import StandardScaler
 
-from scipy.sparse import issparse, csr_matrix
+from scipy.sparse import issparse, csr_matrix, csc_matrix, coo_matrix
 
 from pyuoi import utils
 from pyuoi.mpi_utils import (Gatherv_rows, Bcast_from_root)
@@ -39,13 +39,15 @@ def vectorization_bootstrap(raw_data, sample_idx, lag):
     # use kronecker product for vectorization of matrix multiplication
     X = np.kron(np.eye(n_features), X)    
 
+
+    X = csr_matrix(X)
     X, Y = check_X_y(X, Y, accept_sparse=['csr', 'csc', 'coo'],
                  y_numeric=True, multi_output=True)
     return X, Y
 
 
 def vectorization(raw_data, lag):
-    # vectorize the ful raw VAR data for use with LASSO algorithm
+    # vectorize the full raw VAR data for use with LASSO algorithm
     # data: time series data in np array with shape n_samples X n_features
         
     # flipup so the last time sample in data is now first row
@@ -410,7 +412,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                     
             else: #non-MPI
                 my_boots[boot] = train_test_split(
-                    np.arange(X.shape[0]//self.n_real_features),
+                    np.arange(data.shape[0]-lag),
                     test_size=1 - self.selection_frac,
                     stratify=stratify,
                     random_state=self.random_state)               
@@ -478,7 +480,9 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
 
         self.n_supports_ = self.supports_.shape[0]
 
+        
         if rank == 0:
+            #print(self.n_supports_ ,flush = True)
             self._logger.info("Found %d supports" % self.n_supports_)
 
         #####################
@@ -497,7 +501,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         for boot in range(self.n_boots_est):
             if size > 1:
                 if rank == 0:
-                    rvals = train_test_split(np.arange(X.shape[0]//self.n_real_features),
+                    rvals = train_test_split(np.arange(data.shape[0]-lag),
                                              test_size=1 - self.estimation_frac,
                                              stratify=stratify,
                                              random_state=self.random_state)
@@ -509,7 +513,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                     my_boots[boot] = rvals
             else:
                 my_boots[boot] = train_test_split(
-                    np.arange(X.shape[0]//self.n_real_features),
+                    np.arange(data.shape[0]-lag),
                     test_size=1 - self.estimation_frac,
                     stratify=stratify,
                     random_state=self.random_state)
