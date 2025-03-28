@@ -85,7 +85,7 @@ def main(num_feat, num_samp, lag, inpName):
 
     # X, Y = vectorization(mydata, lag)
     if rank == 0:
-        print('mydata:',mydata.shape,'fX:',X.shape, 'fY:',Y.shape,flush=True)
+        print('mydata:',mydata.shape)
      
     # All ranks: Initialize and fit UoI_Lasso
     uoi_lasso = UoI_Lasso(n_real_features=num_feat, fit_VAR=True, random_state=42, comm=comm)
@@ -93,7 +93,7 @@ def main(num_feat, num_samp, lag, inpName):
 
     start_time = time()
     if rank == 0:
-        uoi_lasso.fit(lag, data = data)
+        uoi_lasso.fit(lag, data = mydata)
     else:
         uoi_lasso.fit(lag)
     fit_time = time() - start_time
