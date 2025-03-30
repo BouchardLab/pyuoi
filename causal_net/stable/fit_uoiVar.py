@@ -6,42 +6,24 @@ __email__ = "janstar1122@gmail.com"
  fit UoI-VAR
 
 Perlmutter
- IMG=nersc/casual-net:v1 
- export OMP_NUM_THREADS=2
- salloc -q interactive -C cpu --image=$IMG -t 2:00:00 -A m2043 -N 4
+ IMG=nersc/causal-net:v3   # Mar 28
+ #export OMP_NUM_THREADS=2
+ salloc -q interactive -C cpu --image=$IMG -t 4:00:00 -A m2043 -N 4
 
-dataPath=/global/cfs/cdirs/m2043/causal_inference/DIV13/features 
+ dataPath=/global/cfs/cdirs/m2043/causal_inference/DIV13/features 
+ basePath=/global/cfs/cdirs/mpccc/balewski/bioDataVault2025/causalNet_tmp/
 
-shifter ./fit_uoiVar.py --dataPath $dataPath  --inpName HET_80k_1_samp1kHz  --time_range 7 9 
->>> mydata:(2000, 8)  lag:10  myRank:1  X:(15920, 640)  Y:(15920,)
->>> Total Execution Time: 137.324 sec
+shifter ./fit_uoiVar.py --dataPath $dataPath  --inpName HET_80k_1_samp1kHz  --time_range 7 9  --lag_depth  2
+>>> mydata:(2000, 8)  lag:2  myRank:1 
+>>> Total Execution Time: 15.067 sec
+
 
  srun -n64 shifter ./fit_uoiVar.py --dataPath $dataPath --inpName HET_80k_1_samp1kHz  --time_range 7 9 --lag_depth 2 --num_feature 20 
 >>> fit data: (2000, 20)
->>> Total Execution Time: 15.825 sec
->>> Total Execution Time: 24.664 sec  for freq-selected
 
---time_range 5 9  --num_feature 40 
->>> fit data: (4000, 40)
-free ram: 217
->>> Total Execution Time: 141.401 sec
+>>> Total Execution Time: 8.720 sec   for freq-selected
 
- --time_range 5 9 --lag_depth 3 --num_feature 40 
-free ram 94
->>> Total Execution Time: 232.385 sec
-
- srun -n32 shifter ./fit_uoiVar.py --dataPath $dataPath  --inpName HET_80k_1_samp1kHz  --time_range 5 9 --lag_depth 4 --num_feature 40 
-
->>> mydata:(4000, 40) lag:4 myRank:32  X:(159840, 6400)  Y:(159840,)
->>> Total Execution Time: 420.666 sec
-
-
- srun -n16 shifter ./fit_uoiVar.py --dataPath  $dataPath  --inpName HET_80k_1_samp1kHz  --time_range 2 9 --lag_depth 5 --num_feature 40 
-
->>> mydata:(7000, 40)  lag:5  myRank:16  X:(279800, 8000)  Y:(279800,)
->>> Total Execution Time: 1531.637 sec
-
-
+sbatch -N 4 -q regular -t 90:00 batchShifter.slr 16 100
 
 ''' 
 
@@ -50,16 +32,17 @@ from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
 from time import time
 from pprint import pprint
 import numpy as np
-
-from pyuoi.linear_model import *
-sys.path.append(os.path.abspath("../../"))
-from examples.var_utils import *
 from mpi4py import MPI
+
+sys.path.append("/global/homes/b/balewski/prjs/2025_UoI-VAR/")
+from examples.var_utils import * 
+from src.pyuoi.linear_model import *
+
 
 # Record script start time
 script_start_time = time()
 omp_threads = os.environ.get("OMP_NUM_THREADS", "Not Set")
-assert omp_threads=='2'
+#assert omp_threads=='2'
 comm = MPI.COMM_WORLD
 
 import argparse
@@ -73,11 +56,11 @@ def get_parser():
     parser.add_argument("--fitName",  default=None,help='fit name')
 
     #.... fit params
-    parser.add_argument('--minSpikeFreq', default=4., type=float, help='minimal spike rate for used neureons')
+    parser.add_argument('--minSpikeFreq', default=1.5, type=float, help='minimal spike rate for used neureons')
     parser.add_argument('--num_feature', default=8, type=int, help='num of from full dataset')
     parser.add_argument('--time_range' , default=[7., 9.],  nargs=2,   type=float, help='fit data time range')
     
-    parser.add_argument('--lag_depth', default=10, type=int, help='depth of auotorgeression')
+    parser.add_argument('--lag_depth', default=1, type=int, help='depth of auotorgeression')
     
     args = parser.parse_args()
     # make arguments  more flexible
@@ -175,8 +158,9 @@ def rank0_init_uoiVar(args):
     featData=featData[:,tL:tR]
     itL=int(args.time_range[0]/(pmd['qa_twindow_sec']))
     #print('tt', args.time_range,itL)
-    sem['sel_time_start']=args.time_range[0]
+    sem['time_range']=[args.time_range[0], args.time_range[1]]
     sem['min_freq_thres']=args.minSpikeFreq
+    sem['num_feature']=args.num_feature
     freqData=bigD['spike_freq'][:,itL]  # 2D  [features, timeBin]
     downselect_features(featData,freqData, bigD,md,args)   
     return bigD,md
@@ -185,13 +169,12 @@ def rank0_init_uoiVar(args):
 def fit_uoiVar_M():   
     lag=args.lag_depth
     num_samp,num_feat=mydata.shape  
-    X,Y = vectorization(mydata, lag)
+    
     if rank == 0:
         bigD,md=expD,expMD 
-        print('mydata:%s  lag:%d  myRank:%d  X:%s  Y:%s'%(mydata.shape,lag,comm.Get_size(),X.shape,Y.shape),flush=True)
+        print('mydata:%s  lag:%d  numRank:%d '%(mydata.shape,lag,comm.Get_size()),flush=True)
         fim={};  md['fit_uoi']=fim
         fim['lag_depth']=lag
-        fim['X_shape']=list(X.shape)
         fim['data_shape']=list(mydata.shape)
         fim['num_rank']=comm.Get_size()
 
@@ -204,15 +187,22 @@ def fit_uoiVar_M():
     if 0 and  comm.rank == 0: # dump input array
         dataF='%s-%s.npy'%(args.inpName,fim['hash'])
         # Save array to a file
-        np.save(dataF, data)  # Saves in binary .npy format
-        print('Saved:',dataF,'shape:',data.shape)
+        np.save(dataF, mydata)  # Saves in binary .npy format
+        print('Saved:',dataF,'shape:',mydata.shape)
         exit(0)
 
-    # All ranks: Initialize and fit UoI_Lasso
+    # All ranks: Initialize 
     uoi_lasso = UoI_Lasso(n_real_features=num_feat, fit_VAR=True, random_state=args.rndSeed, comm=comm)
+    
 
+    # fit UoI_Lasso
     start_time = time()
-    uoi_lasso.fit(X, Y)
+    if comm.rank == 0:
+        uoi_lasso.fit(lag, data = mydata.astype(np.float64))
+        # it will roadcast data to all ranks
+    else:
+        uoi_lasso.fit(lag)
+    
     fit_time = time() - start_time
 
     # Rank 0 collects all fit times
@@ -268,7 +258,7 @@ if __name__=="__main__":
     # only rank0 will proceed further
 
     #.... reduce output size
-    for xx in ['feature','spike','time']:
+    for xx in ['feature','spike','time','spike_freq']:
         expD.pop(xx)
 
     
@@ -283,3 +273,4 @@ if __name__=="__main__":
     print('SUM1,%s,%.1f,%d,%d,%d,%d\n'%(expMD['short_name'],fim['fit_time'],fim['data_shape'][1],fim['data_shape'][0],fim['lag_depth'],fim['num_rank']))
 
     print(' ./postproc_ouiVar.py -e %s '%expMD['short_name'])
+    print(' ./postproc_ouiVar.py --basePath $basePath -e %s '%expMD['short_name'])

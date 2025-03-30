@@ -13,18 +13,22 @@ from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
 from time import time
 from pprint import pprint
 import numpy as np
+from PlotterModelFit import Plotter
+
 
 import argparse
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v","--verbosity",type=int,choices=[0, 1, 2,3,4],  help="increase output verbosity", default=1, dest='verb')
-    parser.add_argument("-p", "--showPlots",  default='a', nargs='+',help="abcd-string listing shown plots")
+    parser.add_argument("-p", "--showPlots",  default='a b', nargs='+',help="abcd-string listing shown plots")
     
     parser.add_argument( "-Y","--noXterm", dest='noXterm',  action='store_false', default=True, help="enables X-term for interactive mode")
     parser.add_argument("--basePath",default='out',help="head dir for any results")
                         
     parser.add_argument('-e',"--expName",  default='fit-b7018a',help='UoI-VAR fitted model')
-    
+
+    parser.add_argument('-m', '--max_feature', default=20, type=int, help='max num of analyzed features')
+
     args = parser.parse_args()
     # make arguments  more flexible 
     
@@ -42,7 +46,7 @@ def get_parser():
 
 
 #...!...!.................... 
-def nice_print_model(bigD,md):
+def nice_print_model(bigD,md,mxFeat=None):
     
     pmd=md['payload']
     sem=md['selector']
@@ -54,6 +58,9 @@ def nice_print_model(bigD,md):
     AV=bigD['fit_A_model']
     freqData=bigD['sel_feat_freq']
 
+    if mxFeat!=None:
+        nfeat=min(mxFeat,nfeat)
+    
     # Function to format values
     def format_value(val):
         if abs(val) < 0.01:
@@ -76,8 +83,9 @@ def nice_print_model(bigD,md):
         
         print(col_indices)
         # Print row index and formatted values
-        for i, row in enumerate(A):
-            formatted_row = "  ".join(format_value(val) for val in row)
+        for i in range(nfeat):
+            row=A[i]
+            formatted_row = "  ".join(format_value(row[j]) for j in range(nfeat) )
             print(f"{i:2d}  {formatted_row}")  # Row index + formatted values
         
  
@@ -90,43 +98,13 @@ def XXXpostproc_polyEH(expD,md):
     shots=smd['num_shots']
     assert pmd['inp_size']==1
       
-    countsL=unpack_numpy_to_counts(md,expD)
-    
-    rec_poly=np.zeros((2,nImg)) # (PE) before  re-assembling  images
-    
-    for ic in range(nImg):
-        counts=countsL[ic]
-        n1=0
-        if '1' in counts: n1=counts['1']
-        p=n1/shots
-        # compute error
-        n0=shots-n1
-        if n1*n0!=0:
-            pErr=np.sqrt( p*(1-p)/shots)
-        else:
-            pErr=np.sqrt( 1/shots)
-
-        ev=1-2*p
-        evErr=2*pErr
-        rec_poly[:,ic]=[ev,evErr]
-        
-        
-    true_poly=expD['true_poly']
-    
-    #print('cc',countsL,p)
-    if 1:
-        resV=true_poly-rec_poly[0]
-        print('x  ',expD['inp_udata'])
-        print('t  ',true_poly)
-        print('m  ',rec_poly[0])
-        print('res',abs(resV))
-        print('sig',rec_poly[1])
+  
     
     expD['rec_poly']=rec_poly
 
         
 #...!...!.................... 
-def residual_ana(expD,md):
+def XXXresidual_ana(expD,md):
     rdata=expD['rec_poly']
     tdata=expD['true_poly']
     res_data = rdata[0] - tdata
@@ -164,41 +142,31 @@ if __name__=="__main__":
         cad=expMD['canned']
        
 
-    nice_print_model(expD,expMD)
-    exit(0)    
-    postproc_polyEH(expD,expMD)
-    expMD['postproc']={'hw_calib':False}
+    nice_print_model(expD,expMD,mxFeat=args.max_feature)
+    
+    
+    #postproc_polyEH(expD,expMD)
+    #expMD['postproc']={'hw_calib':False}
 
-    nCalSampl=expMD['payload']['num_calib_sample']
-    if nCalSampl>0 :  # split data, 1 is special case for IonQ
-        rec_udata=expD['rec_udata']
-        true_udata=expD['true_out_udata']  # im,dat,add
-        expD['rec_udata_calib']=rec_udata[-nCalSampl:]
-        expD['true_out_udata_calib']=true_udata[-nCalSampl:]
-        expD['rec_udata']=rec_udata[:-nCalSampl]
-        expD['true_out_udata']=true_udata[:-nCalSampl]
-        expMD['payload']['num_sample']-=nCalSampl
-
-  
-    residual_ana(expD,expMD)  # final common analysis
     
     #...... WRITE  OUTPUT
-    outF=os.path.join(args.outPath,expMD['short_name']+'.h5')
+    outF=os.path.join(args.outPath,expMD['short_name']+'.post.h5')
     write4_data_hdf5(expD,outF,expMD)
 
     
     #--------------------------------
     # ....  plotting ........
     args.prjName=expMD['short_name']
-    expMD['plot']={'resid_max_range':0.4}
+    #expMD['plot']={'resid_max_range':0.4}
     
-    #if args.addrIndex!=None: args.prjName+='_ia%d'%args.addrIndex
         
     plot=Plotter(args)  
-     #1expMD['truth_rangeLR']=[-0.3,0.5]
+    #1expMD['truth_rangeLR']=[-0.3,0.5]
 
     if 'a' in args.showPlots:
-        plot.poly_accuracy(expD,expMD,figId=1)
+        plot.A_matrix(expD,expMD,figId=1,lag=0)
+    if 'b' in args.showPlots:
+        plot.Aper_row(expD,expMD,figId=1,lag=0)
 
     plot.display_all()
     print('M:done')

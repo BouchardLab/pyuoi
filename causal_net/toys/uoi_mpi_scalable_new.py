@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 
 ''' use cases
-IMG=nersc/casual-net:v1 
-salloc -q interactive -C cpu --image=$IMG -t 2:00:00 -A m2043 -N 4
+
+IMG=nersc/causal-net:v3   # Mar 28
 export OMP_NUM_THREADS=2
+salloc -q interactive -C cpu --image=$IMG -t 4:00:00 -A m2043 -N 4
 
-shifter ./uoi_mpi_scalable.py --num_feat  15 --num_samp  100 --lag 1
->>>Total Execution Time: 12.218 sec
 
-shifter ./uoi_mpi_scalable.py --inpName HET_80k_1_samp1kHz-064870.npy
+shifter ./uoi_mpi_scalable_new.py --num_feat  15 --num_samp  100 --lag 1
+OLD>>>Total Execution Time: 12.218 sec
+NEW>>>Total Execution Time: 7.384 se
+
+shifter ./uoi_mpi_scalable_new.py --inpName HET_80k_1_samp1kHz-064870.npy
 >>> Total Execution Time: 3.075 sec
 
-srun -n 4 shifter  ./uoi_mpi_scalable.py --num_feat  15 --num_samp  300 --lag 2
->>> Total Execution Time: 16.078 sec
+srun -n 4 shifter  ./uoi_mpi_scalable_new.py --num_feat  15 --num_samp  300 --lag 2
+OLD>>> Total Execution Time: 16.078 sec
+NEW >>>Total Execution Time: 8.661 sec
 
 srun -n 4 shifter  ./uoi_mpi_scalable.py  --inpName HET_80k_1_samp1kHz-064870.npy
 
@@ -32,10 +36,9 @@ script_start_time = time()
 omp_threads = os.environ.get("OMP_NUM_THREADS", "Not Set")
 assert omp_threads=='2'
 
-from pyuoi.linear_model import *
-sys.path.append(os.path.abspath("../../"))
-from examples.var_utils import *
-
+sys.path.append("/global/homes/b/balewski/prjs/2025_UoI-VAR/")
+from examples.var_utils import * 
+from src.pyuoi.linear_model import *
 
 #...!...!....................
 def generate_dummy_data(num_feat, num_samp, lag):
@@ -75,25 +78,24 @@ def main(num_feat, num_samp, lag, inpName):
         else:
             print(' Load array back from file:',inpName, flush=True)    
             mydata = np.load(inpName)
-            num_samp,num_feat=mydata.shape  
+            num_samp,num_feat=mydata.shape
+            
     else:
         mydata = None
 
-    # Broadcast data to all ranks
-    # mydata = comm.bcast(mydata, root=0)
-    
-
-    # X, Y = vectorization(mydata, lag)
+    print('mydata:',mydata.dtype)
     if rank == 0:
         print('mydata:',mydata.shape)
      
-    # All ranks: Initialize and fit UoI_Lasso
+    # All ranks: Initialize 
     uoi_lasso = UoI_Lasso(n_real_features=num_feat, fit_VAR=True, random_state=42, comm=comm)
 
 
+    # fit UoI_Lasso
     start_time = time()
     if rank == 0:
-        uoi_lasso.fit(lag, data = mydata)
+        uoi_lasso.fit(lag, data = mydata.astype(np.float64))
+        # it will roadcast data to all ranks
     else:
         uoi_lasso.fit(lag)
     fit_time = time() - start_time

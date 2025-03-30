@@ -32,7 +32,7 @@ def get_parser():
     
     args = parser.parse_args()
     # make arguments  more flexible 
-    args.dataPath=os.path.join(args.basePath,'features')
+    args.dataPath=os.path.join(args.basePath,'features_2ms')
     args.outPath=os.path.join(args.basePath,'postproc')
     args.showPlots=''.join(args.showPlots)
       
@@ -78,7 +78,7 @@ if __name__=="__main__":
     plot=Plotter(args)
    
     if 'a' in args.showPlots:
-        plot.input_features(expD,expMD,figId=1)
+        plot.input_features(expD,expMD,figId=1,mxFeat=6)
     if 'b' in args.showPlots:
         plot.input_features_dense(expD,expMD,figId=2)
 

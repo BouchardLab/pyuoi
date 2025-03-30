@@ -34,6 +34,7 @@ def commandline_parser():
     
     parser.add_argument("--sessionName",  default='HET_80k_1',help='raw data session name')
     parser.add_argument("--basePath",default='out',help="head dir for set of experiments")
+    parser.add_argument("--outPath",  default='features_2ms',help=' output dir')
     parser.add_argument("--outName",  default=None,help='(optional) output file name')
  
     # .... activity speciffic speciffic, 
@@ -44,12 +45,13 @@ def commandline_parser():
     args = parser.parse_args()
     #args.inpPath='/dataVault2025/causalNet_tmp'  # on laptop
     args.inpPath='/global/cfs/cdirs/m2043/causal_inference/DIV13'  # bare PM
-    args.dataPath=os.path.join(args.basePath,'features')
+    
+    args.outPath=os.path.join(args.basePath,args.outPath)
     for arg in vars(args):
         print( 'myArgs:',arg, getattr(args, arg))
 
     assert os.path.exists(args.inpPath)
-    assert os.path.exists(args.dataPath)
+    assert os.path.exists(args.outPath)
     
     return args
 
@@ -109,7 +111,7 @@ def read_spike_dict(md,args):
     spikeD={}
     spikeCntL=np.zeros(pmd['num_feature'],dtype=int)  # num spikes per  neuron
     maxTbin=0
-    dead_idL=[]
+    #dead_idL=[]
     j=0
     for k in meaIdL:
         rec=np.array(spike_dict[k])/args.time_rebin        
@@ -117,7 +119,7 @@ def read_spike_dict(md,args):
         spikeCntL[j]=len(rec)
         j+=1
         if len(rec)==0:
-            dead_idL.append(int(k))
+            #dead_idL.append(int(k))
             continue        
         mxTb=np.max(rec)
         if maxTbin< mxTb: maxTbin=mxTb
@@ -126,7 +128,7 @@ def read_spike_dict(md,args):
         
     pmd['num_time_bin']=int(maxTbin)+1
     pmd['max_time']=pmd['num_time_bin']/pmd['sampling_freq']
-    pmd['dead_id']=dead_idL
+    #pmd['dead_id']=dead_idL
     return  spikeD,spikeCntL
 
 #...!...!....................
@@ -142,7 +144,7 @@ def build_decay_data(bSpikeD,md):
         add_spike_decay(bSpikeD[fid],pmd['tau_decay'],pmd['sampling_freq'],actA[k])
         spikeA[k][bSpikeD[fid]]=True  # unpack spikes
         
-    timeV = np.linspace(0, pmd['max_time'],  ntime)
+    timeV = np.linspace(0, pmd['max_time'],  ntime,dtype=np.float32)
     #print('ttt',timeV[:5], timeV[-5:])
     #print('qqq',bSpikeD[fid].shape, bSpikeD[fid].dtype)
     bigD={'feature':actA,'time':timeV,'spike':spikeA}
@@ -214,16 +216,16 @@ if __name__ == "__main__":
     expD['spike_freq']=mon_spike_freq(binSpikeD,expMD,twindow_sec=5.)   
 
     # it is too long , displays badly, move it to big data
-    for xx in [ 'feature_id', 'dead_id']:
+    for xx in [ 'feature_id']:
         expD[xx]=np.array( expMD['payload'].pop(xx),dtype=int)
     expD['avr_spike_freq']=spikeCntL/expMD['payload']['max_time']
 
      
     pprint(expMD)
     #...... WRITE   OUTPUT .........
-    outF=os.path.join(args.dataPath,expMD['short_name']+'.act.h5')
+    outF=os.path.join(args.outPath,expMD['short_name']+'.act.h5')
     write4_data_hdf5(expD,outF,expMD)
-    print('   ./plot_features.py  --inpName   %s  -p a b  -Y '%(expMD['short_name'] ))
+    print('   ./plot_features.py  --inpName   %s  -p  a c d  -Y '%(expMD['short_name'] ))
     print('   ./fit_uoiVar.py  --inpName   %s   \n'%(expMD['short_name'] ))
    
 

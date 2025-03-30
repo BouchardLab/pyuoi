@@ -11,32 +11,48 @@ import matplotlib.gridspec as gridspec
 from matplotlib.colors import LinearSegmentedColormap
 
 #...!...!....................
+def add_time_scale_marker(ax):
+    # Length of the horizontal line (in x-axis units)
+    tLen = 0.03
+
+    # Position as a fraction of the plot dimensions (10% from left, 50% from bottom)
+    x_pos = 0.1
+    y_pos = 0.7
+
+    # Get the adjusted x-axis limits
+    x_min, x_max = ax.get_xlim()
+
+    # Extracting y-axis limits from the plot
+    y_min, y_max = ax.get_ylim()
+    
+    # Calculating actual positions based on the adjusted x-axis limits
+    x_start = x_min + x_pos * (x_max - x_min)
+    x_end = x_start + tLen
+    y_coord = y_min + y_pos * (y_max - y_min)
+
+
+    #print('x a,b:',x_start,x_end)
+    #print('y :',y_coord)
+    # Adding the horizontal line
+    ax.plot([x_start, x_end], [y_coord, y_coord], color='blue', linewidth=2)
+
+    # Adding the text just above the blue line
+    txt='%d (ms)'%(tLen*1000.)
+    ax.text((x_start + x_end) / 2, y_coord + (y_max - y_min) * 0.02, txt, 
+            color='blue', fontsize=10, ha='center', va='bottom')
+
+    
+#...!...!....................
 def summary_column(md):
     #pprint(md)
     pmd=md['payload']
-    smd=md['submit']
-    tmd=md['transpile']
-    pom=md['postproc']
     txt=md['short_name']
-    txt+='\nback: %s'%smd['backend']
-    txt+='\nshots/addr : %d'%(smd['num_shots']/pmd['num_addr'])
-    txt+='\nshots/img : %d k'%(smd['num_shots']/1000)
-    txt+='\nnum sample %d'%(pmd['num_sample'])
-    txt+='\nsample size: %d'%(pmd['seq_len'])
-    txt+='\nnum addr: %d'%pmd['num_addr']
-    txt+='\nqubits: %d'%pmd['num_qubit']
-    if 'ibm' in smd['backend']:  txt+='  RC: %r'%smd['random_compilation']
-    txt+='\nnum 2q gates: %d'%tmd['2q_gate_count']
-    txt+='\n2q gates depth: %d'%tmd['2q_gate_depth']
-
-    #txt+='\nhwCalib: %s'%pom['hw_calib']
-    #if pom['hw_calib']: txt+=' fac: %.2f'%pom['ampl_fact']
+    txt+='\nsampFreq %d Hz'%(pmd['sampling_freq'])
+    txt+='\ndecay:%d ms,  len:%d ms '%(pmd['tau_decay'][0]*1000., pmd['tau_decay'][1]*1000.)
     return txt
-    if 'noise_model' in smd:
-        txt+='\nfake : %s'%(smd['noise_model'])       
  
 #...!...!..................
-def plot_spike_frequencies(spike_freq, Twindow,plt,figId,tit0):
+def plot_2Dspike_session(spike_freq, Twindow,plt,figId,tit0):
     """
     Plots a 2D color map (upper plot) and a mean frequency line plot with ±1 std dev shading (bottom plot).
     
@@ -47,8 +63,7 @@ def plot_spike_frequencies(spike_freq, Twindow,plt,figId,tit0):
     nfeat, ntime = spike_freq.shape
 
     # Create 3 subplots: (color bar, heatmap, mean freq line plot)
-    fig, axes = plt.subplots(nrows=3, figsize=(10, 8), gridspec_kw={'height_ratios': [0.2, 4, 1]}, 
-                             num=figId)  # Removed sharex=True
+    fig, axes = plt.subplots(nrows=3, figsize=(10, 8), gridspec_kw={'height_ratios': [0.2, 4, 1]},   num=figId)  # Removed sharex=True
 
     # Mask values where spike_freq <= 0.5
     min_freq = 0.5
@@ -56,11 +71,11 @@ def plot_spike_frequencies(spike_freq, Twindow,plt,figId,tit0):
 
     # Middle plot: 2D colormap (heatmap) with swapped axes
     vmin, vmax = np.nanmin(spike_freq_masked), np.nanmax(spike_freq_masked)  # Get value range
-    cax = axes[1].imshow(spike_freq_masked.T, aspect='auto', cmap='inferno_r', origin='lower',  
-                          extent=[0, nfeat, 0, ntime * Twindow], vmin=vmin, vmax=vmax)
+    cax = axes[1].imshow(spike_freq_masked, aspect='auto', cmap='inferno_r', origin='lower',  
+                          extent=[ 0, ntime * Twindow,0, nfeat], vmin=vmin, vmax=vmax)
 
-    axes[1].set_xlabel('Feature Index')  # X-axis is feature index
-    axes[1].set_ylabel('Time (sec)')  # Y-axis is time
+    axes[1].set_ylabel('Feature Index')  # X-axis is feature index
+    axes[1].set_xlabel('Time (sec)')  # Y-axis is time
     axes[1].set_title('%s   Spike Frequency, Integration T-Window %d sec' % (tit0, Twindow))
 
     # Bottom plot: Line plot with ±1 std deviation shading
@@ -97,7 +112,7 @@ def plot_spike_frequencies(spike_freq, Twindow,plt,figId,tit0):
     
    
 #...!...!..................
-def plot_histogram(ax, data, percentile_low=5, percentile_high=95):
+def plot_histogram(ax, data, percentile_low=30, percentile_high=70):
     """Plot histogram of the difference and annotate mean, median, and percentiles."""
 
     ax.hist(data, bins=30, color='salmon', alpha=0.7)
@@ -135,11 +150,11 @@ class Plotter(PlotterBackbone):
         PlotterBackbone.__init__(self,args)
         
 #...!...!..................
-    def input_features(self,bigD,md,figId=1):
+    def input_features(self,bigD,md,figId=1,mxFeat=10):
         pprint(md)
         pmd=md['payload']
         plm=md['plot']
-        nfeat=min(10,pmd['num_feature'])
+        nfeat=min(mxFeat,pmd['num_feature'])
         ntime=pmd['num_time_bin']
         
         figId=self.smart_append(figId)        
@@ -147,8 +162,8 @@ class Plotter(PlotterBackbone):
         fig=self.plt.figure(figId,facecolor='white', figsize=(10,1.2*nrow))
 
         timeV=bigD['time']
+        tit='session '+md['short_name']
         
-        width =0.0005 
         for k in range(nrow):
             ax = self.plt.subplot(nrow,ncol,1+k)
             j=k
@@ -164,12 +179,14 @@ class Plotter(PlotterBackbone):
             if k==nrow-1: ax.set_xlabel('Time (s)')
             ax.set_ylabel('F=%d'%j)
             print('draw F=',j)
-        return
+
+            
+        add_time_scale_marker(ax)
 
         # .... decorations ....
         # Overlay the text on top of the plots
         txt=summary_column(md)
-        ax.text(0.88, 0.95, txt, fontsize=10, color='m', ha='left', va='top',transform=ax.transAxes)
+        ax.text(0.6, 0.95, txt, fontsize=10, color='blue', ha='left', va='top',transform=ax.transAxes)
 
 #...!...!..................
     def global_qa(self,bigD,md,figId=3):
@@ -199,35 +216,21 @@ class Plotter(PlotterBackbone):
     def detailed_qa(self,bigD,md,figId=3):
 
         pmd=md['payload']
-        tit=md['short_name']+' session, '
+        tit=md['short_name']
 
         figId=self.smart_append(figId)        
-        nrow,ncol=1,2
-        fig=self.plt.figure(figId,facecolor='white', figsize=(12,14))
+        #fig=self.plt.figure(figId,facecolor='white', figsize=(12,14))
         
-        plot_spike_frequencies(bigD['spike_freq'],pmd['qa_twindow_sec'],self.plt,figId,tit)
+        plot_2Dspike_session(bigD['spike_freq'],pmd['qa_twindow_sec'],self.plt,figId,tit)
     
 
-        
-#...!...!..................
-    def xyz(self,bigD,md,figId=3):
-        #pprint(md)
-        pmd=md['payload']
-        smd=md['submit']
-        tmd=md['transpile']
-
-        figId=self.smart_append(figId)        
-        nrow,ncol=1,2
-        fig=self.plt.figure(figId,facecolor='white', figsize=(12,4))
-
-        make_it_work
 
 #...!...!..................
-    def input_features_dense(self,bigD,md,figId=1):
+    def input_features_dense(self,bigD,md,figId=1,mxFeat=9):
         pprint(md)
         pmd=md['payload']
         plm=md['plot']
-        nfeat=min(9,pmd['num_feature'])
+        nfeat=min(mxFeat,pmd['num_feature'])
         ntime=pmd['num_time_bin']
         nrow,ncol=nfeat,1
          
@@ -236,7 +239,7 @@ class Plotter(PlotterBackbone):
 
         timeV=bigD['time']
         featIdL=bigD['feature_id']
-        width =0.0005 
+        #width =0.0005 
         for k in range(nrow):
             ax = axes[k]
             j=k+1
