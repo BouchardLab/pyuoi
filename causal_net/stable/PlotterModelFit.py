@@ -43,7 +43,7 @@ def plot_sparse_matrix(ax, freqData, A0,plt):
     np.fill_diagonal(A, 0)
 
     # Find the maximum absolute value in A
-    max_val = np.max(np.abs(A))
+    max_val = np.max(np.abs(A))/2.
 
     # Plot the sparse matrix using imshow
     im = ax.imshow(A, aspect='auto', origin='lower', cmap='bwr', vmin=-max_val, vmax=max_val)

@@ -17,6 +17,7 @@ tstop=$(python3 -c "print('%.1f'%($tstart + $deltaT))")
 jobId=${SLURM_JOBID}
 
 inpName=HET_80k_1_2ms1kHz ; fitName=A-t${tstart}+${deltaT}-$jobId
+inpName=WT_100K_1_2ms1kHz ; fitName=B-t${tstart}+${deltaT}-$jobId
 
 
 N=${SLURM_NNODES}

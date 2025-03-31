@@ -272,5 +272,5 @@ if __name__=="__main__":
     print('SUM0,job_name,fit_time,num_feat,num_tbin,lag_depth,num_rank')
     print('SUM1,%s,%.1f,%d,%d,%d,%d\n'%(expMD['short_name'],fim['fit_time'],fim['data_shape'][1],fim['data_shape'][0],fim['lag_depth'],fim['num_rank']))
 
-    print(' ./postproc_ouiVar.py -e %s '%expMD['short_name'])
-    print(' ./postproc_ouiVar.py --basePath $basePath -e %s '%expMD['short_name'])
+    print(' ./postproc_ouiVar.py -e %s   -Y'%expMD['short_name'])
+    print(' ./postproc_ouiVar.py --basePath $basePath -e %s i -Y'%expMD['short_name'])
