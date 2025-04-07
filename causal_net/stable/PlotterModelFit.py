@@ -143,7 +143,7 @@ class Plotter(PlotterBackbone):
     def A_matrix(self,bigD,md,figId=3,lag=0):
 
         pmd=md['payload']
-        tit=md['short_name']+' A_matrix[lag=%d]'%(lag)
+        tit=md['short_name']+' M-matrix[lag=%d]'%(lag)
 
         figId=self.smart_append(figId)        
         nrow,ncol=1,1
