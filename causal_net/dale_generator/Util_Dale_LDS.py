@@ -67,14 +67,16 @@ def gen_matrices(reps, M, p, g, R, diag=-1):
     Alist = []
     for i in tqdm(range(reps), desc="Generating matrix repetitions"):
         A = gen_init_W(M, p, g, R, diag)
+        #1Alist.append(A) ; continue    # activate to get unstable W-matrix
         eig = np.linalg.eigvals(A)
         if np.max(np.real(eig)) >= 0:
             A = stabilize(A)
             eig = np.linalg.eigvals(A)
         assert np.max(np.real(eig)) < 0, "Matrix is not stable after stabilization."
         Alist.append(A)
-  
-    return Alist
+        
+    # Expected shape: (reps, 2*M, 2*M)
+    return np.array(Alist)
 
 #################### Matrix generation ##################
 #...!...!....................
@@ -163,7 +165,7 @@ def stabilize(A, max_iter=1000, eta=10):
 
 #################### Simulation ##################
 #...!...!....................
-def gen_activity(W, tau, sigma, T, h, boxcox, num_trials, seed=None):
+def gen_activity(W, tau, sigma, T, h,  num_trials, seed=None):
     """
     Generate neural activity from a linear dynamical system defined by connectivity matrix W.
     
@@ -173,7 +175,6 @@ def gen_activity(W, tau, sigma, T, h, boxcox, num_trials, seed=None):
       sigma     : Noise variance strength.
       T         : Total simulation time.
       h         : Integration time resolution.
-      boxcox    : Box-Cox transformation parameter (set to None to return raw counts).
       num_trials: Number of spiking trials to simulate.
       seed      : Optional random seed.
     
@@ -195,18 +196,20 @@ def gen_activity(W, tau, sigma, T, h, boxcox, num_trials, seed=None):
         return sigma * np.eye(W.shape[0])
     
     tspace = np.linspace(0, T, int(T/h))
-    x0 = generator.normal(size=(W.shape[0],))
+    x0 = generator.normal(size=(W.shape[0],))  # initial state
     print("Integrating LDS ...")
     xt = sdeint.itoSRI2(f_, g_, x0, tspace, generator=generator)
-    
+
+    max_rate = 120  # max limit for rate
+    lam_clipped = np.minimum(np.exp(xt) , max_rate)
+
     print("Sampling spike counts ...")
     spike_rates_trials = []
     for _ in tqdm(range(num_trials), desc="Simulating trials"):
-        spike_counts = np.random.poisson(np.exp(xt))
-        if boxcox is not None:
-            spike_rates = np.array([scipy.stats.boxcox(spike_count, boxcox) for spike_count in spike_counts])
-        else:
-            spike_rates = spike_counts
+        spike_counts = np.random.poisson(lam_clipped)
+        spike_rates = spike_counts
         spike_rates_trials.append(spike_rates)
     spike_rates_trials = np.array(spike_rates_trials)
+    # To express the firing rate in Hz (spikes per second), you need to convert these counts by dividing by h
+
     return tspace,xt, spike_rates_trials

@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+__author__ = "Jan Balewski"
+__email__ = "janstar1122@gmail.com"
+
+"""
+make_Dale_matrix.py
+
+Creates Dale-type connectivity matrices with specified parameters and saves both
+the matrices and metadata in an HDF5 file.
+
+Usage:
+  ./make_Dale_matrix.py [options]
+
+Options:
+  --reps      Number of matrix repetitions (default: 1)
+  --M         Number of excitatory neurons (default: 30)
+  --p         Synaptic connection probability (default: 0.25)
+  --g         Inhibitory scaling factor (default: 2)
+  --R_value   scaling of network activity
+  --outName   Output HDF5 file name (default: Amats.h5)
+"""
+
+import sys,os,hashlib
+import argparse
+import numpy as np
+from pprint import pprint
+from time import time
+
+# Import the utility module without global variables.
+import Util_Dale_LDS as uld
+from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
+
+#### Command-line parser #####################################################
+def commandline_parser():
+    parser = argparse.ArgumentParser(description="Generate Dale LDS connectivity matrices.")
+    parser.add_argument("-v","--verb",type=int, help="increase debug verbosity", default=1)
+
+    parser.add_argument("--num_samp", type=int, default=1, help="Number of matrix instantiations")
+    parser.add_argument("-M","--num_excit_neur", type=int, default=100, help="Number of excitatory neurons.")
+    parser.add_argument("-p","--prob_synaptic_conn", type=float, default=0.25, help="Synaptic connection probability.")
+    parser.add_argument("-g","--gamma_inhib", type=float, default=2, help="Inhibitory scaling factor (gamma).")
+    parser.add_argument("-R", "--activity_scale", type=float, default=5., help="scaling of network activity")
+    parser.add_argument("--matrixName", type=str, default=None, help=" [.h5] Output HDF5 file name.")
+    parser.add_argument("--outPath",default='dataDale',help="head dir for set of experimentst")
+    args = parser.parse_args()
+    for arg in vars(args):
+        print( 'myArgs:',arg, getattr(args, arg))
+
+    assert os.path.exists(args.outPath)
+    return args
+
+#...!...!....................
+def buildDaleMeta(args):
+    dmm={}  #  dale-matrix
+    dmm['num_excit_neur']=args.num_excit_neur
+    dmm['prob_synaptic_conn']=args.prob_synaptic_conn
+    dmm['gamma_inhib']=args.gamma_inhib
+    dmm['activity_scale']=args.activity_scale
+    dmm['num_DaleM_samp']=args.num_samp
+    myHN=hashlib.md5(os.urandom(32)).hexdigest()[:7]
+    dmm['hash']=myHN
+    md={ 'dale_truth':dmm}
+    if args.matrixName==None:
+        md['short_name']='daleM-%s'%(md['hash'])
+    else:
+        md['short_name']=args.matrixName
+
+    if args.verb>1:  print('\nBMD:');pprint(md)
+    return md
+
+
+#=================================
+#  M A I N 
+#=================================
+if __name__ == '__main__':
+    args = commandline_parser()
+    MD=buildDaleMeta(args)
+        
+    print("Generating %d Dale matrices.."%args.num_samp)
+    T0=time()
+    A_stack = uld.gen_matrices(args.num_samp, args.num_excit_neur, args.prob_synaptic_conn, args.gamma_inhib, args.activity_scale)
+    print("Matrix generation complete, elaT=%.1f min"%((time()-T0)/60.))
+    
+    # Convert the nested list of matrices to a NumPy array.
+
+    print("Converted matrices to numpy array with shape:", A_stack.shape)
+    MD['dale_truth']['num_any_neur']=A_stack.shape[1]
+    pprint(MD)
+    bigD={'dale_matrix':A_stack}
+
+    #...... WRITE   OUTPUT .........
+    outF=os.path.join(args.outPath,MD['short_name']+'.dale.h5')
+    write4_data_hdf5(bigD,outF,MD)    
+    print('   ./plot_matrix.py --matrixName   %s -p abc   -Y   '%(MD['short_name'] ))
+    print('   ./simu_network_activity.py --matrixName   %s   \n'%(MD['short_name'] ))
+   
