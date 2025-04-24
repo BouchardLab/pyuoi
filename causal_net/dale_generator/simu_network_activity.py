@@ -14,12 +14,12 @@ Usage:
 
 Options:
   --matrixName  Path to the HDF5 file containing connectivity matrices.
-  --rep         Repetition index to use (default: 0).
+  --samp_idx    Repetition index to use (default: 0).
   --sigma       Noise variance strength (default: 1)
   --tau         Time constant for simulation (default: 3)
-  --T           Total simulation time 
-  --h           Integration time resolution (default: 1e-1)
-  --num_trials  Number of trials to simulate (default: 10)
+  --T           Total evolution time (default: 50 )
+  --dt          itime step (default: 0.1 )
+  --num_trials  Number of trials to simulate, shots (default: 30)
   --seed        Random seed for simulation (optional)
   --outName     Output HDF5 file name for simulation results (default: simu_activity.h5)
 """
