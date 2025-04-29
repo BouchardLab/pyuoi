@@ -1,7 +1,7 @@
 BAd speed - drop it  - uses instruction from stable/fit_uoiVar.py
 
 #!/bin/bash
-#  salloc -q interactive -C cpu -t 2:00:00 -A m2043 -N 4
+#  salloc -q interactive -C cpu -t 2:00:00 -A m2043 -N 1
 
 IMG=balewski/casual-net:p1m  # no MPI
 IMG=balewski/causal-net:p2a  # with MPI,  from Neil

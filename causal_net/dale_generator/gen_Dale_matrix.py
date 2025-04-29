@@ -16,7 +16,7 @@ Options:
   --M         Number of excitatory neurons (default: 30)
   --p         Synaptic connection probability (default: 0.25)
   --g         Inhibitory scaling factor (default: 2)
-  --R_value   scaling of network activity (default 2)
+  --activity_scale   scaling of network activity (default 2)
   --outName   Output HDF5 file name (default: Amats.h5)
 """
 
@@ -37,7 +37,7 @@ def commandline_parser():
 
     parser.add_argument("--num_samp", type=int, default=1, help="Number of matrix instantiations")
     parser.add_argument("-M","--num_excit_neur", type=int, default=100, help="Number of excitatory neurons.")
-    parser.add_argument("-p","--prob_synaptic_conn", type=float, default=0.25, help="Synaptic connection probability.")
+    parser.add_argument("-p","--prob_synaptic_conn", type=float, default=0.1, help="Synaptic connection probability.")
     parser.add_argument("-g","--gamma_inhib", type=float, default=2, help="Inhibitory scaling factor (gamma).")
     parser.add_argument("-R", "--activity_scale", type=float, default=2., help="scaling of network activity")
     parser.add_argument("--matrixName", type=str, default=None, help=" [.h5] Output HDF5 file name.")
@@ -61,7 +61,7 @@ def buildDaleMeta(args):
     dmm['hash']=myHN
     md={ 'dale_truth':dmm}
     if args.matrixName==None:
-        md['short_name']='daleM-%s'%(md['hash'])
+        md['short_name']='daleM-%s'%(dmm['hash'])
     else:
         md['short_name']=args.matrixName
 
