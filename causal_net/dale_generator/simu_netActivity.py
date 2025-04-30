@@ -3,7 +3,7 @@ __author__ = "Jan Balewski"
 __email__ = "janstar1122@gmail.com"
 
 """
-simu_network_activity.py
+simu_netActivity.py
 
 Reads a connectivity matrix from an HDF5 file and simulates the neural activity 
 of the corresponding linear dynamical system (LDS). The simulation outputs (state trajectory 
@@ -15,14 +15,13 @@ Usage:
 Options:
   --matrixName  Path to the HDF5 file containing connectivity matrices.
   --sigma       Noise variance strength (default=1)
-  --tau         (ms) Time constant for simulation (default: 300)
+  --tau          Time constant for simulation (default: 300)
   --T           Total evolution time (default: 50 )
   --dt          itime step (default: 0.1 )
   --num_trials  Number of trials to simulate, shots (default: 50)
   --outName     Output HDF5 file name for simulation results (default: simu_ac 
-  --samp_idx    Repetition index to use (default: 0).
   --seed        Random seed for simulation (optional)
-tivity.h5)
+
 """
 
 import os,hashlib
@@ -33,7 +32,7 @@ from pprint import pprint
 from time import time
 
 # Import the utility module.
-import Util_Dale_LDS as uld
+from  Util_Dale_LDS  import gen_net_activity
 from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
 
 
@@ -46,14 +45,13 @@ def commandline_parser():
     
     # Simulation parameters
     parser.add_argument("--sigma_noise", type=float, default=1, help="Noise variance strength.")
-    parser.add_argument("--tau_response", type=float, default=300, help="(msec) response time to driving force")
-    parser.add_argument("-T","--evol_time", type=float, default=1e5, help=" (msec) Total simulation time.")
-    parser.add_argument("-dt","--time_step", type=float, default=1, help=" (msec) Integration time for one evolution step")
+    parser.add_argument("--tau_response", type=float, default=0.3, help="(sec) response time to driving force")
+    parser.add_argument("-T","--evol_time", type=float, default=60, help=" (sec) Total simulation time.")
+    parser.add_argument("-dt","--time_step", type=float, default=0.001, help=" (sec) Integration time for one evolution step")
     
     parser.add_argument("--num_trials", type=int, default=50, help="Number of shots per time step")
     parser.add_argument("--basePath",default='dataDale',help="head dir for set of experimentst")
     parser.add_argument("--outName", type=str, default=None, help="Output HDF5 file for simulation results.")
-    parser.add_argument("--samp_idx", type=int, default=0, help="Dale matrix  index  if many generated (default: 0).")
     parser.add_argument("--rnd_seed", type=int, default=None, help="Random seed for simulation (optional).")
   
     args = parser.parse_args()
@@ -79,7 +77,6 @@ def buildSimuMeta(args,md):
     sm={}  #  simulator
     md['simu']=sm
     
-    sm['daleM_samp_idx']=args.samp_idx
     sm['sigma_noise']=args.sigma_noise
     sm['tau_response']=args.tau_response
     sm['evol_time']=args.evol_time
@@ -106,14 +103,13 @@ if __name__ == '__main__':
     pprint(MD)   
 
     # Extract the desired connectivity matrix
-    rep_idx = args.samp_idx
-    W = bigD.pop('dale_matrix')[rep_idx, :, :]
+    W = bigD.pop('dale_matrix')[0, :, :]
     
     # Run the simulation using parameters provided via command-line
-    print("Simulating network activity ...")
+    print("M:Simulating network activity ...")
     
     T0=time()
-    tspace,xt, spike_count = uld.gen_activity(W, tau=args.tau_response, sigma=args.sigma_noise, T=args.evol_time, h=args.time_step, num_trials=args.num_trials, seed=args.rnd_seed)
+    tspace,xt, spike_count = gen_net_activity(W, tau=args.tau_response, sigma=args.sigma_noise, T=args.evol_time, h=args.time_step, num_trials=args.num_trials, seed=args.rnd_seed)
     print("Simulation complete, elaT=%.1f min"%((time()-T0)/60.))
     bigD['Wdale']=W
     bigD['Time']=tspace

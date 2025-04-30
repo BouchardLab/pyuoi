@@ -44,17 +44,21 @@ def get_parser():
 def postproc_spikes(bigD,md):
     sm=md['simu']
     dt=sm['time_step']
-    countRaw=bigD['Xcount']
-    nShot=countRaw.shape[0]
-    assert nShot==sm['num_trials']
-    countSum=np.sum(countRaw,axis=0)
-    fac=dt*nShot
-    print('countSum:',countSum.shape,' dt:%.2f  nShot=%d  fac=%.3f'%(dt,nShot,fac))
-    rate=countSum/fac
-    rateEr=np.sqrt(countSum)/fac
-    bigD['Xrate']=rate
-    bigD['XreateEr']=rateEr
+    if 0:  #  using spikes
+        countRaw=bigD['Xcount']
+        nShot=countRaw.shape[0]
+        assert nShot==sm['num_trials']
+        countSum=np.sum(countRaw,axis=0)
+        fac=dt*nShot 
+        print('countSum:',countSum.shape,' dt:%.2f  nShot=%d  fac=%.3f'%(dt,nShot,fac))
+        rate=countSum/fac
+        rateEr=np.sqrt(countSum)/fac
+       
+        bigD['XreateEr']=rateEr
+    if 1:  # using latent state
+        rate=np.exp(bigD['Xstate'])
 
+    bigD['Xrate']=rate
     # evoked energy  
     ene=np.sum(rate**2,axis=1)
 
@@ -94,7 +98,10 @@ if __name__=="__main__":
     args.prjName=MD['short_name']
     #['plot']={}
     #if args.time_range!=None: expMD['plot']['time_rangeLR']=args.time_range
-
+    MD['plot']={}
+    MD['plot']['time_0']=3.
+    #MD['plot']['time_1']=4.
+    
     plot=Plotter(args)
    
     if 'a' in args.showPlots:

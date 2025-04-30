@@ -74,7 +74,7 @@ class Plotter(PlotterBackbone):
 
         figId=self.smart_append(figId)        
         nrow,ncol=1,1
-        fig=self.plt.figure(figId,facecolor='white', figsize=(8,7))
+        fig=self.plt.figure(figId,facecolor='white', figsize=(7,6))
         ax = self.plt.subplot(nrow,ncol,1)
 
         Eigen=bigD['Weigen']
@@ -156,6 +156,10 @@ class Plotter(PlotterBackbone):
         rateV = np.minimum(rateV , max_rate)
 
         tit='sim=%s , rate clip %d (Hz)'%(md['short_name'],max_rate)
+        if 'time_0' in md['plot']:
+            t0=md['plot']['time_0']
+        else:
+            t0=None
         
         for n in range(nn):
             k=nidxL[n]
@@ -164,6 +168,7 @@ class Plotter(PlotterBackbone):
             ax.set(ylabel='rate (Hz)')
             ax.set_ylim(0,)
             ax.text(0.05, 0.8, 'neuron %d'%k,color='r',transform=ax.transAxes)
+            if t0!=None: ax.set_xlim(t0,)
             if n>0: continue
             ax.set(title=tit)
             
@@ -174,15 +179,28 @@ class Plotter(PlotterBackbone):
     def evoked_energy(self,bigD,md,figId=3):
         figId=self.smart_append(figId)        
         nrow,ncol=1,1
-        fig=self.plt.figure(figId,facecolor='white', figsize=(8,4))
+        fig=self.plt.figure(figId,facecolor='white', figsize=(8,3))
         ax = self.plt.subplot(nrow,ncol,1)
 
-        dmm=md['dale_truth']        
+ 
+        dmm=md['dale_truth']
+        smd=md['simu']
         ene=bigD['raw_energy']
         timeV=bigD['Time']
+
+        if 'time_0' in md['plot']:
+            t0=md['plot']['time_0']
+            it=int(t0/smd['time_step'])
+            ene=ene[it:]
+            timeV=timeV[it:]
+            #print('it:',it)
+            #ax.set_xlim(t0,)
+            
         ax.plot(timeV,ene,'g')
         
         tit='sim=%s , Energy not normalized,  sigma=%.1f'%(md['short_name'],md['simu']['sigma_noise'])
         ax.set(xlabel='evolution time (sec)', ylabel='Evoked energy (a.u.)',title=tit)
         ax.set_yscale('log')
         ax.grid()
+        
+        

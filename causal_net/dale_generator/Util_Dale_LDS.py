@@ -12,8 +12,6 @@ have been refactored to require all parameters be passed from the calling progra
 
 Output
 
-
-
 Functions:
   gen_init_W(M, p, gamma, R, diag=0, rand=None)
     - Generates an initial network connectivity matrix.
@@ -43,18 +41,17 @@ from tqdm import tqdm
 
 
 #...!...!....................
-def gen_matrices(reps, M, p, g, R, diag=-1):
+def gen_matrices( M, p, g, R, diag=-1,reps=1):
     """
     Generate a nested list of matrices.
     
     Parameters:
-      reps       : Number of repetitions to generate.
       M          : Number of excitatory neurons.
       p          : Synaptic connection probability.
-      g          : Inhibitory scaling factor.
+      g          : Inhibitory scaling factor gamma.
       R          : R values (spectral scaling value).
       diag       : Diagonal value to set initially (default -1).
-      pickle_file: If provided, write the output to a pickle file.
+      reps       : Number of repetitions to generate.
 
       diag: setting these values (often to a negative number such as −1, you introduce
           a baseline decay or self-inhibition in each neuron. This helps ensure that, 
@@ -67,7 +64,7 @@ def gen_matrices(reps, M, p, g, R, diag=-1):
     Alist = []
     for i in tqdm(range(reps), desc="Generating matrix repetitions"):
         A = gen_init_W(M, p, g, R, diag)
-        #1Alist.append(A) ; continue    # activate to get unstable W-matrix
+        #1Alist.append(A) ; continue    # activate it to get unstable W-matrix
         eig = np.linalg.eigvals(A)
         if np.max(np.real(eig)) >= 0:
             A = stabilize(A)
@@ -165,7 +162,7 @@ def stabilize(A, max_iter=1000, eta=10):
 
 #################### Simulation ##################
 #...!...!....................
-def gen_activity(W, tau, sigma, T, h,  num_trials, seed=None):
+def gen_net_activity(W, tau, sigma, T, h,  num_trials, seed=None):
     """
     Generate neural activity from a linear dynamical system defined by connectivity matrix W.
     
@@ -182,10 +179,11 @@ def gen_activity(W, tau, sigma, T, h,  num_trials, seed=None):
       xt                : Integrated state trajectory over time.
       spike_rates_trials: Array of simulated spike rates for each trial.
     """
+
     if seed is not None:
-        generator = np.random.default_rng(seed)
+        randGen = np.random.default_rng(seed)
     else:
-        generator = np.random.default_rng()
+        randGen = np.random.default_rng()
     
     # Define the system dynamics
     def f_(x, t):
@@ -196,9 +194,10 @@ def gen_activity(W, tau, sigma, T, h,  num_trials, seed=None):
         return sigma * np.eye(W.shape[0])
     
     tspace = np.linspace(0, T, int(T/h))
-    x0 = generator.normal(size=(W.shape[0],))  # initial state
-    print("Integrating LDS ...")
-    xt = sdeint.itoSRI2(f_, g_, x0, tspace, generator=generator)
+    xt0 = randGen.normal(size=(W.shape[0],))  # initial state
+    
+    print("Integrating LDS, compute latent state trajectory xt...")
+    xt = sdeint.itoSRI2(f_, g_, xt0, tspace, generator=randGen)
 
     max_rate = 120  # max limit for rate
     lam_clipped = np.minimum(np.exp(xt) , max_rate)
@@ -206,10 +205,10 @@ def gen_activity(W, tau, sigma, T, h,  num_trials, seed=None):
     print("Sampling spike counts ...")
     spike_rates_trials = []
     for _ in tqdm(range(num_trials), desc="Simulating trials"):
-        spike_counts = np.random.poisson(lam_clipped)
-        spike_rates = spike_counts
+        spike_rates = np.random.poisson(lam_clipped)
         spike_rates_trials.append(spike_rates)
     spike_rates_trials = np.array(spike_rates_trials)
-    # To express the firing rate in Hz (spikes per second), you need to convert these counts by dividing by h
-
+    
+    # To express the firing rate in Hz (spikes per second)
+ 
     return tspace,xt, spike_rates_trials

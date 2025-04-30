@@ -27,7 +27,7 @@ from pprint import pprint
 from time import time
 
 # Import the utility module without global variables.
-import Util_Dale_LDS as uld
+from  Util_Dale_LDS  import gen_matrices
 from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
 
 #### Command-line parser #####################################################
@@ -78,7 +78,7 @@ if __name__ == '__main__':
         
     print("Generating %d Dale matrices.."%args.num_samp)
     T0=time()
-    A_stack = uld.gen_matrices(args.num_samp, args.num_excit_neur, args.prob_synaptic_conn, args.gamma_inhib, args.activity_scale)
+    A_stack = gen_matrices( args.num_excit_neur, args.prob_synaptic_conn, args.gamma_inhib, args.activity_scale)
     print("Matrix generation complete, elaT=%.1f min"%((time()-T0)/60.))
     
     # Convert the nested list of matrices to a NumPy array.
@@ -91,6 +91,6 @@ if __name__ == '__main__':
     #...... WRITE   OUTPUT .........
     outF=os.path.join(args.outPath,MD['short_name']+'.dale.h5')
     write4_data_hdf5(bigD,outF,MD)    
-    print('   ./plot_matrix.py --matrixName   %s -p abc   -Y   '%(MD['short_name'] ))
-    print('   ./simu_network_activity.py --matrixName   %s   \n'%(MD['short_name'] ))
+    print('   ./plot_daleMatrix.py --matrixName   %s -p abc   -Y   '%(MD['short_name'] ))
+    print('   ./simu_netActivity.py --matrixName   %s   \n'%(MD['short_name'] ))
    
