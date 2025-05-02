@@ -32,7 +32,7 @@ def get_parser():
     args = parser.parse_args()
     # make arguments  more flexible 
     
-    args.modelPath=os.path.join(args.basePath,'model')
+    args.modelPath=os.path.join(args.basePath,'model_uoi')
     args.outPath=os.path.join(args.basePath,'postproc')
     args.showPlots=''.join(args.showPlots)
   
@@ -47,17 +47,19 @@ def get_parser():
 
 #...!...!.................... 
 def nice_print_model(bigD,md,mxFeat=None):
-    
+    #pprint(md)
     pmd=md['payload']
     sem=md['selector']
     fim=md['fit_uoi']
     lag=fim['lag_depth']
     ntime,nfeat=fim['data_shape']
-    sessN=pmd['session_name']
-    print('Postproc UoI-VAR  sess=%s  nfeat=%d  ntime=%d lag=%d  fitTime=%.1f sec  ranks=%d'%(sessN,nfeat,ntime,lag,fim['fit_time'],fim['num_rank']))
+    inpN=md['input_name']
+    print('Postproc UoI-VAR  input=%s  nfeat=%d  ntime=%d lag=%d  fitTime=%.1f sec  ranks=%d'%(inpN,nfeat,ntime,lag,fim['fit_time'],fim['num_rank']))
     AV=bigD['fit_A_model']
-    freqData=bigD['sel_feat_freq']
-
+    #1freqData=bigD['sel_feat_freq']
+    freqData=[i for i in range(AV[0].shape[0])]
+    bigD['sel_feat_freq']=freqData  # tmp
+    
     if mxFeat!=None:
         nfeat=min(mxFeat,nfeat)
     
@@ -130,7 +132,7 @@ if __name__=="__main__":
     args=get_parser()
     np.set_printoptions(precision=3)
                     
-    inpF=args.expName+'.model.h5'
+    inpF=args.expName+'.fitUoI.h5'
     expD,expMD=read4_data_hdf5(os.path.join(args.modelPath,inpF))
     
     if args.verb>=2:

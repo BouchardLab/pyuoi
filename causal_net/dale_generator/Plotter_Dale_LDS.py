@@ -43,15 +43,17 @@ class Plotter(PlotterBackbone):
         nrow,ncol=1,1
         fig=self.plt.figure(figId,facecolor='white', figsize=(8,7))
         ax = self.plt.subplot(nrow,ncol,1)
-
         W=bigD['Wtrue'].T
+        nfeat=W.shape[0]
+        
         # Create a normalization that centers at 0.
-        print('wmax=',W.max())
+        #print('wmax=',W.max())
         normMap = colors.TwoSlopeNorm(vmin=W.min(), vcenter=0, vmax=W.max())
 
         
         im=ax.imshow(W, aspect='auto', origin='lower', cmap='bwr', norm=normMap, interpolation='nearest')
-        #ax.set(title=tit)
+        tit='True Dale-matrix, %d neurons, name=%s'%(nfeat,md['short_name'])
+        ax.set(title=tit, xlabel='presyn. node index, source', ylabel='postsyn. node index, target')
         # Create the colorbar.
         cbar = fig.colorbar(im, ax=ax, extend="both")
         cbar.set_label('coupling strength')
@@ -64,7 +66,11 @@ class Plotter(PlotterBackbone):
         
         cbar.set_ticks(ticks)
         cbar.set_ticklabels([f"{t:.1f}" for t in ticks])
-        
+        ax.grid()
+
+        ax.set_xlim(-0.5,nfeat+0.5)
+        ax.set_ylim(-0.5,nfeat+0.5)
+        ax.set_aspect(1.0)
         
 #...!...!..................
     def Dale_eigen(self,bigD,md,figId=3):
@@ -141,34 +147,41 @@ class Plotter(PlotterBackbone):
         ax.text(0.1, 0.6, 'diagonal',transform=ax.transAxes,rotation=45)
         ax.text(0.4, 0.8, 'off-diagonal',transform=ax.transAxes)
 
+        
 #...!...!..................
-    def rate_sample(self,bigD,md,nidxL,figId=3):
+    def rate_sample(self,bigD,md,nidxL,obsN='rate',figId=3):
         dmm=md['dale_truth']        
         nn=min(10,len(nidxL))        
         
         figId=self.smart_append(figId)        
         nrow,ncol=nn,1
-        fig=self.plt.figure(figId,facecolor='white', figsize=(10,10))        
+        fig=self.plt.figure(figId,facecolor='white', figsize=(10,8))        
 
-        timeV=bigD['Time']
-        rateV=bigD['Xrate']
-        max_rate = 130  # max limit for rate
-        rateV = np.minimum(rateV , max_rate)
+        tit='sim=%s'%(md['short_name'])
+        timeV=bigD['evol_time']
+        obsV=bigD['evol_state']
+                    
+        if obsN=='rate':
+            obsV=np.exp(obsV)
+            max_rate = 130  # max limit for rate
+            obsV = np.minimum(obsV , max_rate)
+            tit+=', obs=rate' # clip %d (Hz)'%(max_rate)
+            yLab='rate (Hz)'
+        if obsN=='state':
+            tit+=' obs=state'
+            yLab='state (a.u.)'
 
-        tit='sim=%s , rate clip %d (Hz)'%(md['short_name'],max_rate)
-        if 'time_0' in md['plot']:
-            t0=md['plot']['time_0']
-        else:
-            t0=None
         
+        print('tt',timeV.shape,obsV.shape)
         for n in range(nn):
             k=nidxL[n]
             ax = self.plt.subplot(nrow,ncol,n+1)
-            ax.plot(timeV,rateV[:,k])
-            ax.set(ylabel='rate (Hz)')
-            ax.set_ylim(0,)
+            ax.plot(timeV,obsV[:,k])
+            ax.set(ylabel=yLab)
+            #ax.set_ylim(-0.5,)
             ax.text(0.05, 0.8, 'neuron %d'%k,color='r',transform=ax.transAxes)
-            if t0!=None: ax.set_xlim(t0,)
+            #if t0!=None: ax.set_xlim(t0,)
+            if obsN=='state': ax.axhline(0,lw=1,ls='--',c='k')
             if n>0: continue
             ax.set(title=tit)
             
@@ -186,7 +199,7 @@ class Plotter(PlotterBackbone):
         dmm=md['dale_truth']
         smd=md['simu']
         ene=bigD['raw_energy']
-        timeV=bigD['Time']
+        timeV=bigD['evol_time']
 
         if 'time_0' in md['plot']:
             t0=md['plot']['time_0']

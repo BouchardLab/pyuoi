@@ -22,15 +22,16 @@ def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v","--verbosity",type=int,  help="increase output verbosity", default=1, dest='verb')
     parser.add_argument("-p", "--showPlots",  default='a', nargs='+',help="abcd-string listing shown plots")
-    
-    parser.add_argument( "-Y","--noXterm", dest='noXterm',  action='store_false', default=True, help="enables X-term for interactive mode")         
+    parser.add_argument('--time_range' , default=[0.3, 1.],  nargs=2,   type=float, help='fit data time range')
+     
     parser.add_argument("--basePath",default='dataDale',help="head dir for set of experimentst")
-    parser.add_argument("--simName", default='daleM60r5', help="[.h5] Dale Matrix file name")
+    parser.add_argument("--simName", default='daleM100apr30-e7e3be2', help="[.h5]  simulated netActivation")
+    parser.add_argument( "-Y","--noXterm", dest='noXterm',  action='store_false', default=True, help="enables X-term for interactive mode")         
          
     args = parser.parse_args()
     # make arguments  more flexible
-    args.inpPath=os.path.join(args.basePath,'simu')
-    args.outPath=os.path.join(args.basePath,'out')
+    args.inpPath=os.path.join(args.basePath,'gen_dale')
+    args.outPath=os.path.join(args.basePath,'postproc')
     args.showPlots=''.join(args.showPlots)
       
     print( 'myArg-program:',parser.prog)
@@ -38,43 +39,35 @@ def get_parser():
 
     assert os.path.exists(args.inpPath)
     assert os.path.exists(args.outPath)
+    if args.time_range!=None: assert args.time_range[0] < args.time_range[1] 
+   
     return args
 
 #...!...!....................
-def postproc_spikes(bigD,md):
-    sm=md['simu']
-    dt=sm['time_step']
-    if 0:  #  using spikes
-        countRaw=bigD['Xcount']
-        nShot=countRaw.shape[0]
-        assert nShot==sm['num_trials']
-        countSum=np.sum(countRaw,axis=0)
-        fac=dt*nShot 
-        print('countSum:',countSum.shape,' dt:%.2f  nShot=%d  fac=%.3f'%(dt,nShot,fac))
-        rate=countSum/fac
-        rateEr=np.sqrt(countSum)/fac
-       
-        bigD['XreateEr']=rateEr
-    if 1:  # using latent state
-        rate=np.exp(bigD['Xstate'])
+def postproc_netActivity(bigD,md):
+    sim=md['simu']
+    #dt=sm['time_step']
 
-    bigD['Xrate']=rate
+    timeV=bigD['evol_time']
+    
+    #.... clip data
+    tL,tR=[int(x/sim['time_step']) for x in args.time_range ]
+    print('FUV tbinLR:',tL,tR)
+    assert tR < timeV.shape[0]
+    timeV=timeV[tL:tR]
+    stateV=bigD['evol_state'][tL:tR]
+    sim['time_range']=[args.time_range[0], args.time_range[1]]    
+    rateV=np.exp(stateV)
+
+    # overwrite data
+    bigD['evol_time']=timeV
+    bigD['evol_state']=stateV
+    bigD['evol_rate']=rateV
+    
     # evoked energy  
-    ene=np.sum(rate**2,axis=1)
-
+    ene=np.sum(rateV**2,axis=1)
     bigD['raw_energy']=ene  # tmp: missing normalization factor
     return
-    nTime=50
-    t0=0
-    print('evoked Ene (a.u.):',ene[t0:t0+nTime])
-    for i in range(1):
-        iNeur=i*10
-        print('\n iNeur=%d '%(iNeur))
-        print('countSum:',countSum[t0:t0+nTime,iNeur])
-        print('rate(Hz):',rate[t0:t0+nTime,iNeur])
-        print('rateEr(Hz):',rateEr[t0:t0+nTime,iNeur])
-    ww
-
 
 
 #=================================
@@ -86,12 +79,15 @@ if __name__=="__main__":
     args=get_parser()
     np.set_printoptions(precision=3)
 
-    inpF=os.path.join(args.inpPath,args.simName+'.netActS.h5')
+    inpF=os.path.join(args.inpPath,args.simName+'.simAct.h5')
     bigD,MD=read4_data_hdf5(inpF)
     pprint(MD)
 
-    postproc_spikes(bigD,MD)
+    postproc_netActivity(bigD,MD)
 
+    nidxL=[1,5,13,37,46,54]
+    numNeur=MD['dale_truth']['num_any_neur']
+    nidxL=np.sort(np.random.choice(numNeur, size=6, replace=False))
     
     #--------------------------------
     # ....  plotting ........
@@ -99,16 +95,16 @@ if __name__=="__main__":
     #['plot']={}
     #if args.time_range!=None: expMD['plot']['time_rangeLR']=args.time_range
     MD['plot']={}
-    MD['plot']['time_0']=3.
-    #MD['plot']['time_1']=4.
-    
+     
     plot=Plotter(args)
    
     if 'a' in args.showPlots:
         #plot.rate_sample(bigD,MD,nidxL=[1,5,13,117,126,198],figId=1)  # 200-neurons
-        plot.rate_sample(bigD,MD,nidxL=[1,5,13,37,46,54],figId=1)  # 60-neurons
-
+        plot.rate_sample(bigD,MD,nidxL=nidxL,figId=1,obsN='rate') 
     if 'b' in args.showPlots:
+        plot.rate_sample(bigD,MD,nidxL=nidxL,figId=2,obsN='state') 
+
+    if 'e' in args.showPlots:
         plot.evoked_energy(bigD,MD,figId=1)
 
 

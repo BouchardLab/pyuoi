@@ -203,12 +203,9 @@ def gen_net_activity(W, tau, sigma, T, h,  num_trials, seed=None):
     lam_clipped = np.minimum(np.exp(xt) , max_rate)
 
     print("Sampling spike counts ...")
-    spike_rates_trials = []
+    spike_trials = []
     for _ in tqdm(range(num_trials), desc="Simulating trials"):
         spike_rates = np.random.poisson(lam_clipped)
-        spike_rates_trials.append(spike_rates)
-    spike_rates_trials = np.array(spike_rates_trials)
-    
-    # To express the firing rate in Hz (spikes per second)
+        spike_trials.append(spike_rates)
  
-    return tspace,xt, spike_rates_trials
+    return tspace,xt, np.array(spike_trials)

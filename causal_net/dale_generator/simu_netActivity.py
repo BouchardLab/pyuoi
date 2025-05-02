@@ -14,8 +14,8 @@ Usage:
 
 Options:
   --matrixName  Path to the HDF5 file containing connectivity matrices.
-  --sigma       Noise variance strength (default=1)
-  --tau          Time constant for simulation (default: 300)
+  --sigma       Noise variance strength 
+  --tau          Time constant for simulation 
   --T           Total evolution time (default: 50 )
   --dt          itime step (default: 0.1 )
   --num_trials  Number of trials to simulate, shots (default: 50)
@@ -44,20 +44,20 @@ def commandline_parser():
     parser.add_argument("--matrixName", default='Amats.h5', help="Path to the HDF5 file with connectivity matrices.")
     
     # Simulation parameters
-    parser.add_argument("--sigma_noise", type=float, default=1, help="Noise variance strength.")
-    parser.add_argument("--tau_response", type=float, default=0.3, help="(sec) response time to driving force")
+    parser.add_argument("--sigma_noise", type=float, default=1.0, help="Noise variance strength.")
+    parser.add_argument("--tau_response", type=float, default=0.01, help="(sec) response time to driving force")
     parser.add_argument("-T","--evol_time", type=float, default=60, help=" (sec) Total simulation time.")
     parser.add_argument("-dt","--time_step", type=float, default=0.001, help=" (sec) Integration time for one evolution step")
     
-    parser.add_argument("--num_trials", type=int, default=50, help="Number of shots per time step")
+    parser.add_argument("--num_trials", type=int, default=30, help="Number of shots per time step")
     parser.add_argument("--basePath",default='dataDale',help="head dir for set of experimentst")
     parser.add_argument("--outName", type=str, default=None, help="Output HDF5 file for simulation results.")
     parser.add_argument("--rnd_seed", type=int, default=None, help="Random seed for simulation (optional).")
   
     args = parser.parse_args()
     # make arguments  more flexible
-    args.inpPath=args.basePath
-    args.outPath=os.path.join(args.basePath,'simu')
+    args.inpPath=os.path.join(args.basePath,'gen_dale')
+    args.outPath=args.inpPath
 
     for arg in vars(args):
         print( 'myArgs:',arg, getattr(args, arg))
@@ -97,7 +97,7 @@ if __name__ == '__main__':
     args = commandline_parser()
     np.set_printoptions(precision=3)
 
-    inpF=os.path.join(args.inpPath,args.matrixName+'.dale.h5')
+    inpF=os.path.join(args.inpPath,args.matrixName+'.daleM.h5')
     bigD,MD=read4_data_hdf5(inpF)
     buildSimuMeta(args,MD)
     pprint(MD)   
@@ -111,15 +111,16 @@ if __name__ == '__main__':
     T0=time()
     tspace,xt, spike_count = gen_net_activity(W, tau=args.tau_response, sigma=args.sigma_noise, T=args.evol_time, h=args.time_step, num_trials=args.num_trials, seed=args.rnd_seed)
     print("Simulation complete, elaT=%.1f min"%((time()-T0)/60.))
-    bigD['Wdale']=W
-    bigD['Time']=tspace
-    bigD['Xstate']=xt
-    bigD['Xcount']=spike_count
+    bigD['network_matrix']=W
+    bigD['evol_time']=tspace
+    bigD['evol_state']=xt
+    bigD['spike_count']=spike_count
     
     #...... WRITE   OUTPUT .........
-    outF=os.path.join(args.outPath,MD['short_name']+'.netActS.h5')
+    outF=os.path.join(args.outPath,MD['short_name']+'.simAct.h5')
     write4_data_hdf5(bigD,outF,MD)    
-    print('   ./plot_netActivity.py --simName   %s -p ab   -Y   \n'%(MD['short_name'] ))
+    print('   ./plot_simNetActivity.py  --basePath $basePath   --simName   %s -p a b e  -Y    --time_range 0.3 0.8  \n'%(MD['short_name'] ))
+    print('  cd ../fit_UoI;  ./prep_simInput.py --basePath $basePath  --simName   %s   \n'%(MD['short_name'] ))
   
     exit(0)
     np.set_printoptions(precision=3, suppress=True)

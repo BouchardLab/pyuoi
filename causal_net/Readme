@@ -1,3 +1,20 @@
+Directory structure to stor real and simulated data
+
+basePath=/global/homes/b/balewski/prjs/bioDataVault2025/causalNet_tmp/
+
+exp_raw/  raw data from experiment
+gen_dale/ daleMatrix+samples for generated network
+input_uoi/  data formatted for UoI
+model_uoi/  UoI fit output
+postproc/ any final analysis
+
+
+A------  dale matrix generator + simulator
+runs on PM w/o image, just load python
+
+
+
+= = = = =   OLD = = = = = = = 
 Deplyting software - for now as root
 Must be repeated for each image start
 

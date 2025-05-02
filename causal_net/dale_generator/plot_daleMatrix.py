@@ -30,8 +30,8 @@ def get_parser():
      
     args = parser.parse_args()
     # make arguments  more flexible
-    args.inpPath=args.basePath
-    args.outPath=os.path.join(args.basePath,'out')
+    args.inpPath=os.path.join(args.basePath,'gen_dale')
+    args.outPath=args.inpPath
     args.showPlots=''.join(args.showPlots)
       
     print( 'myArg-program:',parser.prog)
@@ -70,7 +70,7 @@ if __name__=="__main__":
     args=get_parser()
     np.set_printoptions(precision=3)
 
-    inpF=os.path.join(args.inpPath,args.matrixName+'.dale.h5')
+    inpF=os.path.join(args.inpPath,args.matrixName+'.daleM.h5')
     bigD,MD=read4_data_hdf5(inpF)
     pprint(MD)
 

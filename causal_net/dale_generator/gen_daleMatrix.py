@@ -9,14 +9,13 @@ Creates Dale-type connectivity matrices with specified parameters and saves both
 the matrices and metadata in an HDF5 file.
 
 Usage:
-  ./make_Dale_matrix.py [options]
+  ./make_daleMatrix.py [options]
 
 Options:
-  --reps      Number of matrix repetitions (default: 1)
-  --M         Number of excitatory neurons (default: 30)
-  --p         Synaptic connection probability (default: 0.25)
-  --g         Inhibitory scaling factor (default: 2)
-  --activity_scale   scaling of network activity (default 2)
+  --M         Number of excitatory neurons 
+  --p         Synaptic connection probability 
+  --g         Inhibitory scaling factor 
+  --activity_scale   scaling of network activity
   --outName   Output HDF5 file name (default: Amats.h5)
 """
 
@@ -36,13 +35,15 @@ def commandline_parser():
     parser.add_argument("-v","--verb",type=int, help="increase debug verbosity", default=1)
 
     parser.add_argument("--num_samp", type=int, default=1, help="Number of matrix instantiations")
-    parser.add_argument("-M","--num_excit_neur", type=int, default=100, help="Number of excitatory neurons.")
+    parser.add_argument("-M","--num_excit_neur", type=int, default=50, help="Number of excitatory neurons.")
     parser.add_argument("-p","--prob_synaptic_conn", type=float, default=0.1, help="Synaptic connection probability.")
-    parser.add_argument("-g","--gamma_inhib", type=float, default=2, help="Inhibitory scaling factor (gamma).")
-    parser.add_argument("-R", "--activity_scale", type=float, default=2., help="scaling of network activity")
+    parser.add_argument("-g","--gamma_inhib", type=float, default=2., help="Inhibitory scaling factor (gamma).")
+    parser.add_argument("-R", "--activity_scale", type=float, default=6., help="scaling of network activity")
     parser.add_argument("--matrixName", type=str, default=None, help=" [.h5] Output HDF5 file name.")
-    parser.add_argument("--outPath",default='dataDale',help="head dir for set of experimentst")
+    parser.add_argument("--basePath",default='dataDale',help="head dir for set of experiments")
+    
     args = parser.parse_args()
+    args.outPath=os.path.join(args.basePath,'gen_dale')
     for arg in vars(args):
         print( 'myArgs:',arg, getattr(args, arg))
 
@@ -89,8 +90,8 @@ if __name__ == '__main__':
     bigD={'dale_matrix':A_stack}
 
     #...... WRITE   OUTPUT .........
-    outF=os.path.join(args.outPath,MD['short_name']+'.dale.h5')
+    outF=os.path.join(args.outPath,MD['short_name']+'.daleM.h5')
     write4_data_hdf5(bigD,outF,MD)    
-    print('   ./plot_daleMatrix.py --matrixName   %s -p abc   -Y   '%(MD['short_name'] ))
-    print('   ./simu_netActivity.py --matrixName   %s   \n'%(MD['short_name'] ))
+    print('   ./plot_daleMatrix.py  --basePath $basePath  --matrixName   %s -p abc   -Y   '%(MD['short_name'] ))
+    print('   ./simu_netActivity.py  --basePath $basePath  --matrixName   %s   \n'%(MD['short_name'] ))
    

@@ -50,25 +50,23 @@ def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v","--verbosity",type=int,choices=[0, 1, 2,3,4],  help="increase output verbosity", default=1, dest='verb')
     parser.add_argument("--basePath",default='out',help="head dir for any results")
-    parser.add_argument("--dataPath",default=None,help="direct input path")
+    #parser.add_argument("--dataPath",default=None,help="direct input path")
                         
     parser.add_argument("--inpName",  required=True,help='name of input data')
     parser.add_argument("--fitName",  default=None,help='fit name')
 
     #.... fit params
     parser.add_argument('--minSpikeFreq', default=1.5, type=float, help='minimal spike rate for used neureons')
-    parser.add_argument('--num_feature', default=8, type=int, help='num of from full dataset')
-    parser.add_argument('--time_range' , default=[7., 9.],  nargs=2,   type=float, help='fit data time range')
+    parser.add_argument('--time_range' , default=[0.3, 1.],  nargs=2,   type=float, help='fit data time range')
     
     parser.add_argument('--lag_depth', default=1, type=int, help='depth of auotorgeression')
     
     args = parser.parse_args()
     # make arguments  more flexible
     args.rndSeed=42
-    if args.dataPath==None:
-        args.dataPath=os.path.join(args.basePath,'features')
-    
-    args.modelPath=os.path.join(args.basePath,'model')
+
+    args.dataPath=os.path.join(args.basePath,'input_uoi')    
+    args.modelPath=os.path.join(args.basePath,'model_uoi')
    
     if  comm.rank == 0 :  
         print( 'myArg-program:',parser.prog)
@@ -92,77 +90,31 @@ def uoiVar_predict(bigD,md):
     print('pY:',Y.shape)
     UoI_Lasso.predict(X)
 
-        
-#...!...!....................
-def downselect_features(featData,freqData,bigD,md,args): 
-    pmd=md['payload']
-    sem=md['selector']
-    pprint(pmd)
-
-    mxfeat=freqData.shape[0]
-    # Boolean mask: True where A > freqThr1
-    mask = freqData > sem['min_freq_thres']
-
-    # Create 2D list: Outer index = ntbin, Inner list = feature indices
-    featIdxV = np.where(mask[:])[0]
-    print('mxFeat available:',featIdxV.shape)
-
-    nfeat=args.num_feature
-    if featIdxV.shape[0]> nfeat:
-        # Randomly select nfeat elements from featIdxV (without replacement)
-        featIdxV= np.random.choice(featIdxV, size=nfeat, replace=False)
-    else:
-        nfeat=featIdxV.shape[0]
-    #freqData=freqData[featIdxV]
-    print('sel nfeat=%d'%nfeat)
-
-    # Get corresponding frequencies
-    selected_frequencies = freqData[featIdxV]
-
-    # Get sorted indices in descending order based on frequency
-    sorted_indices = np.argsort(-selected_frequencies)  # Negative sign for descending order
-
-    # Reorder featIdxV accordingly
-    featIdxV = featIdxV[sorted_indices]
-    bigD['sel_feat_idx']=featIdxV
-    bigD['sel_feat_freq']=freqData[featIdxV]
-    sem['sel_freq_range']=(bigD['sel_feat_freq'][[0,-1]]).tolist()
-    sem['rnd_seed']=args.rndSeed
-    for i in range(nfeat):
-        idx=featIdxV[i]
-        print('i=%d  feature idx=%d  freq=%.1f (Hz)'%(i,idx,freqData[idx]))
-        
-        #if it >10: break
-    bigD['sel_data']=featData[featIdxV] # down-selected features 
-    
-
+   
 #...!...!....................
 def rank0_init_uoiVar(args):   
     inpF=args.inpName+'.act.h5'
     bigD,md=read4_data_hdf5(os.path.join(args.dataPath,inpF))
     pmd=md['payload']
-    sem={}  # data-selector metadata
-    md['selector']=sem
-    
+    sem=md['selector']
+    pprint(md)
     if args.verb>=2:
         print('M:expMD:');  pprint(expMD)
         if args.verb>=3:
             print(expD)
         stop2
-    featData=bigD['feature']
+    featData=bigD['features']
         
     #.... clip data
-    tL,tR=[int(x*pmd['sampling_freq']) for x in args.time_range ]
+    tL,tR=[int(x*sem['sampling_freq']) for x in args.time_range ]
     print('FUV tbinLR:',tL,tR)
-    assert tR < pmd['num_time_bin']
-    featData=featData[:,tL:tR]
-    itL=int(args.time_range[0]/(pmd['qa_twindow_sec']))
-    #print('tt', args.time_range,itL)
+    assert tR < featData.shape[0]
+    featData=featData[tL:tR]
     sem['time_range']=[args.time_range[0], args.time_range[1]]
-    sem['min_freq_thres']=args.minSpikeFreq
-    sem['num_feature']=args.num_feature
-    freqData=bigD['spike_freq'][:,itL]  # 2D  [features, timeBin]
-    downselect_features(featData,freqData, bigD,md,args)   
+    sem['num_feature']=featData.shape[1]
+    sem['num_time_bin']=featData.shape[0]
+
+    bigD['fit_data']=featData
     return bigD,md
 
 #...!...!....................
@@ -172,7 +124,8 @@ def fit_uoiVar_M():
     
     if rank == 0:
         bigD,md=expD,expMD 
-        print('mydata:%s  lag:%d  numRank:%d '%(mydata.shape,lag,comm.Get_size()),flush=True)
+        print('FUOI mydata:%s  lag:%d  numRank:%d '%(mydata.shape,lag,comm.Get_size()),flush=True)
+        assert mydata.shape[0] > mydata.shape[1]  # UoI wants [timeBins,features]
         fim={};  md['fit_uoi']=fim
         fim['lag_depth']=lag
         fim['data_shape']=list(mydata.shape)
@@ -247,7 +200,7 @@ if __name__=="__main__":
 
     if rank == 0:
         expD,expMD= rank0_init_uoiVar(args)
-        mydata=expD['sel_data'].T
+        mydata=expD['fit_data']
     else:
         mydata = None
 
@@ -257,13 +210,14 @@ if __name__=="__main__":
     fit_uoiVar_M()
     # only rank0 will proceed further
 
+    '''
     #.... reduce output size
     for xx in ['feature','spike','time','spike_freq']:
         expD.pop(xx)
-
+    '''
     
     #...... WRITE   OUTPUT .........
-    outF=os.path.join(args.modelPath,expMD['short_name']+'.model.h5')
+    outF=os.path.join(args.modelPath,expMD['short_name']+'.fitUoI.h5')
     write4_data_hdf5(expD,outF,expMD)
     #pprint(expMD)
     fim=expMD['fit_uoi']
@@ -273,4 +227,4 @@ if __name__=="__main__":
     print('SUM1,%s,%.1f,%d,%d,%d,%d\n'%(expMD['short_name'],fim['fit_time'],fim['data_shape'][1],fim['data_shape'][0],fim['lag_depth'],fim['num_rank']))
 
     print(' ./postproc_ouiVar.py -e %s   -Y'%expMD['short_name'])
-    print(' ./postproc_ouiVar.py --basePath $basePath -e %s i -Y'%expMD['short_name'])
+    print(' ./postproc_ouiVar.py --basePath $basePath -e %s  -Y '%expMD['short_name'])

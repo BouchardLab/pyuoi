@@ -19,60 +19,13 @@ def summary_column(md):
     sem=md['selector']
     
     txt=md['short_name']
-    txt+='\nsession '+pmd['session_name']
-    txt+='\nsampFreq %d Hz'%(pmd['sampling_freq'])
-    txt+='\ndecay:%d ms,  len:%d ms '%(pmd['tau_decay'][0]*1000., pmd['tau_decay'][1]*1000.)
+    txt+='\ninput '+md['input_name']
+    txt+='\nsampFreq %d Hz'%(sem['sampling_freq'])
+    #txt+='\ndecay:%d ms,  len:%d ms '%(pmd['tau_decay'][0]*1000., pmd['tau_decay'][1]*1000.)
     txt+='\nsel time [%.1f %.1f] s'%(sem['time_range'][0],sem['time_range'][1])
     txt+='\nsel features %d'%(sem['num_feature'])
     
     return txt
-
-#...!...!....................
-def plot_sparse_matrix(ax, freqData, A0,plt):
-    """
-    Plots a sparse matrix A using ax.imshow with customized x and y labels.
-    
-    Parameters:
-        ax (matplotlib.axes.Axes): The axes object to plot on.
-        freqData (1D array): Array of frequencies, size (nfeat).
-        A (2D sparse matrix or array): Sparse matrix of size (nfeat, nfeat).
-    """
-    nfeat = len(freqData)
-    A=np.copy(A0)
-    # Set diagonal values of A to 0
-    np.fill_diagonal(A, 0)
-
-    # Find the maximum absolute value in A
-    max_val = np.max(np.abs(A))/2.
-
-    # Plot the sparse matrix using imshow
-    im = ax.imshow(A, aspect='auto', origin='lower', cmap='bwr', vmin=-max_val, vmax=max_val)
-    ax.grid()
-    ax.plot([0,nfeat],[0,nfeat],'--',lw=0.5)
-    ax.set_xlim(-0.5,nfeat+0.5)
-    ax.set_ylim(-0.5,nfeat+0.5)
-    ax.set_aspect(1.0)
-    
-    tickL=5
-    # Customizing x-axis 
-    x_ticks = np.arange(0, nfeat, tickL)
-    ax.set_xticks(x_ticks)
-    ax.set_xticklabels([str(i) for i in x_ticks])
-
-    # Customizing y-axis (frequency values, label every 10th value)
-    y_ticks = np.arange(0, nfeat, tickL)
-    y_labels = [f'{freqData[i]:.1f}' for i in y_ticks]
-    ax.set_yticks(y_ticks)
-    ax.set_yticklabels(y_labels)
-
-    # Adding colorbar for reference
-    cbar=plt.colorbar(im, ax=ax)
-    cbar.set_label('coupling strength')
-
-    # Axis labels
-    ax.set_xlabel('feature Index')
-    ax.set_ylabel('feature Frequency (Hz), the same order as x-axis')
-
 
     
 #...!...!....................
@@ -120,7 +73,7 @@ def plot_diagonal_and_violins(A,plt,figId,tit0, eps=1e-5):
             violin_data.append([0])  # Add a placeholder to maintain alignment
 
     # Plotting vertical violin plots
-    parts = ax2.violinplot(violin_data, showmeans=True, showmedians=True)
+    ax2.violinplot(violin_data, showmeans=True, showmedians=True)
 
     # Customize the x-axis and labels
     ax2.set_xlabel('Feature Index')
@@ -129,6 +82,7 @@ def plot_diagonal_and_violins(A,plt,figId,tit0, eps=1e-5):
     ax2.grid(True)
     ax2.set_xlim(-0.5,nfeat+0.5)
     ax2.set_xticks(x_ticks)
+    ax2.axhline(0,lw=1.,ls='--',c='k')
     return ax2
 
  
@@ -150,13 +104,30 @@ class Plotter(PlotterBackbone):
         fig=self.plt.figure(figId,facecolor='white', figsize=(8,7))
         ax = self.plt.subplot(nrow,ncol,1)
 
-        AV=bigD['fit_A_model']
-        freqData=bigD['sel_feat_freq']
+        A0=bigD['fit_A_model'][lag]        
+        nfeat = A0.shape[0]
+        A=np.copy(A0)
+        # Set diagonal values of A to 0
+        np.fill_diagonal(A, 0)
+        
+        # Find the maximum absolute value in A
+        max_val = np.max(np.abs(A))/2.
+        
+        # Plot the sparse matrix using imshow
+        im = ax.imshow(A.T, aspect='auto', origin='lower', cmap='bwr', vmin=-max_val, vmax=max_val)
+        ax.grid()
+        ax.plot([0,nfeat],[0,nfeat],'--',lw=0.5)
+        ax.set_xlim(-0.5,nfeat+0.5)
+        ax.set_ylim(-0.5,nfeat+0.5)
+        ax.set_aspect(1.0)
 
-        plot_sparse_matrix(ax, freqData, AV[lag],self.plt)
-       
-        ax.set(title=tit)
-
+        # Create the colorbar.
+        cbar = fig.colorbar(im, ax=ax, extend="both")
+        cbar.set_label('UoI coupling strength')
+        
+        tit='UoI fit matrix, %d neurons, name=%s'%(nfeat,md['short_name'])
+        ax.set(title=tit, xlabel='presyn. node index, source', ylabel='postsyn. node index, target')
+        
 #...!...!..................
     def Aper_row(self,bigD,md,figId=3,lag=0):
         figId=self.smart_append(figId)

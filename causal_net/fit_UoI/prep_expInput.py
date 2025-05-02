@@ -4,11 +4,9 @@ __email__ = "janstar1122@gmail.com"
 
 
 '''
+prepares input for UoI fit experimental data
 
 HD5 arrays contain input and output
-Use sampler and manual transpiler
-Dependence:  qiskit 1.2
-
 
 Use case:
 
