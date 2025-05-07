@@ -75,7 +75,6 @@ def format_simNetActivity(md):
     #1stateV=np.exp(stateV)
     
     sem={}
-    sem['feat_idx_range']=None # out?
     sem['sampling_freq'] =1./smd['time_step']
     md['selector']=sem
     md['payload']=inpMD

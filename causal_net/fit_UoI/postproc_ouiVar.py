@@ -63,64 +63,27 @@ def nice_print_model(bigD,md,mxFeat=None):
     if mxFeat!=None:
         nfeat=min(mxFeat,nfeat)
     
+    for il in range(lag):
+        print('\nA_model[%d]'%(il))
+        A=AV[il]
+        print_Amatrix(A,nfeat)    
+ 
+#...!...!.................... 
+def print_Amatrix(A,nfeat=None):
+    if nfeat==None: nfeat=A.shape[0]
     # Function to format values
     def format_value(val):
         if abs(val) < 0.01:
             return "  .  "  # Represent zero as '-'
         return f"{val:+5.2f}"  # Format as +0.12 or -0.23
-
     
     col_indices = "feat " + "     ".join(f"{i:2d}" for i in range(nfeat))
-
-    #..... print frequencies
-    print('Frequencies per feature')
     print(col_indices)
-    freq_txt=" Hz " + "  ".join('%5.1f'%freqData[i] for i in range(nfeat))
-    print(freq_txt)
-    
-    for il in range(lag):
-        print('\nA_model[%d]'%(il))
-        A=AV[il]
-        # Print column indices
-        
-        print(col_indices)
-        # Print row index and formatted values
-        for i in range(nfeat):
-            row=A[i]
-            formatted_row = "  ".join(format_value(row[j]) for j in range(nfeat) )
-            print(f"{i:2d}  {formatted_row}")  # Row index + formatted values
-        
- 
-#...!...!.................... 
-def XXXpostproc_polyEH(expD,md):
-    
-    pmd=md['payload']
-    smd=md['submit']
-    nImg=pmd['num_sample']
-    shots=smd['num_shots']
-    assert pmd['inp_size']==1
-      
-  
-    
-    expD['rec_poly']=rec_poly
-
-        
-#...!...!.................... 
-def XXXresidual_ana(expD,md):
-    rdata=expD['rec_poly']
-    tdata=expD['true_poly']
-    res_data = rdata[0] - tdata
-    mean = np.mean(res_data)
-    std = np.std(res_data)
-    # assuming normal distribution, compute std error of std estimator
-    # SE_s=std/sqrt(2(n-1)), where n is number of samples
-    N=res_data.shape[0]
-    se_s=std/np.sqrt(2*(N-1))
-    pom=md['postproc']
-    pom['res_mean']=float(mean)
-    pom['res_std']=float(std)
-    pom['res_SE_s']=float(se_s)
-  
+    # Print row index and formatted values
+    for i in range(nfeat):
+        row=A[i]
+        formatted_row = "  ".join(format_value(row[j]) for j in range(nfeat) )
+        print(f"{i:2d}  {formatted_row}")  # Row index + formatted values
 
 
 #=================================

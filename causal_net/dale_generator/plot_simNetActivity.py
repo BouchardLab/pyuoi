@@ -26,6 +26,7 @@ def get_parser():
      
     parser.add_argument("--basePath",default='dataDale',help="head dir for set of experimentst")
     parser.add_argument("--simName", default='daleM100apr30-e7e3be2', help="[.h5]  simulated netActivation")
+    parser.add_argument("--time_rebin", type=int, default=1, help="num time steps to be averaged")
     parser.add_argument( "-Y","--noXterm", dest='noXterm',  action='store_false', default=True, help="enables X-term for interactive mode")         
          
     args = parser.parse_args()
@@ -43,20 +44,57 @@ def get_parser():
    
     return args
 
+
+def rebin_axis0_average(V, k):
+    """
+    Average‑rebin along axis 0 by factor k.
+    If the length along axis 0 is not divisible by k, the input is clipped
+    (extra samples at the end are dropped).
+    
+    Parameters
+    ----------
+    V : array‑like, shape (nt, ...)
+        Input data.
+    k : int
+        Rebin factor.
+    
+    Returns
+    -------
+    rebinned : ndarray, shape (nt//k, ...)
+        Data averaged over non‑overlapping blocks of size k along axis 0.
+    """
+    nt = V.shape[0]
+    # drop extra samples so length is divisible by k
+    trimmed_len = nt - (nt % k)
+    if trimmed_len != nt:
+        V = V[:trimmed_len]
+    new_shape = (trimmed_len // k, k) + V.shape[1:]
+    return V.reshape(new_shape).mean(axis=1)
+
+
 #...!...!....................
 def postproc_netActivity(bigD,md):
     sim=md['simu']
-    #dt=sm['time_step']
-
+    dt=sim['time_step']
+    pom={}
+    md['postproc']=pom
+    
     timeV=bigD['evol_time']
     
-    #.... clip data
-    tL,tR=[int(x/sim['time_step']) for x in args.time_range ]
+    #.... clip data in time
+    tL,tR=[int(x/dt) for x in args.time_range ]
     print('FUV tbinLR:',tL,tR)
     assert tR < timeV.shape[0]
     timeV=timeV[tL:tR]
     stateV=bigD['evol_state'][tL:tR]
-    sim['time_range']=[args.time_range[0], args.time_range[1]]    
+    pom['time_range']=[args.time_range[0], args.time_range[1]]
+    pom['time_rebin']=args.time_rebin
+
+    if args.time_rebin>1:  # averag data over time        
+        pom['time_step']=args.time_rebin*dt
+        timeV= rebin_axis0_average(timeV, args.time_rebin)
+        stateV= rebin_axis0_average(stateV, args.time_rebin)    
+    
     rateV=np.exp(stateV)
 
     # overwrite data
@@ -102,7 +140,10 @@ if __name__=="__main__":
         #plot.rate_sample(bigD,MD,nidxL=[1,5,13,117,126,198],figId=1)  # 200-neurons
         plot.rate_sample(bigD,MD,nidxL=nidxL,figId=1,obsN='rate') 
     if 'b' in args.showPlots:
-        plot.rate_sample(bigD,MD,nidxL=nidxL,figId=2,obsN='state') 
+        plot.rate_sample(bigD,MD,nidxL=nidxL,figId=2,obsN='state')
+        
+    if 'c' in args.showPlots:
+        plot.rate_correl(bigD,MD,nidxL=nidxL,figId=3) 
 
     if 'e' in args.showPlots:
         plot.evoked_energy(bigD,MD,figId=1)

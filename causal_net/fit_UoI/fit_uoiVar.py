@@ -7,8 +7,10 @@ __email__ = "janstar1122@gmail.com"
 
 Perlmutter
  IMG=nersc/causal-net:v3   # Mar 28
- #export OMP_NUM_THREADS=2
- salloc -q interactive -C cpu --image=$IMG -t 4:00:00 -A m2043 -N 4
+ export OMP_NUM_THREADS=2
+ salloc -q interactive -C cpu --image=$IMG -t 4:00:00 -A m2043 -N 1
+
+ shifter bash
 
  dataPath=/global/cfs/cdirs/m2043/causal_inference/DIV13/features 
  basePath=/global/cfs/cdirs/mpccc/balewski/bioDataVault2025/causalNet_tmp/
@@ -38,6 +40,9 @@ sys.path.append("/global/homes/b/balewski/prjs/2025_UoI-VAR/")
 from examples.var_utils import * 
 from src.pyuoi.linear_model import *
 
+# tmp:
+sys.path.append("/global/homes/b/balewski/prjs/2025_UoI-VAR/causal_net/dale_generator")
+from plot_simNetActivity import rebin_axis0_average
 
 # Record script start time
 script_start_time = time()
@@ -50,20 +55,19 @@ def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v","--verbosity",type=int,choices=[0, 1, 2,3,4],  help="increase output verbosity", default=1, dest='verb')
     parser.add_argument("--basePath",default='out',help="head dir for any results")
-    #parser.add_argument("--dataPath",default=None,help="direct input path")
                         
     parser.add_argument("--inpName",  required=True,help='name of input data')
     parser.add_argument("--fitName",  default=None,help='fit name')
 
-    #.... fit params
-    parser.add_argument('--minSpikeFreq', default=1.5, type=float, help='minimal spike rate for used neureons')
+    #.... fit setup
     parser.add_argument('--time_range' , default=[0.3, 1.],  nargs=2,   type=float, help='fit data time range')
-    
-    parser.add_argument('--lag_depth', default=1, type=int, help='depth of auotorgeression')
+    parser.add_argument("--time_rebin", type=int, default=1, help="num time steps to be averaged")
+    parser.add_argument('--input_type' , default='state', choices=['state','rate'] , help=' rate=exp(state)')
     
     args = parser.parse_args()
     # make arguments  more flexible
     args.rndSeed=42
+    args.lag_depth=1
 
     args.dataPath=os.path.join(args.basePath,'input_uoi')    
     args.modelPath=os.path.join(args.basePath,'model_uoi')
@@ -97,7 +101,8 @@ def rank0_init_uoiVar(args):
     bigD,md=read4_data_hdf5(os.path.join(args.dataPath,inpF))
     pmd=md['payload']
     sem=md['selector']
-    pprint(md)
+    dt=sem['sampling_freq']
+    
     if args.verb>=2:
         print('M:expMD:');  pprint(expMD)
         if args.verb>=3:
@@ -106,14 +111,23 @@ def rank0_init_uoiVar(args):
     featData=bigD['features']
         
     #.... clip data
-    tL,tR=[int(x*sem['sampling_freq']) for x in args.time_range ]
+    tL,tR=[int(x*dt) for x in args.time_range ]
     print('FUV tbinLR:',tL,tR)
     assert tR < featData.shape[0]
     featData=featData[tL:tR]
     sem['time_range']=[args.time_range[0], args.time_range[1]]
+    sem['time_rebin']=args.time_rebin
+    sem['input_type']=args.input_type
+    
+    if args.time_rebin>1:  # averag data over time        
+        sem['time_step']=args.time_rebin*dt
+        featData= rebin_axis0_average(featData, args.time_rebin)
+        
+    if args.input_type=='rate':
+         featData=np.exp( featData)
+         
     sem['num_feature']=featData.shape[1]
     sem['num_time_bin']=featData.shape[0]
-
     bigD['fit_data']=featData
     return bigD,md
 
@@ -226,5 +240,4 @@ if __name__=="__main__":
     print('SUM0,job_name,fit_time,num_feat,num_tbin,lag_depth,num_rank')
     print('SUM1,%s,%.1f,%d,%d,%d,%d\n'%(expMD['short_name'],fim['fit_time'],fim['data_shape'][1],fim['data_shape'][0],fim['lag_depth'],fim['num_rank']))
 
-    print(' ./postproc_ouiVar.py -e %s   -Y'%expMD['short_name'])
-    print(' ./postproc_ouiVar.py --basePath $basePath -e %s  -Y '%expMD['short_name'])
+    print(' ./postproc_ouiVar.py --basePath $basePath -e %s  -p a  -Y '%expMD['short_name'])

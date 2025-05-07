@@ -1,3 +1,9 @@
+ IMG=nersc/causal-net:v3   # Mar 28
+ #export OMP_NUM_THREADS=2
+ salloc -q interactive -C cpu --image=$IMG -t 4:00:00 -A m2043 -N 1
+
+
+
 Directory structure to stor real and simulated data
 
 basePath=/global/homes/b/balewski/prjs/bioDataVault2025/causalNet_tmp/

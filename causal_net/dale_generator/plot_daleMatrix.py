@@ -7,9 +7,14 @@ __email__ = "janstar1122@gmail.com"
 
 '''
 
-import os
-import pickle
+import os,sys
+#import pickle
 from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
+
+# tmp:
+sys.path.append("/global/homes/b/balewski/prjs/2025_UoI-VAR/causal_net/fit_UoI")
+from  postproc_ouiVar  import print_Amatrix
+
 
 from time import time
 from pprint import pprint
@@ -80,6 +85,8 @@ if __name__=="__main__":
     eigenvalues, comp_time=compute_eigenvalues(W)
     bigD['Wtrue']=W
     bigD['Weigen']=eigenvalues
+
+    print_Amatrix(W,15)
     #--------------------------------
     # ....  plotting ........
     args.prjName=MD['short_name']
