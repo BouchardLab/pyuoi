@@ -20,17 +20,33 @@ shifter ./fit_uoiVar.py --dataPath $dataPath  --inpName HET_80k_1_samp1kHz  --ti
 >>> Total Execution Time: 15.067 sec
 
 
- srun -n64 shifter ./fit_uoiVar.py --dataPath $dataPath --inpName HET_80k_1_samp1kHz  --time_range 7 9 --lag_depth 2 --num_feature 20 
+ srun -n64 shifter ./fit_uoiVar.py --dataPath $dataPath --inpName HET_80k_1_samp1kHz  --time_range 7 9  --num_feature 20 
 >>> fit data: (2000, 20)
 
 >>> Total Execution Time: 8.720 sec   for freq-selected
 
 sbatch -N 4 -q regular -t 90:00 batchShifter.slr 16 100
 
+Usage:
+  ./fit_uoiVar.py  --inpName   daleM20may12-77b917c-5784527 
+
+Options:
+  --matrixName  Path to the HDF5 file containing connectivity matrices.
+  --sigma       Noise variance strength 
+  --tau         (sec) Time constant for self-forgetting  (defulat 10 msec )
+  --T           (sec) Total evolution time (default: 60  sec)
+  --dt          (sec) time step (default:  1 msec )
+  --outName     Output HDF5 file name for simulation results (default: simu_ac 
+  --seed        Random seed for simulation (optional)
+
+
+
 ''' 
 
 import os,sys,hashlib
 from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
+from toolbox.Util_Dale_LDS  import rebin_axis0_average
+
 from time import time
 from pprint import pprint
 import numpy as np
@@ -40,9 +56,6 @@ sys.path.append("/global/homes/b/balewski/prjs/2025_UoI-VAR/")
 from examples.var_utils import * 
 from src.pyuoi.linear_model import *
 
-# tmp:
-sys.path.append("/global/homes/b/balewski/prjs/2025_UoI-VAR/causal_net/dale_generator")
-from plot_simNetActivity import rebin_axis0_average
 
 # Record script start time
 script_start_time = time()
@@ -67,8 +80,7 @@ def get_parser():
     args = parser.parse_args()
     # make arguments  more flexible
     args.rndSeed=42
-    args.lag_depth=1
-
+    
     args.dataPath=os.path.join(args.basePath,'input_uoi')    
     args.modelPath=os.path.join(args.basePath,'model_uoi')
    
@@ -118,7 +130,7 @@ def rank0_init_uoiVar(args):
     sem['time_range']=[args.time_range[0], args.time_range[1]]
     sem['time_rebin']=args.time_rebin
     sem['input_type']=args.input_type
-    
+       
     if args.time_rebin>1:  # averag data over time        
         sem['time_step']=args.time_rebin*dt
         featData= rebin_axis0_average(featData, args.time_rebin)
@@ -133,7 +145,7 @@ def rank0_init_uoiVar(args):
 
 #...!...!....................
 def fit_uoiVar_M():   
-    lag=args.lag_depth
+    lag=1  # hardcoded, makes no sense to use larger
     num_samp,num_feat=mydata.shape  
     
     if rank == 0:
@@ -183,7 +195,7 @@ def fit_uoiVar_M():
     total_time = time() - script_start_time  # Total execution time from script start
 
     print("------------------------------------------------------------")
-    print("Fitting complete in %.1f sec | numRanks=%d" % (total_time, fim['num_rank']))
+    #print("Fitting complete in %.1f sec | numRanks=%d" % (total_time, fim['num_rank']))
     print("Avg Fit Time: %.1f sec | Min: %.1f sec | Max: %.1f sec" % (avg_time, min_time, max_time))
     print("Total Execution Time: %.3f sec" % total_time)
     print("------------------------------------------------------------", flush=True)
@@ -240,4 +252,4 @@ if __name__=="__main__":
     print('SUM0,job_name,fit_time,num_feat,num_tbin,lag_depth,num_rank')
     print('SUM1,%s,%.1f,%d,%d,%d,%d\n'%(expMD['short_name'],fim['fit_time'],fim['data_shape'][1],fim['data_shape'][0],fim['lag_depth'],fim['num_rank']))
 
-    print(' ./postproc_ouiVar.py --basePath $basePath -e %s  -p a  -Y '%expMD['short_name'])
+    print(' ./postproc_ouiVar.py --basePath $basePath -e %s  -p a b -Y '%expMD['short_name'])

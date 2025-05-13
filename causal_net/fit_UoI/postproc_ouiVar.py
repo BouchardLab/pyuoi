@@ -13,6 +13,7 @@ from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
 from time import time
 from pprint import pprint
 import numpy as np
+from toolbox.Util_Dale_LDS  import print_dale_matrix
 from PlotterModelFit import Plotter
 
 
@@ -53,12 +54,12 @@ def nice_print_model(bigD,md,mxFeat=None):
     fim=md['fit_uoi']
     lag=fim['lag_depth']
     ntime,nfeat=fim['data_shape']
-    inpN=md['input_name']
+    inpN=sem['input_name']
     print('Postproc UoI-VAR  input=%s  nfeat=%d  ntime=%d lag=%d  fitTime=%.1f sec  ranks=%d'%(inpN,nfeat,ntime,lag,fim['fit_time'],fim['num_rank']))
     AV=bigD['fit_A_model']
-    #1freqData=bigD['sel_feat_freq']
+   
     freqData=[i for i in range(AV[0].shape[0])]
-    bigD['sel_feat_freq']=freqData  # tmp
+    #1bigD['sel_feat_freq']=freqData  # tmp
     
     if mxFeat!=None:
         nfeat=min(mxFeat,nfeat)
@@ -66,26 +67,8 @@ def nice_print_model(bigD,md,mxFeat=None):
     for il in range(lag):
         print('\nA_model[%d]'%(il))
         A=AV[il]
-        print_Amatrix(A,nfeat)    
+        print_dale_matrix(A,nfeat)    
  
-#...!...!.................... 
-def print_Amatrix(A,nfeat=None):
-    if nfeat==None: nfeat=A.shape[0]
-    # Function to format values
-    def format_value(val):
-        if abs(val) < 0.01:
-            return "  .  "  # Represent zero as '-'
-        return f"{val:+5.2f}"  # Format as +0.12 or -0.23
-    
-    col_indices = "feat " + "     ".join(f"{i:2d}" for i in range(nfeat))
-    print(col_indices)
-    # Print row index and formatted values
-    for i in range(nfeat):
-        row=A[i]
-        formatted_row = "  ".join(format_value(row[j]) for j in range(nfeat) )
-        print(f"{i:2d}  {formatted_row}")  # Row index + formatted values
-
-
 #=================================
 #=================================
 #  M A I N 
@@ -106,14 +89,9 @@ if __name__=="__main__":
         pmd=expMD['payload']
         cad=expMD['canned']
        
-
     nice_print_model(expD,expMD,mxFeat=args.max_feature)
     
-    
-    #postproc_polyEH(expD,expMD)
-    #expMD['postproc']={'hw_calib':False}
-
-    
+  
     #...... WRITE  OUTPUT
     outF=os.path.join(args.outPath,expMD['short_name']+'.post.h5')
     write4_data_hdf5(expD,outF,expMD)
@@ -122,12 +100,9 @@ if __name__=="__main__":
     #--------------------------------
     # ....  plotting ........
     args.prjName=expMD['short_name']
-    #expMD['plot']={'resid_max_range':0.4}
-    
         
     plot=Plotter(args)  
-    #1expMD['truth_rangeLR']=[-0.3,0.5]
-
+  
     if 'a' in args.showPlots:
         plot.A_matrix(expD,expMD,figId=1,lag=0)
     if 'b' in args.showPlots:
@@ -135,4 +110,4 @@ if __name__=="__main__":
 
     plot.display_all()
     print('M:done')
-    #pprint(expMD) #tmp
+   

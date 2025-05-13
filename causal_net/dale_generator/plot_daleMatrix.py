@@ -8,18 +8,15 @@ __email__ = "janstar1122@gmail.com"
 '''
 
 import os,sys
-#import pickle
+
 from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
-
-# tmp:
-sys.path.append("/global/homes/b/balewski/prjs/2025_UoI-VAR/causal_net/fit_UoI")
-from  postproc_ouiVar  import print_Amatrix
-
+from toolbox.Util_Dale_LDS  import print_dale_matrix
+from Plotter_Dale_LDS import Plotter
 
 from time import time
 from pprint import pprint
 import numpy as np
-from Plotter_Dale_LDS import Plotter
+
 from time import time
 import argparse
 #...!...!....................
@@ -31,8 +28,7 @@ def get_parser():
     parser.add_argument( "-Y","--noXterm", dest='noXterm',  action='store_false', default=True, help="enables X-term for interactive mode")         
     parser.add_argument("--basePath",default='dataDale',help="head dir for set of experimentst")
     parser.add_argument("--matrixName", default='Amats.h5', help="Path to the HDF5 file with connectivity matrices.")
-    parser.add_argument("--rep", type=int, default=0, help="Repetition index (default: 0).")
-     
+      
     args = parser.parse_args()
     # make arguments  more flexible
     args.inpPath=os.path.join(args.basePath,'gen_dale')
@@ -45,25 +41,6 @@ def get_parser():
     assert os.path.exists(args.inpPath)
     assert os.path.exists(args.outPath)
     return args
-
-#...!...!....................
-def compute_eigenvalues(A):
-    """
-    Compute all eigenvalues of a given 2D numpy array and measure the time taken.
-    
-    Parameters:
-      A (np.ndarray): A square matrix.
-    
-    Returns:
-      eigenvalues (np.ndarray): Array of eigenvalues.
-      comp_time (float): Time taken for the computation (in seconds).
-    """
-    start_time = time()
-    eigenvalues = np.linalg.eigvals(A)
-    comp_time = time() - start_time
-    print(f"Time for computing eigenvalues: {comp_time:.1f} seconds")
-    return eigenvalues, comp_time
-
 
 
 #=================================
@@ -79,14 +56,12 @@ if __name__=="__main__":
     bigD,MD=read4_data_hdf5(inpF)
     pprint(MD)
 
-    # Extract the desired connectivity matrix
-    rep_idx = args.rep
-    W = bigD['dale_matrix'][rep_idx, :, :]
-    eigenvalues, comp_time=compute_eigenvalues(W)
+    W = bigD['dale_matrix']
+    eigenvalues=np.linalg.eigvals(W)
     bigD['Wtrue']=W
     bigD['Weigen']=eigenvalues
 
-    print_Amatrix(W,15)
+    print_dale_matrix(W,15)
     #--------------------------------
     # ....  plotting ........
     args.prjName=MD['short_name']

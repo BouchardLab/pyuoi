@@ -9,8 +9,6 @@ import numpy as np
 import matplotlib.gridspec as gridspec
 
 from matplotlib.colors import LinearSegmentedColormap
-
-
     
 #...!...!....................
 def summary_column(md):
@@ -19,7 +17,7 @@ def summary_column(md):
     sem=md['selector']
     
     txt=md['short_name']
-    txt+='\ninput '+md['input_name']
+    txt+='\ninput '+sem['input_name']
     txt+='\nsampFreq %d Hz'%(sem['sampling_freq'])
     #txt+='\ndecay:%d ms,  len:%d ms '%(pmd['tau_decay'][0]*1000., pmd['tau_decay'][1]*1000.)
     txt+='\nsel time [%.1f %.1f] s'%(sem['time_range'][0],sem['time_range'][1])

@@ -12,11 +12,11 @@ Usage:
   ./make_daleMatrix.py [options]
 
 Options:
-  --M         Number of excitatory neurons 
+  --ne        Number of excitatory neurons 
   --p         Synaptic connection probability 
   --g         Inhibitory scaling factor 
   --activity_scale   scaling of network activity
-  --outName   Output HDF5 file name (default: Amats.h5)
+  --outName   Output HDF5 file name (default: daleM-537645v.daleM.h5)
 """
 
 import sys,os,hashlib
@@ -25,17 +25,15 @@ import numpy as np
 from pprint import pprint
 from time import time
 
-# Import the utility module without global variables.
-from  Util_Dale_LDS  import gen_matrices
+from toolbox.Util_Dale_LDS  import gen_matrices
 from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
 
-#### Command-line parser #####################################################
 def commandline_parser():
     parser = argparse.ArgumentParser(description="Generate Dale LDS connectivity matrices.")
     parser.add_argument("-v","--verb",type=int, help="increase debug verbosity", default=1)
 
     parser.add_argument("--num_samp", type=int, default=1, help="Number of matrix instantiations")
-    parser.add_argument("-M","--num_excit_neur", type=int, default=50, help="Number of excitatory neurons.")
+    parser.add_argument("-ne","--num_excit_neur", type=int, default=50, help="Number of excitatory neurons.")
     parser.add_argument("-p","--prob_synaptic_conn", type=float, default=0.1, help="Synaptic connection probability.")
     parser.add_argument("-g","--gamma_inhib", type=float, default=2., help="Inhibitory scaling factor (gamma).")
     parser.add_argument("-R", "--activity_scale", type=float, default=6., help="scaling of network activity")
@@ -82,11 +80,11 @@ if __name__ == '__main__':
     A_stack = gen_matrices( args.num_excit_neur, args.prob_synaptic_conn, args.gamma_inhib, args.activity_scale)
     print("Matrix generation complete, elaT=%.1f min"%((time()-T0)/60.))
     
-    # Convert the nested list of matrices to a NumPy array.
-
-    print("Converted matrices to numpy array with shape:", A_stack.shape)
+    print("Matrices  array with shape:", A_stack.shape)
     MD['dale_truth']['num_any_neur']=A_stack.shape[1]
     pprint(MD)
+    if A_stack.shape[0]==1 : # alwasy the case
+        A_stack=A_stack[0] # drop axis=0
     bigD={'dale_matrix':A_stack}
 
     #...... WRITE   OUTPUT .........

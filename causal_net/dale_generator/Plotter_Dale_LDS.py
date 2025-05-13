@@ -171,7 +171,7 @@ class Plotter(PlotterBackbone):
         tit+=', sig_noise=%.1f'%(smd['sigma_noise'])
         if pom['time_rebin'] >1 : tit+=', dt=%.3f sec'%pom['time_step']
         
-        print('tt',timeV.shape,obsV.shape)
+        #print('tt',timeV.shape,obsV.shape)
         for n in range(nn):
             k=nidxL[n]
             ax = self.plt.subplot(nrow,ncol,n+1)
@@ -218,7 +218,8 @@ class Plotter(PlotterBackbone):
         
         
 #...!...!..................
-    def rate_correl(self,bigD,md,nidxL,figId=3):
+    def rate_correl(self,bigD,md,nidxL,obsN='state',figId=3):
+        assert obsN in ['state','rate']
         nn=min(8,len(nidxL))
         nidxL=nidxL[:nn]
         smd=md['simu']
@@ -226,12 +227,23 @@ class Plotter(PlotterBackbone):
         pom=md['postproc']
 
         obsV=bigD['evol_state']
-        obsV=np.exp(obsV)
-        max_rate = 10  # max limit for rate
-        obsV = np.minimum(obsV , max_rate)
-        xxVal=1
-        valV=obsV[:,nidxL]        
+        valV=obsV[:,nidxL]  # select channels
 
+        # add text above all plots
+        tit='sim=%s'%(md['short_name'])
+                
+        if obsN=='rate':
+            obsV=np.exp(obsV)
+            max_rate = 10  # max limit for rate
+            obsV = np.minimum(obsV , max_rate)
+            xxVal=1  # baseline rate
+            tit+=', obs=rate (Hz)'
+        else:
+            xxVal=0 # baseline state
+            tit+=', obs=state=log(rate/Hz)'
+
+        tit+=', sig_noise=%.1f'%(smd['sigma_noise'])
+        
         '''
         Parameters:
         -----------
@@ -248,10 +260,7 @@ class Plotter(PlotterBackbone):
             num=figId
         )
 
-        # add text above all plots
-        tit='sim=%s'%(md['short_name'])
-        tit+=', obs=rate (Hz)'
-        tit+=', sig_noise=%.1f'%(smd['sigma_noise'])
+        
         if pom['time_rebin'] >1 : tit+=', dt=%.3f sec'%pom['time_step']
         
         fig.suptitle(tit, fontsize=16)
@@ -271,7 +280,7 @@ class Plotter(PlotterBackbone):
                     # off-diagonal: scatter feature j vs feature i
                     x = valV[:, j]
                     y = valV[:, i]
-                    ax.scatter(x, y, s=5, alpha=0.8,c='grey')
+                    ax.scatter(x, y, s=5, alpha=0.4,c='grey')
 
                     # compute correlation coefficient
                     r = np.corrcoef(x, y)[0, 1]

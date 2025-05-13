@@ -10,13 +10,16 @@ __email__ = "janstar1122@gmail.com"
 import os
 import pickle
 from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
+from toolbox.Util_Dale_LDS  import rebin_axis0_average
+from Plotter_Dale_LDS import Plotter
 
 from time import time
 from pprint import pprint
 import numpy as np
-from Plotter_Dale_LDS import Plotter
+
 from time import time
 import argparse
+
 #...!...!....................
 def get_parser():
     parser = argparse.ArgumentParser()
@@ -45,33 +48,6 @@ def get_parser():
     return args
 
 
-def rebin_axis0_average(V, k):
-    """
-    Average‑rebin along axis 0 by factor k.
-    If the length along axis 0 is not divisible by k, the input is clipped
-    (extra samples at the end are dropped).
-    
-    Parameters
-    ----------
-    V : array‑like, shape (nt, ...)
-        Input data.
-    k : int
-        Rebin factor.
-    
-    Returns
-    -------
-    rebinned : ndarray, shape (nt//k, ...)
-        Data averaged over non‑overlapping blocks of size k along axis 0.
-    """
-    nt = V.shape[0]
-    # drop extra samples so length is divisible by k
-    trimmed_len = nt - (nt % k)
-    if trimmed_len != nt:
-        V = V[:trimmed_len]
-    new_shape = (trimmed_len // k, k) + V.shape[1:]
-    return V.reshape(new_shape).mean(axis=1)
-
-
 #...!...!....................
 def postproc_netActivity(bigD,md):
     sim=md['simu']
@@ -84,7 +60,7 @@ def postproc_netActivity(bigD,md):
     #.... clip data in time
     tL,tR=[int(x/dt) for x in args.time_range ]
     print('FUV tbinLR:',tL,tR)
-    assert tR < timeV.shape[0]
+    assert tR <= timeV.shape[0]
     timeV=timeV[tL:tR]
     stateV=bigD['evol_state'][tL:tR]
     pom['time_range']=[args.time_range[0], args.time_range[1]]
@@ -117,33 +93,30 @@ if __name__=="__main__":
     args=get_parser()
     np.set_printoptions(precision=3)
 
-    inpF=os.path.join(args.inpPath,args.simName+'.simAct.h5')
+    inpF=os.path.join(args.inpPath,args.simName+'.simNet.h5')
     bigD,MD=read4_data_hdf5(inpF)
     pprint(MD)
 
     postproc_netActivity(bigD,MD)
-
-    nidxL=[1,5,13,37,46,54]
     numNeur=MD['dale_truth']['num_any_neur']
+    
+    nidxL=[1,5,13,37,46,54] # use this if you want fixed neurons instead of random
     nidxL=np.sort(np.random.choice(numNeur, size=6, replace=False))
     
     #--------------------------------
     # ....  plotting ........
     args.prjName=MD['short_name']
-    #['plot']={}
-    #if args.time_range!=None: expMD['plot']['time_rangeLR']=args.time_range
     MD['plot']={}
      
     plot=Plotter(args)
    
     if 'a' in args.showPlots:
-        #plot.rate_sample(bigD,MD,nidxL=[1,5,13,117,126,198],figId=1)  # 200-neurons
         plot.rate_sample(bigD,MD,nidxL=nidxL,figId=1,obsN='rate') 
     if 'b' in args.showPlots:
         plot.rate_sample(bigD,MD,nidxL=nidxL,figId=2,obsN='state')
         
     if 'c' in args.showPlots:
-        plot.rate_correl(bigD,MD,nidxL=nidxL,figId=3) 
+        plot.rate_correl(bigD,MD,nidxL=nidxL,obsN='state',figId=3) 
 
     if 'e' in args.showPlots:
         plot.evoked_energy(bigD,MD,figId=1)
