@@ -143,3 +143,56 @@ def intersection(coefs, selection_thresholds=None):
     supports = np.unique(supports, axis=0)
 
     return supports
+
+
+def ie_type(coef, lag, num_feat, scheme = 2):
+    A_model = coef.reshape(coef.shape[:-1] + (num_feat,lag,num_feat)) # Reshape last axis from to the connectivity matrix
+    # shape: n_boot * n_reg_param * lag * n_feat * n_feat
+    A_model = np.transpose(A_model, (0,1,3,2,4))   #switch the axis on the lag and n_feat(because we column stacked)
+    
+    # shape:  lag * n_boot * n_reg_param * n_feat * n_feat (transpose is so useful!!!)
+    A_model = np.transpose(A_model, (2,0,1,3,4)) 
+
+    p_count = np.sum(A_model > 0, axis=-1)
+    n_count = np.sum(A_model < 0, axis=-1)    
+
+    if scheme == 1:
+        # scheme #1: decision on aggregated counts
+        for i in range(lag):
+            p_count_sum =  np.sum(p_count[i], axis=tuple(range(p_count[i].ndim-1)))
+            n_count_sum =  np.sum(n_count[i], axis=tuple(range(n_count[i].ndim-1)))
+            
+            node_type =  2 * (p_count_sum > n_count_sum) -1
+            
+            # for draws, take random pick
+            # this accounts for all zeros for a node; p_count==n_count for a node; 
+            # all zeros for a node for all bootstrap(no support anyways);  
+            print("draw: ",np.where(p_count_sum == n_count_sum)[0])
+            for idx in np.where(p_count_sum == n_count_sum)[0]:
+                node_type[idx] = np.random.choice([-1,1])    
+            print("Lag "+str(i+1)+":", node_type)
+    elif scheme == 2:
+        # scheme #2: aggregate of individual bootstrap decisions
+        for i in range(lag):
+            tie = p_count[i] == n_count[i]
+            
+            p_comparison = p_count[i] > n_count[i]
+            n_comparison = p_count[i] < n_count[i]
+            
+            p_comparison_aggregate = np.sum(p_comparison, axis=tuple(range(p_comparison.ndim-1)))
+            n_comparison_aggregate = np.sum(n_comparison, axis=tuple(range(n_comparison.ndim-1)))
+            
+            node_type =  2 * (p_comparison_aggregate > n_comparison_aggregate)-1
+        
+            # for draws, take random pick
+            # this accounts for all zeros for a node; p_count==n_count for a node; 
+            # all zeros for a node for all bootstrap(no support anyways); I_candidate count == E_candidate count
+            print("draw: ",np.where(p_comparison_aggregate == n_comparison_aggregate)[0])
+            for idx in np.where(p_comparison_aggregate == n_comparison_aggregate)[0]:
+                node_type[idx] = np.random.choice([-1,1])
+            print("Lag "+str(i+1)+":", node_type)
+
+    return node_type
+
+
+

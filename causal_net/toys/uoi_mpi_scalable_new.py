@@ -1,22 +1,18 @@
 #!/usr/bin/env python3
 
 ''' use cases
-
-IMG=nersc/causal-net:v3   # Mar 28
+IMG=nersc/casual-net:v1 
+salloc -q interactive -C cpu --image=$IMG -t 2:00:00 -A m2043 -N 4
 export OMP_NUM_THREADS=2
-salloc -q interactive -C cpu --image=$IMG -t 4:00:00 -A m2043 -N 4
 
+shifter ./uoi_mpi_scalable.py --num_feat  15 --num_samp  100 --lag 1
+>>>Total Execution Time: 12.218 sec
 
-shifter ./uoi_mpi_scalable_new.py --num_feat  15 --num_samp  100 --lag 1
-OLD>>>Total Execution Time: 12.218 sec
-NEW>>>Total Execution Time: 7.384 se
-
-shifter ./uoi_mpi_scalable_new.py --inpName HET_80k_1_samp1kHz-064870.npy
+shifter ./uoi_mpi_scalable.py --inpName HET_80k_1_samp1kHz-064870.npy
 >>> Total Execution Time: 3.075 sec
 
-srun -n 4 shifter  ./uoi_mpi_scalable_new.py --num_feat  15 --num_samp  300 --lag 2
-OLD>>> Total Execution Time: 16.078 sec
-NEW >>>Total Execution Time: 8.661 sec
+srun -n 4 shifter  ./uoi_mpi_scalable.py --num_feat  15 --num_samp  300 --lag 2
+>>> Total Execution Time: 16.078 sec
 
 srun -n 4 shifter  ./uoi_mpi_scalable.py  --inpName HET_80k_1_samp1kHz-064870.npy
 
@@ -36,9 +32,11 @@ script_start_time = time()
 omp_threads = os.environ.get("OMP_NUM_THREADS", "Not Set")
 assert omp_threads=='2'
 
-sys.path.append("/global/homes/b/balewski/prjs/2025_UoI-VAR/")
-from examples.var_utils import * 
-from src.pyuoi.linear_model import *
+from pyuoi.linear_model import *
+from pyuoi.linear_model.sparse_comm_util import build_bootstrap_comm
+sys.path.append(os.path.abspath("../../"))
+from examples.var_utils import *
+
 
 #...!...!....................
 def generate_dummy_data(num_feat, num_samp, lag):
@@ -53,6 +51,12 @@ def generate_dummy_data(num_feat, num_samp, lag):
     )
        
     return data
+
+
+use_admm = True
+n_admm = 16  # n_process should be multiple of n_admm, and at MOST n_admm*n_boot*n_reg_param
+rho = None
+#rho = 1e10
 
 
 #...!...!....................
@@ -78,26 +82,42 @@ def main(num_feat, num_samp, lag, inpName):
         else:
             print(' Load array back from file:',inpName, flush=True)    
             mydata = np.load(inpName)
-            num_samp,num_feat=mydata.shape
-            
+            num_samp,num_feat=mydata.shape  
     else:
         mydata = None
 
-    print('mydata:',mydata.dtype)
+    # Broadcast data to all ranks
+    # mydata = comm.bcast(mydata, root=0)
+    
+
+    # X, Y = vectorization(mydata, lag)
     if rank == 0:
         print('mydata:',mydata.shape)
-     
-    # All ranks: Initialize 
-    uoi_lasso = UoI_Lasso(n_real_features=num_feat, fit_VAR=True, random_state=42, comm=comm)
 
 
-    # fit UoI_Lasso
     start_time = time()
-    if rank == 0:
-        uoi_lasso.fit(lag, data = mydata.astype(np.float64))
-        # it will roadcast data to all ranks
-    else:
-        uoi_lasso.fit(lag)
+    
+    if use_admm:        
+        boot_comm = build_bootstrap_comm(comm, n_admm)
+        uoi_lasso = UoI_Lasso(n_real_features = num_feat, fit_VAR = True, fit_intercept=False, random_state=42, comm = boot_comm, global_comm = comm, n_admm = n_admm, admm_rho = rho, solver='admm', estimation_solver = "admm")
+        
+        if boot_comm is not None:  #if the global_rank is part of the boostrap distribution(not admm distribution)
+            if boot_comm.rank == 0:
+                uoi_lasso.fit(lag, data = mydata)
+            else:
+                uoi_lasso.fit(lag)
+        else:
+            if uoi_lasso.solver == "admm":
+                uoi_lasso.admm_queue()
+    
+    else:  #original implemetation
+        uoi_lasso = UoI_Lasso(n_real_features = num_feat, fit_VAR = True, fit_intercept=False, random_state=42, comm = comm)    
+    
+        if comm.rank == 0:
+            uoi_lasso.fit(lag, data = mydata)
+        else:
+            uoi_lasso.fit(lag)
+    
     fit_time = time() - start_time
 
     # Rank 0 collects all fit times

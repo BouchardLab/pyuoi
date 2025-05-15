@@ -7,7 +7,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
 from sklearn.preprocessing import StandardScaler
 
-from scipy.sparse import issparse, csr_matrix, csc_matrix, coo_matrix
+from scipy.sparse import issparse, csr_matrix, csc_matrix, coo_matrix, kron, eye
 
 from pyuoi import utils
 from pyuoi.mpi_utils import (Gatherv_rows, Bcast_from_root)
@@ -17,7 +17,7 @@ from ..utils import check_logger
 import gc
 from copy import deepcopy
 
-def vectorization_bootstrap(raw_data, sample_idx, lag):
+def vectorization_bootstrap(raw_data, sample_idx, lag, sparse_format = "csr"):
     # vectorize the VAR bootstrap data for use with LASSO algorithm
     # sample_idx: idx for sampling the response vectors of the VAR model
     # data: raw time series data in np array with shape n_samples X n_features
@@ -36,11 +36,10 @@ def vectorization_bootstrap(raw_data, sample_idx, lag):
     # X.shape: (n_boot_sample) X (lag * n_features); 
     X_row = [np.hstack(data[i+1 : lag+(i+1)]) for i in sample_idx]
     X = np.vstack(X_row)
-    # use kronecker product for vectorization of matrix multiplication
-    X = np.kron(np.eye(n_features), X)    
+    # use kronecker product for vectorization of matrix multiplication 
+    # use sparse kron operation of limit memory expansion
+    X = kron(eye(n_features), X, format=sparse_format)
 
-
-    X = csr_matrix(X)
     X, Y = check_X_y(X, Y, accept_sparse=['csr', 'csc', 'coo'],
                  y_numeric=True, multi_output=True)
     return X, Y
@@ -64,8 +63,9 @@ def vectorization(raw_data, lag):
     # X.shape: (n_samples - lag) X (lag * n_features); 
     X_row = [np.hstack(data[i : lag+i]) for i in range(1,n_samples-lag+1)]
     X = np.vstack(X_row)
+    
     # use kronecker product for vectorization of matrix multiplication
-    X = np.kron(np.eye(n_features), X)    
+    X = kron(eye(n_features), X, format="csr")
     
     X, Y = check_X_y(X, Y, accept_sparse=['csr', 'csc', 'coo'],
                  y_numeric=True, multi_output=True)    
@@ -159,7 +159,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                  estimation_frac=0.9, stability_selection=0.75,
                  fit_intercept=True, standardize=True,
                  shared_support=True, max_iter=None, tol=None,
-                 random_state=None, comm=None, logger=None):
+                 random_state=None, comm=None, global_comm = None, admm_comm = None, logger=None):
         # data split fractions
         self.n_real_features = n_real_features  #n_real_features = 1 ==> not fitting a VAR model
         self.fit_VAR = fit_VAR        
@@ -176,6 +176,8 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         self.max_iter = max_iter
         self.tol = tol
         self.comm = comm
+        self.global_comm = global_comm
+        self.admm_comm = admm_comm
         self.output_dim = 1  # by vectorization construction
         self.VAR_coef_ = None
         # preprocessing
@@ -345,7 +347,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         self.n_reg_params_ = len(self.reg_params_)
 
 
-        # extract model dimensions(this specifically is for the vectorized VAR model)
+        # extract model dimensions(this is specifically for the vectorized VAR model)
         n_coef = lag * data.shape[1]**2
         n_features = n_coef
     
@@ -368,11 +370,11 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         if size > self.n_boots_sel: 
             # more process than n_boots_sel, so divvy the n_reg_param task up also
             # each task is for a single boot and a single reg_parameter, so the num_tasks here will be Xn_reg_params more than the "else" clause
-            tasks = np.array_split(np.arange(self.n_boots_sel *
+            tasks = np.array_split(np.arange(self.n_boots_sel * 
                                              self.n_reg_params_), size)[rank]
             selection_coefs = np.empty((tasks.size, n_coef))
             # but my_boots is still indexed by the boots, since the reg_param is picked separately when fitting is about to begin
-            my_boots = dict((task_idx // self.n_reg_params_, None)
+            my_boots = dict((task_idx // (self.n_reg_params_), None)
                             for task_idx in tasks)
         else: 
             # less process than n_boots_sel, so some process will have multiple boots with all there reg_param runs as well
@@ -421,7 +423,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         # this is the actually doing the fit, 
         curr_boot_idx = None
         for ii, task_idx in enumerate(tasks):
-            if size > self.n_boots_sel:
+            if size > self.n_boots_sel: #in this case, my_reg_params has only 1 parameter
                 boot_idx = task_idx // self.n_reg_params_
                 reg_idx = task_idx % self.n_reg_params_
                 my_reg_params = [self.reg_params_[reg_idx]]
@@ -429,6 +431,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                 boot_idx = task_idx
                 my_reg_params = self.reg_params_
             # Never warm start across bootstraps
+            # 
             if (curr_boot_idx != boot_idx):
                 if hasattr(self._selection_lm, 'coef_'):
                     self._selection_lm.coef_ *= 0.
@@ -454,6 +457,8 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
 
             else:
                 self._logger.info("selection bootstrap %d" % (boot_idx))
+
+            
             selection_coefs[ii] = np.squeeze(
                 self.uoi_selection_sweep(X_rep, y_rep, my_reg_params))
 
@@ -467,9 +472,13 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                         self.n_boots_sel,
                         self.n_reg_params_,
                         n_coef)
+
+                # printing the total number of non-zero coef
+                #print(np.sum(selection_coefs > 0, axis=2)+np.sum(selection_coefs < 0, axis=2), flush = True)
                 supports = self.intersect(
                     selection_coefs,
                     self.selection_thresholds_).astype(int)
+          
             else:
                 supports = None
             supports = Bcast_from_root(supports, self.comm, root=0)
@@ -485,6 +494,12 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             #print(self.n_supports_ ,flush = True)
             self._logger.info("Found %d supports" % self.n_supports_)
 
+        # terminating condition for non-root admm ranks for selection module
+        
+        if self.solver == "admm":
+            n = -1
+            n = self.admm_comm.bcast(n, root=0)
+            
         #####################
         # Estimation Module #
         #####################
@@ -532,7 +547,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             # draw a resampled bootstrap
             if curr_boot_idx != boot_idx:
                 idxs_train, idxs_test = my_boots[boot_idx]
-                X, y = vectorization_bootstrap(data, idxs_train, lag)
+                X, y = vectorization_bootstrap(data, idxs_train, lag) #, sparse_format = "csc")
             curr_boot_idx = boot_idx
  
             X_rep = X
@@ -586,11 +601,17 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                     fitter=fitter,
                     X=X_score, y=y_score,
                     support=np.zeros(X.shape[1], dtype=bool))
-                
+
+        # terminating condition for non-root admm ranks for estimation module
+        if self.estimation_solver == "admm":
+            n = 0
+            n = self.admm_comm.bcast(n, root=0)
+        
         # clear memory
         del X
         del y 
         gc.collect()
+
         
         if size > 1:
             estimates = Gatherv_rows(send=estimates, comm=self.comm,
@@ -612,8 +633,13 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                 coef = np.median(best_estimates,
                                  axis=0).reshape(self.output_dim, n_features)
                 self.coef_ = coef
-                X_all, y_all = vectorization(data, lag)    
-                self._fit_intercept(X_all, y_all)
+                if self.fit_intercept:
+                    # the full vectorzation won't do well with large dataset
+                    X_all, y_all = vectorization(data, lag)    
+                    self._fit_intercept(X_all, y_all)
+                else:
+                    self._fit_intercept(None, None)
+                
             self.estimates_ = Bcast_from_root(estimates, self.comm, root=0)
             self.scores_ = Bcast_from_root(scores, self.comm, root=0)
             self.coef_ = Bcast_from_root(coef, self.comm, root=0)  #it's done again down below for recaled VAR coef
@@ -633,9 +659,12 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             # take the median across estimates for the final, bagged estimate
             self.coef_ = np.median(best_estimates,
                                    axis=0).reshape(self.output_dim, n_features)
-        
-            X_all, y_all = vectorization(data, lag)               
-            self._fit_intercept(X_all, y_all)
+
+            if self.fit_intercept:
+                X_all, y_all = vectorization(data, lag)               
+                self._fit_intercept(X_all, y_all)
+            else:
+                self._fit_intercept(None, None)
             
         if rank == 0:
             self._post_fit_VAR(lag, data.shape[1])
@@ -673,6 +702,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         # apply the selection regression to bootstrapped datasets
         for reg_param_idx, reg_params in enumerate(reg_param_values):
             # reset the regularization parameter
+
             self._selection_lm.set_params(**reg_params)
             # rerun fit
             self._selection_lm.fit(X, y)
@@ -705,7 +735,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
                  estimation_score='r2', estimation_target=None,
                  copy_X=True, fit_intercept=True,
                  standardize=True, random_state=None, max_iter=None, tol=None,
-                 comm=None, logger=None):
+                 comm=None, global_comm = None, admm_comm = None, logger=None):
         super(AbstractUoILinearRegressor, self).__init__(
             n_real_features = n_real_features,
             fit_VAR = fit_VAR,   
@@ -720,6 +750,8 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
             tol=tol,
             random_state=random_state,
             comm=comm,
+            global_comm = global_comm,
+            admm_comm = admm_comm,
             logger=logger)
 
         if estimation_score not in self._valid_estimation_metrics:
@@ -822,6 +854,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
                              '(n_samples, ) or (n_samples, 1).')
 
         y_pred = fitter.predict(X[:, support])
+        
         if y.shape != y_pred.shape:
             raise ValueError('Targets and predictions are not the same shape.')
 

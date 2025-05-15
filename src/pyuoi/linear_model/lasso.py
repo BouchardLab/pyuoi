@@ -9,6 +9,8 @@ except ImportError:
     pycasso = None
 
 from .base_VAR import AbstractUoILinearRegressor
+from .admm_mpi import ADMM_Lasso
+from mpi4py import MPI
 
 
 class PycLasso():
@@ -205,7 +207,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
                  estimation_score='r2', estimation_target=None, eps=1e-3,
                  warm_start=True, copy_X=True, fit_intercept=True,
                  standardize=True, max_iter=1000, tol=1e-4, random_state=None,
-                 comm=None, logger=None, solver='cd'):
+                 comm=None, global_comm = None, n_admm = None, admm_rho = None, logger=None, solver='cd', estimation_solver = "ls"):
         super(UoI_Lasso, self).__init__(
             n_real_features = n_real_features,
             fit_VAR = fit_VAR, 
@@ -220,14 +222,21 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
             standardize=standardize,
             random_state=random_state,
             comm=comm,
+            global_comm=global_comm,
             estimation_score=estimation_score,
             max_iter=max_iter,
             tol=tol,
             logger=logger)
         self.n_lambdas = n_lambdas
         self.eps = eps
-        self.solver = solver
+        self.solver = solver    # solver for selection module
+        self.estimation_solver = estimation_solver   # solver for estimation module
         self.tol = tol
+        self.rho = admm_rho  # admm hyper-parameter, modulating the constraint that aux variable equals to the model variable
+
+        self.n_admm = n_admm
+
+        
 
         if solver == 'cd':
             self._selection_lm = Lasso(
@@ -244,7 +253,53 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
                 max_iter=max_iter,
                 tol=tol)
 
-        self._estimation_lm = LinearRegression(fit_intercept=fit_intercept)
+        elif solver == "admm":
+
+             #every rank will have their corresponding admm_comm!!!
+            admm_comm_list = []
+            admm_group_list = []
+
+            # global rank
+            rank = self.global_comm.rank 
+            # idx of the correponding bootstrap
+            boot_rank = rank//n_admm
+     
+
+            # all ranks of the corresponding admm group for that given bootstrap
+            admm_ranks_list = [np.arange(boot_rank*n_admm, (boot_rank+1)*n_admm) for boot_rank in range(int(self.global_comm.Get_size()//n_admm))]
+
+            for admm_ranks in admm_ranks_list:
+            
+                admm_group_list.append(self.global_comm.group.Incl(admm_ranks))
+                admm_comm_list.append(self.global_comm.Create(admm_group_list[-1]))
+
+
+            self.admm_comm = admm_comm_list[boot_rank]
+            
+            self._selection_lm = ADMM_Lasso(
+                comm = self.admm_comm,
+                max_iter=max_iter,
+                abs_tol=tol,
+                rel_tol = tol/10,
+                warm_start=warm_start,
+                random_state=random_state,
+                fit_intercept=fit_intercept) 
+            
+
+
+        if estimation_solver == "admm":
+            self._estimation_lm = ADMM_Lasso(
+                    comm = self.admm_comm,
+                    max_iter=max_iter,
+                    abs_tol=tol,
+                    rel_tol = tol/10,
+                    warm_start=warm_start,
+                    random_state=random_state,
+                    fit_intercept=fit_intercept) 
+            self._estimation_lm.set_params(alpha=0)
+        elif estimation_solver == "ls":
+            self._estimation_lm = LinearRegression(fit_intercept=fit_intercept)
+        
 
     def get_reg_params(self, X, y):
         alphas = _alpha_grid(
@@ -256,9 +311,28 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
 
         return [{'alpha': a} for a in alphas]
 
+
+
+    def admm_queue(self):
+
+        if self.solver == "admm":
+            while True:
+                #the first bcast call in fit is blocking, so the non-root process will wait for the root to distribute data
+                self._selection_lm.fit()
+                if self._selection_lm.terminate_selection:
+                    break
+
+        if self.estimation_solver == "admm":
+            while True:
+                self._estimation_lm.fit()
+                if self._estimation_lm.terminate_estimation:
+                    break
+        
+
     def uoi_selection_sweep(self, X, y, reg_param_values):
         """Overwrite base class selection sweep to accommodate pycasso
         path-wise solution"""
+
 
         if self.solver == 'pyc':
             alphas = np.array([reg_param['alpha']
@@ -267,6 +341,25 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
             self._selection_lm.fit(X, y)
 
             return self._selection_lm.coef_
+
+        elif self.solver == 'admm':
+          
+            n_param_values = len(reg_param_values)            
+            n_coef = self.get_n_coef(X, y)   
+            coefs = np.zeros((n_param_values, n_coef))
+    
+            # apply the selection regression to bootstrapped datasets
+            for reg_param_idx, reg_params in enumerate(reg_param_values):
+                # reset the regularization parameter
+    
+                self._selection_lm.set_params(**reg_params)
+                # rerun fit
+                self._selection_lm.fit(X, y, rho = self.rho)
+                # store coefficients
+                coefs[reg_param_idx] = self._selection_lm.coef_.ravel()
+    
+            return coefs
+        
         else:
             return super(UoI_Lasso, self).uoi_selection_sweep(X, y,
                                                               reg_param_values)
