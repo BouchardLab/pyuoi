@@ -293,7 +293,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
                     max_iter=max_iter,
                     abs_tol=tol,
                     rel_tol = tol/10,
-                    warm_start=warm_start,
+                    warm_start=False,
                     random_state=random_state,
                     fit_intercept=fit_intercept) 
             self._estimation_lm.set_params(alpha=0)

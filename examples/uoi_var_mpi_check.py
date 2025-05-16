@@ -94,7 +94,7 @@ if rank == 0:
 
 
 # indicator for whether comparing fitting results from single process fit vs multi-process fit
-compare_to_single = True
+compare_to_single = False
 
 if compare_to_single:
     #fitting with single process
