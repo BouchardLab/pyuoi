@@ -32,8 +32,11 @@ script_start_time = time()
 omp_threads = os.environ.get("OMP_NUM_THREADS", "Not Set")
 assert omp_threads=='2'
 
+
 from pyuoi.linear_model import *
-from pyuoi.linear_model.sparse_comm_util import build_bootstrap_comm
+sys.path.append(os.path.abspath("../../src/pyuoi/linear_model"))
+#from pyuoi.linear_model.sparse_comm_util import build_bootstrap_comm
+from sparse_comm_util import build_bootstrap_comm
 sys.path.append(os.path.abspath("../../"))
 from examples.var_utils import *
 
