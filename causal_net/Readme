@@ -1,7 +1,11 @@
- IMG=nersc/causal-net:v3   # Mar 28
- #export OMP_NUM_THREADS=2
- salloc -q interactive -C cpu --image=$IMG -t 4:00:00 -A m2043 -N 1
+Detailed manual at
+https://docs.google.com/document/d/1Ou98jsFpTR7s3cTf6AQwF92tqd2guwA_cGuvQrm8RSE/edit?usp=sharing
 
+
+IMG=nersc/causal-net:v3   # Mar 28
+#IMG=nersc/causal-net:v4   # May 13
+ export OMP_NUM_THREADS=2
+ salloc -q interactive -C cpu --image=$IMG -t 4:00:00 -A m2043 -N 1
 
 
 Directory structure to stor real and simulated data
