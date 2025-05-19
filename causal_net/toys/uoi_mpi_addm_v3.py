@@ -55,14 +55,8 @@ def generate_dummy_data(num_feat, num_samp, lag):
     return data
 
 
-use_admm = True
-n_admm = 16  # n_process should be multiple of n_admm, and at MOST n_admm*n_boot*n_reg_param
-rho = None
-#rho = 1e10
-
-
 #...!...!....................
-def main(num_feat, num_samp, lag, inpName):
+def main(num_feat, num_samp, lag, inpName, n_admm):
     # Initialize MPI
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
@@ -88,18 +82,16 @@ def main(num_feat, num_samp, lag, inpName):
     else:
         mydata = None
 
-    # Broadcast data to all ranks
-    # mydata = comm.bcast(mydata, root=0)
-    
-
-    # X, Y = vectorization(mydata, lag)
     if rank == 0:
-        print('mydata:',mydata.shape)
-
+        print('n_admm , num_ranks:', n_admm , num_ranks)
+        print('mydata:',mydata.shape,'start fit ...', flush=True)
 
     start_time = time()
     
-    if use_admm:        
+    if use_admm:   # very scalable
+        
+        assert n_admm <= num_ranks
+        assert  num_ranks % n_admm ==0
         boot_comm = build_bootstrap_comm(comm, n_admm)
         uoi_lasso = UoI_Lasso(n_real_features = num_feat, fit_VAR = True, fit_intercept=False, random_state=42, comm = boot_comm, global_comm = comm, n_admm = n_admm, admm_rho = rho, solver='admm', estimation_solver = "admm")
         
@@ -112,7 +104,7 @@ def main(num_feat, num_samp, lag, inpName):
             if uoi_lasso.solver == "admm":
                 uoi_lasso.admm_queue()
     
-    else:  #original implemetation
+    else:  #original implemetation, not scalable
         uoi_lasso = UoI_Lasso(n_real_features = num_feat, fit_VAR = True, fit_intercept=False, random_state=42, comm = comm)    
     
         if comm.rank == 0:
@@ -155,11 +147,16 @@ def main(num_feat, num_samp, lag, inpName):
 if __name__ == "__main__":
     # Use argparse for command-line inputs
     parser = argparse.ArgumentParser(description="MPI-based Dummy Lasso fitting.")
-    parser.add_argument("--num_feat", type=int, default=10, help="Number of features (default: 20)")
-    parser.add_argument("--num_samp", type=int, default=50, help="Number of samples (default: 300)")
+    parser.add_argument("--num_feat", type=int, default=20, help="Number of features ")
+    parser.add_argument("--num_samp", type=int, default=50_000, help="Number of samples")
+    parser.add_argument("--num_admm", type=int, default=64, help="som param")
     parser.add_argument("--lag", type=int, default=1, help="Lag value (default: 2)")
     parser.add_argument("--inpName",  default=None,help='input name, will define num features and num samples')
     
     args = parser.parse_args()
+    use_admm = True   # very scalable 
+    #n_admm = 64  # n_process should be multiple of n_admm, and at MOST n_admm*n_boot*n_reg_param
+    rho = None
+    #rho = 1e10
     
-    main(args.num_feat, args.num_samp, args.lag, args.inpName)
+    main(args.num_feat, args.num_samp, args.lag, args.inpName, args.num_admm)
