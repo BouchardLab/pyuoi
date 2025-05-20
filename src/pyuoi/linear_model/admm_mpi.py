@@ -98,7 +98,7 @@ class ADMM_Lasso:
     """
     
     def __init__(self, comm, rho = None, alpha=None, fit_intercept=False, max_iter=50,
-                 abs_tol=1e-3, rel_tol = 1e-2, warm_start=False, random_state=None):
+                 abs_tol=1e-3, rel_tol = 1e-2, warm_start=True, random_state=None):
         self.alpha = alpha
         self.fit_intercept = fit_intercept
         self.max_iter = max_iter
@@ -107,6 +107,7 @@ class ADMM_Lasso:
         self.warm_start = warm_start
         self.random_state = random_state
         self.comm = comm
+        self.coef_ = 0
     
     def fit(self, X= None, y = None, z = None, rho = None, sparse_input = True):
         """
@@ -247,8 +248,13 @@ class ADMM_Lasso:
         # initialize ADMM solver
 
         if z is None:
-            #z = np.random.normal(scale=0.01, size=(n, 1))
-            z = np.zeros((n, 1))
+        
+            if self.warm_start and not np.all(self.coef_ == 0):
+                z = deepcopy(self.coef_)
+            else:
+                z = np.random.normal(scale=0.1, size=(n, 1))
+                #z = np.zeros((n, 1))
+            
         x = deepcopy(z)
 
 

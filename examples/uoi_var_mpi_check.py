@@ -6,7 +6,6 @@ from var_utils import *
 from mpi4py import MPI
 from time import time
 from pyuoi.linear_model.sparse_comm_util import build_bootstrap_comm
-# boolean for whether comparing fitting result from single vs multiple process
 
 
 n_features = 10
@@ -94,12 +93,10 @@ if rank == 0:
 
 
 # indicator for whether comparing fitting results from single process fit vs multi-process fit
-compare_to_single = True
+compare_to_single = False
 
 if compare_to_single:
     #fitting with single process
-    
-    
     if rank == 0:
         uoi_lasso = UoI_Lasso(n_real_features = n_features, fit_VAR = True, fit_intercept = False, random_state=42)
         uoi_lasso.fit(lag, data = data)
