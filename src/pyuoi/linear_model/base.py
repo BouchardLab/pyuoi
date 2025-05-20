@@ -7,14 +7,87 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
 from sklearn.preprocessing import StandardScaler
 
-from scipy.sparse import issparse, csr_matrix
+from scipy.sparse import issparse, csr_matrix, csc_matrix, coo_matrix, kron, eye
 
 from pyuoi import utils
 from pyuoi.mpi_utils import (Gatherv_rows, Bcast_from_root)
 
 from .utils import stability_selection_to_threshold, intersection
 from ..utils import check_logger
+import gc
+from copy import deepcopy
 
+def vectorization_bootstrap(raw_data, sample_idx, lag, sparse_format = "csr"):
+    # vectorize the VAR bootstrap data for use with LASSO algorithm
+    # sample_idx: idx for sampling the response vectors of the VAR model
+    # data: raw time series data in np array with shape n_samples X n_features
+    # Construction strategy: first form X_boot, Y_boot, then vectorize both
+        
+    # flipup so the last time sample in data is now first row(no need anymore)
+    data = deepcopy(raw_data)
+    data = np.flipud(data)
+    n_samples = data.shape[0]
+    n_features = data.shape[1]
+
+    # shape of Y: (n_boot_sample) X (n_features) 
+    Y = data[sample_idx]   # sample_idx are in range: (0, n_samples-lag)
+    Y = Y.T.flatten()    
+    
+    # X.shape: (n_boot_sample) X (lag * n_features); 
+    X_row = [np.hstack(data[i+1 : lag+(i+1)]) for i in sample_idx]
+    X = np.vstack(X_row)
+    # use kronecker product for vectorization of matrix multiplication 
+    # use sparse kron operation of limit memory expansion
+    X = kron(eye(n_features), X, format=sparse_format)
+
+    X, Y = check_X_y(X, Y, accept_sparse=['csr', 'csc', 'coo'],
+                 y_numeric=True, multi_output=True)
+    return X, Y
+
+
+def vectorization(raw_data, lag):
+    # vectorize the full raw VAR data for use with LASSO algorithm
+    # data: time series data in np array with shape n_samples X n_features
+        
+    # flipup so the last time sample in data is now first row
+    data = deepcopy(raw_data)
+    data = np.flipud(data)
+    n_samples = data.shape[0]
+    n_features = data.shape[1]
+
+    # shape of Y: (T - D) X (n_features)   *T - D: total number of samples - lag
+    Y = data[: n_samples-lag]
+    # ones = np.ones((n_samples-lag,1))  # for VAR porocess with intercept
+    Y = Y.T.flatten()    
+    
+    # X.shape: (n_samples - lag) X (lag * n_features); 
+    X_row = [np.hstack(data[i : lag+i]) for i in range(1,n_samples-lag+1)]
+    X = np.vstack(X_row)
+    
+    # use kronecker product for vectorization of matrix multiplication
+    X = kron(eye(n_features), X, format="csr")
+    
+    X, Y = check_X_y(X, Y, accept_sparse=['csr', 'csc', 'coo'],
+                 y_numeric=True, multi_output=True)    
+    return X, Y
+
+def intermediate_data(raw_data, lag):
+    # produce the linear system used to find regularization path
+    
+    # flipup so the last time sample in data is now first row
+    data = deepcopy(raw_data)
+    data = np.flipud(data)
+    n_samples = data.shape[0]
+    n_features = data.shape[1]
+    
+    # shape of Y: (T - D) X (n_features)   *T - D: total number of samples - lag
+    Y = data[: n_samples-lag]
+    
+    # X.shape: (n_samples - lag) X (lag * n_features); 
+    X_row = [np.hstack(data[i : lag+i]) for i in range(1,n_samples-lag+1)]
+    X = np.vstack(X_row)
+  
+    return X, Y     
 
 class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
     r"""An abstract base class for UoI ``linear_model`` classes.
@@ -82,14 +155,15 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         for estimation for a given regularization parameter value (row).
     """
 
-    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=12, n_boots_est=12, selection_frac=0.9,
+    def __init__(self, fit_VAR = False, n_boots_sel=12, n_boots_est=12, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=0.75,
                  fit_intercept=True, standardize=True,
                  shared_support=True, max_iter=None, tol=None,
-                 random_state=None, comm=None, logger=None):
+                 random_state=None, comm=None, admm_comm = None, logger=None):
+
+        self.fit_VAR = fit_VAR  
+        
         # data split fractions
-        self.n_real_features = n_real_features  #n_real_features = 1 ==> not fitting a VAR model
-        self.fit_VAR = fit_VAR        
         self.selection_frac = selection_frac
         self.estimation_frac = estimation_frac
         # number of bootstraps
@@ -103,6 +177,9 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         self.max_iter = max_iter
         self.tol = tol
         self.comm = comm
+        self.admm_comm = admm_comm
+        self.output_dim = 1  # for VAR model: by vectorization construction
+        self.VAR_coef_ = None
         # preprocessing
         if isinstance(random_state, int):
             # make sure ranks use different seed
@@ -140,6 +217,40 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         """Intersect coefficients across all thresholds."""
         pass
 
+    def _pre_fit_VAR(self, X):
+        """Perform z-score scaling for VAR raw data for fit()."""
+        if self.standardize:
+            if self.fit_intercept and issparse(X):
+                msg = ("Cannot center sparse matrices: "
+                       "pass `fit_intercept=False`")
+                raise ValueError(msg)
+            self._X_scaler = StandardScaler(with_mean=self.fit_intercept)
+            X = self._X_scaler.fit_transform(X)
+       
+        return X
+        
+    def _post_fit_VAR(self, lag, n_features):
+        """Perform VAR model coefficiant rescaling if the raw data is z-score scaled."""
+        if self.standardize:
+            # construct the lagged connectivity matrices from the vectorized model coefficient
+            A_model = np.array([self.coef_.reshape(n_features,n_features*lag).T[i*n_features:(i+1)*n_features].T for i in range(lag)])
+            sX = self._X_scaler
+            Sigma = np.outer(sX.scale_, 1/sX.scale_)
+            A_model *= Sigma
+
+            self.VAR_coef_ = A_model
+
+            # adjustment for mean shifts from the data z-score scaling
+            if self.fit_intercept:
+                adjustment = (np.eye(n_features)-np.sum(A_model, axis = 0)) @ sX.mean_
+
+                # check whether VAR model intercept is scalar or vector
+                if len(self.intercept_) == n_features:  
+                    self.intercept_ += adjustment
+                elif len(self.intercept_) == 1:
+                    self.intercept_ += np.mean(adjustment)
+                        
+
     def _pre_fit(self, X, y):
         """Perform class-specific setup for fit()."""
         if self.standardize:
@@ -160,6 +271,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         if self.standardize:
             sX = self._X_scaler
             self.coef_ /= sX.scale_[np.newaxis]
+            
 
     @_abc.abstractmethod
     def _fit_intercept(self, X, y):
@@ -178,17 +290,15 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         """
         pass
 
-    def fit(self, X, y, stratify=None, verbose=False):
+    def fit(self, lag, data = None, stratify=None, verbose=False):
         """Fit data according to the UoI algorithm.
 
         Parameters
         ----------
-        X : ndarray or scipy.sparse matrix, (n_samples, n_features)
-            The design matrix.
-        y : ndarray, shape (n_samples,)
-            Response vector. Will be cast to X's dtype if necessary.
-            Currently, this implementation does not handle multiple response
-            variables.
+        data : ndarray or scipy.sparse matrix, (n_boot_samples * (lag+1), n_features)
+            The boostrap design matrix.
+        lag : integer
+            Lag of the VAR model.
         stratify : array-like or None
             Ensures groups of samples are alloted to training/test sets
             proportionally. Labels for each group must be an int greater
@@ -202,44 +312,110 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             self._logger.setLevel(logging.DEBUG)
         else:
             self._logger.setLevel(logging.WARNING)
-
-        X, y = self._pre_fit(X, y)
-
-        X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
-                         y_numeric=True, multi_output=True)
-
-        # extract model dimensions
-        n_features = X.shape[1]
-        n_coef = self.get_n_coef(X, y)
-
-        # check if the response variable is constant
-        if np.unique(y).size == 1:
-            self.coef_ = np.zeros((self.output_dim, n_features))
-            self._fit_intercept(X, y)
-            self._post_fit(X, y)
-            return self
-
-        ####################
-        # Selection Module #
-        ####################
-        # choose the regularization parameters for selection sweep
-        self.reg_params_ = self.get_reg_params(X, y)
-        self.n_reg_params_ = len(self.reg_params_)
-
+            
         rank = 0
         size = 1
         if self.comm is not None:
             rank = self.comm.rank
             size = self.comm.size
 
+        # z-score scaling the raw data and picking the regularization parameters
+        if rank == 0:
+
+            if self.fit_VAR:         
+                data = self._pre_fit_VAR(data)
+        
+                # only used for getting regularization parameters
+                # not fully vectorized X and y
+                X_all, y_all = intermediate_data(data, lag)
+                
+                # choose the regularization parameters for selection sweep                
+                reg_params_ = self.get_reg_params(X_all, y_all)
+        
+                # clear memory
+                del X_all
+                del y_all 
+                gc.collect()
+            else:  #fitting LASSO model(not VAR!)
+                X = data[0]
+                y = data[1]
+                X, y = self._pre_fit(X, y)
+        
+                X, y = check_X_y(X, y, accept_sparse=['csr', 'csc', 'coo'],
+                                 y_numeric=True, multi_output=True)  
+                reg_params_ = self.get_reg_params(X, y)
+            
+        else:
+            reg_params_ = None
+            X = None
+            y = None
+
+        if size > 1:
+            if self.fit_VAR:    
+                # Broadcast pre-fitted raw data to all ranks
+                data = self.comm.bcast(data, root=0)            
+                
+            else:
+                X = self.comm.bcast(X, root=0) 
+                y = self.comm.bcast(y, root=0) 
+            reg_params_ = self.comm.bcast(reg_params_, root=0) 
+                
+
+        self.reg_params_ = reg_params_
+        self.n_reg_params_ = len(self.reg_params_)
+
+        if not self.fit_VAR:
+            #for LASSO fitting, convert X to sparse matrix format
+            X = csr_matrix(X)
+
+
+        # extract model dimensions
+        if self.fit_VAR:
+            # this is specifically for the vectorized VAR model
+            n_coef = lag * data.shape[1]**2
+            n_features = n_coef
+        else:
+            n_features = X.shape[1]
+            n_coef = self.get_n_coef(X, y)
+    
+        # check if the response variable is constant
+        if self.fit_VAR:
+                
+            if np.unique(data).size == 1:
+                # self.coef_ = np.zeros((self.output_dim, n_features))
+                # self._fit_intercept(X_all, y_all)
+                # self._post_fit(X_all, y_all)
+                return self
+        else:       
+            if np.unique(y).size == 1:
+                self.coef_ = np.zeros((self.output_dim, n_features))
+                self._fit_intercept(X, y)
+                self._post_fit(X, y)
+                return self
+
+
+
+        ####################
+        # Selection Module #
+        ####################
+
         # initialize selection
-        if size > self.n_boots_sel:
-            tasks = np.array_split(np.arange(self.n_boots_sel *
+        
+        # assigning tasks to each process(from total of n_boot_sel*n_reg_param tasks)
+
+        if size > self.n_boots_sel: 
+            # more process than n_boots_sel, so divvy the n_reg_param task up also
+            # each task is for a single boot and a single reg_parameter, so the num_tasks here will be Xn_reg_params more than the "else" clause
+            tasks = np.array_split(np.arange(self.n_boots_sel * 
                                              self.n_reg_params_), size)[rank]
             selection_coefs = np.empty((tasks.size, n_coef))
-            my_boots = dict((task_idx // self.n_reg_params_, None)
+            # but my_boots is still indexed by the boots, since the reg_param is picked separately when fitting is about to begin
+            my_boots = dict((task_idx // (self.n_reg_params_), None)
                             for task_idx in tasks)
-        else:
+        else: 
+            # less process than n_boots_sel, so some process will have multiple boots with all there reg_param runs as well
+            # we can see the selection_coeff will have space for all the reg_params
+            
             # split up bootstraps into processes
             tasks = np.array_split(np.arange(self.n_boots_sel),
                                    size)[rank]
@@ -247,64 +423,78 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                                         n_coef))
             my_boots = dict((task_idx, None) for task_idx in tasks)
 
+        # this is where it assign the sample index to each bootstrap
+        
+        # with the rvals, rank 0 pick out the samples correponding rvals for each process, then sends them
+        # it will need to know what process has what "boot" tho, which can be obtained from "tasks" before taking the "[rank]", it's split into num_processes
+        # if size > self.n_boots_sel, then process "rank" will have boot=tasks[rank]//self.n_reg_params_
         for boot in range(self.n_boots_sel):
-            if size > 1: #MPI
+            if size > 1: # num_MPI_process
                 if rank == 0:
+                    # selecting the samples for this particular bootstrap
                     # rvals[0] is the training_set_idx, rvals[1] is the test_set_idx
-                    rvals = train_test_split(np.arange(X.shape[0]//self.n_real_features),
+                    if self.fit_VAR:
+                        #select from the (num of raw samples - lag)
+                        idx_set = np.arange(data.shape[0]-lag)
+                    else:
+                        idx_set = np.arange(X.shape[0])
+                        
+                    rvals = train_test_split(idx_set,
                                              test_size=1 - self.selection_frac,
                                              stratify=stratify,
-                                             random_state=self.random_state)
+                                             random_state=self.random_state)    
                 else:
                     rvals = [None] * 2
+
+                # brocasting raw rvals to all processes and let them decide for themselves if rvals are theirs to keep
                 rvals = [Bcast_from_root(rval, self.comm, root=0)
                          for rval in rvals]
+                
                 if boot in my_boots.keys():
+                    # the raw rvals are picking entries of the Y vector
                     my_boots[boot] = rvals
+                    
             else: #non-MPI
+                if self.fit_VAR:
+                    idx_set = np.arange(data.shape[0]-lag)
+                else:
+                    idx_set = np.arange(X.shape[0])
+                    
                 my_boots[boot] = train_test_split(
-                    np.arange(X.shape[0]//self.n_real_features),
+                    idx_set,
                     test_size=1 - self.selection_frac,
                     stratify=stratify,
-                    random_state=self.random_state)
-        
-        if self.fit_VAR:
-            n_real_samples = X.shape[0]//self.n_real_features #caveat: actually it's n_real_samples - lag
-            for i in my_boots:
-                for k in range(2):  #iterating over the training and test bootstrap index
-                    #bootstrap idx populating
-                    partial_idx = my_boots[i][k] #this is a list too!!! of the representative idx of the concatenated VAR sample
-                    all_idx = [partial_idx+j*(n_real_samples) for j in range(self.n_real_features)]
-                    all_idx = np.hstack(all_idx)
-                    my_boots[i][k] = all_idx
-            
+                    random_state=self.random_state)               
      
-
-
-        # iterate over bootstraps
+        # iterate over bootstraps(and reg_params)
+        # fitting happens here 
         curr_boot_idx = None
         for ii, task_idx in enumerate(tasks):
-            if size > self.n_boots_sel:
+            if size > self.n_boots_sel: #in this case, my_reg_params has only 1 parameter
                 boot_idx = task_idx // self.n_reg_params_
                 reg_idx = task_idx % self.n_reg_params_
                 my_reg_params = [self.reg_params_[reg_idx]]
             else:
                 boot_idx = task_idx
                 my_reg_params = self.reg_params_
+                
             # Never warm start across bootstraps
             if (curr_boot_idx != boot_idx):
                 if hasattr(self._selection_lm, 'coef_'):
                     self._selection_lm.coef_ *= 0.
                 if hasattr(self._selection_lm, 'intercept_'):
                     self._selection_lm.intercept_ *= 0.
+                    
+                # draw a resampled bootstrap, and vectorize it
+                # minimize repeated vecotrization if using the same bootstrap
+                idxs_train, idxs_test = my_boots[boot_idx]
+                if self.fit_VAR:
+                    X_rep, y_rep = vectorization_bootstrap(data, idxs_train, lag)
+                else:
+                    X_rep = X[idxs_train]
+                    y_rep = y[idxs_train]
+                
             curr_boot_idx = boot_idx
-
-            # draw a resampled bootstrap
-            idxs_train, idxs_test = my_boots[boot_idx]
-            X_rep = X[idxs_train]
-            y_rep = y[idxs_train]
-            
-  
 
             # fit the coefficients
             if size > self.n_boots_sel:
@@ -315,6 +505,8 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
 
             else:
                 self._logger.info("selection bootstrap %d" % (boot_idx))
+
+            
             selection_coefs[ii] = np.squeeze(
                 self.uoi_selection_sweep(X_rep, y_rep, my_reg_params))
 
@@ -328,9 +520,13 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                         self.n_boots_sel,
                         self.n_reg_params_,
                         n_coef)
+
+                # printing the total number of non-zero coef
+                #print(np.sum(selection_coefs > 0, axis=2)+np.sum(selection_coefs < 0, axis=2), flush = True)
                 supports = self.intersect(
                     selection_coefs,
                     self.selection_thresholds_).astype(int)
+          
             else:
                 supports = None
             supports = Bcast_from_root(supports, self.comm, root=0)
@@ -341,9 +537,17 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
 
         self.n_supports_ = self.supports_.shape[0]
 
+        
         if rank == 0:
+            #print(self.n_supports_ ,flush = True)
             self._logger.info("Found %d supports" % self.n_supports_)
 
+        # terminating condition for non-root admm ranks for selection module
+        
+        if self.solver == "admm":
+            n = -1
+            n = self.admm_comm.bcast(n, root=0)
+            
         #####################
         # Estimation Module #
         #####################
@@ -355,12 +559,15 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                         for task_idx in tasks)
         estimates = np.zeros((tasks.size, n_coef))
         
-
       
         for boot in range(self.n_boots_est):
             if size > 1:
                 if rank == 0:
-                    rvals = train_test_split(np.arange(X.shape[0]//self.n_real_features),
+                    if self.fit_VAR:
+                        idx_set = np.arange(data.shape[0]-lag)
+                    else:
+                        idx_set = np.arange(X.shape[0])
+                    rvals = train_test_split(idx_set,
                                              test_size=1 - self.estimation_frac,
                                              stratify=stratify,
                                              random_state=self.random_state)
@@ -371,40 +578,39 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                 if boot in my_boots.keys():
                     my_boots[boot] = rvals
             else:
+                if self.fit_VAR:
+                    idx_set = np.arange(data.shape[0]-lag)
+                else:
+                    idx_set = np.arange(X.shape[0])                
                 my_boots[boot] = train_test_split(
-                    np.arange(X.shape[0]//self.n_real_features),
+                    idx_set,
                     test_size=1 - self.estimation_frac,
                     stratify=stratify,
                     random_state=self.random_state)
 
         # score (r2/AIC/AICc/BIC) for each bootstrap for each support
         scores = np.zeros(tasks.size)
-        
-        if self.fit_VAR:        
-            for i in my_boots:
-                for k in range(2):  #iterating over the traning and test bootstrap index
-                    #bootstrap idx populating
-                    partial_idx = my_boots[i][k]
-                    all_idx = [partial_idx+j*(n_real_samples) for j in range(self.n_real_features)]
-                    all_idx = np.hstack(all_idx)
-                    my_boots[i][k] = all_idx
-                
                 
         # iterate over bootstrap samples and supports
-        
+
+        curr_boot_idx = None
         for ii, task_idx in enumerate(tasks):
             
             boot_idx = task_idx // self.n_supports_
             support_idx = task_idx % self.n_supports_
             support = self.supports_[support_idx]
             # draw a resampled bootstrap
-            idxs_train, idxs_test = my_boots[boot_idx]
-            
- 
-            X_rep = X[idxs_train]
-            y_rep = y[idxs_train]
-            
+            if curr_boot_idx != boot_idx:
+                idxs_train, idxs_test = my_boots[boot_idx]
+                if self.fit_VAR:
+                    X_rep, y_rep = vectorization_bootstrap(data, idxs_train, lag)
+                else:
+                    X_rep = X[idxs_train]
+                    y_rep = y[idxs_train]
+                    
+            curr_boot_idx = boot_idx
 
+            
             self._logger.info("estimation bootstrap %d, support %d"
                               % (boot_idx, support_idx))
             
@@ -423,26 +629,58 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                     self._estimation_lm.fit(X_rep, y_rep, coef_mask=support)
                     estimates[ii] = self._estimation_lm.coef_.ravel()
 
+                if self.estimation_score in ["r2", "acc", "log"]:  # using test set
+                    if self.fit_VAR:
+                        X_score, y_score = vectorization_bootstrap(data, idxs_test, lag)
+                    else:
+                        X_score = X[idxs_test]
+                        y_score = y[idxs_test]
 
+                else:   #using training set
+                    X_score, y_score = X_rep, y_rep
+                    
                 scores[ii] = self._score_predictions(
                     metric=self.estimation_score,
                     fitter=self._estimation_lm,
-                    X=X, y=y,
-                    support=support,
-                    boot_idxs=my_boots[boot_idx])
+                    X=X_score, y=y_score,
+                    support=support)
             else:
                 fitter = self._fit_intercept_no_features(y_rep)
-                if issparse(X):
-                    X_ = csr_matrix(X.shape, dtype=X.dtype)
+
+                if self.estimation_score in ["r2", "acc", "log"]:  # using test set
+                    if self.fit_VAR:
+                        X_score, y_score = vectorization_bootstrap(data, idxs_test, lag)
+                    else:
+                        X_score = X[idxs_test]
+                        y_score = y[idxs_test]
+                else:  #using training set
+                    X_score, y_score = X_rep, y_rep
+                    
+                if issparse(X_score):
+                    X_score = csr_matrix(X_score.shape, dtype=X_score.dtype)    
                 else:
-                    X_ = np.zeros_like(X)
+                    X_score = np.zeros_like(X_score)
+                    
                 scores[ii] = self._score_predictions(
                     metric=self.estimation_score,
                     fitter=fitter,
-                    X=X_, y=y,
-                    support=np.zeros(X.shape[1], dtype=bool),
-                    boot_idxs=my_boots[boot_idx])
+                    X=X_score, y=y_score,
+                    support=np.zeros(X_score.shape[1], dtype=bool))
 
+        # terminating condition for non-root admm ranks for estimation module
+        if self.estimation_solver == "admm":
+            n = 0
+            n = self.admm_comm.bcast(n, root=0)
+        
+        # clear memory
+        if self.fit_VAR:
+            del X_rep
+            del y_rep
+            del X_score
+            del y_score
+        gc.collect()
+
+        
         if size > 1:
             estimates = Gatherv_rows(send=estimates, comm=self.comm,
                                      root=0)
@@ -463,13 +701,23 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                 coef = np.median(best_estimates,
                                  axis=0).reshape(self.output_dim, n_features)
                 self.coef_ = coef
-                self._fit_intercept(X, y)
+                if self.fit_VAR:
+                    if self.fit_intercept:
+                        # the full vectorzation won't do well with large dataset
+                        X_all, y_all = vectorization(data, lag)    
+                        self._fit_intercept(X_all, y_all)
+                    else:
+                        self._fit_intercept(None, None)
+                else:
+                    self._fit_intercept(X, y)
+                
             self.estimates_ = Bcast_from_root(estimates, self.comm, root=0)
             self.scores_ = Bcast_from_root(scores, self.comm, root=0)
-            self.coef_ = Bcast_from_root(coef, self.comm, root=0)
+            self.coef_ = Bcast_from_root(coef, self.comm, root=0)  #it's done again down below for recaled VAR coef
             self.intercept_ = Bcast_from_root(self.intercept_,
                                               self.comm, root=0)
             self.rp_max_idx_ = self.comm.bcast(self.rp_max_idx_, root=0)
+            
         else:
             self.estimates_ = estimates.reshape(self.n_boots_est,
                                                 self.n_supports_, n_coef)
@@ -482,9 +730,28 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             # take the median across estimates for the final, bagged estimate
             self.coef_ = np.median(best_estimates,
                                    axis=0).reshape(self.output_dim, n_features)
-            self._fit_intercept(X, y)
-        self._post_fit(X, y)
+            if self.fit_VAR:
+                if self.fit_intercept:
+                    X_all, y_all = vectorization(data, lag)               
+                    self._fit_intercept(X_all, y_all)
+                else:
+                    self._fit_intercept(None, None)
 
+            else:
+                self._fit_intercept(X, y)
+                
+        if rank == 0:
+            if self.fit_VAR:
+                self._post_fit_VAR(lag, data.shape[1])
+            else:
+                self._post_fit(X, y)
+        
+        if size > 1:
+            if self.fit_VAR:
+                self.VAR_coef_ = Bcast_from_root(self.VAR_coef_, self.comm, root=0)
+            else:
+                self.coef_ = Bcast_from_root(self.coef_, self.comm, root=0)
+                
         return self
 
     def uoi_selection_sweep(self, X, y, reg_param_values):
@@ -515,6 +782,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         # apply the selection regression to bootstrapped datasets
         for reg_param_idx, reg_params in enumerate(reg_param_values):
             # reset the regularization parameter
+
             self._selection_lm.set_params(**reg_params)
             # rerun fit
             self._selection_lm.fit(X, y)
@@ -542,14 +810,13 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
 
     _default_est_targets = {'r2': 1, 'AIC': 0, 'AICc': 0, 'BIC': 0}
 
-    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=12, n_boots_est=12, selection_frac=0.9,
+    def __init__(self, fit_VAR = False, n_boots_sel=12, n_boots_est=12, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=0.75,
                  estimation_score='r2', estimation_target=None,
                  copy_X=True, fit_intercept=True,
                  standardize=True, random_state=None, max_iter=None, tol=None,
-                 comm=None, logger=None):
+                 comm=None, admm_comm = None, logger=None):
         super(AbstractUoILinearRegressor, self).__init__(
-            n_real_features = n_real_features,
             fit_VAR = fit_VAR,   
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -562,6 +829,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
             tol=tol,
             random_state=random_state,
             comm=comm,
+            admm_comm = admm_comm,
             logger=logger)
 
         if estimation_score not in self._valid_estimation_metrics:
@@ -582,6 +850,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
             
         self._estimation_target = estimation_target
 
+    
     def _pre_fit(self, X, y):
         X, y = super()._pre_fit(X, y)
         if y.ndim == 1:
@@ -620,7 +889,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
     def estimation_score(self):
         return self.__estimation_score
 
-    def _score_predictions(self, metric, fitter, X, y, support, boot_idxs):
+    def _score_predictions(self, metric, fitter, X, y, support):
         """Score, according to some metric, predictions provided by a model.
 
         The resulting score will be negated if an information criterion is
@@ -635,9 +904,9 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
         fitter : object
             Must contain .predict and .predict_proba methods.
         X : array-like
-            The design matrix.
+            The selected design matrix for score prediction.
         y : array-like
-            Response vector.
+            The selected Response vector for score prediction.
         supports : array-like
             The value of the supports for the model
         boot_idxs : 2-tuple of array-like objects
@@ -652,9 +921,6 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
             The score.
         """
 
-        # Select the data relevant for the estimation_score
-        X = X[boot_idxs[self._estimation_target]]
-        y = y[boot_idxs[self._estimation_target]]
 
         if y.ndim == 2:
             if y.shape[1] > 1:
@@ -666,6 +932,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
                              '(n_samples, ) or (n_samples, 1).')
 
         y_pred = fitter.predict(X[:, support])
+        
         if y.shape != y_pred.shape:
             raise ValueError('Targets and predictions are not the same shape.')
 
@@ -725,14 +992,13 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
     _default_est_targets = {'log': 1, 'AIC': 0, 'AICc': 0,
                             'BIC': 0, 'acc': 1}
 
-    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=12, n_boots_est=12, selection_frac=0.9,
+    def __init__(self, fit_VAR = False, n_boots_sel=12, n_boots_est=12, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=0.75,
                  estimation_score='acc', estimation_target=None,
                  copy_X=True, fit_intercept=True, standardize=True,
                  random_state=None, max_iter=None, tol=None,
                  shared_support=True, comm=None, logger=None):
         super(AbstractUoIGeneralizedLinearRegressor, self).__init__(
-            n_real_features = n_real_features,
             fit_VAR = fit_VAR,  
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -789,7 +1055,7 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
     def estimation_score(self):
         return self.__estimation_score
 
-    def _score_predictions(self, metric, fitter, X, y, support, boot_idxs):
+    def _score_predictions(self, metric, fitter, X, y, support):
         """Score, according to some metric, predictions provided by a model.
 
         The resulting score will be negated if an information criterion is
@@ -804,9 +1070,9 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
         fitter : object
             Must contain .predict and .predict_proba methods.
         X : array-like
-            The design matrix.
+            The selected design matrix for score prediction.
         y : array-like
-            Response vector.
+            The selected Response vector for score prediction.
         supports : array-like
             The value of the supports for the model
         boot_idxs : 2-tuple of array-like objects
@@ -820,10 +1086,6 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
         score : float
             The score.
         """
-
-        # Select the data relevant for the estimation_score
-        X = X[boot_idxs[self._estimation_target]]
-        y = y[boot_idxs[self._estimation_target]]
 
         if metric == 'acc':
             if self.shared_support:
