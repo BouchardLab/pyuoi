@@ -65,7 +65,7 @@ def format_simNetActivity(inpD,inpMD):
         
     stateV=inpD['evol_state']
     #.... any data transformation goes here ....
-    outD={'features':stateV}
+    outD={'features':stateV,'true_network_matrix':inpD['network_matrix']}
     return md,outD
     
  

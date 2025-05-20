@@ -50,7 +50,7 @@ def plot_diagonal_and_violins(A,plt,figId,tit0, eps=1e-5):
     ax1.set_ylabel('Diagonal Value')
     ax1.set_title('Diagonal Elements of A')
     ax1.grid(True)
-    ax1.set_ylim(0,1.1*max(diagV))
+    #ax1.set_ylim(0,1.1*max(diagV))
     ax1.set_xlim(-0.5,nfeat+0.5)
     ax1.set_title('%s   Auto-correlation' % (tit0))
 
@@ -71,15 +71,17 @@ def plot_diagonal_and_violins(A,plt,figId,tit0, eps=1e-5):
             violin_data.append([0])  # Add a placeholder to maintain alignment
 
     # Plotting vertical violin plots
-    ax2.violinplot(violin_data, showmeans=True, showmedians=True)
-
+   
+    ax2.violinplot(violin_data, positions=np.arange(nfeat) , showmeans=True, showmedians=True)
+    ax2.set_xlim(-0.5, nfeat + 0.5)
+    ax2.set_xticks(x_ticks )
+    
     # Customize the x-axis and labels
     ax2.set_xlabel('Feature Index')
     ax2.set_ylabel('Off-diagonal Values')
     ax2.set_title('Vertical Violin Plots for Each Row of A')
     ax2.grid(True)
-    ax2.set_xlim(-0.5,nfeat+0.5)
-    ax2.set_xticks(x_ticks)
+    
     ax2.axhline(0,lw=1.,ls='--',c='k')
     return ax2
 
@@ -95,19 +97,25 @@ class Plotter(PlotterBackbone):
     def A_matrix(self,bigD,md,figId=3,lag=0):
 
         pmd=md['payload']
-        tit=md['short_name']+' M-matrix[lag=%d]'%(lag)
-
+       
         figId=self.smart_append(figId)        
         nrow,ncol=1,1
         fig=self.plt.figure(figId,facecolor='white', figsize=(8,7))
         ax = self.plt.subplot(nrow,ncol,1)
 
-        A0=bigD['fit_A_model'][lag]        
-        nfeat = A0.shape[0]
-        A=np.copy(A0)
-        # Set diagonal values of A to 0
-        np.fill_diagonal(A, 0)
+        if lag >=0:
+            A0=bigD['fit_A_model'][lag]
+            A = A0 - np.eye(A0.shape[0])  # subtract 1 from diagonal elements
+            tit='UoI fit matrix, %d neurons, name=%s'%(A0.shape[0],md['short_name'])
+        else:
+            A0=bigD['true_network_matrix']
+            A=np.copy(A0)
+            tit='Dale true matrix, %d neurons, name=%s'%(A0.shape[0],md['selector']['input_name'])
+        nfeat = A.shape[0]
         
+        # Set diagonal values of A to 0
+        #np.fill_diagonal(A, 0)
+                
         # Find the maximum absolute value in A
         max_val = np.max(np.abs(A))/2.
         
@@ -123,19 +131,25 @@ class Plotter(PlotterBackbone):
         cbar = fig.colorbar(im, ax=ax, extend="both")
         cbar.set_label('UoI coupling strength')
         
-        tit='UoI fit matrix, %d neurons, name=%s'%(nfeat,md['short_name'])
+        
         ax.set(title=tit, xlabel='presyn. node index, source', ylabel='postsyn. node index, target')
         
 #...!...!..................
     def Aper_row(self,bigD,md,figId=3,lag=0):
         figId=self.smart_append(figId)
         pmd=md['payload']
-        tit=md['short_name']
-        tit=md['short_name']
+    
+        if lag >=0:
+            A0=bigD['fit_A_model'][lag]
+            A = A0 - np.eye(A0.shape[0])  # subtract 1 from diagonal elements           
+            tit='UoI fit matrix, %d neurons, name=%s'%(A0.shape[0],md['short_name'])
+        else:
+            A0=bigD['true_network_matrix']
+            A=np.copy(A0)
+            tit='Dale true matrix, %d neurons, name=%s'%(A0.shape[0],md['selector']['input_name'])
         
-        AV=bigD['fit_A_model']
 
-        ax=plot_diagonal_and_violins( AV[lag],self.plt,figId,tit)
+        ax=plot_diagonal_and_violins( A,self.plt,figId,tit)
         
         txt=summary_column(md)
         ax.text(0.6, 0.95, txt, fontsize=10, color='blue', ha='left', va='top',transform=ax.transAxes)

@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
 
-''' use cases
+''' 
+
+NOTE: distribution=block:block forces the ADMM processes for each bootstrap to localize to a single compute node for efficient communication
+
+Minimal example:
+ srun -n 1 --distribution=block:block shifter python uoi_mpi_addm_v3.py --num_feat 10 --num_samp 50 --num_admm 1
+>>> Fitting complete in 52.2 sec | numRanks=1
+
+Practical example
+
+
+OLD 
+use cases
 IMG=nersc/casual-net:v1 
 salloc -q interactive -C cpu --image=$IMG -t 2:00:00 -A m2043 -N 4
 export OMP_NUM_THREADS=2
-
 shifter ./uoi_mpi_scalable.py --num_feat  15 --num_samp  100 --lag 1
 >>>Total Execution Time: 12.218 sec
 
@@ -40,6 +51,24 @@ sys.path.append("/global/homes/b/balewski/prjs/2025_UoI-VAR/src/pyuoi/linear_mod
 from sparse_comm_util import build_bootstrap_comm
 
 
+#...!...!.................... 
+def print_dale_matrix(A,nfeat=None):
+    if nfeat==None: nfeat=A.shape[0]
+    # Function to format values
+    def format_value(val):
+        if abs(val) < 0.01:
+            return "  .  "  # Represent zero as '-'
+        return f"{val:+5.2f}"  # Format as +0.12 or -0.23
+    
+    col_indices = "feat " + "     ".join(f"{i:2d}" for i in range(nfeat))
+    print(col_indices)
+    # Print row index and formatted values
+    for i in range(nfeat):
+        row=A[i]
+        formatted_row = "  ".join(format_value(row[j]) for j in range(nfeat) )
+        print(f"{i:2d}  {formatted_row}")  # Row index + formatted values
+
+ 
 #...!...!....................
 def generate_dummy_data(num_feat, num_samp, lag):
     # Select spectral radius based on lag
@@ -67,6 +96,7 @@ def main(num_feat, num_samp, lag, inpName, n_admm):
     startup_time = time() - script_start_time  # Time from script start to this point
 
     if rank == 0:
+        T1=time()
         print("------------------------------------------------------------")
         print("MPI Startup Complete | numRanks=%d | Startup Time: %.3f sec" % (num_ranks, startup_time))
         print("------------------------------------------------------------", flush=True)
@@ -75,6 +105,7 @@ def main(num_feat, num_samp, lag, inpName, n_admm):
             # Generate dummy data (Only rank 0)
             print("Generating data... nFeat=%d, nSamp=%d, lag=%d" % (num_feat, num_samp, lag), flush=True)
             mydata = generate_dummy_data(num_feat, num_samp, lag)
+            print(' runk0 generated data, elaT=%.1f min'%( (time()-T1)/60.), flush=True)
         else:
             print(' Load array back from file:',inpName, flush=True)    
             mydata = np.load(inpName)
@@ -84,12 +115,11 @@ def main(num_feat, num_samp, lag, inpName, n_admm):
 
     if rank == 0:
         print('n_admm , num_ranks:', n_admm , num_ranks)
-        print('mydata:',mydata.shape,'start fit ...', flush=True)
+        print('mydata:',mydata.shape,type(mydata),'start fit ...', flush=True)
 
     start_time = time()
     
-    if use_admm:   # very scalable
-        
+    if use_admm:   # very scalable        
         assert n_admm <= num_ranks
         assert  num_ranks % n_admm ==0
         boot_comm = build_bootstrap_comm(comm, n_admm)
@@ -139,7 +169,10 @@ def main(num_feat, num_samp, lag, inpName, n_admm):
 
     print("A_model: (%d, %d, %d)" % (A_model.shape[0], A_model.shape[1], A_model.shape[2]))
     # print("B_model: (%d,) | A_model: (%d, %d, %d)" % (B_model.shape[0], A_model.shape[0], A_model.shape[1], A_model.shape[2]))
-
+    A=A_model[0]
+    nfeat=min(20,A.shape[0])
+    print_dale_matrix(A,nfeat)  
+    
 #=================================
 #  M A I N 
 #=================================
@@ -149,8 +182,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MPI-based Dummy Lasso fitting.")
     parser.add_argument("--num_feat", type=int, default=20, help="Number of features ")
     parser.add_argument("--num_samp", type=int, default=50_000, help="Number of samples")
-    parser.add_argument("--num_admm", type=int, default=64, help="som param")
-    parser.add_argument("--lag", type=int, default=1, help="Lag value (default: 2)")
+    parser.add_argument("--num_admm", type=int, default=32, help="num of processes per node to solve the bootstrap variable selection problem in a distributed fashion")
+    parser.add_argument("--lag", type=int, default=1, help="Lag value ")
     parser.add_argument("--inpName",  default=None,help='input name, will define num features and num samples')
     
     args = parser.parse_args()

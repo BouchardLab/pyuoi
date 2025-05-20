@@ -108,6 +108,10 @@ if __name__=="__main__":
     if 'b' in args.showPlots:
         plot.Aper_row(expD,expMD,figId=1,lag=0)
 
+    if 'c' in args.showPlots:
+        plot.A_matrix(expD,expMD,figId=1,lag=-1)
+    if 'd' in args.showPlots:
+        plot.Aper_row(expD,expMD,figId=1,lag=-1)
     plot.display_all()
     print('M:done')
    
