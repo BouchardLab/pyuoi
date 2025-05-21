@@ -164,7 +164,7 @@ def fit_uoiVar_M():
     # All ranks: Initialize
     boot_comm = build_bootstrap_comm(comm, args.num_admm)
     #uoi_lasso = UoI_Lasso(n_real_features = num_feat, fit_VAR = True, fit_intercept=False, random_state=42, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, admm_rho = args.admm_rho, solver='admm', estimation_solver = "admm")
-    uoi_lasso = UoI_Lasso( fit_VAR = True, fit_intercept=False, random_state=42, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, admm_rho = args.admm_rho, max_iter = 50, solver='admm', estimation_solver = "ls")
+    uoi_lasso = UoI_Lasso( fit_VAR = True, fit_intercept=False, random_state=42, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, admm_rho = args.admm_rho, max_iter = 50, rho_scaler = 1.2, solver='admm', estimation_solver = "ls")
     
     # fit UoI_Lasso
     start_time = time()

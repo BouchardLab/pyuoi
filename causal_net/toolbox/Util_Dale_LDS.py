@@ -182,7 +182,8 @@ def gen_net_activity(W, tau, sigma, T, h, seed=None):
       xt                : Integrated state trajectory over time.
     
     """
-
+    print('tau:',tau, type(tau))
+   
     if seed is not None:
         randGen = np.random.default_rng(seed)
     else:

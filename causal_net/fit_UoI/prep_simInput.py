@@ -93,5 +93,5 @@ if __name__ == "__main__":
     print('   ./fit_uoiVar_admm.py  --basePath $basePath   --inpName   %s    --time_range 0.3 1.3  \n'%(expMD['short_name'] ))
    
 
-    print('   srun -n32 --distribution=block:block shifter python  fit_uoiVar_admm.py  --basePath $basePath   --inpName   %s    --time_range 0.3 1.3  \n'%(expMD['short_name'] ))
+    print('1 node: \n     srun -n128 --distribution=block:block shifter python  fit_uoiVar_admm.py  --basePath $basePath   --inpName   %s    --time_range 0.3 1.3  \n'%(expMD['short_name'] ))
     

@@ -171,12 +171,19 @@ class Plotter(PlotterBackbone):
         Df= np.diag(Af)[1:];        Dt= np.diag(At)[1:]  # skip (0,0) element for UoI-ADMM
         draw_correlation_plot(ax,Dt, Df,'diagonal elements')
 
+        #... Excitatory
+        MEf=get_non_diagonal_elements(Af, position='first')
+        MEt=get_non_diagonal_elements(At, position='first')
+        mask=MEt!=0
+        MEf=MEf[mask]; MEt=MEt[mask]
+        ax = self.plt.subplot(nrow,ncol,2)
+        draw_correlation_plot(ax,MEt, MEf,'Excitatory weights')
+        
         #... inhibitory
         MIf=get_non_diagonal_elements(Af, position='last')
         MIt=get_non_diagonal_elements(At, position='last')
         mask=MIt!=0
-        MIf=MIf[mask]
-        MIt=MIt[mask]
+        MIf=MIf[mask] ;  MIt=MIt[mask]
         ax = self.plt.subplot(nrow,ncol,3)
         draw_correlation_plot(ax,MIt, MIf,'Inhibitory weights')
          
