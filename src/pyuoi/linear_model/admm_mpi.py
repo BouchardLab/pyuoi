@@ -150,11 +150,20 @@ class ADMM_Lasso:
                 else:
                     rho = 100/X.shape[1]
             #print(X.shape, rho, flush = True)
-                
+            
+
+
+            # useless heuristics....
+            #rho = np.sqrt(X.shape[0])/X.shape[1]
+
+
             m, n = X.shape
             
             # this is for accomdating the definition of regularization term in ADMM-LASSO convention
             alpha = self.alpha * m
+
+            # good heuristric is start with rho = l1-penalty
+            rho = alpha
         else:
             n = np.zeros(1).astype('int')
             m = np.zeros(1).astype('int')
@@ -252,7 +261,7 @@ class ADMM_Lasso:
             if self.warm_start and not np.all(self.coef_ == 0):
                 z = deepcopy(self.coef_)
             else:
-                z = np.random.normal(scale=0.1, size=(n, 1))
+                z = np.random.normal(scale=1, size=(n, 1))
                 #z = np.zeros((n, 1))
             
         x = deepcopy(z)
@@ -321,13 +330,16 @@ class ADMM_Lasso:
                 z = z * 1. / N
             else:
                 z = soft_threshold(z * 1. / N, alpha * 1. / (N * rho))
+
+            r_res = np.sqrt(recv[0])
+            s_res = np.sqrt(N) * rho * norm(z - zprev)
     
             # diagnostics, reporting, termination checks
             objval.append(objective(X, y, alpha, x, z))
             # prires -> norm(x-z)
-            r_norm.append(np.sqrt(recv[0]))
+            r_norm.append(r_res)
             # dualres -> norm(-rho*(z-zold))
-            s_norm.append(np.sqrt(N) * rho * norm(z - zprev))
+            s_norm.append(s_res)
             eps_pri.append(np.sqrt(n * N) * abs_tol +
                            rel_tol * np.maximum(np.sqrt(recv[1]), np.sqrt(N) * norm(z)))
             eps_dual.append(np.sqrt(n * N) * abs_tol + rel_tol * np.sqrt(recv[2]))
@@ -335,7 +347,14 @@ class ADMM_Lasso:
     
             if r_norm[k] < eps_pri[k] and s_norm[k] < eps_dual[k] and k > 0:
                 break
-    
+
+            # adaptive rho selection based on residual
+            if r_res > 10 * s_res:
+                rho *= 2
+            elif s_res > 10 * r_res:
+                rho /= 2
+
+
             # Compute residual
             r = x - z
 

@@ -8,7 +8,7 @@ try:
 except ImportError:
     pycasso = None
 
-from .base_VAR import AbstractUoILinearRegressor
+from .base import AbstractUoILinearRegressor
 from .admm_mpi import ADMM_Lasso
 from mpi4py import MPI
 
@@ -202,14 +202,13 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         boolean array indicating whether a given regressor (column) is selected
         for estimation for a given regularization parameter value (row).
     """
-    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=12, n_boots_est=12, selection_frac=0.9,
+    def __init__(self, fit_VAR = False, n_boots_sel=12, n_boots_est=12, selection_frac=0.9,
                  estimation_frac=0.9, n_lambdas=48, stability_selection=0.75,
                  estimation_score='r2', estimation_target=None, eps=1e-3,
                  warm_start=True, copy_X=True, fit_intercept=True,
                  standardize=True, max_iter=1000, tol=1e-4, random_state=None,
                  comm=None, global_comm = None, n_admm = None, admm_rho = None, logger=None, solver='cd', estimation_solver = "ls"):
         super(UoI_Lasso, self).__init__(
-            n_real_features = n_real_features,
             fit_VAR = fit_VAR, 
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -222,7 +221,6 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
             standardize=standardize,
             random_state=random_state,
             comm=comm,
-            global_comm=global_comm,
             estimation_score=estimation_score,
             max_iter=max_iter,
             tol=tol,
@@ -233,7 +231,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         self.estimation_solver = estimation_solver   # solver for estimation module
         self.tol = tol
         self.rho = admm_rho  # admm hyper-parameter, modulating the constraint that aux variable equals to the model variable
-
+        self.global_comm = global_comm
         self.n_admm = n_admm
 
         
@@ -299,6 +297,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
             self._estimation_lm.set_params(alpha=0)
         elif estimation_solver == "ls":
             self._estimation_lm = LinearRegression(fit_intercept=fit_intercept)
+
         
 
     def get_reg_params(self, X, y):
