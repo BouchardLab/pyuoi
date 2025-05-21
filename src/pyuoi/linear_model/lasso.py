@@ -207,7 +207,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
                  estimation_score='r2', estimation_target=None, eps=1e-3,
                  warm_start=True, copy_X=True, fit_intercept=True,
                  standardize=True, max_iter=1000, tol=1e-4, random_state=None,
-                 comm=None, global_comm = None, n_admm = None, admm_rho = None, logger=None, solver='cd', estimation_solver = "ls"):
+                 comm=None, global_comm = None, n_admm = None, admm_rho = None, rho_scaler = 2, logger=None, solver='cd', estimation_solver = "ls"):
         super(UoI_Lasso, self).__init__(
             fit_VAR = fit_VAR, 
             n_boots_sel=n_boots_sel,
@@ -279,6 +279,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
                 max_iter=max_iter,
                 abs_tol=tol,
                 rel_tol = tol/10,
+                rho_scaler = rho_scaler,
                 warm_start=warm_start,
                 random_state=random_state,
                 fit_intercept=fit_intercept) 
@@ -291,6 +292,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
                     max_iter=max_iter,
                     abs_tol=tol,
                     rel_tol = tol/10,
+                    rho_scaler = rho_scaler,
                     warm_start=False,
                     random_state=random_state,
                     fit_intercept=fit_intercept) 

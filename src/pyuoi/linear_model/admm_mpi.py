@@ -98,7 +98,7 @@ class ADMM_Lasso:
     """
     
     def __init__(self, comm, rho = None, alpha=None, fit_intercept=False, max_iter=50,
-                 abs_tol=1e-3, rel_tol = 1e-2, warm_start=True, random_state=None):
+                 abs_tol=1e-3, rel_tol = 1e-2,rho_scaler = 2, warm_start=True, random_state=None):
         self.alpha = alpha
         self.fit_intercept = fit_intercept
         self.max_iter = max_iter
@@ -108,6 +108,7 @@ class ADMM_Lasso:
         self.random_state = random_state
         self.comm = comm
         self.coef_ = 0
+        self.rho_scaler = rho_scaler
     
     def fit(self, X= None, y = None, z = None, rho = None, sparse_input = True):
         """
@@ -350,9 +351,9 @@ class ADMM_Lasso:
 
             # adaptive rho selection based on residual
             if r_res > 10 * s_res:
-                rho *= 2
+                rho *= self.rho_scaler
             elif s_res > 10 * r_res:
-                rho /= 2
+                rho /= self.rho_scaler
 
 
             # Compute residual
