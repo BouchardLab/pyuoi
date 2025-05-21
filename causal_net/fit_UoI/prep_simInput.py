@@ -90,8 +90,8 @@ if __name__ == "__main__":
     outF=os.path.join(args.outPath,expMD['short_name']+'.act.h5')
     write4_data_hdf5(expD,outF,expMD)
     #1print('   ./plot_features.py  --basePath $basePath   --inpName   %s  -p  a c d  -Y '%(expMD['short_name'] ))
-    print('   ./fit_uoiVar.py  --basePath $basePath   --inpName   %s    --time_range 0.3 1.3  \n'%(expMD['short_name'] ))
+    print('   ./fit_uoiVar_admm.py  --basePath $basePath   --inpName   %s    --time_range 0.3 1.3  \n'%(expMD['short_name'] ))
    
 
-
+    print('   srun -n32 --distribution=block:block shifter python  fit_uoiVar_admm.py  --basePath $basePath   --inpName   %s    --time_range 0.3 1.3  \n'%(expMD['short_name'] ))
     

@@ -37,8 +37,6 @@ import scipy
 import os
 import sys
 import scipy.stats
-#from tqdm import tqdm
-
 
 #...!...!....................
 def gen_matrices( M, p, g, R, diag=-1,reps=1):
@@ -79,7 +77,7 @@ def gen_matrices( M, p, g, R, diag=-1,reps=1):
 
 #################### Matrix generation ##################
 #...!...!....................
-def gen_init_W(M, p, gamma, R, diag=0, rand=None):
+def gen_init_W(M, p, gamma, R, diag=0, varyW=0.5, rand=None):
     """
     Generate an initial connectivity matrix for a Dale-type network.
     
@@ -98,18 +96,22 @@ def gen_init_W(M, p, gamma, R, diag=0, rand=None):
         rand = np.random.default_rng()
 
     Ainit = np.zeros((2 * M, 2 * M))
-    w = R / np.sqrt(p * (1 - p) * (1 + gamma**2) / 2)
-
+    wC = R / np.sqrt(p * (1 - p) * (1 + gamma**2) / 2)
+    wL=wC/varyW
+    wR=wC*varyW
+    
     # Excitatory connections
     for j in range(M):
         for k in range(2 * M):
             if rand.binomial(1, p):
+                w=np.random.uniform(wL, wR)
                 Ainit[j, k] = w / np.sqrt(2 * M)
 
     # Inhibitory connections
     for j in range(M):
         for k in range(2 * M):
             if rand.binomial(1, p):
+                w=np.random.uniform(wL, wR)
                 Ainit[j + M, k] = -gamma * w / np.sqrt(2 * M)
 
     # Set diagonal elements to diag (typically -1)

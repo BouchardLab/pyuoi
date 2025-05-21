@@ -169,7 +169,7 @@ class Plotter(PlotterBackbone):
         # .... diagonal
         ax = self.plt.subplot(nrow,ncol,1)
         Df= np.diag(Af)[1:];        Dt= np.diag(At)[1:]  # skip (0,0) element for UoI-ADMM
-        draw_correlation_plot(ax,Dt, Df,'diagonal')
+        draw_correlation_plot(ax,Dt, Df,'diagonal elements')
 
         #... inhibitory
         MIf=get_non_diagonal_elements(Af, position='last')
@@ -178,7 +178,7 @@ class Plotter(PlotterBackbone):
         MIf=MIf[mask]
         MIt=MIt[mask]
         ax = self.plt.subplot(nrow,ncol,3)
-        draw_correlation_plot(ax,MIt, MIf,'Inhibitory')
+        draw_correlation_plot(ax,MIt, MIf,'Inhibitory weights')
          
 #...!...!..................
 def calculate_mean_and_correlation(A, B):
@@ -210,7 +210,7 @@ def draw_correlation_plot(ax,A, B,tit):
     
     ax.set_xlabel('true')
     ax.set_ylabel('UoI ADMM fit')
-    ax.set_title(tit+' Correlation')
+    ax.set_title(tit)
     #ax.legend()
 
 #...!...!..................

@@ -163,8 +163,9 @@ def fit_uoiVar_M():
 
     # All ranks: Initialize
     boot_comm = build_bootstrap_comm(comm, args.num_admm)
-    uoi_lasso = UoI_Lasso(n_real_features = num_feat, fit_VAR = True, fit_intercept=False, random_state=42, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, admm_rho = args.admm_rho, solver='admm', estimation_solver = "admm")
-
+    #uoi_lasso = UoI_Lasso(n_real_features = num_feat, fit_VAR = True, fit_intercept=False, random_state=42, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, admm_rho = args.admm_rho, solver='admm', estimation_solver = "admm")
+    uoi_lasso = UoI_Lasso( fit_VAR = True, fit_intercept=False, random_state=42, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, admm_rho = args.admm_rho, max_iter = 50, solver='admm', estimation_solver = "ls")
+    
     # fit UoI_Lasso
     start_time = time()
 
@@ -245,4 +246,4 @@ if __name__=="__main__":
     print('SUM0,job_name,fit_time,num_feat,num_tbin,lag_depth,num_rank')
     print('SUM1,%s,%.1f,%d,%d,%d,%d\n'%(expMD['short_name'],fim['fit_time'],fim['data_shape'][1],fim['data_shape'][0],fim['lag_depth'],fim['num_rank']))
 
-    print(' ./postproc_ouiVar.py --basePath $basePath -e %s  -p a b -Y '%expMD['short_name'])
+    print(' ./postproc_ouiVar.py --basePath $basePath -e %s  -p e a b -Y '%expMD['short_name'])
