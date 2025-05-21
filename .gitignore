@@ -114,3 +114,6 @@ _lowlevel.c
 out/
 *.prof
 dataDale/
+*.png
+*.npy
+

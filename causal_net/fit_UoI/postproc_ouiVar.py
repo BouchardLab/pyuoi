@@ -112,6 +112,10 @@ if __name__=="__main__":
         plot.A_matrix(expD,expMD,figId=1,lag=-1)
     if 'd' in args.showPlots:
         plot.Aper_row(expD,expMD,figId=1,lag=-1)
+        
+    if 'e' in args.showPlots:
+        plot.weigh_correl(expD,expMD,figId=1)
+        
     plot.display_all()
     print('M:done')
    

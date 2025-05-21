@@ -19,7 +19,7 @@ def summary_column(md):
     txt=md['short_name']
     txt+='\ninput '+sem['input_name']
     txt+='\nsampFreq %d Hz'%(sem['sampling_freq'])
-    #txt+='\ndecay:%d ms,  len:%d ms '%(pmd['tau_decay'][0]*1000., pmd['tau_decay'][1]*1000.)
+    txt+='\ndecay:%d ms '%(pmd['tau_response']*1000.)
     txt+='\nsel time [%.1f %.1f] s'%(sem['time_range'][0],sem['time_range'][1])
     txt+='\nsel features %d'%(sem['num_feature'])
     
@@ -147,10 +147,121 @@ class Plotter(PlotterBackbone):
             A0=bigD['true_network_matrix']
             A=np.copy(A0)
             tit='Dale true matrix, %d neurons, name=%s'%(A0.shape[0],md['selector']['input_name'])
-        
+
 
         ax=plot_diagonal_and_violins( A,self.plt,figId,tit)
         
         txt=summary_column(md)
         ax.text(0.6, 0.95, txt, fontsize=10, color='blue', ha='left', va='top',transform=ax.transAxes)
         
+#...!...!..................
+    def weigh_correl(self,bigD,md,figId=4):
+
+        pmd=md['payload']
+        lag=0
+        Af=bigD['fit_A_model'][lag].T
+        At=bigD['true_network_matrix'].T
+
+        figId=self.smart_append(figId)        
+        nrow,ncol=1,3
+        fig=self.plt.figure(figId,facecolor='white', figsize=(12,4))
+
+        # .... diagonal
+        ax = self.plt.subplot(nrow,ncol,1)
+        Df= np.diag(Af)[1:];        Dt= np.diag(At)[1:]  # skip (0,0) element for UoI-ADMM
+        draw_correlation_plot(ax,Dt, Df,'diagonal')
+
+        #... inhibitory
+        MIf=get_non_diagonal_elements(Af, position='last')
+        MIt=get_non_diagonal_elements(At, position='last')
+        mask=MIt!=0
+        MIf=MIf[mask]
+        MIt=MIt[mask]
+        ax = self.plt.subplot(nrow,ncol,3)
+        draw_correlation_plot(ax,MIt, MIf,'Inhibitory')
+         
+#...!...!..................
+def calculate_mean_and_correlation(A, B):
+    mean_A = np.mean(A)
+    mean_B = np.mean(B)
+    correlation = np.corrcoef(A, B)[0, 1]
+    return mean_A, mean_B, correlation
+
+#...!...!..................
+def draw_correlation_plot(ax,A, B,tit):
+
+    # Scatter plot with open blue circles
+    ax.scatter(A, B, facecolors='none', edgecolors='b', label='all')
+    
+    #Af,Bf=filter_outliers(A,B)
+    #ax.scatter(Af, Bf,  edgecolors='r', label='used')
+    mean_A, mean_B, correlation = calculate_mean_and_correlation(A, B)
+    
+    ax.axvline(mean_A, color='k', linestyle='--', label='Mean A')
+    ax.axhline(mean_B, color='k', linestyle='--', label='Mean B')
+    
+    #ax.plot(mean_A, mean_B, 'rx', markersize=10, label='Mean Point')
+    
+    #ax.text(mean_A, mean_B, 'Mean', ha='right', va='bottom')
+    
+    #ax.plot([np.min(A), np.max(A)], [np.min(A)*correlation + mean_B - mean_A*correlation, np.max(A)*correlation + mean_B - mean_A*correlation], c='g', label=f'Correlation Line (slope = {correlation:.2f})')
+  
+    ax.text(0.5, 0.9, f'Correlation: {correlation:.2f}', transform=ax.transAxes)
+    
+    ax.set_xlabel('true')
+    ax.set_ylabel('UoI ADMM fit')
+    ax.set_title(tit+' Correlation')
+    #ax.legend()
+
+#...!...!..................
+def filter_outliers(A, B, eps=0.05):
+    # Find the median of vector B
+    median_B = np.median(B)
+    percL,percH= eps*100,100 - eps*100
+    print('percentiles:',percL,percH)
+    print('median_B',median_B,B)
+    # Find values in B that are eps% away from the median
+    thrL = np.percentile(B, percL)
+    thrH = np.percentile(B, percH)
+    print('filter_outliers  bounds:',thrL,thrH)
+    # Filter out the outlier pairs from A and B
+    mask = np.logical_and(B >= thrL, B <= thrH)
+    A_filtered = A[mask]
+    B_filtered = B[mask]
+    
+    return A_filtered, B_filtered
+
+#...!...!..................
+def get_non_diagonal_elements(C, position='first'):
+    """
+    Extracts all elements from either the first N or last N columns of matrix C
+    (size 2N x 2N), excluding the diagonal elements in those columns,
+    and returns them as a flattened 1D array.
+
+    Parameters:
+    C (np.ndarray): Square matrix of size 2N x 2N.
+    position (str): 'first' for first N columns, 'last' for last N columns.
+
+    Returns:
+    np.ndarray: 1D array of selected elements.
+    """
+    # Verify input dimensions
+    rows, cols = C.shape
+    if rows != cols or rows % 2 != 0:
+        raise ValueError("Input matrix must be square with even dimensions (2N x 2N).")
+    
+    N = rows // 2
+
+    elements = []
+    if position == 'first':
+        col_range = range(N)
+    elif position == 'last':
+        col_range = range(N, 2 * N)
+    else:
+        raise ValueError("Invalid position value. Use 'first' or 'last'.")
+
+    for i in range(2 * N):
+        for j in col_range:
+            if i != j:
+                elements.append(C[i, j])
+    return np.array(elements)
