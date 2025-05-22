@@ -8,10 +8,6 @@ echo you are launching Podman image ...  remeber to exit
 JNB_PORT=''
 BASE_DIR=/2025_UoI-VAR   # here git has home
 WORK_DIR=$BASE_DIR/causal_net
-#DATA_VAULT=${CFSH}/bioDataVault2025
-DATA_DIR=/data_tmp
-
-#WORK_DIR=/2025_UoI-VAR
 DATA_VAULT=/shared_volumes/bioDataVault2025
 
 echo "The number of arguments is: $#"
@@ -34,6 +30,8 @@ eval podman run -it --network=host  \
      -e My_dataVault=/dataVault2025/causalNet_tmp \
      --workdir $WORK_DIR \
      $IMG /bin/bash
+
+#      #     -e DISPLAY  -v $HOME:$HOME -e HOME  \
 
 #       --user $(id -u):$(id -g)  $JNB_PORT \
 #      --volume /shared_volumes/$WORK_DIR/opt:/opt \

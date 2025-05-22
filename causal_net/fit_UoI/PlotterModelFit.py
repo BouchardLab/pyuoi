@@ -50,7 +50,7 @@ def plot_diagonal_and_violins(A,plt,figId,tit0, eps=1e-5):
     ax1.set_ylabel('Diagonal Value')
     ax1.set_title('Diagonal Elements of A')
     ax1.grid(True)
-    #ax1.set_ylim(0,1.1*max(diagV))
+  
     ax1.set_xlim(-0.5,nfeat+0.5)
     ax1.set_title('%s   Auto-correlation' % (tit0))
 
@@ -163,21 +163,24 @@ class Plotter(PlotterBackbone):
         At=bigD['true_network_matrix'].T
 
         figId=self.smart_append(figId)        
-        nrow,ncol=1,3
-        fig=self.plt.figure(figId,facecolor='white', figsize=(12,4))
+        nrow,ncol=2,3
+        fig=self.plt.figure(figId,facecolor='white', figsize=(12,7))
 
+        # -----  TOP ROW -----
         # .... diagonal
         ax = self.plt.subplot(nrow,ncol,1)
         Df= np.diag(Af)[1:];        Dt= np.diag(At)[1:]  # skip (0,0) element for UoI-ADMM
-        draw_correlation_plot(ax,Dt, Df,'diagonal elements')
+        Dres=draw_correlation_plot(ax,Dt, Df,'diagonal elements')
 
         #... Excitatory
         MEf=get_non_diagonal_elements(Af, position='first')
         MEt=get_non_diagonal_elements(At, position='first')
         mask=MEt!=0
-        MEf=MEf[mask]; MEt=MEt[mask]
+        MEn=MEf[~mask]; MEf=MEf[mask]; MEt=MEt[mask]
+        
         ax = self.plt.subplot(nrow,ncol,2)
-        draw_correlation_plot(ax,MEt, MEf,'Excitatory weights')
+        MEres=draw_correlation_plot(ax,MEt, MEf,'Excitatory weights')
+        ax.axhline(0,linestyle='--',c='k')
         
         #... inhibitory
         MIf=get_non_diagonal_elements(Af, position='last')
@@ -185,40 +188,81 @@ class Plotter(PlotterBackbone):
         mask=MIt!=0
         MIf=MIf[mask] ;  MIt=MIt[mask]
         ax = self.plt.subplot(nrow,ncol,3)
-        draw_correlation_plot(ax,MIt, MIf,'Inhibitory weights')
+        MIres=draw_correlation_plot(ax,MIt, MIf,'Inhibitory weights')
+        ax.axhline(0,linestyle='--',c='k')
          
-#...!...!..................
-def calculate_mean_and_correlation(A, B):
-    mean_A = np.mean(A)
-    mean_B = np.mean(B)
-    correlation = np.corrcoef(A, B)[0, 1]
-    return mean_A, mean_B, correlation
+
+        # -----  BOTTOM ROW -----
+        # .... diagonal
+        ax = self.plt.subplot(nrow,ncol,4)
+        plot_histogram(ax,Dres)
+
+        #... Excitatory
+        ax = self.plt.subplot(nrow,ncol,5)
+        plot_histogram(ax,MEres)
+        #plot_histogram(ax,MEn) 
+
+        #... inhibitory
+        ax = self.plt.subplot(nrow,ncol,6)
+        plot_histogram(ax,MIres)
+        
+def calc_stats_and_whiten(A: np.ndarray, B: np.ndarray):
+    """
+    Compute
+      • mean of A  (μ_A)
+      • mean of B  (μ_B)
+      • Pearson correlation ρ(A,B)
+      • demeaned-and-rotated data  (A′, B′)
+
+    The returned (A′, B′) satisfy
+      – their means are zero, and
+      – the horizontal axis (A′) is the direction of maximal variance,
+        so the vertical variance (along B′) is minimal.
+
+    Parameters
+    ----------
+    A, B : 1-D numpy arrays of equal length.
+
+    Returns
+    -------
+    μ_A, μ_B, ρ, A_prime, B_prime
+    """
+    # 1. basic statistics
+    μ_A = A.mean()
+    μ_B = B.mean()
+    ρ   = np.corrcoef(A, B)[0, 1]
+
+    # 2. centre the data
+    X = np.stack([A - μ_A, B - μ_B], axis=0)      # shape (2, N)
+
+    # 3. rotate so that the 1st principal component is horizontal
+    C = np.cov(X)                                 # 2×2 covariance
+    eigvals, eigvecs = np.linalg.eigh(C)          # sorted ascending
+    v_max = eigvecs[:, eigvals.argmax()]          # eigen-vector of max var.
+    θ = np.arctan2(v_max[1], v_max[0])#+np.pi            # angle of that vector
+
+    R = np.array([[ np.cos(-θ), -np.sin(-θ)],     # negative θ → align horiz.
+                  [ np.sin(-θ),  np.cos(-θ)]])
+
+    X_rot = R @ X                                 # 2×N  rotated
+    A_prime, B_prime = X_rot                      # unpack
+
+    return μ_A, μ_B, ρ, A_prime, B_prime
 
 #...!...!..................
 def draw_correlation_plot(ax,A, B,tit):
-
-    # Scatter plot with open blue circles
-    ax.scatter(A, B, facecolors='none', edgecolors='b', label='all')
+    muA,muB,rho,Ar,Br=calc_stats_and_whiten(A, B)
     
-    #Af,Bf=filter_outliers(A,B)
-    #ax.scatter(Af, Bf,  edgecolors='r', label='used')
-    mean_A, mean_B, correlation = calculate_mean_and_correlation(A, B)
-    
-    ax.axvline(mean_A, color='k', linestyle='--', label='Mean A')
-    ax.axhline(mean_B, color='k', linestyle='--', label='Mean B')
-    
-    #ax.plot(mean_A, mean_B, 'rx', markersize=10, label='Mean Point')
-    
-    #ax.text(mean_A, mean_B, 'Mean', ha='right', va='bottom')
-    
-    #ax.plot([np.min(A), np.max(A)], [np.min(A)*correlation + mean_B - mean_A*correlation, np.max(A)*correlation + mean_B - mean_A*correlation], c='g', label=f'Correlation Line (slope = {correlation:.2f})')
-  
-    ax.text(0.5, 0.9, f'Correlation: {correlation:.2f}', transform=ax.transAxes)
+    ax.scatter(A, B, facecolors='none', edgecolors='b', label='all')     
+    ax.plot(muA, muB, 'r+', markersize=20)     
+    ax.text(0.1, 0.9, 'Correl=%.2f'%( rho), transform=ax.transAxes)
     
     ax.set_xlabel('true')
     ax.set_ylabel('UoI ADMM fit')
     ax.set_title(tit)
-    #ax.legend()
+    return Br
+                       
+       
 
 #...!...!..................
 def filter_outliers(A, B, eps=0.05):
@@ -272,3 +316,30 @@ def get_non_diagonal_elements(C, position='first'):
             if i != j:
                 elements.append(C[i, j])
     return np.array(elements)
+
+#...!...!..................
+def plot_histogram(ax, data, percentile_low=30, percentile_high=70):
+    """Plot histogram of the difference and annotate mean, median, and percentiles."""
+    
+    ax.hist(data, bins=30, color='salmon', alpha=0.7)
+
+    mean = np.mean(data)
+    median = np.median(data)
+    std = np.std(data)
+    
+    # Compute standard error of the standard deviation estimator
+    N = data.shape[0] 
+    se_s = std / np.sqrt(2 * (N - 1))
+
+    # Compute percentiles
+    p_low = np.percentile(data, percentile_low)
+    p_high = np.percentile(data, percentile_high)
+    
+    
+    # Annotate statistics
+    txt = f"Mean: {mean:.3f}\nMedian: {median:.3f}\nRMSE: {std:.3f} ± {se_s:.3f}\n"
+
+    ax.annotate(txt, xy=(0.35, 0.75), color='black', xycoords='axes fraction')
+    ax.set_xlabel('fit residuals')
+    #ax.legend()
+
