@@ -29,7 +29,7 @@ Options:
 
 import os,sys,hashlib
 from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
-from toolbox.Util_Dale_LDS  import rebin_axis0_average
+from toolbox.Util_CausalNet  import rebin_axis0_average
 
 from time import time
 from pprint import pprint
@@ -86,7 +86,7 @@ def get_parser():
 #...!...!....................
 def uoiVar_predict(bigD,md):
     fim=md['fit_uoi']
-    data=bigD['fit_data'][:,:500]
+    data=bigD['fit_inp_data'][:,:500]
     print('test_data:',data.shape)
     lag=fim['lag_window']
     X,Y = vectorization(data, lag)
@@ -101,17 +101,17 @@ def rank0_init_uoiVar(args):
     bigD,md=read4_data_hdf5(os.path.join(args.dataPath,inpF))
     pmd=md['payload']
     sem=md['selector']
-    dt=sem['sampling_freq']
+    fr=sem['sampling_freq']
     
     if args.verb>=2:
         print('M:expMD:');  pprint(expMD)
         if args.verb>=3:
             print(expD)
         stop2
-    featData=bigD['features']
+    featData=bigD['all_features']
         
     #.... clip data
-    tL,tR=[int(x*dt) for x in args.time_range ]
+    tL,tR=[int(x*fr) for x in args.time_range ]
     print('FUV tbinLR:',tL,tR)
     assert tR < featData.shape[0]
     featData=featData[tL:tR]
@@ -120,7 +120,7 @@ def rank0_init_uoiVar(args):
     sem['input_type']=args.input_type
        
     if args.time_rebin>1:  # averag data over time        
-        sem['time_step']=args.time_rebin*dt
+        sem['time_step']=args.time_rebin/fr
         featData= rebin_axis0_average(featData, args.time_rebin)
         
     if args.input_type=='rate':
@@ -128,7 +128,7 @@ def rank0_init_uoiVar(args):
          
     sem['num_feature']=featData.shape[1]
     sem['num_time_bin']=featData.shape[0]
-    bigD['fit_data']=featData
+    bigD['fit_inp_data']=featData
     return bigD,md
 
 #...!...!....................
@@ -164,7 +164,8 @@ def fit_uoiVar_M():
     # All ranks: Initialize
     boot_comm = build_bootstrap_comm(comm, args.num_admm)
     #uoi_lasso = UoI_Lasso(n_real_features = num_feat, fit_VAR = True, fit_intercept=False, random_state=42, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, admm_rho = args.admm_rho, solver='admm', estimation_solver = "admm")
-    uoi_lasso = UoI_Lasso( fit_VAR = True, fit_intercept=False, random_state=42, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, admm_rho = args.admm_rho, max_iter = 50, rho_scaler = 1.2, solver='admm', estimation_solver = "ls")
+    n_boots_sel=12
+    uoi_lasso = UoI_Lasso( fit_VAR = True, fit_intercept=False, n_boots_sel=n_boots_sel, random_state=42, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, admm_rho = args.admm_rho, max_iter = 50, rho_scaler = 1.2, solver='admm', estimation_solver = "ls")
     
     # fit UoI_Lasso
     start_time = time()
@@ -226,7 +227,7 @@ if __name__=="__main__":
 
     if rank == 0:
         expD,expMD= rank0_init_uoiVar(args)
-        mydata=expD['fit_data']
+        mydata=expD['fit_inp_data']
     else:
         mydata = None
     

@@ -33,11 +33,11 @@ def commandline_parser():
        
     parser.add_argument("--basePath",default='out',help="head dir for set of experiments")
     parser.add_argument("--outName",  default=None,help='(optional) output file name')
- 
+    
     args = parser.parse_args()
     args.inpPath=os.path.join(args.basePath,'gen_dale')
     args.outPath=os.path.join(args.basePath,'input_uoi')
-    
+    args.time_start=0.5
     for arg in vars(args):
         print( 'myArgs:',arg, getattr(args, arg))
 
@@ -48,15 +48,16 @@ def commandline_parser():
 
 #...!...!....................
 def format_simNetActivity(inpD,inpMD):
-
+    
     # prep meta-data
     smd=inpMD['simu']         
     sem={}
     md={'selector':sem, 'payload':smd}
 
     sem['input_name']=args.simName
-    sem['sampling_freq'] =1./smd['time_step']
-        
+    fr=sem['sampling_freq'] =1./smd['time_step']
+    sem['time_start']=args.time_start
+    
     md['hash']=inpMD['hash']
     if args.outName!=None:
         md['short_name']=args.outName
@@ -64,8 +65,13 @@ def format_simNetActivity(inpD,inpMD):
         md['short_name']=inpMD['short_name']
         
     stateV=inpD['evol_state']
+    #.... clip data
+    tL=int(args.time_start*fr)
+    assert tL < stateV.shape[0]
+    stateV=stateV[tL:]
+    
     #.... any data transformation goes here ....
-    outD={'features':stateV,'true_network_matrix':inpD['network_matrix']}
+    outD={'all_features':stateV,'true_network_matrix':inpD['network_matrix']}
     return md,outD
     
  
@@ -90,7 +96,7 @@ if __name__ == "__main__":
     outF=os.path.join(args.outPath,expMD['short_name']+'.act.h5')
     write4_data_hdf5(expD,outF,expMD)
     #1print('   ./plot_features.py  --basePath $basePath   --inpName   %s  -p  a c d  -Y '%(expMD['short_name'] ))
-    print('   ./fit_uoiVar_admm.py  --basePath $basePath   --inpName   %s    --time_range 0.3 1.3  \n'%(expMD['short_name'] ))
+    print('   ./fit_uoiVar_admm.py  --basePath $basePath   --inpName   %s    --time_range 0. 2.  \n'%(expMD['short_name'] ))
    
 
     print('1 node: \n     srun -n128 --distribution=block:block shifter python  fit_uoiVar_admm.py  --basePath $basePath   --inpName   %s    --time_range 0.3 1.3  \n'%(expMD['short_name'] ))
