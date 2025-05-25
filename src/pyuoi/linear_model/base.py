@@ -645,10 +645,12 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                     X=X_score, y=y_score,
                     support=support)
             else:
+                
                 fitter = self._fit_intercept_no_features(y_rep)
 
                 if self.estimation_score in ["r2", "acc", "log"]:  # using test set
                     if self.fit_VAR:
+                        
                         X_score, y_score = vectorization_bootstrap(data, idxs_test, lag)
                     else:
                         X_score = X[idxs_test]
@@ -673,11 +675,11 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             n = self.admm_comm.bcast(n, root=0)
         
         # clear memory
-        if self.fit_VAR:
-            del X_rep
-            del y_rep
-            del X_score
-            del y_score
+        # if self.fit_VAR:
+        #     del X_rep
+        #     del y_rep
+        #     del X_score
+        #     del y_score
         gc.collect()
 
         
