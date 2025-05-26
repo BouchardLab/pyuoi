@@ -415,7 +415,6 @@ class ADMM_Lasso:
         self.coef_ = z
         self.intercept_ = 0
         self.n_iter_ = None
-        self.rho_scaler
         
         
         return self
