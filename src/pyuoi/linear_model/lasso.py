@@ -207,7 +207,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
                  estimation_score='r2', estimation_target=None, eps=1e-3,
                  warm_start=True, copy_X=True, fit_intercept=True,
                  standardize=True, max_iter=1000, tol=1e-4, random_state=None,
-                 comm=None, global_comm = None, n_admm = None, admm_rho = None, rho_scaler = 2, logger=None, solver='cd', estimation_solver = "ls"):
+                 comm=None, global_comm = None, n_admm = None, rho_scaler = 2, imbalance_tolerance = 10, logger=None, solver='cd', estimation_solver = "ls"):
         super(UoI_Lasso, self).__init__(
             fit_VAR = fit_VAR, 
             n_boots_sel=n_boots_sel,
@@ -230,7 +230,6 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         self.solver = solver    # solver for selection module
         self.estimation_solver = estimation_solver   # solver for estimation module
         self.tol = tol
-        self.rho = admm_rho  # admm hyper-parameter, modulating the constraint that aux variable equals to the model variable
         self.global_comm = global_comm
         self.n_admm = n_admm
 
@@ -280,6 +279,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
                 abs_tol=tol,
                 rel_tol = tol/10,
                 rho_scaler = rho_scaler,
+                imbalance_tolerance = imbalance_tolerance,
                 warm_start=warm_start,
                 random_state=random_state,
                 fit_intercept=fit_intercept) 
@@ -293,6 +293,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
                     abs_tol=tol,
                     rel_tol = tol/10,
                     rho_scaler = rho_scaler,
+                    imbalance_tolerance = imbalance_tolerance,
                     warm_start=False,
                     random_state=random_state,
                     fit_intercept=fit_intercept) 
@@ -355,7 +356,7 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
     
                 self._selection_lm.set_params(**reg_params)
                 # rerun fit
-                self._selection_lm.fit(X, y, rho = self.rho)
+                self._selection_lm.fit(X, y)
                 # store coefficients
                 coefs[reg_param_idx] = self._selection_lm.coef_.ravel()
     

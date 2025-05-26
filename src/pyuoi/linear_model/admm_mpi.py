@@ -10,7 +10,46 @@ import gc
 from copy import deepcopy
 from .sparse_comm_util import *
 
+def initial_rho_selection(n, p, lambda_reg, expected_sparsity):
+    # Base ρ from problem scaling
+    rho_base = lambda_reg * np.sqrt(n) / p
+    
+    # Sparsity adjustment
+    if expected_sparsity < 0.1:
+        rho_init = 0.1 * rho_base  # Start small for very sparse
+    elif expected_sparsity < 0.3:
+        rho_init = 0.5 * rho_base  # Moderate for moderately sparse
+    else:
+        rho_init = rho_base        # Standard for less sparse
+    
+    return max(rho_init, 1e-4)  # Ensure minimum value
 
+
+def adaptive_rho_update(r_k, s_k, rho_k, u, n, p, expected_sparsity):
+    # Base imbalance parameter
+    mu_base = 10
+    
+    # Problem size scaling
+    size_factor = min(np.sqrt(max(n, p) / 1000), 5.0)
+    
+    # Sparsity scaling
+    if expected_sparsity < 0.1:
+        sparsity_scale = 2.0
+    elif expected_sparsity < 0.5:
+        sparsity_scale = 1.0
+    else:
+        sparsity_scale = 0.5
+    
+    # Combined adaptive parameter
+    mu_adaptive = mu_base * (1 + 0.5 * size_factor * sparsity_scale)
+    
+    # Standard residual balancing with adaptive μ
+    if r_k > mu_adaptive * s_k:
+        return 2.0 * rho_k, u/2
+    elif s_k > mu_adaptive * r_k:
+        return rho_k / 2.0, u* 2
+    else:
+        return rho_k , u   
 
 def objective(X, y, alpha, x, z):
     if alpha == 0:
@@ -47,6 +86,9 @@ def soft_threshold(v, k):
     v[np.where(v < -k)] += k
     v[np.intersect1d(np.where(v > -k), np.where(v < k))] = 0
     return v
+
+
+    
 
 class ADMM_Lasso:
     """
@@ -98,7 +140,7 @@ class ADMM_Lasso:
     """
     
     def __init__(self, comm, rho = None, alpha=None, fit_intercept=False, max_iter=50,
-                 abs_tol=1e-3, rel_tol = 1e-2,rho_scaler = 2, warm_start=True, random_state=None):
+                 abs_tol=1e-3, rel_tol = 1e-2,rho_scaler = 2, imbalance_tolerance = 10, warm_start=True, random_state=None):
         self.alpha = alpha
         self.fit_intercept = fit_intercept
         self.max_iter = max_iter
@@ -109,8 +151,9 @@ class ADMM_Lasso:
         self.comm = comm
         self.coef_ = 0
         self.rho_scaler = rho_scaler
+        self.imbalance_tolerance = imbalance_tolerance
     
-    def fit(self, X= None, y = None, z = None, rho = None, sparse_input = True):
+    def fit(self, X= None, y = None, z = None, sparse_input = True):
         """
         Fit model with coordinate descent.
         
@@ -144,31 +187,19 @@ class ADMM_Lasso:
         Data
         '''
         if rank == 0:
-            if rho is None:
-                # heuristic rho selection
-                if X.shape[1]<1e3:
-                    rho = X.shape[0]/X.shape[1]
-                else:
-                    rho = 100/X.shape[1]
-            #print(X.shape, rho, flush = True)
             
-
-
-            # useless heuristics....
-            #rho = np.sqrt(X.shape[0])/X.shape[1]
-
-
             m, n = X.shape
             
-            # this is for accomdating the definition of regularization term in ADMM-LASSO convention
-            alpha = self.alpha * m
+           
+            # scaled global alpha values, 
+            # *m(number of samples in this bootstrap) accounts for the ADMM objective function being the total SSE
+            # /N(n_admm) accounts for the change in L1-penalty scale when the SSE term optimization is distributed
+            alpha = self.alpha * m / N
 
-            # good heuristric is start with rho = l1-penalty
-            rho = alpha
+
         else:
             n = np.zeros(1).astype('int')
             m = np.zeros(1).astype('int')
-            rho = np.zeros(1).astype('double')
             alpha = np.zeros(1).astype('double')
             
     
@@ -188,7 +219,7 @@ class ADMM_Lasso:
         
         m = comm.bcast(m, root=0)
 
-        rho = comm.bcast(rho, root=0)
+
         alpha = comm.bcast(alpha, root=0)
 
 
@@ -245,6 +276,14 @@ class ADMM_Lasso:
         
         m, n = X.shape
         comm.Bcast([y, MPI.DOUBLE])
+
+        # m is n_samp per ADMM process!
+         # this is for accomdating the definition of MSE term in ADMM-LASSO convention
+        #alpha *= m
+        # good heuristric is to start with rho = l1-penalty
+        rho = alpha # admm parameter, modulating the constraint that aux variable equals the model variable
+
+        #rho = initial_rho_selection(m, n, alpha, 0.125)
     
         # do the send-receisve again for y?? or integrate back into the last send-receive operation?? or just Bcast it like right now
         y = np.ascontiguousarray(y.ravel()[rank::N].reshape((m, 1)))
@@ -262,6 +301,7 @@ class ADMM_Lasso:
             if self.warm_start and not np.all(self.coef_ == 0):
                 z = deepcopy(self.coef_)
             else:
+                np.random.seed(self.random_state)
                 z = np.random.normal(scale=1, size=(n, 1))
                 #z = np.zeros((n, 1))
             
@@ -290,6 +330,8 @@ class ADMM_Lasso:
         '''
         ADMM solver loop
         '''
+
+        rho_history = []
         for k in range(max_iter):  # xrange -> range for Python 3
     
             # u-update
@@ -317,12 +359,13 @@ class ADMM_Lasso:
     
             send[0] = r.T.dot(r)[0][0]
             send[1] = x.T.dot(x)[0][0]
-            send[2] = u.T.dot(u)[0][0] / (rho**2)
+            #send[2] = u.T.dot(u)[0][0] / (rho**2)
+            send[2] = u.T.dot(u)[0][0] * (rho**2)
     
             zprev = np.copy(z)
     
             comm.Barrier()
-            comm.Allreduce([w, MPI.DOUBLE], [z, MPI.DOUBLE])
+            comm.Allreduce([w, MPI.DOUBLE], [z, MPI.DOUBLE]) # the resulting z is sum of N variants, so it has to be divided by N before all usage
             comm.Allreduce([send, MPI.DOUBLE], [recv, MPI.DOUBLE])
     
             # z-update
@@ -337,33 +380,42 @@ class ADMM_Lasso:
     
             # diagnostics, reporting, termination checks
             objval.append(objective(X, y, alpha, x, z))
-            # prires -> norm(x-z)
+           
             r_norm.append(r_res)
-            # dualres -> norm(-rho*(z-zold))
             s_norm.append(s_res)
+            
             eps_pri.append(np.sqrt(n * N) * abs_tol +
                            rel_tol * np.maximum(np.sqrt(recv[1]), np.sqrt(N) * norm(z)))
+
             eps_dual.append(np.sqrt(n * N) * abs_tol + rel_tol * np.sqrt(recv[2]))
     
     
             if r_norm[k] < eps_pri[k] and s_norm[k] < eps_dual[k] and k > 0:
                 break
 
+            # rho, u = adaptive_rho_update(r_res, s_res, rho, u, m, n, 0.125)
+
             # adaptive rho selection based on residual
-            if r_res > 10 * s_res:
+            if r_res > self.imbalance_tolerance * s_res:
                 rho *= self.rho_scaler
-            elif s_res > 10 * r_res:
+                u /= self.rho_scaler
+            elif s_res > self.imbalance_tolerance * r_res:
                 rho /= self.rho_scaler
+                u *= self.rho_scaler
 
-
+            
             # Compute residual
             r = x - z
-
+            if rank == 0:
+                rho_history.append(rho)
+        # if rank == 0:
+        #     np.save("rho_plot/rho_"+str(self.rho_scaler)+"_50k.npy", rho_history)
         
         # Set attributes after fitting
         self.coef_ = z
         self.intercept_ = 0
         self.n_iter_ = None
+        self.rho_scale
         
         
         return self
