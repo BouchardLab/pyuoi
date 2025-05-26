@@ -67,7 +67,7 @@ def draw_correlation_plot(ax,XY,stD,tit,dCol):
 def add_histogram(ax,data,dLab0,dCol):
     stdX=np.std(data)
     dLab='%s std=%.3f'%(dLab0,stdX)
-    ax.hist(data,bins=30,color=dCol,histtype='step',alpha=0.7,label=dLab)
+    ax.hist(data,bins=30,color=dCol,histtype='step',alpha=0.7,label=dLab,linewidth=1.5)
     ax.axvline(x=0,color='#00ff00',linestyle='-',linewidth=1.5,alpha=0.8)
     ax.legend()
     ax.set_xlabel('fit residuals')
@@ -130,20 +130,22 @@ class Plotter(PlotterBackbone):
         ax=self.plt.subplot(2,3,1)
         Ydia=bigD['post_Ydia']
         Rdia=bigD['post_Rdia']
-        draw_correlation_plot(ax,Ydia,pof['diag'],'diagonal elements','blue')
+        dCol='darkorange'
+        draw_correlation_plot(ax,Ydia,pof['diag'],'diagonal elements',dCol)
         
         ax=self.plt.subplot(2,3,4)        
-        add_histogram(ax,Rdia,'diag','blue')
+        add_histogram(ax,Rdia,'diag',dCol)
 
         # Excitatory weights
         ax=self.plt.subplot(2,3,2)
         Yexc=bigD['post_Yexc']
         Rexc=bigD['post_Rexc']
         Yzexc=bigD['post_Yzexc']
-        draw_correlation_plot(ax,Yexc,pof['exc'],'Excitatory weights','darkorange')
+        dCol='darkred'
+        draw_correlation_plot(ax,Yexc,pof['exc'],'Excitatory weights',dCol)
         
         ax=self.plt.subplot(2,3,5)        
-        add_histogram(ax,Rexc,'true exc','darkorange')
+        add_histogram(ax,Rexc,'true exc',dCol)
         add_histogram(ax,Yzexc,'zero exc','dimgray')
 
         # Inhibitory weights
@@ -151,9 +153,10 @@ class Plotter(PlotterBackbone):
         Yinh=bigD['post_Yinh']
         Rinh=bigD['post_Rinh']
         Yzinh=bigD['post_Yzinh']
-        draw_correlation_plot(ax,Yinh,pof['inh'],'Inhibitory weights','darkred')
+        dCol='blue'
+        draw_correlation_plot(ax,Yinh,pof['inh'],'Inhibitory weights',dCol)
         
         ax=self.plt.subplot(2,3,6)        
-        add_histogram(ax,Rinh,'true inh','darkred')
+        add_histogram(ax,Rinh,'true inh',dCol)
         add_histogram(ax,Yzinh,'zero inh','dimgray')
     

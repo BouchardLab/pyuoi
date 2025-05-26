@@ -139,6 +139,7 @@ def fit_uoiVar_M():
     if rank == 0:
         bigD,md=expD,expMD 
         print('FUOI mydata:%s  lag:%d  numRank:%d '%(mydata.shape,lag,comm.Get_size()),flush=True)
+        #print('ppp',args.num_admm,args.admm_rho)
         assert mydata.shape[0] > mydata.shape[1]  # UoI wants [timeBins,features]
         fim={};  md['fit_uoi']=fim
         fim['lag_depth']=lag
@@ -163,7 +164,7 @@ def fit_uoiVar_M():
 
     # All ranks: Initialize
     boot_comm = build_bootstrap_comm(comm, args.num_admm)
-    #uoi_lasso = UoI_Lasso(n_real_features = num_feat, fit_VAR = True, fit_intercept=False, random_state=42, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, admm_rho = args.admm_rho, solver='admm', estimation_solver = "admm")
+    
     n_boots_sel=12
     uoi_lasso = UoI_Lasso( fit_VAR = True, fit_intercept=False, n_boots_sel=n_boots_sel, random_state=42, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, admm_rho = args.admm_rho, max_iter = 50, rho_scaler = 1.2, solver='admm', estimation_solver = "ls")
     

@@ -24,7 +24,7 @@ def get_parser():
     parser.add_argument("-Y","--noXterm", dest='noXterm', action='store_false', default=True, help="enables X-term for interactive mode")
     parser.add_argument("--basePath",default='out',help="head dir for any results")
     parser.add_argument('-e',"--expName", default='fit-b7018a',help='UoI-VAR fitted model')
-    parser.add_argument('-m','--max_feature', default=20, type=int, help='max num of analyzed features')
+    parser.add_argument('-m','--max_feature', default=15, type=int, help='max num of analyzed features')
 
     args = parser.parse_args()
     args.modelPath=os.path.join(args.basePath,'model_uoi')
