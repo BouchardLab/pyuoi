@@ -78,8 +78,9 @@ class Plotter(PlotterBackbone):
 
     def A_matrix(self,bigD,md,figId=3,lag=0):
         figId=self.smart_append(figId)        
+        nrow,ncol=1,1
         fig=self.plt.figure(figId,facecolor='white',figsize=(8,7))
-        ax=self.plt.subplot(1,1,1)
+        ax=self.plt.subplot(nrow,ncol,1)
 
         if lag>=0:
             A0=bigD['fit_A_model'][lag]
@@ -106,6 +107,7 @@ class Plotter(PlotterBackbone):
         
     def Aper_row(self,bigD,md,figId=3,lag=0):
         figId=self.smart_append(figId)
+        nrow,ncol=2,1
         
         if lag>=0:
             A0=bigD['fit_A_model'][lag]
@@ -122,41 +124,60 @@ class Plotter(PlotterBackbone):
         
     def weigh_correl(self,bigD,md,figId=4):
         pof=md['post_fit_residual']
+        mxs=md['matrix_shape']
         lag=0
         figId=self.smart_append(figId)        
+        nrow,ncol=2,3
         fig=self.plt.figure(figId,facecolor='white',figsize=(12,7))
 
+        zEps=1e-4
+        print('PWC: zEps=%.1e'%(zEps))
+        print('PWC: dale partition size: diag:%d  exc:%d  zexc:%d  inh:%d  zinh:%d'%(len(bigD['post_Ydia']), len(bigD['post_Yexc']), len(bigD['post_Yzexc']), len(bigD['post_Yinh']), len(bigD['post_Yzinh'])))
         # Diagonal elements
-        ax=self.plt.subplot(2,3,1)
-        Ydia=bigD['post_Ydia']
-        Rdia=bigD['post_Rdia']
+        ax=self.plt.subplot(nrow,ncol,1)
+        Ydia=bigD['post_Ydia']  # fit values
+        Rdia=bigD['post_Rdia'] # residuals  
         dCol='darkorange'
-        draw_correlation_plot(ax,Ydia,pof['diag'],'diagonal elements',dCol)
+        tit1='diagonal elements'
+        draw_correlation_plot(ax,Ydia,pof['diag'],tit1,dCol)
         
-        ax=self.plt.subplot(2,3,4)        
+        ax=self.plt.subplot(nrow,ncol,4)   
+        ax.set_title(tit1)     
         add_histogram(ax,Rdia,'diag',dCol)
 
         # Excitatory weights
-        ax=self.plt.subplot(2,3,2)
+        ax=self.plt.subplot(nrow,ncol,2)
         Yexc=bigD['post_Yexc']
         Rexc=bigD['post_Rexc']
         Yzexc=bigD['post_Yzexc']
         dCol='darkred'
-        draw_correlation_plot(ax,Yexc,pof['exc'],'Excitatory weights',dCol)
+        tit2='Excitatory '
+        draw_correlation_plot(ax,Yexc,pof['exc'],tit2+'weights',dCol)
         
-        ax=self.plt.subplot(2,3,5)        
-        add_histogram(ax,Rexc,'true exc',dCol)
-        add_histogram(ax,Yzexc,'zero exc','dimgray')
+        ax=self.plt.subplot(nrow,ncol,5)        
+        ax.set_title(tit2+'residuals')
+        
+        
+        add_histogram(ax,Rexc,'true',dCol)
+        add_histogram(ax,Yzexc,'zero','dimgray')
 
         # Inhibitory weights
-        ax=self.plt.subplot(2,3,3)
+        ax=self.plt.subplot(nrow,ncol,3)
         Yinh=bigD['post_Yinh']
         Rinh=bigD['post_Rinh']
         Yzinh=bigD['post_Yzinh']
         dCol='blue'
-        draw_correlation_plot(ax,Yinh,pof['inh'],'Inhibitory weights',dCol)
+        tit3='Inhibitory '
+        draw_correlation_plot(ax,Yinh,pof['inh'],tit3+'weights',dCol)
         
-        ax=self.plt.subplot(2,3,6)        
-        add_histogram(ax,Rinh,'true inh',dCol)
-        add_histogram(ax,Yzinh,'zero inh','dimgray')
-    
+        ax=self.plt.subplot(nrow,ncol,6)        
+        ax.set_title(tit3+'residuals')
+        add_histogram(ax,Rinh,'true',dCol)
+        add_histogram(ax,Yzinh,'zero','dimgray')
+
+      
+        print('Num of non zero-values in Yzexc: %d of %d -->frac=%.2f'%( Yzexc.size,mxs['zexc'][0],Yzexc.size/mxs['zexc'][0]))
+        print('Num of non zero-values in Yzinh: %d of %d -->frac=%.2f'%( Yinh.size,mxs['zinh'][0],Yzinh.size/         mxs['zinh'][0]))
+        print('Num of zero-values in Yexc: %d of %d -->frac=%.2f'%(np.sum(np.abs(Yexc[:,1])<=zEps), Yexc.shape[0],np.sum(np.abs(Yexc[:,1])<=zEps)/Yexc.shape[0]))
+        print('Num of zero-values in Yinh: %d of %d -->frac=%.2f'%(np.sum(np.abs(Yinh[:,1])<=zEps), Yinh.shape[0],np.sum(np.abs(Yinh[:,1])<=zEps)/Yinh.shape[0]))
+        #pprint(mxs)

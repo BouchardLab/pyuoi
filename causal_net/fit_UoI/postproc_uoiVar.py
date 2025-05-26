@@ -43,12 +43,22 @@ def postproc_fit(bigD,md):
     lag=0
     Mf=bigD['fit_A_model'][lag].T
     Ldia,Lexc,Lzexc,Linh,Lzinh = daleMatrix_index_partition(Mt)
+    print('PPF: dale partition 1st elem size: diag:%s  exc:%s  zexc:%s  inh:%s  zinh:%s'%(Mt[Ldia[0]].shape, Mt[Lexc[0]].shape, Mt[Lzexc[0]].shape, Mt[Linh[0]].shape, Mt[Lzinh[0]].shape))
+
+    # Add matrix shapes to metadata
+    md['matrix_shape']={
+        'diag': Mt[Ldia[0]].shape,
+        'exc': Mt[Lexc[0]].shape,
+        'zexc': Mt[Lzexc[0]].shape,
+        'inh': Mt[Linh[0]].shape,
+        'zinh': Mt[Lzinh[0]].shape
+    }
 
     Ydia=np.stack((Mt[Ldia],Mf[Ldia]), axis=1)[1:]
     Yexc=np.stack((Mt[Lexc],Mf[Lexc]), axis=1)
     Yinh=np.stack((Mt[Linh],Mf[Linh]), axis=1)
     Yzexc=Mf[Lzexc][Mf[Lzexc]!=0]
-    Yzinh=Mf[Lzinh]
+    Yzinh=Mf[Lzinh][Mf[Lzinh]!=0]
 
     print('diag shape: %s'%(str(Ydia.shape)))
     print('Yexc,z shape: %s %s'%(str(Yexc.shape),str(Yzexc.shape)))

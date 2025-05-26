@@ -17,7 +17,7 @@ uoi_lasso = UoI_Lasso(fit_VAR = True, fit_intercept=False, n_boots_sel=n_boots_s
 NOTE: distribution=block:block forces the ADMM processes for each bootstrap to localize to a single compute node for efficient communication
 
 Minimal example:
- srun -n 1 --distribution=block:block shifter python uoi_mpi_addm_v3.py --num_feat 10 --num_samp 50 --num_admm 1
+ srun -n 1 --distribution=block:block shifter python uoi_mpi_admm_v4.py --num_feat 10 --num_samp 50 --num_admm 1
 >>> Fitting complete in 52.2 sec | numRanks=1
 
 
@@ -119,7 +119,7 @@ def main(num_feat, num_samp, lag, inpName, n_admm):
         assert  num_ranks % n_admm ==0
         boot_comm = build_bootstrap_comm(comm, n_admm)
         #Xuoi_lasso = UoI_Lasso(n_real_features = num_feat, fit_VAR = True, fit_intercept=False, random_state=42, comm = boot_comm, global_comm = comm, n_admm = n_admm, admm_rho = rho, solver='admm', estimation_solver = "admm")
-        uoi_lasso = UoI_Lasso(fit_VAR = True, fit_intercept=False, random_state=None, comm = boot_comm, global_comm = comm, n_admm = n_admm, admm_rho = rho, max_iter = 50, solver='admm', estimation_solver = "ls")
+        uoi_lasso = UoI_Lasso(fit_VAR = True, fit_intercept=False, random_state=None, comm = boot_comm, global_comm = comm, n_admm = n_admm, rho_scaler=2.0, max_iter = 50, solver='admm', estimation_solver = "ls")
         # spare , n_boots_sel=n_boots_sel, n_boots_est=n_boots_est, n_lambdas = n_lambdas
         
         if boot_comm is not None:  #if the global_rank is part of the boostrap distribution(not admm distribution)

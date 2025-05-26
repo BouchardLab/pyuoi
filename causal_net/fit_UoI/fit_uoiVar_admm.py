@@ -68,6 +68,7 @@ def get_parser():
     # make arguments  more flexible
     args.rndSeed=42
     args.admm_rho=None # ADMM penalty parameter: rho (need some heuristics)
+    args.copy_X=True  # Add this parameter with default value
 
     args.dataPath=os.path.join(args.basePath,'input_uoi')    
     args.modelPath=os.path.join(args.basePath,'model_uoi')
@@ -166,8 +167,13 @@ def fit_uoiVar_M():
     boot_comm = build_bootstrap_comm(comm, args.num_admm)
     
     n_boots_sel=12
-    uoi_lasso = UoI_Lasso( fit_VAR = True, fit_intercept=False, n_boots_sel=n_boots_sel, random_state=42, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, admm_rho = args.admm_rho, max_iter = 50, rho_scaler = 1.2, solver='admm', estimation_solver = "ls")
+    selection_frac=0.2
+    rho_scaler = 2.
+    max_iter = 1000
+    uoi_lasso = UoI_Lasso( fit_VAR = True, fit_intercept=False, n_boots_sel=n_boots_sel,  selection_frac= selection_frac, random_state=42, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, max_iter = max_iter , rho_scaler = rho_scaler , solver='admm', estimation_solver = "ls")
     
+    #  admm_rho = args.admm_rho
+
     # fit UoI_Lasso
     start_time = time()
 
