@@ -10,7 +10,7 @@ __email__ = "janstar1122@gmail.com"
 import os,sys
 
 from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
-from toolbox.Util_Dale_LDS  import print_dale_matrix
+from toolbox.Util_CausalNet import print_dale_matrix
 from Plotter_Dale_LDS import Plotter
 
 from time import time

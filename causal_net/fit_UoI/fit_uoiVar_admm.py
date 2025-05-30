@@ -115,7 +115,7 @@ def rank0_init_uoiVar(args):
     tL,tR=[int(x*fr) for x in args.time_range ]
     print('FUV tbinLR:',tL,tR)
     assert tR < featData.shape[0]
-    featData=featData[tL:tR]
+    featData=featData[tL:tR].astype(np.float64)
     sem['time_range']=[args.time_range[0], args.time_range[1]]
     sem['time_rebin']=args.time_rebin
     sem['input_type']=args.input_type
@@ -156,18 +156,19 @@ def fit_uoiVar_M():
         else:
             md['short_name']=args.fitName
 
-    if 0 and  comm.rank == 0: # dump input array
+    if num_ranks==1 and  comm.rank == 0: # dump input array
         dataF='%s-%s.npy'%(args.inpName,fim['hash'])
-        # Save array to a file
-        np.save(dataF, mydata)  # Saves in binary .npy format
-        print('Saved:',dataF,'shape:',mydata.shape)
+        # Save array to a file in fp16 format
+        np.save(dataF, mydata.astype(np.float16))  # Saves in binary .npy format with fp16
+        file_size_mb = os.path.getsize(dataF)/(1024*1024)  # Convert bytes to MB
+        print('Saved:',dataF,'shape:',mydata.shape,'size: %.1f MB'%file_size_mb,'dtype: float16')
         exit(0)
 
     # All ranks: Initialize
     boot_comm = build_bootstrap_comm(comm, args.num_admm)
     
     n_boots_sel=12
-    selection_frac=0.2
+    selection_frac=0.9
     rho_scaler = 2.
     max_iter = 1000
     uoi_lasso = UoI_Lasso( fit_VAR = True, fit_intercept=False, n_boots_sel=n_boots_sel,  selection_frac= selection_frac, random_state=42, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, max_iter = max_iter , rho_scaler = rho_scaler , solver='admm', estimation_solver = "ls")
@@ -200,8 +201,8 @@ def fit_uoiVar_M():
 
     print("------------------------------------------------------------")
     #print("Fitting complete in %.1f sec | numRanks=%d" % (total_time, fim['num_rank']))
-    print("Avg Fit Time: %.1f sec | Min: %.1f sec | Max: %.1f sec" % (avg_time, min_time, max_time))
     print("Total Execution Time: %.3f sec" % total_time)
+    print("Avg Fit Time: %.1f sec | Min: %.1f sec | Max: %.1f sec" % (avg_time, min_time, max_time))
     print("------------------------------------------------------------", flush=True)
 
     # Extract model coefficients
@@ -227,7 +228,8 @@ if __name__=="__main__":
     np.random.seed(args.rndSeed)
     
     num_ranks = comm.Get_size()
-    assert args.num_admm <= num_ranks
+    if args.num_admm > num_ranks: args.num_admm = num_ranks
+
     assert  num_ranks % args.num_admm ==0
 
     rank = comm.Get_rank()

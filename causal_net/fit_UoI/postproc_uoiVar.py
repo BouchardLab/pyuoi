@@ -30,7 +30,7 @@ def get_parser():
     args.modelPath=os.path.join(args.basePath,'model_uoi')
     args.outPath=os.path.join(args.basePath,'postproc')
     args.showPlots=''.join(args.showPlots)
-    
+  
     print('myArg-program: %s'%(parser.prog))
     for arg in vars(args): print('myArg: %s %s'%(arg, getattr(args, arg)))
     
@@ -63,7 +63,7 @@ def postproc_fit(bigD,md):
     print('diag shape: %s'%(str(Ydia.shape)))
     print('Yexc,z shape: %s %s'%(str(Yexc.shape),str(Yzexc.shape)))
     print('Yinh,z shape: %s %s'%(str(Yinh.shape),str(Yzinh.shape)))
-
+  
     bigD['post_Ydia']=Ydia
     bigD['post_Yexc']=Yexc
     bigD['post_Yzexc']=Yzexc
@@ -78,7 +78,7 @@ def postproc_fit(bigD,md):
     stats,Xp,Yp = residual_stats(Yexc)
     pof['exc']=stats
     bigD['post_Rexc']=Yp
-
+    
     stats,Xp,Yp = residual_stats(Yinh)
     pof['inh']=stats
     bigD['post_Rinh']=Yp
@@ -99,12 +99,12 @@ def nice_print_model(bigD,md,mxFeat=None):
     for il in range(lag):
         print('\nA_model[%d]'%(il))
         A=AV[il]
-        print_dale_matrix(A,nfeat)
-
+        print_dale_matrix(A,nfeat)    
+ 
 if __name__=="__main__":
     args=get_parser()
     np.set_printoptions(precision=3)
-    
+                    
     inpF=args.expName+'.fitUoI.h5'
     expD,expMD=read4_data_hdf5(os.path.join(args.modelPath,inpF))
     

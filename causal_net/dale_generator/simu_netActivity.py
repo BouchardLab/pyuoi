@@ -101,9 +101,9 @@ if __name__ == '__main__':
     T0=time()
     tspace,xt = gen_net_activity(W, tau=args.tau_response, sigma=args.sigma_noise, T=args.evol_time, h=args.time_step, seed=args.rnd_seed)
     print("Simulation complete, elaT=%.1f min"%((time()-T0)/60.))
-    bigD['network_matrix']=W
-    bigD['evol_time']=tspace
-    bigD['evol_state']=xt
+    bigD['network_matrix']=W.astype(np.float32)
+    bigD['evol_time']=tspace.astype(np.float32)
+    bigD['evol_state']=xt.astype(np.float32)
      
     #...... WRITE   OUTPUT .........
     outF=os.path.join(args.outPath,MD['short_name']+'.simNet.h5')

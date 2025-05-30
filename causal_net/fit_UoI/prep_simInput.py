@@ -25,25 +25,47 @@ from pprint import pprint
 from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
 
 import argparse
+
+#...!...!..................
+def save_npy_arrays(stateV, networkM, save_path, name_prefix):
+    """Save state vector and network matrix as NPY files in float16 format.
+    
+    Args:
+        stateV: state vector array
+        networkM: network matrix array
+        save_path: directory to save the files
+        name_prefix: prefix for the file names
+    """
+    xt_path = os.path.join(save_path, f"Xt_{name_prefix}.npy")
+    a_path = os.path.join(save_path, f"A_{name_prefix}.npy")
+    
+    np.save(xt_path, stateV.astype(np.float16))
+    np.save(a_path, networkM.astype(np.float16))
+    
+    print(f'Saved {xt_path} shape:{stateV.shape} dtype:float16')
+    print(f'Saved {a_path} shape:{networkM.shape} dtype:float16')
+
 #...!...!..................
 def commandline_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-v","--verb",type=int, help="increase debug verbosity", default=1)
-    parser.add_argument("--simName", default='daleM100apr30-e7e3be2', help="[.simNet.h5]  simulated net-activation")
-       
-    parser.add_argument("--basePath",default='out',help="head dir for set of experiments")
-    parser.add_argument("--outName",  default=None,help='(optional) output file name')
+    parser.add_argument("-v","--verbosity",type=int,choices=[0, 1, 2,3],  help="increase output verbosity", default=1, dest='verb')
+    parser.add_argument("--basePath",default='out',help="head dir for set of experimentst")
+    parser.add_argument("--simName",  required=True,help='name of input data')
+    parser.add_argument("--outName",  default=None,help='output name')
+    parser.add_argument("--time_start", type=float, default=0.,help="start time (sec)")
+    parser.add_argument("--saveNPY", type=str, default=None, help="save state and network matrices as NPY files with this name prefix")
     
     args = parser.parse_args()
     args.inpPath=os.path.join(args.basePath,'gen_dale')
     args.outPath=os.path.join(args.basePath,'input_uoi')
-    args.time_start=0.5
-    for arg in vars(args):
-        print( 'myArgs:',arg, getattr(args, arg))
-
+    
+    if args.verb>0:
+        print( 'myArg-program:',parser.prog)
+        for arg in vars(args):  print( 'myArg:',arg, getattr(args, arg))
+        print('',flush=True)
+    
     assert os.path.exists(args.inpPath)
     assert os.path.exists(args.outPath)
-    
     return args
 
 #...!...!....................
@@ -53,6 +75,7 @@ def format_simNetActivity(inpD,inpMD):
     smd=inpMD['simu']         
     sem={}
     md={'selector':sem, 'payload':smd}
+    md['dale_truth']=inpMD['dale_truth']
 
     sem['input_name']=args.simName
     fr=sem['sampling_freq'] =1./smd['time_step']
@@ -71,7 +94,12 @@ def format_simNetActivity(inpD,inpMD):
     stateV=stateV[tL:]
     
     #.... any data transformation goes here ....
-    outD={'all_features':stateV,'true_network_matrix':inpD['network_matrix']}
+    outD={'all_features':stateV.astype(np.float16),'true_network_matrix':inpD['network_matrix'].astype(np.float16)}
+
+    # Save NPY files if requested
+    if args.saveNPY is not None:
+        save_npy_arrays(stateV, inpD['network_matrix'], args.outPath, args.saveNPY)
+
     return md,outD
     
  
@@ -98,6 +126,6 @@ if __name__ == "__main__":
     #1print('   ./plot_features.py  --basePath $basePath   --inpName   %s  -p  a c d  -Y '%(expMD['short_name'] ))
     print('   ./fit_uoiVar_admm.py  --basePath $basePath   --inpName   %s    --time_range 0. 2.  \n'%(expMD['short_name'] ))
    
-
-    print('1 node: \n     srun -n128 --distribution=block:block shifter python  fit_uoiVar_admm.py  --basePath $basePath   --inpName   %s    --time_range 0.3 1.3  \n'%(expMD['short_name'] ))
+    print('1 node: \n     srun -n128 --distribution=block:block shifter python  fit_uoiVar_admm.py  --basePath $basePath   --inpName   %s  --num_admm 32  --time_range 0. 4.  \n'%(expMD['short_name'] ))
     
+    #pprint(expMD)

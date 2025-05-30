@@ -35,7 +35,7 @@ class Plotter(PlotterBackbone):
 
 #...!...!..................
     def Dale_matrix(self,bigD,md,figId=3):
-
+        dmm=md['dale_truth']    
         figId=self.smart_append(figId)        
         nrow,ncol=1,1
         fig=self.plt.figure(figId,facecolor='white', figsize=(7,6))
@@ -68,6 +68,11 @@ class Plotter(PlotterBackbone):
         ax.set_xlim(-0.5,nfeat+0.5)
         ax.set_ylim(-0.5,nfeat+0.5)
         ax.set_aspect(1.0)
+
+        numExc=dmm['num_excit_neur']
+        ax.axvline(numExc-0.5,color='k',ls='--')
+        ax.text(0.1, 0.92, 'Excitatory', size=18,color='r',transform=ax.transAxes)
+        ax.text(0.6, 0.92, 'Inhibitory', size=18,color='b',transform=ax.transAxes)
         
 #...!...!..................
     def Dale_eigen(self,bigD,md,figId=3):
