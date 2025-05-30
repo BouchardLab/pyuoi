@@ -167,12 +167,24 @@ def fit_uoiVar_M():
     # All ranks: Initialize
     boot_comm = build_bootstrap_comm(comm, args.num_admm)
     
+    '''
     n_boots_sel=12
     selection_frac=0.9
     rho_scaler = 2.
     max_iter = 1000
     uoi_lasso = UoI_Lasso( fit_VAR = True, fit_intercept=False, n_boots_sel=n_boots_sel,  selection_frac= selection_frac, random_state=42, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, max_iter = max_iter , rho_scaler = rho_scaler , solver='admm', estimation_solver = "ls")
-    
+    '''
+    n_boots_sel = 12
+    n_boots_est = 12
+    selection_frac = 0.9
+    n_lambdas = 48
+    max_iter = 1000
+    seed = 42
+    rho_scaler = 2.0
+    imbalance_tolerance = 0.1
+    eps=1e-7
+    uoi_lasso = UoI_Lasso(fit_VAR = True, fit_intercept=False, n_boots_sel=n_boots_sel, n_boots_est=n_boots_est, selection_frac = selection_frac, n_lambdas = n_lambdas, max_iter = max_iter, eps = eps, random_state=seed, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, rho_scaler = rho_scaler, imbalance_tolerance = imbalance_tolerance, solver='admm', estimation_solver = "ls")
+
     #  admm_rho = args.admm_rho
 
     # fit UoI_Lasso

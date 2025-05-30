@@ -56,13 +56,13 @@ def plot_diagonal_and_violins(A,plt,figId,tit0,eps=1e-5):
     ax2.axhline(0,lw=1.,ls='--',c='k')
     return ax2
 
-def draw_correlation_plot(ax,XY,stD,tit,dCol):
+def draw_correlation_plot(ax,XY,stD,dCol):
     ax.scatter(XY[:,0],XY[:,1],facecolors='none',edgecolors=dCol,label='all')
     ax.plot(stD['mu_X'],stD['mu_Y'],'+',color='#00ff00',markersize=20)     
     ax.text(0.1,0.9,'Correl=%.2f'%(stD['rho']),transform=ax.transAxes)
     ax.set_xlabel('true')
     ax.set_ylabel('UoI ADMM fit')
-    ax.set_title(tit)
+    
 
 def add_histogram(ax,data,dLab0,dCol):
     stdX=np.std(data)
@@ -123,9 +123,15 @@ class Plotter(PlotterBackbone):
         ax.text(0.6,0.95,txt,fontsize=10,color='blue',ha='left',va='top',transform=ax.transAxes)
         
     def weigh_correl(self,bigD,md,figId=4):
+        fim=md['fit_uoi']
         pof=md['post_fit_residual']
         mxs=md['matrix_shape']
-        lag=0
+        pmd=md['payload']
+        sem=md['selector']
+        dmm=md['dale_truth']
+        #txt=md['short_name']
+        #txt+='\ninput '+sem['input_name']
+        
         figId=self.smart_append(figId)        
         nrow,ncol=2,3
         fig=self.plt.figure(figId,facecolor='white',figsize=(12,7))
@@ -138,11 +144,12 @@ class Plotter(PlotterBackbone):
         Ydia=bigD['post_Ydia']  # fit values
         Rdia=bigD['post_Rdia'] # residuals  
         dCol='darkorange'
-        tit1='diagonal elements'
-        draw_correlation_plot(ax,Ydia,pof['diag'],tit1,dCol)
-        
-        ax=self.plt.subplot(nrow,ncol,4)   
-        ax.set_title(tit1)     
+        obsN='diagonal'
+        draw_correlation_plot(ax,Ydia,pof['diag'],dCol)
+        ax.set(xlabel='true '+obsN,title= '%d neurons, UoI=%s'%(dmm['num_any_neur'],md['short_name']))
+                       
+        ax=self.plt.subplot(nrow,ncol,4)
+        ax.set_title(obsN+' residuals')
         add_histogram(ax,Rdia,'diag',dCol)
 
         # Excitatory weights
@@ -151,11 +158,12 @@ class Plotter(PlotterBackbone):
         Rexc=bigD['post_Rexc']
         Yzexc=bigD['post_Yzexc']
         dCol='darkred'
-        tit2='Excitatory '
-        draw_correlation_plot(ax,Yexc,pof['exc'],tit2+'weights',dCol)
+        obsN='excitatory '
+        draw_correlation_plot(ax,Yexc,pof['exc'],dCol)
+        ax.set(xlabel='true '+obsN,title= 'input %s'%(sem['input_name']))
         
         ax=self.plt.subplot(nrow,ncol,5)        
-        ax.set_title(tit2+'residuals')
+        ax.set_title(obsN+' residuals')
         
         
         add_histogram(ax,Rexc,'true',dCol)
@@ -167,11 +175,12 @@ class Plotter(PlotterBackbone):
         Rinh=bigD['post_Rinh']
         Yzinh=bigD['post_Yzinh']
         dCol='blue'
-        tit3='Inhibitory '
-        draw_correlation_plot(ax,Yinh,pof['inh'],tit3+'weights',dCol)
+        obsN='inhibitory'
+        draw_correlation_plot(ax,Yinh,pof['inh'],dCol)
+        ax.set(xlabel='true '+obsN,title= 'input shape %s'%(fim['data_shape']))
         
         ax=self.plt.subplot(nrow,ncol,6)        
-        ax.set_title(tit3+'residuals')
+        ax.set_title(obsN+' residuals')
         add_histogram(ax,Rinh,'true',dCol)
         add_histogram(ax,Yzinh,'zero','dimgray')
 
