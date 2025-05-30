@@ -10,46 +10,30 @@ import gc
 from copy import deepcopy
 from .sparse_comm_util import *
 
-def initial_rho_selection(n, p, lambda_reg, expected_sparsity):
-    # Base ρ from problem scaling
-    rho_base = lambda_reg * np.sqrt(n) / p
-    
-    # Sparsity adjustment
-    if expected_sparsity < 0.1:
-        rho_init = 0.1 * rho_base  # Start small for very sparse
-    elif expected_sparsity < 0.3:
-        rho_init = 0.5 * rho_base  # Moderate for moderately sparse
-    else:
-        rho_init = rho_base        # Standard for less sparse
-    
-    return max(rho_init, 1e-4)  # Ensure minimum value
 
 
-def adaptive_rho_update(r_k, s_k, rho_k, u, n, p, expected_sparsity):
-    # Base imbalance parameter
-    mu_base = 10
+def adaptive_rho_update_boyd(r_res, s_res, rho, u, rho_scaler, imbalance_tolerance, n = None, p=None):
     
-    # Problem size scaling
-    size_factor = min(np.sqrt(max(n, p) / 1000), 5.0)
+    if r_res > imbalance_tolerance * s_res:
+        rho *= rho_scaler
+        u /= rho_scaler
+    elif s_res > imbalance_tolerance * r_res:
+        rho /= rho_scaler
+        u *= rho_scaler
+
+    return rho , u 
+
+def adaptive_rho_update(r_res, s_res, primal_eps, dual_eps, rho, u, rho_scaler, imbalance_tolerance, n = None, p=None):
+
+    if r_res/primal_eps > imbalance_tolerance * s_res/dual_eps:
+        rho *= rho_scaler
+        u /= rho_scaler
+    elif s_res/dual_eps > imbalance_tolerance * r_res/primal_eps:
+        rho /= rho_scaler
+        u *= rho_scaler
+
+    return rho , u 
     
-    # Sparsity scaling
-    if expected_sparsity < 0.1:
-        sparsity_scale = 2.0
-    elif expected_sparsity < 0.5:
-        sparsity_scale = 1.0
-    else:
-        sparsity_scale = 0.5
-    
-    # Combined adaptive parameter
-    mu_adaptive = mu_base * (1 + 0.5 * size_factor * sparsity_scale)
-    
-    # Standard residual balancing with adaptive μ
-    if r_k > mu_adaptive * s_k:
-        return 2.0 * rho_k, u/2
-    elif s_k > mu_adaptive * r_k:
-        return rho_k / 2.0, u* 2
-    else:
-        return rho_k , u   
 
 def objective(X, y, alpha, x, z):
     if alpha == 0:
@@ -194,7 +178,7 @@ class ADMM_Lasso:
             # scaled global alpha values, 
             # *m(number of samples in this bootstrap) accounts for the ADMM objective function being the total SSE
             # /N(n_admm) accounts for the change in L1-penalty scale when the SSE term optimization is distributed
-            alpha = self.alpha * m / N
+            alpha = self.alpha * m / N 
 
 
         else:
@@ -282,8 +266,6 @@ class ADMM_Lasso:
         #alpha *= m
         # good heuristric is to start with rho = l1-penalty
         rho = alpha # admm parameter, modulating the constraint that aux variable equals the model variable
-
-        #rho = initial_rho_selection(m, n, alpha, 0.125)
     
         # do the send-receisve again for y?? or integrate back into the last send-receive operation?? or just Bcast it like right now
         y = np.ascontiguousarray(y.ravel()[rank::N].reshape((m, 1)))
@@ -377,31 +359,26 @@ class ADMM_Lasso:
 
             r_res = np.sqrt(recv[0])
             s_res = np.sqrt(N) * rho * norm(z - zprev)
+
+            primal_eps = np.sqrt(n * N) * abs_tol + rel_tol * np.maximum(np.sqrt(recv[1]), np.sqrt(N) * norm(z))
+            dual_eps = np.sqrt(n * N) * abs_tol + rel_tol * np.sqrt(recv[2])
+            
     
             # diagnostics, reporting, termination checks
             objval.append(objective(X, y, alpha, x, z))
-           
             r_norm.append(r_res)
             s_norm.append(s_res)
-            
-            eps_pri.append(np.sqrt(n * N) * abs_tol +
-                           rel_tol * np.maximum(np.sqrt(recv[1]), np.sqrt(N) * norm(z)))
-
-            eps_dual.append(np.sqrt(n * N) * abs_tol + rel_tol * np.sqrt(recv[2]))
+            eps_pri.append(primal_eps)
+            eps_dual.append(dual_eps)
     
     
-            if r_norm[k] < eps_pri[k] and s_norm[k] < eps_dual[k] and k > 0:
+            if r_res < primal_eps and s_res < dual_eps and k > 0:
                 break
 
-            # rho, u = adaptive_rho_update(r_res, s_res, rho, u, m, n, 0.125)
 
             # adaptive rho selection based on residual
-            if r_res > self.imbalance_tolerance * s_res:
-                rho *= self.rho_scaler
-                u /= self.rho_scaler
-            elif s_res > self.imbalance_tolerance * r_res:
-                rho /= self.rho_scaler
-                u *= self.rho_scaler
+            #rho, u = adaptive_rho_update_boyd(r_res, s_res, rho, u, self.rho_scaler, self.imbalance_tolerance)
+            rho, u = adaptive_rho_update(r_res, s_res, primal_eps, dual_eps, rho, u, self.rho_scaler, self.imbalance_tolerance)
 
             
             # Compute residual
@@ -409,7 +386,7 @@ class ADMM_Lasso:
             if rank == 0:
                 rho_history.append(rho)
         # if rank == 0:
-        #     np.save("rho_plot/rho_"+str(self.rho_scaler)+"_50k.npy", rho_history)
+        #     np.save("rho_plot/rho_"+str(self.rho_scaler)+"_20k_160.npy", rho_history)
         
         # Set attributes after fitting
         self.coef_ = z

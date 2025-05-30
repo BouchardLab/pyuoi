@@ -6,6 +6,7 @@ from sklearn.metrics import r2_score, accuracy_score, log_loss
 from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
 from sklearn.preprocessing import StandardScaler
+import sys
 
 from scipy.sparse import issparse, csr_matrix, csc_matrix, coo_matrix, kron, eye
 
@@ -486,7 +487,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                     self._selection_lm.intercept_ *= 0.
                     
                 # draw a resampled bootstrap, and vectorize it
-                # minimize repeated vecotrization if using the same bootstrap
+                # minimize repeated vectorization if using the same bootstrap
                 idxs_train, idxs_test = my_boots[boot_idx]
                 if self.fit_VAR:
                     X_rep, y_rep = vectorization_bootstrap(data, idxs_train, lag)
@@ -510,6 +511,21 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             selection_coefs[ii] = np.squeeze(
                 self.uoi_selection_sweep(X_rep, y_rep, my_reg_params))
 
+
+            #print(np.count_nonzero(selection_coefs[ii])/selection_coefs[ii].size,flush = True)
+            # try:
+            #     assert np.count_nonzero(selection_coefs[ii])/selection_coefs[ii].size > 0.01
+            # except AssertionError:
+            #     if self.solver == "admm":
+            #         n = -1
+            #         n = self.admm_comm.bcast(n, root=0)
+            #     if self.estimation_solver == "admm":
+            #         n = 0
+            #         n = self.admm_comm.bcast(n, root=0)                
+            #     sys.exit("Producing trivial solution")
+
+
+                    
         # if distributed, gather selection coefficients to 0,
         # perform intersection, and broadcast results
         if size > 1:
