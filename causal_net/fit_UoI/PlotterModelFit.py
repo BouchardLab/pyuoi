@@ -161,6 +161,8 @@ class Plotter(PlotterBackbone):
         obsN='excitatory '
         draw_correlation_plot(ax,Yexc,pof['exc'],dCol)
         ax.set(xlabel='true '+obsN,title= 'input %s'%(sem['input_name']))
+        ax.axhline(0, color='k', linestyle='--', lw=0.8)
+        ax.axvline(0, color='k', linestyle='--', lw=0.8)
         
         ax=self.plt.subplot(nrow,ncol,5)        
         ax.set_title(obsN+' residuals')
@@ -177,7 +179,9 @@ class Plotter(PlotterBackbone):
         dCol='blue'
         obsN='inhibitory'
         draw_correlation_plot(ax,Yinh,pof['inh'],dCol)
-        ax.set(xlabel='true '+obsN,title= 'input shape %s'%(fim['data_shape']))
+        ax.set(xlabel='true '+obsN,title= 'input [nT,nF]=%s'%(fim['data_shape']))
+        ax.axhline(0, color='k', linestyle='--', lw=0.8)
+        ax.axvline(0, color='k', linestyle='--', lw=0.8)
         
         ax=self.plt.subplot(nrow,ncol,6)        
         ax.set_title(obsN+' residuals')
