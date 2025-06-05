@@ -65,13 +65,10 @@ def sparse_factor(X, rho):
     
     return factor
 
+
+
 def soft_threshold(v, k):
-    v[np.where(v > k)] -= k
-    v[np.where(v < -k)] += k
-    v[np.intersect1d(np.where(v > -k), np.where(v < k))] = 0
-    return v
-
-
+    return np.sign(v) * np.maximum(np.abs(v) - k, 0.0)
     
 
 class ADMM_Lasso:
@@ -123,7 +120,7 @@ class ADMM_Lasso:
         the specified tolerance.
     """
     
-    def __init__(self, comm, rho = None, alpha=None, fit_intercept=False, max_iter=50,
+    def __init__(self, comm, alpha=None, fit_intercept=False, max_iter=50,
                  abs_tol=1e-3, rel_tol = 1e-2,rho_scaler = 2, imbalance_tolerance = 10, warm_start=True, random_state=None):
         self.alpha = alpha
         self.fit_intercept = fit_intercept
@@ -137,7 +134,7 @@ class ADMM_Lasso:
         self.rho_scaler = rho_scaler
         self.imbalance_tolerance = imbalance_tolerance
     
-    def fit(self, X= None, y = None, z = None, sparse_input = True):
+    def fit(self, X= None, y = None, z = None, rho = None, sparse_input = True):
         """
         Fit model with coordinate descent.
         
@@ -265,7 +262,8 @@ class ADMM_Lasso:
          # this is for accomdating the definition of MSE term in ADMM-LASSO convention
         #alpha *= m
         # good heuristric is to start with rho = l1-penalty
-        rho = alpha # admm parameter, modulating the constraint that aux variable equals the model variable
+        if rho == None:
+            rho = alpha # admm parameter, modulating the constraint that aux variable equals the model variable
     
         # do the send-receisve again for y?? or integrate back into the last send-receive operation?? or just Bcast it like right now
         y = np.ascontiguousarray(y.ravel()[rank::N].reshape((m, 1)))
@@ -291,7 +289,6 @@ class ADMM_Lasso:
 
 
         u = np.zeros((n, 1))
-        r = np.zeros((n, 1))
     
         send = np.zeros(3)
         recv = np.zeros(3)
@@ -314,11 +311,13 @@ class ADMM_Lasso:
         '''
 
         rho_history = []
+
+        # using scaled version where u = 1/y
         for k in range(max_iter):  # xrange -> range for Python 3
     
             # u-update
-            if k != 0:
-                u += (x - z)
+            # if k != 0:
+            #     u += (x - z)
     
             # x-update 
             q = Xty + rho * (z - u)  # (temporary value)
@@ -339,23 +338,30 @@ class ADMM_Lasso:
     
             w = x + u
     
-            send[0] = r.T.dot(r)[0][0]
-            send[1] = x.T.dot(x)[0][0]
-            #send[2] = u.T.dot(u)[0][0] / (rho**2)
-            send[2] = u.T.dot(u)[0][0] * (rho**2)
-    
             zprev = np.copy(z)
     
             comm.Barrier()
             comm.Allreduce([w, MPI.DOUBLE], [z, MPI.DOUBLE]) # the resulting z is sum of N variants, so it has to be divided by N before all usage
-            comm.Allreduce([send, MPI.DOUBLE], [recv, MPI.DOUBLE])
-    
-            # z-update
             
+    
+            # z-update            
             if alpha == 0:  #Linear regression case
                 z = z * 1. / N
             else:
                 z = soft_threshold(z * 1. / N, alpha * 1. / (N * rho))
+
+            r = x-z
+            u += r   
+            
+            send[0] = r.T.dot(r)[0][0]
+            send[1] = x.T.dot(x)[0][0]
+            #send[2] = u.T.dot(u)[0][0] / (rho**2)
+            send[2] = u.T.dot(u)[0][0] * (rho**2)
+            
+            
+            comm.Barrier()
+            comm.Allreduce([send, MPI.DOUBLE], [recv, MPI.DOUBLE])
+            
 
             r_res = np.sqrt(recv[0])
             s_res = np.sqrt(N) * rho * norm(z - zprev)
@@ -382,16 +388,16 @@ class ADMM_Lasso:
 
             
             # Compute residual
-            r = x - z
+            # r = x - z
             if rank == 0:
                 rho_history.append(rho)
-        # if rank == 0:
-        #     np.save("rho_plot/rho_"+str(self.rho_scaler)+"_20k_160.npy", rho_history)
+        if rank == 0:
+            np.save("rho_plot/rho_"+str(self.rho_scaler)+"_20k_160.npy", rho_history)
         
         # Set attributes after fitting
         self.coef_ = z
         self.intercept_ = 0
-        self.n_iter_ = None
+        self.n_iter_ = k
         
         
         return self
