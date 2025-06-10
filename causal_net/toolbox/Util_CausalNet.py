@@ -147,6 +147,7 @@ def residual_stats(A: np.ndarray):
     statsD = {
         'mu_X':  mu_X,
         'mu_Y':  mu_Y,
+        'res_std': np.std(X-Y),
         'rho':   rho,
         'theta': theta,
         'std_Xp':stdX,

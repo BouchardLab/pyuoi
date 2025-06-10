@@ -60,20 +60,36 @@ def postproc_fit(bigD,md):
     Yzexc=Mf[Lzexc][Mf[Lzexc]!=0]
     Yzinh=Mf[Lzinh][Mf[Lzinh]!=0]
 
+    facOn=False
+    pofC={'scale':'none'}
+    if 1:
+        print('PST: manualy rescale weights')
+        facDia=10.4; facExc=20; facInh=25
+        Ydia[:,1]=(Ydia[:,1]-1) *facDia
+        Yexc[:,1]*=facExc
+        Yzexc*=facExc
+        Yinh[:,1]*=facInh
+        Yzinh*=facInh
+        facOn=True
+        pofC['factor']={'diag':facDia,'exc':facExc,'inh':facInh}
+        pofC['scale']='manual'
+        
     print('diag shape: %s'%(str(Ydia.shape)))
     print('Yexc,z shape: %s %s'%(str(Yexc.shape),str(Yzexc.shape)))
     print('Yinh,z shape: %s %s'%(str(Yinh.shape),str(Yzinh.shape)))
-  
+    
     bigD['post_Ydia']=Ydia
     bigD['post_Yexc']=Yexc
     bigD['post_Yzexc']=Yzexc
     bigD['post_Yinh']=Yinh
     bigD['post_Yzinh']=Yzinh
 
-    pof=md['post_fit_residual']={}
-    stats,Xp,Yp = residual_stats(Ydia)
+    pof=md['post_fit_residual']={'post_conf':pofC}
+    stats,Xr,Yr = residual_stats(Ydia)
+    #pprint(stats)
     pof['diag']=stats
-    bigD['post_Rdia']=Yp
+    bigD['post_Rdia1']=Xr  # rotated 1st component
+    bigD['post_Rdia2']=Yr  # rotated 2nd component
 
     stats,Xp,Yp = residual_stats(Yexc)
     pof['exc']=stats
@@ -83,6 +99,21 @@ def postproc_fit(bigD,md):
     pof['inh']=stats
     bigD['post_Rinh']=Yp
     #pprint(pof)
+
+    #... construct CVS record
+    outL=[md['short_name']]
+    if 1:
+        for obs in ['diag','exc','inh']:
+            rec=pof[obs]
+            x,y=rec['mu_X'],rec['mu_Y']
+            if obs=='diag1' and facOn:
+                r=x/(y-1)
+            else:
+                r=x/y
+            outL+=[rec['rho'],obs,x,y,r]
+            print('%s %.3f %.3f %.3f'%(obs,x,y,r))
+    outL.append('')
+    return outL
 
 def nice_print_model(bigD,md,mxFeat=None):
     pmd=md['payload']
@@ -113,7 +144,7 @@ if __name__=="__main__":
         pprint(expMD)
 
     nice_print_model(expD,expMD,mxFeat=args.max_feature)
-    postproc_fit(expD,expMD)
+    csvL=postproc_fit(expD,expMD)
   
     outF=os.path.join(args.outPath,expMD['short_name']+'.post.h5')
     write4_data_hdf5(expD,outF,expMD)
@@ -129,4 +160,7 @@ if __name__=="__main__":
         
     plot.display_all()
     print('M:done')
+    print(csvL,'\n')
+    pprint(expMD)
+    
    

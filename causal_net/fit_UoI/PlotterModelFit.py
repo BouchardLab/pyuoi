@@ -58,15 +58,46 @@ def plot_diagonal_and_violins(A,plt,figId,tit0,eps=1e-5):
 
 def draw_correlation_plot(ax,XY,stD,dCol):
     ax.scatter(XY[:,0],XY[:,1],facecolors='none',edgecolors=dCol,label='all')
-    ax.plot(stD['mu_X'],stD['mu_Y'],'+',color='#00ff00',markersize=20)     
-    ax.text(0.1,0.9,'Correl=%.2f'%(stD['rho']),transform=ax.transAxes)
+    ax.plot(stD['mu_X'],stD['mu_Y'],'+',color='#00ff00',markersize=20, markeredgewidth=3 )
+    ax.text(0.1,0.92,'Corr=%.2f'%(stD['rho']),transform=ax.transAxes,color='r')
     ax.set_xlabel('true')
     ax.set_ylabel('UoI ADMM fit')
+    ax.set_aspect(1.0)
+    
+    # Set grid only at even integer multiples
+    x_min, x_max = ax.get_xlim()
+    y_min, y_max = ax.get_ylim()
+
+    # draw x=y line
+    ax.plot([x_min, x_max],[x_min, x_max],'--',color='cyan')
+     
+    # Calculate ranges
+    x_range = x_max - x_min
+    y_range = y_max - y_min
+    
+    # Determine grid spacing
+    x_spacing = 2 if x_range >= 4 else 1  # Use spacing of 2 unless range is small
+    y_spacing = 2 if y_range >= 4 else 1  # Use spacing of 2 unless range is small
+    
+    # Generate ticks based on the spacing
+    x_ticks = np.arange(np.ceil(x_min / x_spacing) * x_spacing, np.floor(x_max / x_spacing) * x_spacing + x_spacing, x_spacing)
+    y_ticks = np.arange(np.ceil(y_min / y_spacing) * y_spacing, np.floor(y_max / y_spacing) * y_spacing + y_spacing, y_spacing)
+    
+    # Ensure at least two grid lines
+    if len(x_ticks) < 2:
+        x_ticks = np.linspace(x_min, x_max, 3)  # Generate 3 evenly spaced ticks
+    if len(y_ticks) < 2:
+        y_ticks = np.linspace(y_min, y_max, 3)  # Generate 3 evenly spaced ticks
+    
+    # Set ticks and grid
+    ax.set_xticks(x_ticks)
+    ax.set_yticks(y_ticks)
+    ax.grid()
     
 
 def add_histogram(ax,data,dLab0,dCol):
     stdX=np.std(data)
-    dLab='%s std=%.3f'%(dLab0,stdX)
+    dLab='%s std=%.3f, n=%d'%(dLab0,stdX,data.shape[0])
     ax.hist(data,bins=30,color=dCol,histtype='step',alpha=0.7,label=dLab,linewidth=1.5)
     ax.axvline(x=0,color='#00ff00',linestyle='-',linewidth=1.5,alpha=0.8)
     ax.legend()
@@ -129,9 +160,7 @@ class Plotter(PlotterBackbone):
         pmd=md['payload']
         sem=md['selector']
         dmm=md['dale_truth']
-        #txt=md['short_name']
-        #txt+='\ninput '+sem['input_name']
-        
+                
         figId=self.smart_append(figId)        
         nrow,ncol=2,3
         fig=self.plt.figure(figId,facecolor='white',figsize=(12,7))
@@ -142,20 +171,26 @@ class Plotter(PlotterBackbone):
         # Diagonal elements
         ax=self.plt.subplot(nrow,ncol,1)
         Ydia=bigD['post_Ydia']  # fit values
-        Rdia=bigD['post_Rdia'] # residuals  
+        ResDia=Ydia[:,0]-Ydia[:,1]
+        #Rdia1=bigD['post_Rdia1'] #  regressed fit by rotation
+        #Rdia2=bigD['post_Rdia2'] # residuals after rotation
+        #Ydia[:,1]=Rdia1
+        
         dCol='darkorange'
         obsN='diagonal'
         draw_correlation_plot(ax,Ydia,pof['diag'],dCol)
         ax.set(xlabel='true '+obsN,title= '%d neurons, UoI=%s'%(dmm['num_any_neur'],md['short_name']))
                        
         ax=self.plt.subplot(nrow,ncol,4)
-        ax.set_title(obsN+' residuals')
-        add_histogram(ax,Rdia,'diag',dCol)
+        tit2='%d neur, %s residuals'%(dmm['num_any_neur'],obsN)
+        ax.set_title(tit2)
+        add_histogram(ax,ResDia,'diag',dCol)
 
         # Excitatory weights
         ax=self.plt.subplot(nrow,ncol,2)
         Yexc=bigD['post_Yexc']
-        Rexc=bigD['post_Rexc']
+        ResExc=Yexc[:,0]-Yexc[:,1]
+        #Rexc=bigD['post_Rexc']
         Yzexc=bigD['post_Yzexc']
         dCol='darkred'
         obsN='excitatory '
@@ -164,17 +199,18 @@ class Plotter(PlotterBackbone):
         ax.axhline(0, color='k', linestyle='--', lw=0.8)
         ax.axvline(0, color='k', linestyle='--', lw=0.8)
         
-        ax=self.plt.subplot(nrow,ncol,5)        
-        ax.set_title(obsN+' residuals')
+        ax=self.plt.subplot(nrow,ncol,5)
+        tit2='UoI=%s, %s residuals'%(md['short_name'],obsN)
+        ax.set_title(tit2)        
         
-        
-        add_histogram(ax,Rexc,'true',dCol)
+        add_histogram(ax,ResExc,'true',dCol)
         add_histogram(ax,Yzexc,'zero','dimgray')
 
         # Inhibitory weights
         ax=self.plt.subplot(nrow,ncol,3)
         Yinh=bigD['post_Yinh']
-        Rinh=bigD['post_Rinh']
+        ResInh=Yinh[:,0]-Yinh[:,1]
+        #Rinh=bigD['post_Rinh']
         Yzinh=bigD['post_Yzinh']
         dCol='blue'
         obsN='inhibitory'
@@ -183,9 +219,11 @@ class Plotter(PlotterBackbone):
         ax.axhline(0, color='k', linestyle='--', lw=0.8)
         ax.axvline(0, color='k', linestyle='--', lw=0.8)
         
-        ax=self.plt.subplot(nrow,ncol,6)        
-        ax.set_title(obsN+' residuals')
-        add_histogram(ax,Rinh,'true',dCol)
+        ax=self.plt.subplot(nrow,ncol,6)
+        tit2='scale=%s, %s residuals'%(pof['post_conf']['scale'],obsN)
+        ax.set_title(tit2)        
+      
+        add_histogram(ax,ResInh,'true',dCol)
         add_histogram(ax,Yzinh,'zero','dimgray')
 
       
