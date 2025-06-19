@@ -3,27 +3,27 @@ __author__ = "Jan Balewski"
 __email__ = "janstar1122@gmail.com"
 
 '''
- fit UoI-VAR
+ fit UoI-VAR with ADMM solver on neural activity data
 
 Perlmutter
  IMG=nersc/causal-net:v5   # Mar 28
  export OMP_NUM_THREADS=2
- salloc -q interactive -C cpu --image=$IMG -t 4:00:00 -A m2043 -N 1
- module load python
-
+ salloc -q interactive -C cpu --image=$IMG -t 4:00:00 -A m2043 -N 4
+ 
+ srun -n512 --distribution=block:block shifter python  fit_uoiVar_admm.py  --basePath $basePath   --inpName   daleM20may27_simu    --time_range 0. 5.0 
 
  dataPath=/global/cfs/cdirs/m2043/causal_inference/DIV13/features 
  basePath=/global/cfs/cdirs/mpccc/balewski/bioDataVault2025/causalNet_tmp/
 
 Options:
-  --matrixName  Path to the HDF5 file containing connectivity matrices.
-  --sigma       Noise variance strength 
-  --tau         (sec) Time constant for self-forgetting  (defulat 10 msec )
-  --T           (sec) Total evolution time (default: 60  sec)
-  --dt          (sec) time step (default:  1 msec )
-  --outName     Output HDF5 file name for simulation results (default: simu_ac 
-  --seed        Random seed for simulation (optional)
-
+  --inpName         Name of input HDF5 file containing neural activity features
+  --fitName         Optional custom name for the fit output
+  --time_range      Time range in seconds to use for fitting (default: [0., 5.0])
+  --time_rebin      Number of time steps to average together (default: 1)
+  --input_type      Data type: 'state' for raw data, 'rate' for exp(state) (default: state)
+  --num_admm        Number of ADMM processes per bootstrap group (default: 16)
+  --rho_scaler      Scaling factor for ADMM rho parameter updates (default: 2.0)
+  --selection_frac  Fraction of data used for feature selection phase (default: 0.9)
 
 ''' 
 
@@ -59,16 +59,25 @@ def get_parser():
     parser.add_argument("--fitName",  default=None,help='fit name')
 
     #.... fit setup
-    parser.add_argument('--time_range' , default=[0.3, 1.],  nargs=2,   type=float, help='fit data time range')
+    parser.add_argument('--time_range' , default=[0., 5.],  nargs=2,   type=float, help='fit data time range')
     parser.add_argument("--time_rebin", type=int, default=1, help="num time steps to be averaged")
     parser.add_argument('--input_type' , default='state', choices=['state','rate'] , help=' rate=exp(state)')
-    parser.add_argument("--num_admm", type=int, default=32, help="num of processes per node to solve the bootstrap variable selection problem in a distributed fashion")
+    parser.add_argument("--num_admm", type=int, default=16, help="num of processes per node to solve the bootstrap variable selection problem in a distributed fashion")
+    parser.add_argument("--rho_scaler", type=float, default=2.0, help="scaling factor for ADMM rho parameter")
+    parser.add_argument("--selection_frac", type=float, default=0.9, help="fraction of data used for feature selection phase (default: 0.9)")
     
     args = parser.parse_args()
-    # make arguments  more flexible
     args.rndSeed=42
-    args.admm_rho=None # ADMM penalty parameter: rho (need some heuristics)
-    args.copy_X=True  # Add this parameter with default value
+
+    # UoI_Lasso parameters
+    args.n_boots_sel = 12
+    args.n_boots_est = 12
+    args.n_lambdas = 48
+    args.max_iter = 1000
+    args.imbalance_tolerance = 0.1
+    args.eps = 1e-7
+    args.solver = 'admm'
+    args.estimation_solver = 'ls'
 
     args.dataPath=os.path.join(args.basePath,'input_uoi')    
     args.modelPath=os.path.join(args.basePath,'model_uoi')
@@ -140,21 +149,35 @@ def fit_uoiVar_M():
     if rank == 0:
         bigD,md=expD,expMD 
         print('FUOI mydata:%s  lag:%d  numRank:%d '%(mydata.shape,lag,comm.Get_size()),flush=True)
-        #print('ppp',args.num_admm,args.admm_rho)
         assert mydata.shape[0] > mydata.shape[1]  # UoI wants [timeBins,features]
         fim={};  md['fit_uoi']=fim
         fim['lag_depth']=lag
         fim['data_shape']=list(mydata.shape)
         fim['num_rank']=comm.Get_size()
         fim['num_admm']=args.num_admm
-        fim['admm_rho']=args.admm_rho
         
+        # Compute 4-ratio
+        ratio4 = (num_samp * args.selection_frac) / (num_feat * args.num_admm)
+        fim['four_ratio'] = ratio4
+        
+        # Add UoI_Lasso parameters
+        fim['n_boots_sel'] = args.n_boots_sel
+        fim['n_boots_est'] = args.n_boots_est
+        fim['selection_frac'] = args.selection_frac
+        fim['n_lambdas'] = args.n_lambdas
+        fim['max_iter'] = args.max_iter
+        fim['rho_scaler'] = args.rho_scaler
+        fim['imbalance_tolerance'] = args.imbalance_tolerance
+        fim['eps'] = args.eps
+        fim['solver'] = args.solver
+        fim['estimation_solver'] = args.estimation_solver
 
         fim['hash']=hashlib.md5(os.urandom(32)).hexdigest()[:6]
         if args.fitName==None:
             md['short_name']='fit-%s'%(fim['hash'])
         else:
             md['short_name']=args.fitName
+        pprint(fim); print( flush=True)
 
     if num_ranks==1 and  comm.rank == 0: # dump input array
         dataF='%s-%s.npy'%(args.inpName,fim['hash'])
@@ -167,25 +190,21 @@ def fit_uoiVar_M():
     # All ranks: Initialize
     boot_comm = build_bootstrap_comm(comm, args.num_admm)
     
-    '''
-    n_boots_sel=12
-    selection_frac=0.9
-    rho_scaler = 2.
-    max_iter = 1000
-    uoi_lasso = UoI_Lasso( fit_VAR = True, fit_intercept=False, n_boots_sel=n_boots_sel,  selection_frac= selection_frac, random_state=42, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, max_iter = max_iter , rho_scaler = rho_scaler , solver='admm', estimation_solver = "ls")
-    '''
-    n_boots_sel = 12
-    n_boots_est = 12
-    selection_frac = 0.9
-    n_lambdas = 48
-    max_iter = 1000
-    seed = 42
-    rho_scaler = 2.0
-    imbalance_tolerance = 0.1
-    eps=1e-7
-    uoi_lasso = UoI_Lasso(fit_VAR = True, fit_intercept=False, n_boots_sel=n_boots_sel, n_boots_est=n_boots_est, selection_frac = selection_frac, n_lambdas = n_lambdas, max_iter = max_iter, eps = eps, random_state=seed, comm = boot_comm, global_comm = comm, n_admm = args.num_admm, rho_scaler = rho_scaler, imbalance_tolerance = imbalance_tolerance, solver='admm', estimation_solver = "ls")
-
-    #  admm_rho = args.admm_rho
+    uoi_lasso = UoI_Lasso(fit_VAR = True, fit_intercept=False, 
+                         n_boots_sel=args.n_boots_sel, 
+                         n_boots_est=args.n_boots_est, 
+                         selection_frac=args.selection_frac, 
+                         n_lambdas=args.n_lambdas, 
+                         max_iter=args.max_iter, 
+                         eps=args.eps, 
+                         random_state=args.rndSeed, 
+                         comm=boot_comm, 
+                         global_comm=comm, 
+                         n_admm=args.num_admm, 
+                         rho_scaler=args.rho_scaler, 
+                         imbalance_tolerance=args.imbalance_tolerance, 
+                         solver=args.solver, 
+                         estimation_solver=args.estimation_solver)
 
     # fit UoI_Lasso
     start_time = time()

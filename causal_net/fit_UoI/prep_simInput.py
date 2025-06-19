@@ -75,8 +75,9 @@ def format_simNetActivity(inpD,inpMD):
     smd=inpMD['simu']         
     sem={}
     md={'selector':sem, 'payload':smd}
+    #pprint(inpMD['dale_truth']); aa
     md['dale_truth']=inpMD['dale_truth']
-
+    
     sem['input_name']=args.simName
     fr=sem['sampling_freq'] =1./smd['time_step']
     sem['time_start']=args.time_start
@@ -95,6 +96,18 @@ def format_simNetActivity(inpD,inpMD):
     
     #.... any data transformation goes here ....
     outD={'all_features':stateV.astype(np.float16),'true_network_matrix':inpD['network_matrix'].astype(np.float16)}
+
+    # Compute true_matrix_5index for Dale matrix partitioning
+    Mt = inpD['network_matrix'].T
+    from toolbox.Util_CausalNet import daleMatrix_index_partition
+    Ldia, Lexc, Lzexc, Linh, Lzinh = daleMatrix_index_partition(Mt)
+    md['dale_truth']['5index'] = {
+        'diag': Mt[Ldia[0]].shape[0],
+        'exc_nonzero': Mt[Lexc[0]].shape[0],
+        'exc_zero': Mt[Lzexc[0]].shape[0],
+        'inh_nonzero': Mt[Linh[0]].shape[0],
+        'inh_zero': Mt[Lzinh[0]].shape[0]
+    }
 
     # Save NPY files if requested
     if args.saveNPY is not None:
@@ -115,6 +128,9 @@ if __name__ == "__main__":
     
     inpF=os.path.join(args.inpPath,args.simName+'.simNet.h5')
     inpD,inpMD=read4_data_hdf5(inpF)
+
+    if 1: # patch for old data
+        if 'dale_truth' in inpMD['dale_truth']: inpMD['dale_truth']['dale_name']=inpMD['dale_truth'].pop('dale_truth')
 
     expMD,expD=format_simNetActivity(inpD,inpMD)
     

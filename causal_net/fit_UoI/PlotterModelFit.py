@@ -62,37 +62,22 @@ def draw_correlation_plot(ax,XY,stD,dCol):
     ax.text(0.1,0.92,'Corr=%.2f'%(stD['rho']),transform=ax.transAxes,color='r')
     ax.set_xlabel('true')
     ax.set_ylabel('UoI ADMM fit')
-    ax.set_aspect(1.0)
+    ax.plot([0],[0])
+    ax.grid()
+    #return
     
+    ax.set_aspect(1.0)    
     # Set grid only at even integer multiples
     x_min, x_max = ax.get_xlim()
     y_min, y_max = ax.get_ylim()
 
     # draw x=y line
     ax.plot([x_min, x_max],[x_min, x_max],'--',color='cyan')
-     
-    # Calculate ranges
-    x_range = x_max - x_min
-    y_range = y_max - y_min
     
-    # Determine grid spacing
-    x_spacing = 2 if x_range >= 4 else 1  # Use spacing of 2 unless range is small
-    y_spacing = 2 if y_range >= 4 else 1  # Use spacing of 2 unless range is small
+    return
     
-    # Generate ticks based on the spacing
-    x_ticks = np.arange(np.ceil(x_min / x_spacing) * x_spacing, np.floor(x_max / x_spacing) * x_spacing + x_spacing, x_spacing)
-    y_ticks = np.arange(np.ceil(y_min / y_spacing) * y_spacing, np.floor(y_max / y_spacing) * y_spacing + y_spacing, y_spacing)
-    
-    # Ensure at least two grid lines
-    if len(x_ticks) < 2:
-        x_ticks = np.linspace(x_min, x_max, 3)  # Generate 3 evenly spaced ticks
-    if len(y_ticks) < 2:
-        y_ticks = np.linspace(y_min, y_max, 3)  # Generate 3 evenly spaced ticks
-    
-    # Set ticks and grid
-    ax.set_xticks(x_ticks)
-    ax.set_yticks(y_ticks)
-    ax.grid()
+  
+   
     
 
 def add_histogram(ax,data,dLab0,dCol):
@@ -155,8 +140,8 @@ class Plotter(PlotterBackbone):
         
     def weigh_correl(self,bigD,md,figId=4):
         fim=md['fit_uoi']
-        pof=md['post_fit_residual']
-        mxs=md['matrix_shape']
+        pof=md['post_fit_residuals']
+        mxs=md['dale_truth']['5index']
         pmd=md['payload']
         sem=md['selector']
         dmm=md['dale_truth']
@@ -167,18 +152,18 @@ class Plotter(PlotterBackbone):
 
         zEps=1e-4
         print('PWC: zEps=%.1e'%(zEps))
-        print('PWC: dale partition size: diag:%d  exc:%d  zexc:%d  inh:%d  zinh:%d'%(len(bigD['post_Ydia']), len(bigD['post_Yexc']), len(bigD['post_Yzexc']), len(bigD['post_Yinh']), len(bigD['post_Yzinh'])))
+        print('PWC: dale partition size: diag:%d  exc:%d  zexc:%d  inh:%d  zinh:%d'%(len(bigD['post_Ydiag']), len(bigD['post_Yexc']), len(bigD['post_Yzexc']), len(bigD['post_Yinh']), len(bigD['post_Yzinh'])))
         # Diagonal elements
         ax=self.plt.subplot(nrow,ncol,1)
-        Ydia=bigD['post_Ydia']  # fit values
-        ResDia=Ydia[:,0]-Ydia[:,1]
+        Ydiag=bigD['post_Ydiag']  # fit values
+        ResDia=Ydiag[:,0]-Ydiag[:,1]
         #Rdia1=bigD['post_Rdia1'] #  regressed fit by rotation
         #Rdia2=bigD['post_Rdia2'] # residuals after rotation
         #Ydia[:,1]=Rdia1
         
         dCol='darkorange'
         obsN='diagonal'
-        draw_correlation_plot(ax,Ydia,pof['diag'],dCol)
+        draw_correlation_plot(ax,Ydiag,pof['diag'],dCol)
         ax.set(xlabel='true '+obsN,title= '%d neurons, UoI=%s'%(dmm['num_any_neur'],md['short_name']))
                        
         ax=self.plt.subplot(nrow,ncol,4)
@@ -203,8 +188,8 @@ class Plotter(PlotterBackbone):
         tit2='UoI=%s, %s residuals'%(md['short_name'],obsN)
         ax.set_title(tit2)        
         
-        add_histogram(ax,ResExc,'true',dCol)
-        add_histogram(ax,Yzexc,'zero','dimgray')
+        add_histogram(ax,ResExc,'exc',dCol)
+        add_histogram(ax,Yzexc,'zexc','dimgray')
 
         # Inhibitory weights
         ax=self.plt.subplot(nrow,ncol,3)
@@ -223,12 +208,12 @@ class Plotter(PlotterBackbone):
         tit2='scale=%s, %s residuals'%(pof['post_conf']['scale'],obsN)
         ax.set_title(tit2)        
       
-        add_histogram(ax,ResInh,'true',dCol)
-        add_histogram(ax,Yzinh,'zero','dimgray')
+        add_histogram(ax,ResInh,'inh',dCol)
+        add_histogram(ax,Yzinh,'zinh','dimgray')
 
       
-        print('Num of non zero-values in Yzexc: %d of %d -->frac=%.2f'%( Yzexc.size,mxs['zexc'][0],Yzexc.size/mxs['zexc'][0]))
-        print('Num of non zero-values in Yzinh: %d of %d -->frac=%.2f'%( Yinh.size,mxs['zinh'][0],Yzinh.size/         mxs['zinh'][0]))
+        print('Num of non zero-values in Yzexc: %d of %d -->frac=%.2f'%( Yzexc.size,mxs['exc_zero'],Yzexc.size/mxs['exc_zero']))
+        print('Num of non zero-values in Yzinh: %d of %d -->frac=%.2f'%( Yzinh.size,mxs['inh_zero'],Yzinh.size/mxs['inh_zero']))
         print('Num of zero-values in Yexc: %d of %d -->frac=%.2f'%(np.sum(np.abs(Yexc[:,1])<=zEps), Yexc.shape[0],np.sum(np.abs(Yexc[:,1])<=zEps)/Yexc.shape[0]))
         print('Num of zero-values in Yinh: %d of %d -->frac=%.2f'%(np.sum(np.abs(Yinh[:,1])<=zEps), Yinh.shape[0],np.sum(np.abs(Yinh[:,1])<=zEps)/Yinh.shape[0]))
         #pprint(mxs)

@@ -6,19 +6,25 @@ __email__ = "janstar1122@gmail.com"
 simu_netActivity.py
 
 Reads a connectivity matrix from an HDF5 file and simulates the neural activity 
-of the corresponding linear dynamical system (LDS). The simulation outputL state trajectory  and simulation parameters are saved in an HDF5 file.
+of the corresponding linear dynamical system (LDS). The simulation outputs state trajectory and simulation parameters are saved in an HDF5 file.
 
 Usage:
-  ./simu_network_activity.py --matrixName abc.daleM.h5 [options]
+  ./simu_netActivity.py --matrixName abc.daleM [options]
 
 Options:
-  --matrixName  Path to the HDF5 file containing connectivity matrices.
-  sigma       Noise variance strength 
-  tau         (sec) Time constant for self-forgetting  (defulat 10 msec )
-  evol_time   (sec) Total evolution time (default: 60  sec)
-  -dt          (sec) time step (default:  1 msec )
-  --outName     Output HDF5 file name for simulation results (default: simu_ac 
-  --seed        Random seed for simulation (optional)
+  --matrixName      Name of the HDF5 file containing connectivity matrices (without .daleM.h5 extension)
+  --sigma_noise     Noise variance strength (default: 20.0)
+  --sigma_peak      Peak noise variance strength (default: 6 * sigma_noise)
+  --prob_peak       Probability of peak noise for each neuron (default: 0.03)
+  --tau_response    (sec) Response time to driving force (default: 0.01 sec)
+  -T, --evol_time   (sec) Total simulation time (default: 60 sec)
+  -dt, --time_step  (sec) Integration time for one evolution step (default: 0.001 sec)
+  --outName         Output name for simulation results (optional)
+  --rnd_seed        Random seed for simulation (optional)
+  --basePath        Head directory for experiments (default: dataDale)
+  -v, --verb        Increase debug verbosity (default: 1)
+
+salloc -q interactive -C cpu  -t 4:00:00 -A m2043 -N 1
 
 """
 
@@ -41,6 +47,8 @@ def commandline_parser():
     
     # Simulation parameters
     parser.add_argument("--sigma_noise", type=float, default=20., help="Noise variance strength.")
+    parser.add_argument("--sigma_peak", type=float, default=None, help="Peak noise variance strength (default: 6 * sigma_noise).")
+    parser.add_argument("--prob_peak", type=float, default=0.03, help="Probability of peak noise for each neuron (default: 0.03).")
     parser.add_argument("--tau_response", type=float, default=0.01, help="(sec) response time to driving force")
     parser.add_argument("-T","--evol_time", type=float, default=60, help=" (sec) Total simulation time.")
     parser.add_argument("-dt","--time_step", type=float, default=0.001, help=" (sec) Integration time for one evolution step")
@@ -53,6 +61,10 @@ def commandline_parser():
     # make arguments  more flexible
     args.inpPath=os.path.join(args.basePath,'gen_dale')
     args.outPath=args.inpPath
+
+    # Set default sigma_peak if not provided
+    if args.sigma_peak is None:
+        args.sigma_peak = 6 * args.sigma_noise
 
     for arg in vars(args):
         print( 'myArgs:',arg, getattr(args, arg))
@@ -73,12 +85,14 @@ def buildSimuMeta(args,md):
     md['simu']=sm
     
     sm['sigma_noise']=args.sigma_noise
+    sm['sigma_peak']=args.sigma_peak
+    sm['prob_peak']=args.prob_peak
     sm['tau_response']=args.tau_response
     sm['evol_time']=args.evol_time
     sm['time_step']=args.time_step
     sm['rnd_seed']=args.rnd_seed
     if args.outName!=None:
-        dmm['dale_truth']=md.pop('short_name')
+        dmm['dale_name']=md.pop('short_name')
         md['short_name']=args.outName        
     else:
         md['short_name']+='-%s'%(md['hash'])    
@@ -99,7 +113,7 @@ if __name__ == '__main__':
     print("M:Simulating network activity M:%s  time_steps: %.2g  ..."%(W.shape,args.evol_time/args.time_step))
     
     T0=time()
-    tspace,xt = gen_net_activity(W, tau=args.tau_response, sigma=args.sigma_noise, T=args.evol_time, h=args.time_step, seed=args.rnd_seed)
+    tspace,xt = gen_net_activity(W, tau=args.tau_response, sigma=args.sigma_noise, sigma_peak=args.sigma_peak, prob_peak=args.prob_peak, T=args.evol_time, h=args.time_step, seed=args.rnd_seed)
     print("Simulation complete, elaT=%.1f min"%((time()-T0)/60.))
     bigD['network_matrix']=W.astype(np.float32)
     bigD['evol_time']=tspace.astype(np.float32)
@@ -108,7 +122,7 @@ if __name__ == '__main__':
     #...... WRITE   OUTPUT .........
     outF=os.path.join(args.outPath,MD['short_name']+'.simNet.h5')
     write4_data_hdf5(bigD,outF,MD)    
-    print('   ./plot_simNetActivity.py  --basePath $basePath   --simName   %s -p a b e  -Y    --time_range 0.3 0.8  \n'%(MD['short_name'] ))
+    print('   ./plot_simNetActivity.py  --basePath $basePath   --simName   %s -p a b   -Y    --time_range 0.3 0.8  \n'%(MD['short_name'] ))
     print('  cd ../fit_UoI;  ./prep_simInput.py --basePath $basePath  --simName   %s   \n'%(MD['short_name'] ))
   
     exit(0)

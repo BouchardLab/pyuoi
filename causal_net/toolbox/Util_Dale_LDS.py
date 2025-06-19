@@ -59,7 +59,7 @@ def gen_matrices( M, p, g, R, diag=-1,reps=1):
                 Alist has shape [reps] each element is a (2*M)x(2*M) matrix.
     """
     Alist = []
-    #for i in tqdm(range(reps), desc="Generating matrix repetitions"):
+   
     for i in range(reps):
         A = gen_init_W(M, p, g, R, diag)
         #1Alist.append(A) ; continue    # activate it to get unstable W-matrix
@@ -96,6 +96,7 @@ def gen_init_W(M, p, gamma, R, diag=0, varyW=0.5, rand=None):
 
     Ainit = np.zeros((2 * M, 2 * M))
     wC = R / np.sqrt(p * (1 - p) * (1 + gamma**2) / 2)
+    # decide how much variation in weights
     wL=wC/varyW
     wR=wC*varyW
     
@@ -165,7 +166,7 @@ def stabilize(A, max_iter=1000, eta=10):
 
 #################### Simulation ##################
 #...!...!....................
-def gen_net_activity(W, tau, sigma, T, h, seed=None):
+def gen_net_activity(W, tau, sigma, sigma_peak=None, prob_peak=0.03, T=60, h=0.001, seed=None):
     """
     Generate neural activity from a linear dynamical system defined by connectivity matrix W.
     
@@ -173,6 +174,8 @@ def gen_net_activity(W, tau, sigma, T, h, seed=None):
       W         : Connectivity matrix.
       tau       : Time constant for simulation.
       sigma     : Noise variance strength.
+      sigma_peak: Peak noise variance strength (default: 6 * sigma).
+      prob_peak : Probability of peak noise for each neuron (default: 0.03).
       T         : Total simulation time.
       h         : Integration time resolution.
       seed      : Optional random seed.
@@ -188,13 +191,25 @@ def gen_net_activity(W, tau, sigma, T, h, seed=None):
     else:
         randGen = np.random.default_rng()
     
+    # Set default sigma_peak if not provided
+    if sigma_peak is None:
+        sigma_peak = 6 * sigma
+    
     # Define the system dynamics
     def f_(x, t):
         return 1/tau * (-np.eye(W.shape[0]) @ x + W @ x)
     
-    # Define noise (diffusion term)
+    # OLDDefine noise (diffusion term)
+    #def g_(x, t):  return sigma * np.eye(W.shape[0])
+   
+    # Define noise (diffusion term) with probabilistic peak noise
     def g_(x, t):
-        return sigma * np.eye(W.shape[0])
+        # Create base noise matrix
+        noise_matrix = sigma * np.eye(W.shape[0])
+        # Randomly select neurons for peak noise (vectorized)
+        peak_mask = randGen.random(W.shape[0]) < prob_peak
+        noise_matrix[peak_mask, peak_mask] = sigma_peak
+        return noise_matrix
     
     tspace = np.linspace(0, T, int(T/h))
     xt0 = randGen.normal(size=(W.shape[0],))  # initial state

@@ -38,23 +38,46 @@ def get_parser():
     assert os.path.exists(args.outPath)
     return args
 
+def eval_fit(md,bigD):
+    Ydiag=bigD['post_Ydiag']
+    Yexc=bigD['post_Yexc']
+    Yzexc=bigD['post_Yzexc']
+    Yinh=bigD['post_Yinh']
+    Yzinh=bigD['post_Yzinh']
+    resExc=Yexc[:,0]-Yexc[:,1]
+    fitExc=Yexc[:,1]
+    resInh=Yinh[:,0]-Yinh[:,1]
+    fitInh=Yinh[:,1]
+    resDiag=Ydiag[:,0]-Ydiag[:,1]
+    fitDiag=Ydiag[:,1]
+    
+    mxs=md['dale_truth']['5index'] 
+    pfr=md['post_fit_residuals']
+
+    fev=md['fit_eval']={}
+    fev['names']={'fit':md['short_name'],'input':md['selector']['input_name']}
+
+    #.....diagonal
+    fevd=fev['diag']={'num_true':mxs['diag'], 'num_neg':np.sum(fitDiag < 0),'std_dev':np.std(resDiag),'rho':pfr['diag']['rho'] } 
+
+    
+    feve=fev['exc']={} #..... excitatory
+    feve['true_nonzero']={'num_pos':np.sum(fitExc > 0), 'num_neg':np.sum(fitExc < 0), 'num_zero':np.sum(fitExc == 0),'std_dev':np.std(resExc),'num_true':mxs['exc_nonzero'],'rho':pfr['exc']['rho']}
+    feve['true_zero']={'num_nonzero':Yzexc.size,'std_dev':np.std(Yzexc),'mean':np.mean(Yzexc),'num_true':mxs['exc_zero']}
+    
+    fevi=fev['inh']={} #..... inhibitory
+    fevi['true_nonzero']={'num_pos':np.sum(fitInh > 0), 'num_neg':np.sum(fitInh < 0), 'num_zero':np.sum(fitInh == 0),'std_dev':np.std(resInh),'num_true':mxs['inh_nonzero'],'rho':pfr['inh']['rho']}
+    fevi['true_zero']={'num_nonzero':Yzinh.size,'std_dev':np.std(Yzinh),'mean':np.mean(Yzinh),'num_true':mxs['inh_zero']}
+
 def postproc_fit(bigD,md):
     Mt=bigD['true_network_matrix'].T
     lag=0
     Mf=bigD['fit_A_model'][lag].T
-    Ldia,Lexc,Lzexc,Linh,Lzinh = daleMatrix_index_partition(Mt)
-    print('PPF: dale partition 1st elem size: diag:%s  exc:%s  zexc:%s  inh:%s  zinh:%s'%(Mt[Ldia[0]].shape, Mt[Lexc[0]].shape, Mt[Lzexc[0]].shape, Mt[Linh[0]].shape, Mt[Lzinh[0]].shape))
-
-    # Add matrix shapes to metadata
-    md['matrix_shape']={
-        'diag': Mt[Ldia[0]].shape,
-        'exc': Mt[Lexc[0]].shape,
-        'zexc': Mt[Lzexc[0]].shape,
-        'inh': Mt[Linh[0]].shape,
-        'zinh': Mt[Lzinh[0]].shape
-    }
-
-    Ydia=np.stack((Mt[Ldia],Mf[Ldia]), axis=1)[1:]
+    
+    Ldiag,Lexc,Lzexc,Linh,Lzinh = daleMatrix_index_partition(Mt)
+    print('PPF: dale partition 1st elem size: diag:%s  exc:%s  zexc:%s  inh:%s  zinh:%s'%(Mt[Ldiag[0]].shape, Mt[Lexc[0]].shape, Mt[Lzexc[0]].shape, Mt[Linh[0]].shape, Mt[Lzinh[0]].shape))
+    
+    Ydia=np.stack((Mt[Ldiag],Mf[Ldiag]), axis=1)[1:]-1
     Yexc=np.stack((Mt[Lexc],Mf[Lexc]), axis=1)
     Yinh=np.stack((Mt[Linh],Mf[Linh]), axis=1)
     Yzexc=Mf[Lzexc][Mf[Lzexc]!=0]
@@ -65,7 +88,7 @@ def postproc_fit(bigD,md):
     if 1:
         print('PST: manualy rescale weights')
         facDia=10.4; facExc=20; facInh=25
-        Ydia[:,1]=(Ydia[:,1]-1) *facDia
+        Ydia[:,1]=(Ydia[:,1]-0) *facDia
         Yexc[:,1]*=facExc
         Yzexc*=facExc
         Yinh[:,1]*=facInh
@@ -78,13 +101,13 @@ def postproc_fit(bigD,md):
     print('Yexc,z shape: %s %s'%(str(Yexc.shape),str(Yzexc.shape)))
     print('Yinh,z shape: %s %s'%(str(Yinh.shape),str(Yzinh.shape)))
     
-    bigD['post_Ydia']=Ydia
+    bigD['post_Ydiag']=Ydia
     bigD['post_Yexc']=Yexc
     bigD['post_Yzexc']=Yzexc
     bigD['post_Yinh']=Yinh
     bigD['post_Yzinh']=Yzinh
 
-    pof=md['post_fit_residual']={'post_conf':pofC}
+    pof=md['post_fit_residuals']={'post_conf':pofC}
     stats,Xr,Yr = residual_stats(Ydia)
     #pprint(stats)
     pof['diag']=stats
@@ -100,6 +123,8 @@ def postproc_fit(bigD,md):
     bigD['post_Rinh']=Yp
     #pprint(pof)
 
+    eval_fit(md,bigD)
+    
     #... construct CVS record
     outL=[md['short_name']]
     if 1:
@@ -110,7 +135,7 @@ def postproc_fit(bigD,md):
                 r=x/(y-1)
             else:
                 r=x/y
-            outL+=[rec['rho'],obs,x,y,r]
+            outL+=[obs,rec['rho'],x,y,r]
             print('%s %.3f %.3f %.3f'%(obs,x,y,r))
     outL.append('')
     return outL
@@ -161,6 +186,8 @@ if __name__=="__main__":
     plot.display_all()
     print('M:done')
     print(csvL,'\n')
-    pprint(expMD)
+    #pprint(expMD)
+    #pprint(expMD['dale_truth']['5index'])
     
+    pprint(expMD['fit_eval'])
    
