@@ -38,6 +38,14 @@ import sys
 import scipy.stats
 
 #...!...!....................
+def binaryFractalPatterns(N):
+    return [
+        [b ^ (i // l) % 2 for i in range(N)]
+        for l in (1 << k for k in range(N.bit_length()))
+        for b in (1, 0)
+    ]
+
+#...!...!....................
 def gen_matrices( M, p, g, R, diag=-1,reps=1):
     """
     Generate a nested list of matrices.
@@ -166,7 +174,7 @@ def stabilize(A, max_iter=1000, eta=10):
 
 #################### Simulation ##################
 #...!...!....................
-def gen_net_activity(W, tau, sigma, sigma_peak=None, prob_peak=0.03, T=60, h=0.001, seed=None):
+def gen_net_activity(W, tau, sigma, T=60, h=0.001, seed=None, binFractalNoise=False):
     """
     Generate neural activity from a linear dynamical system defined by connectivity matrix W.
     
@@ -174,11 +182,10 @@ def gen_net_activity(W, tau, sigma, sigma_peak=None, prob_peak=0.03, T=60, h=0.0
       W         : Connectivity matrix.
       tau       : Time constant for simulation.
       sigma     : Noise variance strength.
-      sigma_peak: Peak noise variance strength (default: 6 * sigma).
-      prob_peak : Probability of peak noise for each neuron (default: 0.03).
       T         : Total simulation time.
       h         : Integration time resolution.
       seed      : Optional random seed.
+      binFractalNoise : If True, use binary fractal patterns for noise modulation.
     
     Returns:
       xt                : Integrated state trajectory over time.
@@ -191,26 +198,30 @@ def gen_net_activity(W, tau, sigma, sigma_peak=None, prob_peak=0.03, T=60, h=0.0
     else:
         randGen = np.random.default_rng()
     
-    # Set default sigma_peak if not provided
-    if sigma_peak is None:
-        sigma_peak = 6 * sigma
-    
     # Define the system dynamics
     def f_(x, t):
         return 1/tau * (-np.eye(W.shape[0]) @ x + W @ x)
     
-    # OLDDefine noise (diffusion term)
-    #def g_(x, t):  return sigma * np.eye(W.shape[0])
+    # Define noise (diffusion term)
+    if binFractalNoise:
+        # Precompute all binary fractal patterns
+        patterns = binaryFractalPatterns(W.shape[0])
+        patterns_array = np.array(patterns)
+        print(f"Precomputed {len(patterns)} binary fractal patterns of length {W.shape[0]}")
+        for i, pattern in enumerate(patterns):
+            bit_string = ''.join(map(str, pattern))
+            print(f"Pattern {i}: {bit_string}")
+        # Counter to cycle through patterns
+        pattern_counter = [0]  # Use list to make it mutable in closure
+        
+        def g_(x, t):
+            # Use a different pattern for each call
+            current_pattern = patterns_array[pattern_counter[0] % len(patterns_array)]
+            pattern_counter[0] += 1
+            return sigma * np.diag(current_pattern)
+    else:
+        def g_(x, t):  return sigma * np.eye(W.shape[0])
    
-    # Define noise (diffusion term) with probabilistic peak noise
-    def g_(x, t):
-        # Create base noise matrix
-        noise_matrix = sigma * np.eye(W.shape[0])
-        # Randomly select neurons for peak noise (vectorized)
-        peak_mask = randGen.random(W.shape[0]) < prob_peak
-        noise_matrix[peak_mask, peak_mask] = sigma_peak
-        return noise_matrix
-    
     tspace = np.linspace(0, T, int(T/h))
     xt0 = randGen.normal(size=(W.shape[0],))  # initial state
     

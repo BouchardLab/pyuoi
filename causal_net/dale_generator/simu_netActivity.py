@@ -14,8 +14,7 @@ Usage:
 Options:
   --matrixName      Name of the HDF5 file containing connectivity matrices (without .daleM.h5 extension)
   --sigma_noise     Noise variance strength (default: 20.0)
-  --sigma_peak      Peak noise variance strength (default: 6 * sigma_noise)
-  --prob_peak       Probability of peak noise for each neuron (default: 0.03)
+  --binFractalNoise Use binary fractal patterns for noise modulation (default: False)
   --tau_response    (sec) Response time to driving force (default: 0.01 sec)
   -T, --evol_time   (sec) Total simulation time (default: 60 sec)
   -dt, --time_step  (sec) Integration time for one evolution step (default: 0.001 sec)
@@ -46,9 +45,8 @@ def commandline_parser():
     parser.add_argument("--matrixName", default='Amats.h5', help="Path to the HDF5 file with connectivity matrices.")
     
     # Simulation parameters
-    parser.add_argument("--sigma_noise", type=float, default=20., help="Noise variance strength.")
-    parser.add_argument("--sigma_peak", type=float, default=None, help="Peak noise variance strength (default: 6 * sigma_noise).")
-    parser.add_argument("--prob_peak", type=float, default=0.03, help="Probability of peak noise for each neuron (default: 0.03).")
+    parser.add_argument("--sigma_noise", type=float, default=5., help="Noise variance strength.")
+    parser.add_argument("--binFractalNoise", action='store_true', help="Use binary fractal patterns for noise modulation.")
     parser.add_argument("--tau_response", type=float, default=0.01, help="(sec) response time to driving force")
     parser.add_argument("-T","--evol_time", type=float, default=60, help=" (sec) Total simulation time.")
     parser.add_argument("-dt","--time_step", type=float, default=0.001, help=" (sec) Integration time for one evolution step")
@@ -61,10 +59,6 @@ def commandline_parser():
     # make arguments  more flexible
     args.inpPath=os.path.join(args.basePath,'gen_dale')
     args.outPath=args.inpPath
-
-    # Set default sigma_peak if not provided
-    if args.sigma_peak is None:
-        args.sigma_peak = 6 * args.sigma_noise
 
     for arg in vars(args):
         print( 'myArgs:',arg, getattr(args, arg))
@@ -85,8 +79,7 @@ def buildSimuMeta(args,md):
     md['simu']=sm
     
     sm['sigma_noise']=args.sigma_noise
-    sm['sigma_peak']=args.sigma_peak
-    sm['prob_peak']=args.prob_peak
+    sm['binFractalNoise']=args.binFractalNoise
     sm['tau_response']=args.tau_response
     sm['evol_time']=args.evol_time
     sm['time_step']=args.time_step
@@ -113,7 +106,7 @@ if __name__ == '__main__':
     print("M:Simulating network activity M:%s  time_steps: %.2g  ..."%(W.shape,args.evol_time/args.time_step))
     
     T0=time()
-    tspace,xt = gen_net_activity(W, tau=args.tau_response, sigma=args.sigma_noise, sigma_peak=args.sigma_peak, prob_peak=args.prob_peak, T=args.evol_time, h=args.time_step, seed=args.rnd_seed)
+    tspace,xt = gen_net_activity(W, tau=args.tau_response, sigma=args.sigma_noise, T=args.evol_time, h=args.time_step, seed=args.rnd_seed, binFractalNoise=args.binFractalNoise)
     print("Simulation complete, elaT=%.1f min"%((time()-T0)/60.))
     bigD['network_matrix']=W.astype(np.float32)
     bigD['evol_time']=tspace.astype(np.float32)
