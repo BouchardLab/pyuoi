@@ -10,6 +10,7 @@ IMG=nersc/causal-net:v4   # May 13
 
 
 Directory structure to stor real and simulated data
+/global/cfs/cdirs/m2043/causal_inference/dale-gen-sim-may27/input_uoi/
 
 basePath=/global/homes/b/balewski/prjs/bioDataVault2025/causalNet_tmp/
 

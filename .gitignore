@@ -116,4 +116,8 @@ out/
 dataDale/
 *.png
 *.npy
+data/
+model/
+\#*
+*.h5
 
