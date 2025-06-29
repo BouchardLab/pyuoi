@@ -1,4 +1,36 @@
 #!/usr/bin/env python3
+"""
+gen_data.py: Simulate and generate training data for a dynamic neural system.
+
+This script creates a ground-truth "world" defined by a weight matrix W,
+simulates how the system evolves over time according to a set of equations,
+and then saves the resulting data and a visualization to files.
+
+Key Operations:
+1.  generate_w_matrix(M, sparsity):
+    - Creates a sparse M x M weight matrix W with all-negative diagonal elements.
+    - Checks for system stability (Re(eig(W)) < 1) and rescales if needed.
+
+2.  simulate_evolution(W, T, tau, sigma):
+    - Simulates the state of M variables over T time steps using the equation:
+      x_{t+1} = x_t + (1/tau) * (-x_t + W @ x_t) + noise
+    - `tau` is a time constant, and `noise` is Gaussian with std dev `sigma`.
+
+3.  Main Execution Block (generate_data_and_plot):
+    - Orchestrates the generation of W and the simulation of the trajectory.
+    - Generates a unique filename using a hash of W or a custom --simName.
+    - Outputs two files to a `data/` directory:
+      - A compressed .npz file with the ground-truth W, sparsity mask E,
+        time constant tau, and the full state trajectory.
+      - A .png file visualizing the data, showing:
+        - Time-series trajectories of a few variables.
+        - Histograms of diagonal and off-diagonal weights.
+    - Prints the full paths to the output files and a suggested command
+      to run fit_model.py on the new data.
+
+Command-line arguments allow for configuration of system size (M),
+simulation length (T), sparsity, noise (sigma), and more.
+"""
 
 import numpy as np
 import matplotlib as mpl
