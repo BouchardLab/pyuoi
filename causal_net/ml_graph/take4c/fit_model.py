@@ -16,14 +16,16 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import matplotlib.pyplot as plt
+import matplotlib as mpl
 import argparse
 import os
+import time
 from torch.utils.data import DataLoader, TensorDataset
 from neural_net_model import SparseNetworkModel
 
-def fit_model(args):
+def fit_model_and_plot(args):
     print("fit_model START, args:", args)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if torch.cuda.is_available():
         gpu_name = torch.cuda.get_device_name(0)
         print("CUDA is available. Using GPU: %s" % gpu_name)
@@ -46,16 +48,26 @@ def fit_model(args):
     X = trajectory[:, :-1]
     y = trajectory[:, 1:]
     dataset = TensorDataset(X.T, y.T)  # Transpose for (samples, features)
-    dataloader = DataLoader(dataset, batch_size=args.batch, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
 
-    # Initialize W_model (same as before)
-    num_nonzero = np.count_nonzero(E)
-    nonzero_indices = torch.tensor(np.array(E.nonzero()))
-    initial_weights = torch.rand(num_nonzero) * 2 - 1
+    E_indices = np.array(E.nonzero())
+    nonzero_indices = torch.tensor(E_indices, dtype=torch.long)
+
+    # Smart initialization for W_model
+    diag_mask = nonzero_indices[0] == nonzero_indices[1]
+    offdiag_mask = ~diag_mask
+
+    initial_weights = torch.empty(len(nonzero_indices[0]), dtype=torch.float32)
+    # Initialize off-diagonal weights around 0
+    initial_weights[offdiag_mask] = torch.randn(offdiag_mask.sum()) * 0.01
+    # Initialize diagonal weights around -0.3, the mean of their true distribution U(-0.5, -0.1)
+    initial_weights[diag_mask] = -0.3 + torch.randn(diag_mask.sum()) * 0.01
+
     W_model = torch.sparse_coo_tensor(nonzero_indices, initial_weights, E.shape, dtype=torch.float32)
     W_model.requires_grad = True
 
     model = SparseNetworkModel(W_model, tau)
+    model.to(device)
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=8)
@@ -65,10 +77,12 @@ def fit_model(args):
     epochs_no_improve = 0
     lr_reductions = 0
     
+    start_time = time.time()
     for epoch in range(args.epochs):
         running_loss = 0.0
         for i, data in enumerate(dataloader, 0):
             inputs, targets = data
+            inputs, targets = inputs.to(device), targets.to(device)
             optimizer.zero_grad()
             outputs = model(inputs)
             loss = criterion(outputs, targets)
@@ -78,19 +92,31 @@ def fit_model(args):
         
         epoch_loss = running_loss / len(dataloader)
         losses.append(epoch_loss)
-        print("Epoch %d, Loss: %.4f" % (epoch + 1, epoch_loss))
-        
-        if lr_reductions < args.max_lr_reductions:
-            old_lr = optimizer.param_groups[0]['lr']
-            scheduler.step(epoch_loss)
-            new_lr = optimizer.param_groups[0]['lr']
-            if new_lr < old_lr:
-                print("Epoch %d: reducing learning rate to %.1e" % (epoch + 1, new_lr))
+
+        # Log progress
+        if epoch < 5 or (epoch + 1) % 20 == 0:
+            elapsed_time = time.time() - start_time
+            avg_time_per_epoch = elapsed_time / (epoch + 1)
+            print(f'Epoch {epoch + 1:3d}, Loss: {epoch_loss:.4f}, '
+                  f'Elapsed: {elapsed_time/60:.1f} min, Avg time/epoch: {avg_time_per_epoch:.1f}s')
+
+        # Reduce LR on plateau
+        scheduler.step(epoch_loss)
+        old_lr = optimizer.param_groups[0]['lr']
+        new_lr = scheduler.get_last_lr()[0]
+
+        if new_lr < old_lr:
+            if lr_reductions < args.max_lr_reductions:
                 lr_reductions += 1
-        else:
-            if epoch == 0 or (epoch + 1) % 10 == 0:  # Print only on first epoch and every 10 epochs
-                 print("Epoch %d: Max LR reductions reached, not reducing further." % (epoch + 1))
-        
+                print(f'Epoch {epoch + 1}: reducing learning rate to {new_lr:.1e}')
+                # The scheduler already updated the optimizer's LR
+            else:
+                print(f"Epoch {epoch + 1}: Max LR reductions reached. Stopping training.")
+                # Restore old LR since we are not applying this reduction and stopping
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = old_lr
+                break
+
         # Early stopping
         if epoch_loss < best_loss:
             best_loss = epoch_loss
@@ -99,8 +125,10 @@ def fit_model(args):
             epochs_no_improve += 1
         
         if epochs_no_improve >= args.patience:
-            print(f"Early stopping triggered after {epoch + 1} epochs")
+            print(f'Early stopping at epoch {epoch + 1}')
             break
+
+    fit_time = time.time() - start_time
 
     #Save the model
     model_path = os.path.join("model", "%s_model.pth" % args.input)
@@ -108,17 +136,28 @@ def fit_model(args):
     torch.save(model.state_dict(), model_path)
 
     # Evaluate and plot
-    W_fitted = model.W_model.to_dense().detach().numpy()
+    import matplotlib.pyplot as plt
+    W_fitted = model.W_model.to_dense().cpu().detach().numpy()
     plt.figure(figsize=(12, 8))
-    
+    rmsAxRng=0.15
+
     # Plot Loss
     ax1 = plt.subplot(2, 3, 1)
     ax1.plot(losses)
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("Loss (MSE)")
-    ax1.set_title("Training Loss for %s" % args.input)
-    info_text = "Initial LR: %.1e\nBatch size: %d\nSamples: %d" % (args.lr, args.batch, len(dataset))
-    ax1.text(0.5, 0.8, info_text, transform=ax1.transAxes)
+    ax1.grid(True)
+
+    final_loss = losses[-1] if losses else float('nan')
+    num_epochs = len(losses)
+    avg_time_per_epoch = fit_time / num_epochs if num_epochs > 0 else 0
+    info_text = (f'End Loss: {final_loss:.4f}\n'
+                 f'LR start: {args.lr:.1e}, Patience: {args.patience}\n'
+                 f'Batch: {args.batch_size}, Samples: {len(dataset)}\n'
+                 f'Fit time: {fit_time / 60:.1f} min\n'
+                 f'Avg time/epoch: {avg_time_per_epoch:.2f}s')
+    ax1.text(0.95, 0.95, info_text, transform=ax1.transAxes, ha='right', va='top',
+            bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.5))
 
     # Diagonal elements analysis
     diag_true = np.diag(W_true)
@@ -126,13 +165,13 @@ def fit_model(args):
     diag_corr = np.corrcoef(diag_true, diag_fitted)[0, 1]
     
     ax2 = plt.subplot(2, 3, 2)
-    ax2.scatter(diag_true, diag_fitted)
+    ax2.scatter(diag_true, diag_fitted, s=10, alpha=0.6)
     ax2.set_xlabel("True Diagonal")
     ax2.set_ylabel("Fitted Diagonal")
     ax2.set_title("Diagonal Correlation")
-    ax2.text(0.1, 0.9, "Corr: %.3f" % diag_corr, transform=ax2.transAxes)
+    ax2.text(0.1, 0.9, "Corr: %.3f\nN: %d" % (diag_corr, len(diag_true)), transform=ax2.transAxes)
     lims = [np.min([ax2.get_xlim(), ax2.get_ylim()]), np.max([ax2.get_xlim(), ax2.get_ylim()])]
-    ax2.plot(lims, lims, 'r--', alpha=0.75, zorder=0)
+    ax2.plot(lims, lims, 'k--', alpha=0.75, zorder=0)
     ax2.set_xlim(lims)
     ax2.set_ylim(lims)
 
@@ -148,7 +187,9 @@ def fit_model(args):
     ax5.set_title("Diagonal Residuals")
     ax5.text(0.1, 0.8, "Mean: %.3f\nRMSE: %.3f" % (diag_res_mean, diag_res_rmse), transform=ax5.transAxes)
     y_pos = np.max(n) / 2
-    ax5.errorbar(diag_res_mean, y_pos, xerr=diag_res_rmse, fmt='o', color='r', capsize=5)
+    ax5.errorbar(diag_res_mean, y_pos, xerr=diag_res_rmse, fmt='o', color='m', capsize=5)
+    ax5.axvline(0, color='lime', linestyle='--')
+    ax5.set_xlim(-rmsAxRng, rmsAxRng)
 
     # Off-diagonal elements analysis
     off_diag_mask = E.astype(bool) & ~np.eye(E.shape[0], dtype=bool)
@@ -159,10 +200,10 @@ def fit_model(args):
     ax3.set_title("Off-diagonal Correlation")
     if off_diag_true.size > 1:
         off_diag_corr = np.corrcoef(off_diag_true, off_diag_fitted)[0, 1]
-        ax3.scatter(off_diag_true, off_diag_fitted)
-        ax3.text(0.1, 0.9, "Corr: %.3f" % off_diag_corr, transform=ax3.transAxes)
+        ax3.scatter(off_diag_true, off_diag_fitted, s=10, alpha=0.6, color='salmon')
+        ax3.text(0.1, 0.9, "Corr: %.3f\nN: %d" % (off_diag_corr, len(off_diag_true)), transform=ax3.transAxes)
         lims = [np.min([ax3.get_xlim(), ax3.get_ylim()]), np.max([ax3.get_xlim(), ax3.get_ylim()])]
-        ax3.plot(lims, lims, 'r--', alpha=0.75, zorder=0)
+        ax3.plot(lims, lims, 'k--', alpha=0.75, zorder=0)
         ax3.set_xlim(lims)
         ax3.set_ylim(lims)
     else:
@@ -179,29 +220,52 @@ def fit_model(args):
         off_diag_residuals = off_diag_true - off_diag_fitted
         off_diag_res_mean = np.mean(off_diag_residuals)
         off_diag_res_rmse = np.sqrt(np.mean(off_diag_residuals**2))
-        n, bins, _ = ax6.hist(off_diag_residuals, bins=50)
+        n, bins, _ = ax6.hist(off_diag_residuals, bins=50, color='salmon')
         ax6.text(0.1, 0.8, "Mean: %.3f\nRMSE: %.3f" % (off_diag_res_mean, off_diag_res_rmse), transform=ax6.transAxes)
         y_pos = np.max(n) / 2
-        ax6.errorbar(off_diag_res_mean, y_pos, xerr=off_diag_res_rmse, fmt='o', color='r', capsize=5)
+        ax6.errorbar(off_diag_res_mean, y_pos, xerr=off_diag_res_rmse, fmt='o', color='m', capsize=5)
+        ax6.axvline(0, color='lime', linestyle='--')
     else:
         ax6.text(0.1, 0.5, "Not enough data for plot", transform=ax6.transAxes)
 
     ax6.set_xlabel("Residuals (True - Fitted)")
     ax6.set_ylabel("Count")
+    ax6.set_xlim(-rmsAxRng, rmsAxRng)
     
+    print(f"\nFit results for {args.input}:")
+    print(f"  Diagonal residuals RMS: {diag_res_rmse:.4f}")
+    if off_diag_true.size > 1:
+        print(f"  Off-diagonal residuals RMS: {off_diag_res_rmse:.4f}")
+      
+    fig = plt.gcf()
+    numKsamples = len(dataset)/1000
+    fig.suptitle(f'Fit for {args.input}, trained on {numKsamples:.0f}k samples for {len(losses)} epochs, took {fit_time:.1f} sec', fontsize=16)
     plt.tight_layout()
-    plt.savefig(os.path.join("model", "%s_results.png" % args.input))
-    plt.show()
+    out_path = os.path.join("model", "%s_results.png" % args.input)
+    plt.savefig(out_path)
+    print("Saved plot to %s" % out_path)
+    if not args.noXterm:
+        plt.show()
 
+    print(f'Finished Training in {fit_time:.2f} seconds')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument('-X',"--noXterm", action='store_true', default=False, help="Disable X-server for plotting")
+    parser.add_argument("--verb", type=int, default=1, help="Verbosity level")
     parser.add_argument("--input", type=str, required=True, help="Input data file base name")
     parser.add_argument("--epochs", type=int, default=40, help="Number of epochs")
-    parser.add_argument("--batch", type=int, default=64, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-3, help="Initial learning rate")
     parser.add_argument("--patience", type=int, default=25, help="Patience for early stopping (should be > LR patience)")
     parser.add_argument("--max_lr_reductions", type=int, default=4, help="Maximum number of LR reductions")
     args = parser.parse_args()
-    fit_model(args)
+    
+    if args.noXterm:
+        if args.verb > 0: print('disable Xterm')
+        mpl.use('Agg')
+    else:
+        mpl.use('TkAgg')
+
+    fit_model_and_plot(args)
 

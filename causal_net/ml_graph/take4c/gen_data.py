@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import numpy as np
-import matplotlib.pyplot as plt
+import matplotlib as mpl
 import hashlib
 import os
 import argparse
@@ -43,7 +43,7 @@ def simulate_evolution(W, T, tau, sigma):
         X[:, t + 1] = X[:, t] + delta_X + g_t
     return X
 
-def generate_data(args):
+def generate_data_and_plot(args):
     M, T, K, tau, sigma, sparsity = args.M, args.T, args.K, args.tau, args.sigma, args.sparse
     print("generate_data START, args:", args)
 
@@ -61,6 +61,9 @@ def generate_data(args):
     hash_value = hash_object.hexdigest()[:6]
     
     base_name = "dataM%d_%s" % (M, hash_value)
+    if args.simName is not None:
+        base_name = args.simName
+        
     filename = base_name + ".npz"
     filepath = os.path.join("data", filename)
     os.makedirs("data", exist_ok=True)
@@ -68,7 +71,7 @@ def generate_data(args):
     np.savez_compressed(filepath, W=W, E=E, tau=tau, trajectory=X)
 
     # Print filenames and command before plotting
-    png_filename = "trajM%d_%s.png" % (M, hash_value)
+    png_filename = base_name + ".png"
     png_filepath = os.path.join("data", png_filename)
 
     print("output .npz file: %s" % filepath)
@@ -76,6 +79,7 @@ def generate_data(args):
     print("./fit_model.py --input %s --epochs 100 --batch 256 --lr 0.01 " % base_name)
 
     # Plotting
+    import matplotlib.pyplot as plt
     fig = plt.figure(figsize=(12, 8))
     
     # Trajectories
@@ -112,17 +116,27 @@ def generate_data(args):
     
     plt.tight_layout()
     plt.savefig(png_filepath)
-    plt.show()
-
+    if not args.noXterm:
+        plt.show()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument('-X',"--noXterm", action='store_true', default=False, help="Disable X-server for plotting")
+    parser.add_argument("--verb", type=int, default=1, help="Verbosity level")
     parser.add_argument("-M", type=int, default=10, help="Number of variables")
     parser.add_argument("-T", type=int, default=int(1e4), help="Number of time steps")
     parser.add_argument("-K", type=int, default=4, help="Number of variables to plot")
     parser.add_argument("-tau", type=float, default=20.0, help="Tau value")
     parser.add_argument("--sigma", type=float, default=1.0, help="Standard deviation of the noise")
     parser.add_argument("--sparse", type=float, default=0.15, help="Sparsity level for W matrix")
+    parser.add_argument("--simName", type=str, default=None, help="Optional base name for output files")
     args = parser.parse_args()
-    generate_data(args)
+
+    if args.noXterm:
+        if args.verb > 0: print('disable Xterm')
+        mpl.use('Agg')
+    else:
+        mpl.use('TkAgg')
+    
+    generate_data_and_plot(args)
 

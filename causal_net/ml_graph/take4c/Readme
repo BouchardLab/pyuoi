@@ -1,0 +1,5 @@
+Perlmutter
+
+ salloc -q interactive -C gpu  -t 4:00:00 -A m2043 -N 1
+ module load pytorch
+ 
