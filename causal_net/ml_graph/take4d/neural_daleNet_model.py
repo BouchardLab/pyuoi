@@ -1,4 +1,36 @@
 #!/usr/bin/env python3
+"""
+Neural Network Model for Dale's Principle Dynamics
+
+This module implements a PyTorch neural network model that enforces Dale's Principle
+for learning neural connectivity matrices from time-series data. Dale's Principle
+states that each neuron releases the same neurotransmitter(s) at all synapses,
+meaning each neuron can only make excitatory OR inhibitory connections, not both.
+
+Key Features:
+- Enforces Dale's Principle through constrained weight transformations
+- Learns precursor matrix V and transforms it to valid connectivity matrix W
+- Handles sparse connectivity through learnable masks
+- Implements continuous-time neural dynamics with discrete time stepping
+
+Model Architecture:
+- Input: Precursor matrix V (learnable parameters)
+- Transformation: V → V² → W (with Dale's constraints)
+- Dale's Rules Applied:
+  * Diagonal elements: W[i,i] = -V²[i,i] (negative self-connections)
+  * Excitatory neurons (first num_excite rows): W[i,j] = +V²[i,j] (positive connections)
+  * Inhibitory neurons (remaining rows): W[i,j] = -V²[i,j] (negative connections)
+
+Dynamics Equation:
+dx/dt = (-x + W @ x) / τ
+Discretized as: x[t+1] = x[t] + dx/dt
+
+Usage:
+model = SparseNetworkModel(initial_V, connectivity_mask, tau, num_neurons, num_excitatory)
+W_matrix = model.get_w()  # Get connectivity matrix respecting Dale's Principle
+output = model.forward(input_states)  # Forward dynamics simulation
+"""
+
 import torch
 import torch.nn as nn
 

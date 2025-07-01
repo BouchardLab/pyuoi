@@ -132,7 +132,7 @@ def fit_model_and_plot(args):
         losses.append(epoch_loss)
 
         # Log progress
-        if epoch < 5 or (epoch + 1) % 20 == 0:
+        if epoch < 5 or (epoch + 1) % 5 == 0:
             elapsed_time = time.time() - start_time
             avg_time_per_epoch = elapsed_time / (epoch + 1)
             print(f'Epoch {epoch + 1:3d}, Loss: {epoch_loss:.4f}, '
@@ -295,7 +295,7 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=40, help="Number of epochs")
     parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-3, help="Initial learning rate")
-    parser.add_argument("--patience", type=int, default=25, help="Patience for early stopping (should be > LR patience)")
+    parser.add_argument("--patience", type=int, default=10, help="Patience for early stopping (should be > LR patience)")
     parser.add_argument("--max_lr_reductions", type=int, default=4, help="Maximum number of LR reductions")
     args = parser.parse_args()
     

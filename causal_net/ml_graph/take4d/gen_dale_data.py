@@ -1,36 +1,52 @@
 #!/usr/bin/env python3
 """
-gen_dale_data.py: Simulate and generate training data for a dynamic neural system.
+Dale's Principle Neural Data Generator
 
-This script creates a ground-truth "world" defined by a weight matrix W,
-simulates how the system evolves over time according to a set of equations,
-and then saves the resulting data and a visualization to files. The matrix
-generation follows Dale's Principle.
+This script generates synthetic neural time-series data from ground-truth connectivity
+matrices that follow Dale's Principle. It creates both the "world model" (connectivity
+matrix W) and simulates realistic neural dynamics to produce training datasets for
+connectivity inference algorithms.
+
+Dale's Principle Implementation:
+- Excitatory neurons (first num_excite): all outgoing connections are positive
+- Inhibitory neurons (remaining): all outgoing connections are negative  
+- Diagonal elements: strongly negative (self-inhibition)
+- Sparse connectivity: random connections based on sparsity parameter
 
 Key Operations:
-1.  generate_dale_matrix(num_neuron, num_excite, sparsity):
-    - Creates a sparse weight matrix W for `num_neuron` neurons.
-    - The first `num_excite` rows are excitatory (positive off-diagonal weights).
-    - The remaining rows are inhibitory (negative off-diagonal weights).
-    - Diagonal elements are all strongly negative.
-    - Checks for system stability (Re(eig(W)) < 1) and rescales if needed.
+1. generate_dale_matrix(num_neuron, num_excite, sparsity):
+   - Creates sparse weight matrix W following Dale's Principle
+   - Generates binary mask E indicating connection existence/sign
+   - Ensures system stability by eigenvalue rescaling (max Re(λ) ≤ 0.8)
+   - Returns stable W, ground-truth E, and rescaling factor
 
-2.  simulate_evolution(W, T, tau, sigma):
-    - Simulates the state of M variables over T time steps using the equation:
-      x_{t+1} = x_t + (1/tau) * (-x_t + W @ x_t) + noise
+2. simulate_evolution(W, T, tau, sigma):
+   - Simulates neural dynamics: dx/dt = (-x + W @ x) / τ + noise
+   - Discrete time integration: x[t+1] = x[t] + dx/dt + gaussian_noise
+   - Generates realistic neural trajectories over T time steps
 
-3.  Main Execution Block:
-    - Orchestrates the generation of W and the simulation of the trajectory.
-    - Saves a .npz file with W, sparsity mask E, time constant tau, trajectory,
-      and dimension info `w_dims` = [num_neuron, num_excite, num_inhibit].
-    - Saves a .png file visualizing the data, showing:
-        - The true W-matrix structure.
-        - Time-series trajectories of a few variables.
-        - Histograms of diagonal, excitatory, and inhibitory weights.
-    - Prints a suggested command to run the corresponding fitter script.
+3. Data Output:
+   - .npz file: W (connectivity), E (ground truth), trajectory, metadata
+   - .png file: visualization with matrix plot, trajectories, weight histograms
+   - Suggested commands for training inference models
 
-Command-line arguments allow for configuration of neuron counts,
-simulation length, sparsity, noise, and more.
+Stability Assurance:
+- Monitors eigenvalues of connectivity matrix W
+- Automatically rescales W to ensure max Re(eigenvalue) ≤ 0.8
+- Provides stability margin for reliable neural dynamics
+
+Visualization Features:
+- True connectivity matrix with Dale's structure highlighted
+- Sample neural trajectories showing realistic dynamics
+- Weight distribution histograms (diagonal, excitatory, inhibitory)
+- Color-coded excitatory/inhibitory regions
+
+Output Files:
+- dataM{neurons}E{excitatory}_{hash}.npz: Complete dataset
+- dataM{neurons}E{excitatory}_{hash}.png: Visualization
+- Command suggestions for fit_dale_model.py and bayes_sparse_regression.py
+
+Usage: ./gen_dale_data.py --numNeuron 30 --numExcite 20 --sparse 0.3 --T 100000
 """
 
 import numpy as np
@@ -51,30 +67,38 @@ def generate_dale_matrix(num_neuron, num_excite, sparsity):
     # Excitatory rows (all connections from these neurons are positive)
     excite_mask = is_connected[:num_excite, :]
     num_excite_conns = np.sum(excite_mask)
-    W[:num_excite, :][excite_mask] = np.random.uniform(0.5, 1.5, size=num_excite_conns)
+    W[:num_excite, :][excite_mask] = np.random.uniform(0.25, 0.75, size=num_excite_conns)
 
     # Inhibitory rows (all connections from these neurons are negative)
     inhibit_mask = is_connected[num_excite:, :]
     num_inhibit_conns = np.sum(inhibit_mask)
-    W[num_excite:, :][inhibit_mask] = np.random.uniform(-1.5, -0.5, size=num_inhibit_conns)
+    W[num_excite:, :][inhibit_mask] = np.random.uniform(-0.75, -0.25, size=num_inhibit_conns)
 
     # Diagonal elements are set independently
     diag_weights = np.random.uniform(-2, -1, size=num_neuron)
     np.fill_diagonal(W, diag_weights)
 
-    # Ensure stability of the continuous-time system dx/dt ~ (W-I)x , which requires Re(eig(W)) < 1
-    w_rescale_factor = 1.0
+    # Create the ternary ground truth matrix E
+    E = np.sign(W)
+    np.fill_diagonal(E, -1)
+
+    # Ensure stability with margin: rescale W so max eigenvalue is 0.8
+    target_max_eig = 0.8
     eigvals = np.linalg.eigvals(W)
     max_re_eig = np.max(np.real(eigvals))
-    if max_re_eig >= 1:
-        print("Warning: W matrix is unstable (max Re(eig)=%.3f >= 1). Rescaling W." % max_re_eig)
-        w_rescale_factor = max_re_eig
-        W = W / w_rescale_factor * 0.99
+    
+    if max_re_eig > target_max_eig:
+        print("Rescaling W matrix: max Re(eig)=%.3f -> target=%.1f" % (max_re_eig, target_max_eig))
+        w_rescale_factor = max_re_eig / target_max_eig
+        W = W / w_rescale_factor
         # Recompute for verification
         eigvals_new = np.linalg.eigvals(W)
         max_re_eig_new = np.max(np.real(eigvals_new))
-        print("Info: new W matrix is stable, max Re(eig)=%.3f" % max_re_eig_new)
-    return W, w_rescale_factor
+        print("Info: rescaled W matrix, max Re(eig)=%.3f" % max_re_eig_new)
+    else:
+        w_rescale_factor = 1.0
+        print("Info: W matrix already stable, max Re(eig)=%.3f" % max_re_eig)
+    return W, E, w_rescale_factor
 
 def simulate_evolution(W, T, tau, sigma):
     """Simulates the time evolution of the system."""
@@ -91,23 +115,28 @@ def generate_data_and_plot(args):
     print("generate_data START, args:", args)
     assert num_excite < num_neuron, "numExcite must be less than numNeuron"
 
-    W, w_rescale_factor = generate_dale_matrix(num_neuron, num_excite, sparsity)
+    W, E, w_rescale_factor = generate_dale_matrix(num_neuron, num_excite, sparsity)
 
     num_inhibit = num_neuron - num_excite
     w_dims = np.array([num_neuron, num_excite, num_inhibit])
 
-    print("W-matrix (M=%d):" % num_neuron)
-    with np.printoptions(precision=3, suppress=True, linewidth=400):
-        print(W)
+    if args.verb > 0:
+        print("W-matrix (M=%d):" % num_neuron)
+        with np.printoptions(precision=3, suppress=True, linewidth=400):
+            print(W)
+    
+    if args.verb > 1:
+        print("E-matrix (M=%d):" % num_neuron)
+        with np.printoptions(linewidth=400):
+            print(E.astype(int))
 
     X = simulate_evolution(W, T, tau, sigma)
-    E = (W != 0).astype(int)
-
+    
     # Generate hash for filename
     hash_object = hashlib.md5(str(W).encode())
     hash_value = hash_object.hexdigest()[:6]
     
-    base_name = "dataM%d_e%d_%s" % (num_neuron, num_excite, hash_value)
+    base_name = "dataM%dE%d_%s" % (num_neuron, num_excite, hash_value)
     if args.simName is not None:
         base_name = args.simName
         
@@ -115,7 +144,7 @@ def generate_data_and_plot(args):
     filepath = os.path.join("data", filename)
     os.makedirs("data", exist_ok=True)
 
-    np.savez_compressed(filepath, W=W, E=E, tau=tau, trajectory=X, w_rescale_factor=w_rescale_factor, w_dims=w_dims)
+    np.savez_compressed(filepath, W=W, E=E, tau=tau, trajectory=X, w_rescale_factor=w_rescale_factor, w_dims=w_dims, sparsity_frac=sparsity)
 
     # Print filenames and command before plotting
     png_filename = base_name + ".png"
@@ -123,7 +152,8 @@ def generate_data_and_plot(args):
 
     print("output .npz file: %s" % filepath)
     print("output .png file: %s" % png_filepath)
-    print("./fit_dale_model.py --input %s --epochs 100 --batch 256 --lr 0.01 " % base_name)
+    print("./fit_dale_model.py --input %s --epochs 30 --batch 256 --lr 0.01 " % base_name)
+    print("./bayes_sparse_regression.py --input %s --num_epochs 100 --batch_size 10_000 --num_samples 1000" % base_name)
 
     # Plotting
     import matplotlib.pyplot as plt
@@ -138,8 +168,8 @@ def generate_data_and_plot(args):
     ax0.set_ylabel("presyn. node index, source")
     ax0.set_xlabel("postsyn. node index, target")
     ax0.axhline(y=num_excite - 0.5, color='k', linestyle='--')
-    ax0.text(num_neuron * 0.5, num_excite / 2, 'Excitatory', color='red', ha='center', va='center')
-    ax0.text(num_neuron * 0.5, num_excite + (num_neuron - num_excite) / 2, 'Inhibitory', color='blue', ha='center', va='center')
+    ax0.text(num_neuron * 0.5, num_excite / 2, f'Excitatory ({num_excite})', color='red', ha='center', va='center')
+    ax0.text(num_neuron * 0.5, num_excite + (num_neuron - num_excite) / 2, f'Inhibitory ({num_neuron - num_excite})', color='blue', ha='center', va='center')
     cbar = plt.colorbar(im, ax=ax0)
     cbar.set_label('coupling strength')
     ax0.set_aspect('equal', adjustable='box')
@@ -201,11 +231,11 @@ def generate_data_and_plot(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-X',"--noXterm", action='store_true', default=False, help="Disable X-server for plotting")
-    parser.add_argument("--verb", type=int, default=1, help="Verbosity level")
+    parser.add_argument('-v',"--verb", type=int, default=1, help="Verbosity level")
     parser.add_argument('-M', "--numNeuron", type=int, default=40, help="Number of neurons")
     parser.add_argument('-E', "--numExcite", type=int, default=20, help="Number of excitatory neurons")
     parser.add_argument("-T", type=int, default=int(1e4), help="Number of time steps")
-    parser.add_argument("-K", type=int, default=4, help="Number of variables to plot")
+    parser.add_argument("-K", type=int, default=6, help="Number of variables to plot")
     parser.add_argument("-tau", type=float, default=20.0, help="Tau value")
     parser.add_argument("--sigma", type=float, default=1.0, help="Standard deviation of the noise")
     parser.add_argument("--sparse", type=float, default=0.15, help="Sparsity level for W matrix")

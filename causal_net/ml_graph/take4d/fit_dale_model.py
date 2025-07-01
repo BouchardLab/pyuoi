@@ -42,11 +42,9 @@ Key Operations:
 
 4.  Evaluation and Plotting:
     - Saves the trained model state to a .pth file.
-    - Generates a detailed 2x4 panel plot to analyze fit quality, showing:
-        - Training loss over epochs.
-        - The final fitted W-matrix, visualized with its Dale's structure.
-        - Correlation and residual plots for three separate categories:
-          diagonal, excitatory off-diagonal, and inhibitory off-diagonal weights.
+    - Uses eval_edge_weights module to generate comprehensive evaluation plots
+      including training loss, weight correlations, residual analysis, and
+      connectivity matrix visualization with Dale's principle structure.
 """
 
 import numpy as np
@@ -117,6 +115,7 @@ def fit_model_and_plot(args):
             outputs = model(inputs)
             loss = criterion(outputs, targets)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             running_loss += loss.item()
         
@@ -127,7 +126,7 @@ def fit_model_and_plot(args):
         if epoch < 5 or (epoch + 1) % 20 == 0:
             elapsed_time = time.time() - start_time
             avg_time_per_epoch = elapsed_time / (epoch + 1)
-            print(f'Epoch {epoch + 1:3d}, Loss: {epoch_loss:.4f}, '
+            print(f'Epoch {epoch + 1:3d}, Loss: {epoch_loss:.4f}, loss-1: {epoch_loss - 1.:.2e}, '
                   f'Elapsed: {elapsed_time/60:.1f} min, Avg time/epoch: {avg_time_per_epoch:.1f}s')
 
         # Reduce LR on plateau
@@ -136,15 +135,11 @@ def fit_model_and_plot(args):
         new_lr = scheduler.get_last_lr()[0]
 
         if new_lr < old_lr:
-            if lr_reductions < args.max_lr_reductions:
-                lr_reductions += 1
-                print(f'Epoch {epoch + 1}: reducing learning rate to {new_lr:.1e}')
-                # The scheduler already updated the optimizer's LR
-            else:
+            print(f'Epoch {epoch + 1}: reducing learning rate to {new_lr:.1e}')
+            lr_reductions += 1
+            if lr_reductions >= args.max_lr_reductions:
                 print(f"Epoch {epoch + 1}: Max LR reductions reached. Stopping training.")
-                # Restore old LR since we are not applying this reduction and stopping
-                for param_group in optimizer.param_groups:
-                    param_group['lr'] = old_lr
+                # The scheduler already updated the optimizer, so no need to restore old LR
                 break
 
         # Early stopping
@@ -166,138 +161,18 @@ def fit_model_and_plot(args):
     torch.save(model.state_dict(), model_path)
 
     # Evaluate and plot
-    import matplotlib.pyplot as plt
+    from eval_edge_weights import create_evaluation_plot, save_and_show_plot
     W_fitted = model.get_w().cpu().detach().numpy()
-    plt.figure(figsize=(16, 8))
-    rmsAxRng=0.10
-
-    # Plot Loss
-    ax1 = plt.subplot(2, 4, 1)
-    ax1.plot(losses)
-    ax1.set_xlabel("Epoch")
-    ax1.set_ylabel("Loss (MSE)")
-    ax1.grid(True)
-
-    final_loss = losses[-1] if losses else float('nan')
-    num_epochs = len(losses)
-    avg_time_per_epoch = fit_time / num_epochs if num_epochs > 0 else 0
-    info_text = (f'End Loss: {final_loss:.4f}\n'
-                 f'LR start: {args.lr:.1e}, Patience: {args.patience}\n'
-                 f'Batch: {args.batch_size}, Samples: {len(dataset)}\n'
-                 f'Fit time: {fit_time / 60:.1f} min\n'
-                 f'Avg time/epoch: {avg_time_per_epoch:.2f}s')
-    ax1.text(0.95, 0.95, info_text, transform=ax1.transAxes, ha='right', va='top',
-            bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.5))
-
-    # --- Analysis plots ---
-    off_diag_mask = ~np.eye(num_neuron, dtype=bool)
-
-    # 1. Diagonal elements
-    diag_true = np.diag(W_true)
-    diag_fitted = np.diag(W_fitted)
-    diag_corr = np.corrcoef(diag_true, diag_fitted)[0, 1]
-    diag_residuals = diag_fitted - diag_true
-    diag_res_mean = np.mean(diag_residuals)
-    diag_res_rmse = np.sqrt(np.mean(diag_residuals**2))
-
-    ax2 = plt.subplot(2, 4, 2)
-    ax2.scatter(diag_true, diag_fitted, s=10, alpha=0.6, color='green')
-    ax2.set_title(f"Diagonal Weights\n(N={len(diag_true)})")
-    ax2.text(0.1, 0.9, f"Corr: {diag_corr:.3f}", transform=ax2.transAxes)
-    lims = [np.min([ax2.get_xlim(), ax2.get_ylim()]), np.max([ax2.get_xlim(), ax2.get_ylim()])]
-    ax2.plot(lims, lims, 'k--', alpha=0.75, zorder=0)
-    ax2.set_aspect('equal', adjustable='box')
+    num_samples_k = len(dataset) / 1000
     
-    # 2. Excitatory off-diagonal elements
-    excite_mask_true = off_diag_mask[:num_excite, :] & (W_true[:num_excite, :] != 0)
-    excite_true = W_true[:num_excite, :][excite_mask_true]
-    excite_fitted = W_fitted[:num_excite, :][excite_mask_true]
-    excite_corr = np.corrcoef(excite_true, excite_fitted)[0, 1]
-    excite_residuals = excite_fitted - excite_true
-    excite_res_mean = np.mean(excite_residuals)
-    excite_res_rmse = np.sqrt(np.mean(excite_residuals**2))
-
-    ax3 = plt.subplot(2, 4, 3)
-    ax3.scatter(excite_true, excite_fitted, s=10, alpha=0.6, color='salmon')
-    ax3.set_title(f"Excitatory Weights\n(N={len(excite_true)})")
-    ax3.text(0.1, 0.9, f"Corr: {excite_corr:.3f}", transform=ax3.transAxes)
-    lims = [np.min([ax3.get_xlim(), ax3.get_ylim()]), np.max([ax3.get_xlim(), ax3.get_ylim()])]
-    ax3.plot(lims, lims, 'k--', alpha=0.75, zorder=0)
-    ax3.set_aspect('equal', adjustable='box')
-
-    # 3. Inhibitory off-diagonal elements
-    inhibit_mask_true = off_diag_mask[num_excite:, :] & (W_true[num_excite:, :] != 0)
-    inhibit_true = W_true[num_excite:, :][inhibit_mask_true]
-    inhibit_fitted = W_fitted[num_excite:, :][inhibit_mask_true]
-    inhibit_corr = np.corrcoef(inhibit_true, inhibit_fitted)[0, 1]
-    inhibit_residuals = inhibit_fitted - inhibit_true
-    inhibit_res_mean = np.mean(inhibit_residuals)
-    inhibit_res_rmse = np.sqrt(np.mean(inhibit_residuals**2))
-
-    ax4 = plt.subplot(2, 4, 4)
-    ax4.scatter(inhibit_true, inhibit_fitted, s=10, alpha=0.6, color='blue')
-    ax4.set_title(f"Inhibitory Weights\n(N={len(inhibit_true)})")
-    ax4.text(0.1, 0.9, f"Corr: {inhibit_corr:.3f}", transform=ax4.transAxes)
-    lims = [np.min([ax4.get_xlim(), ax4.get_ylim()]), np.max([ax4.get_xlim(), ax4.get_ylim()])]
-    ax4.plot(lims, lims, 'k--', alpha=0.75, zorder=0)
-    ax4.set_aspect('equal', adjustable='box')
-
-    # --- ROW 2 ---
-    # 4. Fitted W-matrix plot (Dale's principle visualization)
-    ax5 = plt.subplot(2, 4, 5)
-    W_plot = W_fitted # Do not transpose, excitatory are rows
-    vmax = np.max(np.abs(W_plot))
-    im = ax5.imshow(W_plot, cmap='bwr', interpolation='nearest', vmin=-vmax, vmax=vmax)
+    # Create comprehensive evaluation plot
+    evaluation_results = create_evaluation_plot(
+        W_true, W_fitted, losses, fit_time, args, 
+        num_samples_k, num_excite, num_inhibit
+    )
     
-    ax5.set_title("Fitted W-matrix")
-    ax5.set_ylabel("presyn. node index, source")
-    ax5.set_xlabel("postsyn. node index, target")
-    
-    # Add separator line and annotations
-    ax5.axhline(y=num_excite - 0.5, color='k', linestyle='--')
-    ax5.text(num_neuron * 0.5, num_excite / 2, 'Excitatory', color='red', ha='center', va='center')
-    ax5.text(num_neuron * 0.5, num_excite + num_inhibit / 2, 'Inhibitory', color='blue', ha='center', va='center')
-    
-    cbar = plt.colorbar(im, ax=ax5)
-    cbar.set_label('coupling strength')
-    ax5.set_aspect('equal', adjustable='box')
-    ax5.grid(True)
-
-    ax6 = plt.subplot(2, 4, 6)
-    ax6.hist(diag_residuals, bins=20, color='green')
-    ax6.set_title("Diagonal Residuals")
-    ax6.text(0.1, 0.8, f"Mean: {diag_res_mean:.3f}\nRMSE: {diag_res_rmse:.3f}", transform=ax6.transAxes)
-    ax6.axvline(0, color='lime', linestyle='--')
-    ax6.set_xlim(-rmsAxRng, rmsAxRng)
-
-    ax7 = plt.subplot(2, 4, 7)
-    ax7.hist(excite_residuals, bins=50, color='salmon')
-    ax7.set_title("Excitatory Residuals")
-    ax7.text(0.1, 0.8, f"Mean: {excite_res_mean:.3f}\nRMSE: {excite_res_rmse:.3f}", transform=ax7.transAxes)
-    ax7.axvline(0, color='lime', linestyle='--')
-    ax7.set_xlim(-rmsAxRng, rmsAxRng)
-
-    ax8 = plt.subplot(2, 4, 8)
-    ax8.hist(inhibit_residuals, bins=50, color='blue')
-    ax8.set_title("Inhibitory Residuals")
-    ax8.text(0.1, 0.8, f"Mean: {inhibit_res_mean:.3f}\nRMSE: {inhibit_res_rmse:.3f}", transform=ax8.transAxes)
-    ax8.axvline(0, color='lime', linestyle='--')
-    ax8.set_xlim(-rmsAxRng, rmsAxRng)
-
-    print(f"\nFit results for {args.input}:")
-    print(f"  Diagonal residuals RMS: {diag_res_rmse:.4f}")
-    print(f"  Excitatory residuals RMS: {excite_res_rmse:.4f}")
-    print(f"  Inhibitory residuals RMS: {inhibit_res_rmse:.4f}")
-      
-    fig = plt.gcf()
-    numKsamples = len(dataset)/1000
-    fig.suptitle(f'Fit for {args.input}, trained on {numKsamples:.0f}k samples for {len(losses)} epochs, took {fit_time:.1f} sec', fontsize=16)
-    plt.subplots_adjust(left=0.05, right=0.98, top=0.9, hspace=0.4, wspace=0.3)
-    out_path = os.path.join("model", "%s_results.png" % args.input)
-    plt.savefig(out_path)
-    print("Saved plot to %s" % out_path)
-    if not args.noXterm:
-        plt.show()
+    # Save and show plot
+    save_and_show_plot(args, show_plot=not args.noXterm)
 
     print(f'Finished Training in {fit_time:.2f} seconds')
 
