@@ -15,8 +15,8 @@ def summary_column(md):
     sem=md['selector']
     txt=md['short_name']
     txt+='\ninput '+sem['input_name']
-    txt+='\nsampFreq %d Hz'%(sem['sampling_freq'])
-    txt+='\ndecay:%d ms '%(pmd['tau_response']*1000.)
+    #txt+='\nsampFreq %d Hz'%(sem['sampling_freq'])
+    txt+='\ndecay:%d ms '%(pmd['tau_response'])
     txt+='\nsel time [%.1f %.1f] s'%(sem['time_range'][0],sem['time_range'][1])
     txt+='\nsel features %d'%(sem['num_feature'])
     return txt
@@ -62,7 +62,7 @@ def draw_correlation_plot(ax,XY,stD,dCol):
     ax.text(0.1,0.92,'Corr=%.2f'%(stD['rho']),transform=ax.transAxes,color='r')
     ax.set_xlabel('true')
     ax.set_ylabel('UoI ADMM fit')
-    ax.plot([0],[0])
+    #ax.plot([0],[0])
     ax.grid()
     #return
     
@@ -77,8 +77,7 @@ def draw_correlation_plot(ax,XY,stD,dCol):
     return
     
   
-   
-    
+      
 
 def add_histogram(ax,data,dLab0,dCol):
     stdX=np.std(data)

@@ -162,11 +162,10 @@ class Plotter(PlotterBackbone):
         obsV=bigD['evol_state']
                     
         if obsN=='rate':
-            obsV=np.exp(obsV)
-            #max_rate = 130  # max limit for rate
-            #obsV = np.minimum(obsV , max_rate)
-            tit+=', obs=rate' # clip %d (Hz)'%(max_rate)
-            yLab='rate (Hz)'
+            tBin_sec=1e-3
+            obsV=np.exp(obsV)*tBin_sec
+            tit+=', obs= spike prob/Tbin ,Tbin=1ms' 
+            yLab='spke prob/bin'
             dCol='b'
         if obsN=='state':
             tit+=' obs=state'
@@ -187,12 +186,12 @@ class Plotter(PlotterBackbone):
             
             ax.set(ylabel=yLab)
             ax.text(0.05, 0.8, 'neuron %d'%k,color='r',transform=ax.transAxes)
-            if obsN=='rate': ax.axhline(1,lw=1,ls='--',c='k')
+            #if obsN=='rate': ax.axhline(1,lw=1,ls='--',c='k')
             if obsN=='state': ax.axhline(0,lw=1,ls='--',c='k')
             if n>0: continue
             ax.set(title=tit)
             
-        ax.set(xlabel='evolution time (sec)')
+        ax.set(xlabel='evolution time (time bins)')
         
                    
 #...!...!..................
@@ -217,7 +216,7 @@ class Plotter(PlotterBackbone):
         ax.plot(timeV,ene,'darkviolet')
         
         tit='sim=%s , Energy not normalized,  sigma=%.1f'%(md['short_name'],md['simu']['sigma_noise'])
-        ax.set(xlabel='evolution time (sec)', ylabel='Evoked energy (a.u.)',title=tit)
+        ax.set(xlabel='evolution time (msec)', ylabel='Evoked energy (a.u.)',title=tit)
         ax.set_yscale('log')
         ax.grid()
         
@@ -242,7 +241,7 @@ class Plotter(PlotterBackbone):
             max_rate = 10  # max limit for rate
             obsV = np.minimum(obsV , max_rate)
             xxVal=1  # baseline rate
-            tit+=', obs=rate (Hz)'
+            tit+=', obs=rate'
         else:
             xxVal=0 # baseline state
             tit+=', obs=state=log(rate/Hz)'

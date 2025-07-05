@@ -17,7 +17,7 @@ Options:
   --binFractalNoise Use binary fractal patterns for noise modulation (default: False)
   --tau_response    (sec) Response time to driving force (default: 0.01 sec)
   -T, --evol_time   (sec) Total simulation time (default: 60 sec)
-  -dt, --time_step  (sec) Integration time for one evolution step (default: 0.001 sec)
+  
   --outName         Output name for simulation results (optional)
   --rnd_seed        Random seed for simulation (optional)
   --basePath        Head directory for experiments (default: dataDale)
@@ -34,7 +34,7 @@ import numpy as np
 from pprint import pprint
 from time import time
 
-from toolbox.Util_Dale_LDS  import gen_net_activity
+from toolbox.Util_Dale_LDS  import gen_net_activity_discrT
 from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
 
 
@@ -45,11 +45,9 @@ def commandline_parser():
     parser.add_argument("--matrixName", default='Amats.h5', help="Path to the HDF5 file with connectivity matrices.")
     
     # Simulation parameters
-    parser.add_argument("--sigma_noise", type=float, default=5., help="Noise variance strength.")
-    parser.add_argument("--binFractalNoise", action='store_true', help="Use binary fractal patterns for noise modulation.")
-    parser.add_argument("--tau_response", type=float, default=0.01, help="(sec) response time to driving force")
-    parser.add_argument("-T","--evol_time", type=float, default=60, help=" (sec) Total simulation time.")
-    parser.add_argument("-dt","--time_step", type=float, default=0.001, help=" (sec) Integration time for one evolution step")
+    parser.add_argument("--sigma_noise", type=float, default=1., help="Noise variance strength.")
+    parser.add_argument("--tau_response", type=float, default=10, help="(time steps) response time to driving force")
+    parser.add_argument("-T","--evol_time", type=int, default=60000, help=" (time steps) Total simulation time.")
 
     parser.add_argument("--basePath",default='dataDale',help="head dir for set of experimentst")
     parser.add_argument("--outName", type=str, default=None, help="Output HDF5 file for simulation results.")
@@ -79,11 +77,9 @@ def buildSimuMeta(args,md):
     md['simu']=sm
     
     sm['sigma_noise']=args.sigma_noise
-    sm['binFractalNoise']=args.binFractalNoise
     sm['tau_response']=args.tau_response
     sm['evol_time']=args.evol_time
-    sm['time_step']=args.time_step
-    sm['rnd_seed']=args.rnd_seed
+    
     if args.outName!=None:
         dmm['dale_name']=md.pop('short_name')
         md['short_name']=args.outName        
@@ -103,10 +99,10 @@ if __name__ == '__main__':
     buildSimuMeta(args,MD)
     pprint(MD)   
     W = bigD.pop('dale_matrix')
-    print("M:Simulating network activity M:%s  time_steps: %.2g  ..."%(W.shape,args.evol_time/args.time_step))
+    print("M:Simulating network activity M:%s  time_steps: %d  ..."%(W.shape,args.evol_time))
     
     T0=time()
-    tspace,xt = gen_net_activity(W, tau=args.tau_response, sigma=args.sigma_noise, T=args.evol_time, h=args.time_step, seed=args.rnd_seed, binFractalNoise=args.binFractalNoise)
+    tspace,xt = gen_net_activity_discrT(W, tau=args.tau_response, sigma=args.sigma_noise, T=args.evol_time)
     print("Simulation complete, elaT=%.1f min"%((time()-T0)/60.))
     bigD['network_matrix']=W.astype(np.float32)
     bigD['evol_time']=tspace.astype(np.float32)
@@ -115,7 +111,7 @@ if __name__ == '__main__':
     #...... WRITE   OUTPUT .........
     outF=os.path.join(args.outPath,MD['short_name']+'.simNet.h5')
     write4_data_hdf5(bigD,outF,MD)    
-    print('   ./plot_simNetActivity.py  --basePath $basePath   --simName   %s -p a b   -Y    --time_range 0.3 0.8  \n'%(MD['short_name'] ))
+    print('   ./plot_simNetActivity.py  --basePath $basePath   --simName   %s -p a b   -Y    --time_range 50 1000  \n'%(MD['short_name'] ))
     print('  cd ../fit_UoI;  ./prep_simInput.py --basePath $basePath  --simName   %s   \n'%(MD['short_name'] ))
   
     exit(0)

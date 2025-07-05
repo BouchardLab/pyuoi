@@ -29,7 +29,6 @@ Functions:
 
 import itertools
 import numpy as np
-import sdeint
 import time
 import pickle
 import scipy
@@ -72,10 +71,15 @@ def gen_matrices( M, p, g, R, diag=-1,reps=1):
         A = gen_init_W(M, p, g, R, diag)
         #1Alist.append(A) ; continue    # activate it to get unstable W-matrix
         eig = np.linalg.eigvals(A)
-        if np.max(np.real(eig)) >= 0:
-            A = stabilize(A)
+        target_alpha = -0.4
+        if np.max(np.real(eig)) >= target_alpha:
+            A = stabilize(A, target_alpha=target_alpha)
             eig = np.linalg.eigvals(A)
-        assert np.max(np.real(eig)) < 0, "Matrix is not stable after stabilization."
+            # Secondary stabilization pass for maximum stability
+            if np.max(np.real(eig)) > target_alpha * 0.8:  # If still not deep enough in stable region
+                A = stabilize(A, target_alpha=target_alpha, eta=100)
+                eig = np.linalg.eigvals(A)
+        assert np.max(np.real(eig)) < target_alpha, f"Matrix is not stable after stabilization. Max eigenvalue: {np.max(np.real(eig))}"
         Alist.append(A)
         
     # Expected shape: (reps, 2*M, 2*M)
@@ -127,7 +131,7 @@ def gen_init_W(M, p, gamma, R, diag=0, varyW=0.5, rand=None):
     return Ainit
 
 #...!...!....................
-def stabilize(A, max_iter=1000, eta=10):
+def stabilize(A, max_iter=3000, eta=50, target_alpha=-0.4):
     """
     Adjust the inhibitory weights of matrix A until its maximum real eigenvalue is negative.
     
@@ -141,21 +145,22 @@ def stabilize(A, max_iter=1000, eta=10):
     Parameters:
       A       : The connectivity matrix to stabilize.
       max_iter: Maximum number of iterations.
-      eta     : Learning rate for weight adjustment.
+      eta     : Learning rate for weight adjustment (increased for stronger stabilization).
+      target_alpha: Target maximum real eigenvalue (more negative = more stable).
     
     Returns:
       A       : The stabilized connectivity matrix.
     """
-    # Regularization constants from referenced publications
-    C = 1.5
-    B = 0.2
+    # Regularization constants - maximally aggressive for very strong stabilization
+    C = 3.0
+    B = 1.0
 
     alpha = np.max(np.real(np.linalg.eigvals(A)))
-    if alpha < 0:
+    if alpha < target_alpha:
         return A
 
     iter_ = 0
-    while alpha > 0 and iter_ < max_iter:
+    while alpha > target_alpha and iter_ < max_iter:
         alpha_e = max(C * alpha, C * alpha + B)
         Q = scipy.linalg.solve_continuous_lyapunov((A - alpha_e * np.eye(A.shape[0])).T, -2 * np.eye(A.shape[0]))
         P = scipy.linalg.solve_continuous_lyapunov(A - alpha_e * np.eye(A.shape[0]), -2 * np.eye(A.shape[0]))
@@ -174,10 +179,12 @@ def stabilize(A, max_iter=1000, eta=10):
 
 #################### Simulation ##################
 #...!...!....................
-def gen_net_activity(W, tau, sigma, T=60, h=0.001, seed=None, binFractalNoise=False):
+def gen_net_activity_contT(W, tau, sigma, T=60, h=0.001, seed=None, binFractalNoise=False):
+    import sdeint
     """
     Generate neural activity from a linear dynamical system defined by connectivity matrix W.
-    
+    Continuous time simulation
+
     Parameters:
       W         : Connectivity matrix.
       tau       : Time constant for simulation.
@@ -242,4 +249,51 @@ def gen_net_activity(W, tau, sigma, T=60, h=0.001, seed=None, binFractalNoise=Fa
  
     return tspace,xt, np.array(spike_trials)
     '''
+    
+#################### Simulation ##################
+#...!...!....................
+def gen_net_activity_discrT(W, tau, sigma, T=10_00):
+    """
+    Generate neural activity from a linear dynamical system defined by connectivity matrix W.
+    Discrete ttime simulation
+
+    Parameters:
+      W         : Connectivity matrix.
+      tau       : Time constant for simulation.
+      sigma     : Noise variance strength.
+      T         : Total simulation time.
+      seed      : Optional random seed.
+    
+    Returns:
+      xt                : Integrated state trajectory over time.
+    
+    """
+    #print('tau:',tau, type(tau))
+   
+    
+    randGen = np.random.default_rng()
+    
+    # Create time points (dt=1)
+    tspace = np.arange(0, T)
+    n_steps = len(tspace)
+    
+    # Initialize state trajectory
+    xt = np.zeros((n_steps, W.shape[0]))
+    xt[0] = randGen.normal(size=(W.shape[0],))  # initial state
+    
+    # Pre-generate all noise terms (vectorized)
+    noise_all = randGen.normal(size=(n_steps-1, W.shape[0]))
+    
+    print("Integrating LDS with discrete time dynamics, compute latent state trajectory xt...")
+    
+    # Precompute matrix operations
+    I_minus_W = (np.eye(W.shape[0]) - W) / tau
+    
+    # Discrete time iteration (dt=1, vectorized operations)
+    for t in range(1, n_steps):
+        # Vectorized update: x[t] = x[t-1] + (1/tau) * (-x + W @ x) + sigma * noise
+        xt[t] = xt[t-1] - I_minus_W @ xt[t-1] + sigma * noise_all[t-1]
+        #print(t,xt[t])
+    return tspace,xt
+
     

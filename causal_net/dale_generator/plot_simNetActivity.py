@@ -25,7 +25,7 @@ def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v","--verbosity",type=int,  help="increase output verbosity", default=1, dest='verb')
     parser.add_argument("-p", "--showPlots",  default='a', nargs='+',help="abcd-string listing shown plots")
-    parser.add_argument('--time_range' , default=[0.3, 1.],  nargs=2,   type=float, help='fit data time range')
+    parser.add_argument('--time_range' , default=[300, 1000],  nargs=2,   type=int, help='fit data time range')
      
     parser.add_argument("--basePath",default='dataDale',help="head dir for set of experimentst")
     parser.add_argument("--simName", default='daleM100apr30-e7e3be2', help="[.h5]  simulated netActivation")
@@ -51,14 +51,14 @@ def get_parser():
 #...!...!....................
 def postproc_netActivity(bigD,md):
     sim=md['simu']
-    dt=sim['time_step']
+    
     pom={}
     md['postproc']=pom
     
     timeV=bigD['evol_time']
     
     #.... clip data in time
-    tL,tR=[int(x/dt) for x in args.time_range ]
+    tL,tR= args.time_range 
     print('FUV tbinLR:',tL,tR)
     assert tR <= timeV.shape[0]
     timeV=timeV[tL:tR]
@@ -70,6 +70,7 @@ def postproc_netActivity(bigD,md):
         pom['time_step']=args.time_rebin*dt
         timeV= rebin_axis0_average(timeV, args.time_rebin)
         stateV= rebin_axis0_average(stateV, args.time_rebin)    
+
     
     rateV=np.exp(stateV)
 

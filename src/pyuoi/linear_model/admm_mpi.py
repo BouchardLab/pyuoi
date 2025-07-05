@@ -391,8 +391,8 @@ class ADMM_Lasso:
             # r = x - z
             if rank == 0:
                 rho_history.append(rho)
-        if rank == 0:
-            np.save("rho_plot/rho_"+str(self.rho_scaler)+"_20k_160.npy", rho_history)
+        #if rank == 0:
+        #    np.save("rho_plot/rho_"+str(self.rho_scaler)+"_20k_160.npy", rho_history)
         
         # Set attributes after fitting
         self.coef_ = z

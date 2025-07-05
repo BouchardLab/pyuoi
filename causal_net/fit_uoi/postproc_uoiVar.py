@@ -70,6 +70,7 @@ def eval_fit(md,bigD):
     fevi['true_zero']={'num_nonzero':Yzinh.size,'std_dev':np.std(Yzinh),'mean':np.mean(Yzinh),'num_true':mxs['inh_zero']}
 
 def postproc_fit(bigD,md):
+    pmd=md['payload']
     Mt=bigD['true_network_matrix'].T
     lag=0
     Mf=bigD['fit_A_model'][lag].T
@@ -87,7 +88,12 @@ def postproc_fit(bigD,md):
     pofC={'scale':'none'}
     if 1:
         print('PST: manualy rescale weights')
-        facDia=10.4; facExc=20; facInh=25
+        facDia=10.4; facExc=20; facInh=25  # old, continuous T
+        facDia=1; facExc=1; facInh=1
+        facDia=3.253 /0.326; facExc=0.686/0.072; facInh=1.144 /0.104  # from M40, discrete T
+
+        facDia=facExc=facInh=pmd['tau_response']
+        
         Ydia[:,1]=(Ydia[:,1]-0) *facDia
         Yexc[:,1]*=facExc
         Yzexc*=facExc

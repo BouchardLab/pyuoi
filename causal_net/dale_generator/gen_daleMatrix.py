@@ -36,7 +36,7 @@ def commandline_parser():
     parser.add_argument("-ne","--num_excit_neur", type=int, default=50, help="Number of excitatory neurons.")
     parser.add_argument("-p","--prob_synaptic_conn", type=float, default=0.1, help="Synaptic connection probability.")
     parser.add_argument("-g","--gamma_inhib", type=float, default=2., help="Inhibitory scaling factor (gamma).")
-    parser.add_argument("-R", "--activity_scale", type=float, default=6., help="scaling of network activity")
+    parser.add_argument("-R", "--activity_scale", type=float, default=2., help="scaling of network activity")
     parser.add_argument("--matrixName", type=str, default=None, help=" [.h5] Output HDF5 file name.")
     parser.add_argument("--basePath",default='dataDale',help="head dir for set of experiments")
     
@@ -60,7 +60,7 @@ def buildDaleMeta(args):
     dmm['hash']=myHN
     md={ 'dale_truth':dmm}
     if args.matrixName==None:
-        md['short_name']='daleM-%s'%(dmm['hash'])
+        md['short_name']='daleM%d-%s'%(2*dmm['num_excit_neur'],dmm['hash'])
     else:
         md['short_name']=args.matrixName
 

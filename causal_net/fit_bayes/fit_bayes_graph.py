@@ -48,12 +48,14 @@ import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO, Predictive
 from pyro.infer.autoguide import AutoNormal
 import pyro.optim as optim
-import time
+import time,os,hashlib
 import subprocess
 import argparse
+from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
+from pprint import pprint
 
 # Import evaluation functions from separate module
-from eval_edge_graph import save_and_report_results, _print_matrix
+from eval_bayes_graph import report_results, _print_matrix
 
 # ==================================
 #  HELPER & SETUP FUNCTIONS
@@ -69,26 +71,68 @@ def setup_args():
     parser.add_argument("--num_samples", type=int, default=1000, help="Number of posterior samples")
     parser.add_argument("--sample_timepoints", type=int, default=20_000, help="Number of timepoints to use for posterior sampling")
     parser.add_argument('-v',"--verb", type=int, default=1, help="Verbosity level")
-    parser.add_argument("--input", type=str, default="dataM30_e15_52254e", help="Input data file base name")
-    return parser.parse_args()
+    parser.add_argument("--fitName",  default=None,help='fit name')
 
-def load_data(fname, key="data", device="cuda", verb=1):
-    npz = np.load(fname)
-    if verb > 1:
-        print(f"  All records in input file: {list(npz.keys())}")
-    data = npz[key]
-    data = torch.tensor(data, dtype=torch.float32).to(device)
+    parser.add_argument('--time_range' , default=[50, 40_000],  nargs=2,   type=int, help='fit data time range')
 
-    truth_E = None
-    if 'E' in npz:
-        truth_E = torch.tensor(npz['E'], dtype=torch.float32).to(device)
+    parser.add_argument("--basePath",default='out',help="head dir for any results")
+    parser.add_argument("--inpName",  required=True,help='name of input data')
 
-    sparsity_frac = None
-    if 'sparsity_frac' in npz:
-        sparsity_frac = float(npz['sparsity_frac'])
+    args = parser.parse_args()
+
+    args.dataPath=os.path.join(args.basePath,'input_uoi')    
+    args.modelPath=os.path.join(args.basePath,'model_bayes')
+   
+    print( 'myArg-program:',parser.prog)
+    for arg in vars(args):  print( 'myArg:',arg, getattr(args, arg))
+    assert os.path.exists(args.dataPath)
+    assert os.path.exists(args.modelPath)
+    if args.time_range!=None: assert args.time_range[0] < args.time_range[1] 
+    
+    return args
+
+def load_data(args,bigD,md,device="cuda"):
+    
+    pmd=md['payload']
+    sem=md['selector']
+    dmm=md['dale_truth']
+    #pprint(md)    
+  
+    featData=bigD['all_features']
+        
+    #.... clip data
+    tL,tR= args.time_range 
+    print('FUV tbinLR:',tL,tR)
+    assert tR < featData.shape[0]
+    featData=featData[tL:tR].astype(np.float32)
+    W=bigD['true_network_matrix']
+    # Create the ternary ground truth edge type matrix E
+    E = np.sign(W).astype(np.float32)
+    bigD['true_edge_matrix']=E
+    
+    sem['time_range']=[args.time_range[0], args.time_range[1]]          
+    sem['num_feature']=featData.shape[1]
+    sem['num_time_bin']=featData.shape[0]
+    
+    bigD['fit_inp_data']=featData
+   
+    data = torch.tensor(featData.T, dtype=torch.float32).to(device)
+    truth_E = torch.tensor(E, dtype=torch.float32).to(device)
+    sparsity_frac = float(dmm['prob_synaptic_conn'])
 
     return data, truth_E, sparsity_frac
 
+#...!...!....................
+def buildBayesMeta(args,md):
+    fim={};  md['fit_bayes']=fim
+    
+    fim['hash']=hashlib.md5(os.urandom(32)).hexdigest()[:6]
+    if args.fitName==None:
+        md['short_name']='fitb-%s'%(fim['hash'])
+    else:
+        md['short_name']=args.fitName
+    pprint(fim); print( flush=True)
+   
 def make_regression(data):
     X = data[:, :-1]
     Y = data[:, 1:] - data[:, :-1]
@@ -193,7 +237,7 @@ def run_training(model, X, Y, args, device):
         if epoch % 10 == 0:
             if args.verb > 0:
                 elapsed_seconds = time.time() - start_time
-                print(f"[ELBO] epoch {epoch:3d}  loss = {avg_loss:.1f}  lr={current_lr:.2e}  time={elapsed_seconds:.0f}s")
+                print(f"[ELBO] epoch {epoch:3d}  loss = {avg_loss:.0f}  lr={current_lr:.2e}  time={elapsed_seconds:.0f}s")
     
     elapsed_minutes = (time.time() - start_time) / 60
     train_stats = {"elapsed_minutes": elapsed_minutes, "gpu_temp": gpu_temp, "gpu_power": gpu_power, "gpu_util": gpu_util}
@@ -264,32 +308,40 @@ def build_graph_from_posterior(model, guide, X, args, device, file_sparsity):
 def main():
     args = setup_args()
     np.set_printoptions(linewidth=200, precision=2, suppress=True)
-    if args.verb > 0:
-        print("Arguments:")
-        for arg in vars(args):
-            print(f"  {arg}: {getattr(args, arg)}")
-
+ 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if args.verb > 0:
         print(f"Using device: {device}")
-    
-    fname = f"data/{args.input}.npz"
-    if args.verb > 0:
-        print(f"Loading data from: {fname}")
-    data, truth_E, file_sparsity = load_data(fname, "trajectory", device=device, verb=args.verb)
-    
-    if truth_E is not None and args.verb > 1:
-        print("") # add a blank line for spacing
-        mask = ~torch.eye(truth_E.shape[0], dtype=torch.bool, device=device)
-        _print_matrix("Ground Truth Matrix (E) - before fit", truth_E.cpu().numpy().astype(int), mask.cpu().numpy())
 
+    inpF=args.inpName+'.act.h5'        
+    expD,expMD=read4_data_hdf5(os.path.join(args.dataPath,inpF))
+    if args.verb>=2:
+        print('M:expMD:');  pprint(expMD)
+        stop2
+
+
+    data, truth_E, file_sparsity = load_data(args,expD,expMD, device=device)
+    
     X, Y = make_regression(data)
-
+    buildBayesMeta(args,expMD)
+    
     guide, train_stats = run_training(model, X, Y, args, device)
     
     W_est, W_confidence, mask, used_sparsity = build_graph_from_posterior(model, guide, X, args, device, file_sparsity)
 
-    save_and_report_results(W_est, W_confidence, truth_E, mask, train_stats, args, device, used_sparsity)
+    report_results(W_est, W_confidence, truth_E, mask, train_stats, args, device, used_sparsity, data.shape[1])
 
+    expD['bayes_network_matrix']=W_est.cpu().numpy()
+    expD['bayes_edge_matrix']=np.sign(expD['bayes_network_matrix']).astype(np.float32)
+    expD['bayes_matrix_confidence']=W_confidence.cpu().numpy()
+         
+    #...... WRITE   OUTPUT .........
+    outF=os.path.join(args.modelPath,expMD['short_name']+'.fitBayes.h5')
+    write4_data_hdf5(expD,outF,expMD)
+    #pprint(expMD)    
+
+    print(' ./postproc_bayes.py --basePath $basePath -e %s  -p e  -Y '%expMD['short_name'])
+    print(' ./fit_graph_weights.py --basePath $basePath --inpName %s  -p e  -Y '%expMD['short_name'])
+    
 if __name__ == "__main__":
     main()
