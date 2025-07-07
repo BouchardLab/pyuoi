@@ -296,4 +296,3 @@ def gen_net_activity_discrT(W, tau, sigma, T=10_00):
         #print(t,xt[t])
     return tspace,xt
 
-    

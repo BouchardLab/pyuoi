@@ -10,7 +10,7 @@ from time import time
 import numpy as np
 
 def simulate_cox_ou_correlated(dt_ms,
-                               tau,
+                               lambda_rate,
                                nFeat,
                                tMax_s,
                                tau_c_ms=30,
@@ -19,21 +19,21 @@ def simulate_cox_ou_correlated(dt_ms,
                                rng=None):
     """
     Simulate nFeat spike‐trains whose instantaneous rate on channel i is
-        λ_i(t) = tau + x0(t) + x_i(t)
+        λ_i(t) = lambda_rate + x0(t) + x_i(t)
     where
       x0(t)   = shared OU‐process (time‐const = tau_c_ms)
       x_i(t)  = private OU‐process for channel i
-    The total stationary variance of x0+x_i is (mod_depth*tau)^2,
+    The total stationary variance of x0+x_i is (mod_depth*lambda_rate)^2,
     and corr_strength ∈ [0,1] determines what fraction of that variance
     lives in the shared component x0.
 
     Inputs:
       dt_ms        : time‐bin in ms
-      tau          : baseline rate in spikes/sec
+      lambda_rate  : baseline rate in spikes/sec
       nFeat        : number of independent channels
       tMax_s       : total simulation time in seconds
       tau_c_ms     : OU time‐constant in ms
-      mod_depth    : relative total std‐dev of rate fluctuations (std(x)/tau)
+      mod_depth    : relative total std‐dev of rate fluctuations (std(x)/lambda_rate)
       corr_strength: fraction of var(x) that is shared (0→indep,1→all shared)
       rng          : Optional np.random.Generator
 
@@ -50,7 +50,7 @@ def simulate_cox_ou_correlated(dt_ms,
     nTime  = int(round(tMax_s * 1000.0 / dt_ms))
 
     # desired variances
-    var_tot    = (mod_depth * tau)**2
+    var_tot    = (mod_depth * lambda_rate)**2
     var_common = var_tot * corr_strength
     var_priv   = var_tot * (1.0 - corr_strength)
 
@@ -71,7 +71,7 @@ def simulate_cox_ou_correlated(dt_ms,
                   + sigma_p * np.sqrt(dt_s) * rng.standard_normal(nFeat)
 
     # instantaneous rate matrix
-    lam = tau + x0[None,:] + xP
+    lam = lambda_rate + x0[None,:] + xP
     lam[lam < 0] = 0.0
 
     # Poisson sampling (gives counts, we threshold to bits)
@@ -272,7 +272,7 @@ def plot_crosscov_with_fit(ax,
 def main():
     # simulation params
     dt_ms    = 1       # ms
-    tau      = 50      # spikes/sec
+    lambda_rate      = 50      # spikes/sec
     nFeat    = 102     # number of channels
     tMax_s   = 301     # seconds
     
@@ -280,7 +280,7 @@ def main():
     mod_depth= 0.5       # ±50% relative fluctuations
     corr_str = 0.3       # 30% of the variance is shared
 
-    spikes = simulate_cox_ou_correlated(dt_ms, tau, nFeat, tMax_s,
+    spikes = simulate_cox_ou_correlated(dt_ms, lambda_rate, nFeat, tMax_s,
                                     tau_c_ms, mod_depth, corr_str)
 
 

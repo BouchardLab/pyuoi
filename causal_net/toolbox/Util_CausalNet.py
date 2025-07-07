@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import numpy as np
+from scipy.optimize import curve_fit
 
 #...!...!.................... 
 def print_dale_matrix(A,nfeat=None):
@@ -88,7 +89,6 @@ def daleMatrix_index_partition(C):
     return Ldia, Lexc, Lzexc, Linh, Lzinh
 
 #...!...!.................... 
-import numpy as np
 
 def residual_stats(A: np.ndarray):
     """
@@ -164,6 +164,169 @@ def residual_stats(A: np.ndarray):
 
 #...!...!.................... 
 
+def compute_spike_moments(spikes, maxRebin=10,maxTime=300_000,verb=1):
+    """
+    For each window size w in windows_ms, bin spikes into non-overlapping
+    windows of length w, compute:
+      mean count per bin, variance per bin, Fano=var/mean
+    spikes  : bool array (nFeat, nTime)
+  
+    windows_ms : iterable of integer window sizes in  bins
+    Returns:
+      four lists: windows_ms, means, variances, fano_factors
+    """
+    windows= [2**k for k in range(0, maxRebin)]
+    
+    nFeat, nTime = spikes.shape
+    nTime =min(nTime,maxTime)
+    print('compute_spike_moments spikes(%d,%d) windows:'%(nFeat, nTime), windows)
+    
+    results = []
+    for bin_size in windows: # w is bin_size
+        nBins = nTime // bin_size
+        # truncate to an integer number of bins
+        data = spikes[:, : nBins*bin_size]
+        # reshape to (nFeat, nBins, bin_size) and sum over the last axis
+        counts = data.reshape(nFeat, nBins, bin_size).sum(axis=2)
+        flat = counts.ravel().astype(float)
+        m = flat.mean()
+        v = flat.var(ddof=0)
+        f = v / m if m>0 else np.nan
+        results.append((bin_size, m, v, f))
+        #print('done',bin_size, m, v, f)
+
+    if verb>0:    # unzip
+        ws, ms, vs, fs = zip(*results)
+        header = f"{'Window ':>10s}  {'Spikes Mean':>10s}  {'Variance':>10s}  {'Fano fact':>8s}"
+        print(header)
+        print('-' * len(header))
+        for w, m, v, f in results:
+            if w not in [ 1,16,128,1024]: continue
+            print(f"{w:10d}  {m:10.3f}  {v:10.3f}  {f:8.3f}")
+
+    return np.array(results)
+ 
+
+
+
+#...!...!.................... 
+def fit_exponent_weighted(times,
+                     C,
+                     dt_ms,
+                     N_total,
+                     fit_start_ms=5):
+    """
+    Weighted fit of C(t) = A * exp(-t/tau) + B for t >= fit_start_ms.
+    times        : array of lags (s)
+    C            : array of covariances
+    dt_ms        : bin‐size in ms
+    N_total      : total # bins per channel used in compute_cov
+    fit_start_ms : ignore lags < this (ms)
+    returns dictionary with fitted parameters and fitting range
+    """
+
+    # 1) figure out which lags we’re fitting
+    start_i = int(np.ceil(fit_start_ms / dt_ms))
+    start_i = max(start_i, 1)    # never use the 0‐lag
+
+    t_all = times[start_i:]
+    C_all = C[start_i:]
+    ks    = np.arange(start_i, start_i + len(C_all))
+
+    # 2) throw away any negative C (they can't be fit by positive‐A exponential)
+    pos    = C_all > 0
+    t_fit  = t_all[pos]
+    C_fit  = C_all[pos]
+    ks_fit = ks[pos]
+
+    # 3) build a sensible positive initial guess for A and tau
+    A0   = C_fit[0]
+    if A0 <= 0:
+        A0 = C_fit.max()
+    tau0 = (t_fit[np.argmin(np.abs(C_fit - C_fit[0]/np.e))]
+            if np.any(C_fit < C_fit[0]/np.e)
+            else t_fit[-1])
+    p0 = (A0, tau0, 0)
+    # 4) weights ~ 1/sqrt(N_total - k)
+    sigma = 1.0/np.sqrt(N_total - ks_fit)
+
+    # 5) do the curve‐fit with A>=0, tau>=0
+    def model(t, A, tau, B):
+        return A * np.exp(-t/tau)+B
+        #yA=A * np.exp(-t/tau)
+        #return np.sqrt(yA**2+B**2)
+    lower = (0.0, 0.0, 0.0)
+    upper = (np.inf, np.inf, np.inf)
+    popt, pcov = curve_fit(model,
+                           t_fit, C_fit,
+                           p0=p0,
+                           sigma=sigma,
+                           absolute_sigma=not False,
+                           bounds=(lower, upper))
+    A_est, tau_est, B_est = popt
+    perr = np.sqrt(np.diag(pcov))
+    A_err, tau_err, B_err = perr
+    print('tau_est=%.3f (s)   A_est=%.2e     B_est=%.2e    '%(tau_est,A_est,B_est))
+    
+    # Return dictionary with all fitted parameters and fitting range
+    result = {
+        'tau': tau_est,
+        'A': A_est,
+        'B': B_est,
+        'tau_err': tau_err,
+        'A_err': A_err,
+        'B_err': B_err,
+        'fit_start_ms': fit_start_ms,
+        'fit_time_range': (t_fit[0], t_fit[-1]),
+        'n_fit_points': len(t_fit)
+    }
+    return result
+
+
+
+#...!...!.................... 
+def compute_mean_crosscov_fastV2(spikes, dt_ms, max_lag_ms=None):
+    """
+    Fast approximation to the average cross‐covariance over all i<j.
+    Ignores the small 'self' term, which for nFeat~400 gives <1% bias.
+
+    spikes    : bool or {0,1} array, shape (nFeat, nTime)
+    dt_ms     : bin size in ms
+    max_lag_ms: maximum lag to compute (in ms); if None uses full record
+
+    Returns
+      times : array of lags [s], length L
+      C     : array of approximate cross‐covariances, length L
+    """
+    nFeat, N = spikes.shape
+    dt  = dt_ms/1000.0
+    if max_lag_ms is None:
+        max_lag = N-1
+    else:
+        max_lag = min(int(max_lag_ms/dt_ms), N-1)
+
+    # 1) zero‐mean each channel
+    S = spikes.astype(np.float64)
+    S -= S.mean(axis=1, keepdims=True)
+
+    # 2) form the sum over channels
+    R = S.sum(axis=0)   # length N
+
+    # 3) number of distinct pairs
+    nPairs = nFeat*(nFeat-1)/2
+
+    # 4) allocate output
+    L = max_lag+1
+    C = np.empty(L, dtype=np.float64)
+
+    # 5) for each lag k, do one dot() of two length-(N–k) vectors
+    for k in range(L):
+        Nk = N - k
+        C[k] = R[:Nk].dot(R[k:]) / (Nk * nPairs)
+
+    # 6) time‐axis
+    times = np.arange(L) * dt
+    return times, C
 
 
 
@@ -211,3 +374,10 @@ if __name__ == "__main__":
     print("X′        :", Xp)
     print("Y′        :", Yp)
     print("means of X′,Y′:", Xp.mean(), Yp.mean())
+
+   
+
+
+
+
+

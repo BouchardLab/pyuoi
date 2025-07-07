@@ -23,8 +23,10 @@ from time import time
 from pprint import pprint
 import numpy as np
 from PlotterExperiment import Plotter
-from toy_coxDiagSim_fit_autocov import compute_fano, print_count_fano_table,compute_mean_autocov
-from toy_coxCorSim_fit_crosscov import fit_exp_weighted, compute_mean_crosscov, compute_mean_crosscov_fast
+#from toy_coxDiagSim_fit_autocov import compute_fano, print_count_fano_table,compute_mean_autocov
+#from toy_coxCorSim_fit_crosscov import fit_exp_weighted, compute_mean_crosscov, compute_mean_crosscov_fast
+
+from toolbox.Util_CausalNet import compute_mean_crosscov_fastV2, fit_exponent_weighted
 
 import argparse
 #...!...!....................
@@ -74,38 +76,29 @@ if __name__=="__main__":
         stop2
         
 
-    #spikes=expD['spikes_data'][:,300_000:900_000]; dt_ms=1.
-    spikes=expD['spikes_data'][:,:]; dt_ms=1.
+    spikes=expD['spikes_data'][:,:300_000]; dt_ms=1.
+    #spikes=expD['spikes_data'][:,:]; dt_ms=1.
     print('M: sample size:',spikes.shape)
     
-    if 1: # Compute Fano‐factor vs window
-        # Build window list 1,2,4,...,1024 ms
-        windows_ms = [2**k for k in range(0, 11)]
-        
-        ws, ms, vs, fs = compute_fano(spikes, dt_ms, windows_ms)
-        print_count_fano_table(ws, ms, vs, fs)
-
         
     if  'e' in args.showPlots: # fit Cox‐process exponential decay
-        max_lag=250
+        max_lag=450  # (ms)
         T0=time()
         if 0: 
             methN='auto-cov, spikes:%s '%(spikes.shape,)
             times, C = compute_mean_autocov(spikes, dt_ms, max_lag_ms=max_lag)
         else:
             methN='cross-cov, spikes:%s '%(spikes.shape,)
-            times, C = compute_mean_crosscov_fast(spikes, dt_ms, max_lag_ms=max_lag)
+            times, covData = compute_mean_crosscov_fastV2(spikes, dt_ms, max_lag_ms=max_lag)
         print('M: %s computed in elaT=%.1f sec'%(methN,time() -T0))
    
         # 2) fit Cox‐process exponential decay 
         fit_start=30;N_total = spikes.shape[1]
-        
-        tau_c, A, tau_err  = fit_exp_weighted(times, C, dt_ms, N_total,  fit_start_ms=fit_start)
-        
-        print("Estimated tau_c = %.3f +/- %.3f , A=%.3e"%(tau_c,tau_err,A))
+        # Merge times and covData into one 2D vector
+        expD['cross_cov_data'] = np.vstack((times, covData))
+        expMD['cross_cov_fit']=fit_exponent_weighted(times, covData, dt_ms, N_total,  fit_start_ms=fit_start)
+        expMD['cross_cov_fit']['spikes_data_shape']=list(spikes.shape)
 
-
-        
         
     #--------------------------------
     # ....  plotting ........
@@ -130,7 +123,8 @@ if __name__=="__main__":
         plot.detailed_qa(expD,expMD,figId=4)
 
     if 'e' in args.showPlots:
-        plot.cox_autocov_fit( times, C, tau_c, A,fit_start,expD,expMD,tit=methN,figId=5)
+        #plot.cox_autocov_fit( times, C, tau_c, A,fit_start,expD,expMD,tit=methN,figId=5)
+        plot.cox_autocov_fit( expD,expMD,figId=5)
  
     plot.display_all()
     print('M:done')

@@ -43,6 +43,7 @@ import numpy as np
 import pickle
 from pprint import pprint
 from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
+from toolbox.Util_CausalNet import compute_spike_moments
 
 import time
 
@@ -243,8 +244,6 @@ def flatten_spike_data(bSpikeD,md,bigD):
     bigD.update({'time_ms':timeV,'spikes_data':spikeA})
     return bigD
     
-
-    
 #...!...!....................
 def mon_spike_freq(bSpikeD,md,bigD,twindow_sec=60.): 
     pmd=md['dataset']
@@ -291,7 +290,7 @@ if __name__ == "__main__":
     expD=flatten_spike_data(binSpikeD,expMD,expD)
     #... QA
     mon_spike_freq(binSpikeD,expMD,expD,twindow_sec=5.)   
-    
+    expD['qa_spike_moments']=compute_spike_moments(expD['spikes_data'], maxRebin=11,maxTime=300_000)
     
   
     pprint(expMD)

@@ -75,19 +75,19 @@ def fit_exp_weighted(times, C, dt_ms,N_total, fit_start_ms=5):
     perr = np.sqrt(np.diag(pcov))
     return tau_est, A_est, perr[1]   # return τc, A and stderr of τc
 
-def simulate_cox_ou(dt, tau, nFeat, tMax, tau_c=30, mod_depth=1.0, rng=None):
+def simulate_cox_ou(dt, lambda_rate, nFeat, tMax, tau_c=30, mod_depth=1.0, rng=None):
     """
     Simulate nFeat independent spike‐trains whose rate λ_i(t) is
-      λ_i(t) = tau + x_i(t)
+      λ_i(t) = lambda_rate + x_i(t)
     with x_i an OU process of time‐constant tau_c (in seconds)
-    and stationary std dev = mod_depth * tau.
+    and stationary std dev = mod_depth * lambda_rate.
     
     dt        : bin size in ms
-    tau       : baseline rate in spikes/sec
+    lambda_rate       : baseline rate in spikes/sec
     nFeat     : number of independent channels
     tMax      : total time in seconds
     tau_c     : OU time constant in ms 
-    mod_depth : relative fluctuation size = std(x)/tau
+    mod_depth : relative fluctuation size = std(x)/lambda_rate
     rng       : numpy Generator (optional)
     
     “Cox‐process’’ generator in which each channel’s instantaneous rate is a random Ornstein–Uhlenbeck (OU) process with correlation time τc
@@ -106,8 +106,8 @@ def simulate_cox_ou(dt, tau, nFeat, tMax, tau_c=30, mod_depth=1.0, rng=None):
     
     # OU‐process parameters
     #   dx = −(x/τc) dt + σ dW  ⇒  Var(x) = σ² τc/2
-    # so to get std(x)=mod_depth*tau, choose
-    sigma = mod_depth * tau * np.sqrt(2.0 / tau_c)
+    # so to get std(x)=mod_depth*lambda_rate, choose
+    sigma = mod_depth * lambda_rate * np.sqrt(2.0 / tau_c)
     
     # pre‐allocate
     x = np.zeros((nFeat, nTime), dtype=float)
@@ -119,7 +119,7 @@ def simulate_cox_ou(dt, tau, nFeat, tMax, tau_c=30, mod_depth=1.0, rng=None):
                   + sigma * np.sqrt(dt_s) * rng.standard_normal(nFeat)
     
     # instantaneous rates (clipped ≥0)
-    lam = tau + x
+    lam = lambda_rate + x
     lam[lam < 0] = 0.0
 
     # draw Poisson counts in each bin, then threshold to bits
@@ -241,7 +241,7 @@ if __name__=='__main__':
     # spikes = ... load or simulate ...
     # Simulation parameters
     dt_ms     = 1       # ms
-    tau    = 50      # spikes/sec
+    lambda_rate    = 50      # spikes/sec
     nFeat  =  102      # number of independent channels
     tMax   = 601     # seconds
     
@@ -249,7 +249,7 @@ if __name__=='__main__':
     tau_c  = 40    #  ms correlation time
     depth  = 0.3     #  relative SD of rate fluctuations
 
-    spikes = simulate_cox_ou(dt_ms, tau, nFeat, tMax, tau_c, depth)
+    spikes = simulate_cox_ou(dt_ms, lambda_rate, nFeat, tMax, tau_c, depth)
     print('M: sample size:',spikes.shape)
     
     # Build window list 1,2,4,...,1024 ms
@@ -272,7 +272,6 @@ if __name__=='__main__':
     print("Estimated tau_c = %.3f +/- %.3f , A=%.3e"%(tau_c,tau_err,A))
 
     # Optionally plot
-    fig, ax = plt.subplots(figsize=(6,4))
     fig, ax = plt.subplots(figsize=(6,4))
     plot_autocov_with_fit(ax,
                       times,
