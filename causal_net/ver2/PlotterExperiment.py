@@ -267,3 +267,48 @@ class Plotter(PlotterBackbone):
         # common
         #if 'time_rangeLR' in plm:  ax.set_xlim(tuple(plm['time_rangeLR']))
         ax.set_xlabel('Time (ms)')
+
+#...!...!..................
+    def cox_autocov_fit(self, times, C, tau_c, A,fit_start_ms,bigD,md,tit='aa',figId=3):
+        #pprint(md)
+        pmd=md['dataset']        
+        tit+=', dataset: '+md['short_name']
+                
+        figId=self.smart_append(figId)        
+        nrow,ncol=2,1
+        fig=self.plt.figure(figId,facecolor='white', figsize=(8,8))
+
+        ax = self.plt.subplot(nrow,ncol,1)
+        
+        """
+        ax           : matplotlib Axes to draw into
+        times        : 1D array of lags (in seconds)
+        C            : 1D array of autocovariances, same length
+        tau_c, A     : parameters of the fitted model C = A exp(-t/tau_c)
+        fit_start_ms : lag (in ms) above which the fit is valid
+        
+        """
+        # convert cutoff to index
+        dt_s     = times[1] - times[0]
+        start_idx = int(round(fit_start_ms / (dt_s*1000.0)))
+        if start_idx < 1:
+            start_idx = 1
+
+        # data for fit‐line
+        t_fit   = times[start_idx:]
+        c_fit   = A * np.exp(-t_fit / tau_c)
+
+        # plot empirical
+        ax.plot(times[1:], C[1:], 'k.', label='empirical')  # skip 0-time
+
+        # plot fit (only in fitted region)
+        ax.plot(t_fit, c_fit, 'r-', label=f'fit τc={tau_c:.3f}s')
+
+        # vertical line for cutoff
+        ax.axvline(fit_start_ms/1000.0, color='gray', linestyle=':', 
+                   label=f'start at {fit_start_ms}ms')
+
+        ax.set_xlabel('lag (s)')
+        ax.set_title(tit)
+        ax.legend(loc='best')
+        ax.grid(True)

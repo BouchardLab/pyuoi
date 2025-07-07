@@ -8,12 +8,33 @@ prepares input for UoI fit experimental data
 
 HD5 arrays contain input and output
 
-Use case:
+Use case .pkl *****:
 
-basePath=/global/cfs/cdirs/m2043/causal_inference/DIV13
-ses=HET_80k_1 ; ses2=${ses}_samp1kHz
-./prep_input.py --sessionName $ses --outName $ses2  --basePath $basePath
-./plot_features.py   --basePath $basePath --inpName   $ses2 -p  d -Y
+basePath=/global/homes/b/balewski/prjs/bioDataVault2025/causalNet_tmp2/
+inputPath=/global/cfs/cdirs/m2043/causal_inference/DIV13
+
+ses=HET_80k_1 ; ses2=${ses}_1kHz
+./prep_exp4fit.py --sessionName $ses --outName $ses2  --basePath $basePath 
+
+Use case .npy *****:
+
+basePath=/global/homes/b/balewski/prjs/bioDataVault2025/causalNet_tmp2/
+inpPath=/global/cfs/cdirs/m2043/causal_inference/Canine_Organoids_PVS/Analysis/250619/M08020/Network/
+ses=000093/well001; ses2=250619_M08020_run93_well1
+
+
+./prep_exp4fit.py --sessionName $ses --outName $ses2 --inpExt npy --basePath $basePath --inpPath $inpPath
+
+Decoding the name:
+Causal inference – project name
+Canine_organoids_PVS – Type of the Culture
+Analysis – its analysis folder
+250619 – recording data 
+M08020 – Plate/ chip name
+Network – type of recording
+000093 – run number
+Well000 -> is the well number ( indexed at 0)
+
 
 
 '''
@@ -22,6 +43,8 @@ import numpy as np
 import pickle
 from pprint import pprint
 from toolbox.Util_H5io4 import  write4_data_hdf5, read4_data_hdf5
+
+import time
 
 import argparse
 #...!...!..................
@@ -33,13 +56,15 @@ def commandline_parser():
     parser.add_argument("--sessionName",  default='HET_80k_1',help='raw data session name')
     parser.add_argument("--basePath",default='out',help="head dir for set of experiments")    
     parser.add_argument("--outName",  default=None,help='(optional) output file name')
- 
+    parser.add_argument("--inpExt",  default='pkl',choices=("pkl", "npy"),help='type of input: pkl or npy')
+    
    
     args = parser.parse_args()
     args.time_rebin=10 # 'rebin of raw time axis'
     args.outPath=os.path.join(args.basePath,'input_spike')
     for arg in vars(args):
         print( 'myArgs:',arg, getattr(args, arg))
+
 
     assert os.path.exists(args.inpPath)
     assert os.path.exists(args.outPath)
@@ -101,8 +126,7 @@ def read_spike_dict(md,args):
     
     if args.verb>1: print('RSD: meaID list:',meaIdL)
     pmd['num_feature']=len(meaIdL)
-    print('mmm',meaIdL)
-    
+        
     spikeD={}
     spikeCntL=np.zeros(pmd['num_feature'],dtype=int)  # num spikes per  neuron
     maxTbin=0
@@ -119,7 +143,81 @@ def read_spike_dict(md,args):
         mxTb=np.max(rec)
         if maxTbin< mxTb: maxTbin=mxTb
         #... check for smalest dist
-        if j<5:qa_neuron(k,spikeD[k])
+        #if j<5:qa_neuron(k,spikeD[k])
+        
+    pmd['num_time_bin']=int(maxTbin)+1
+    pmd['max_time']=pmd['num_time_bin']/pmd['sampling_freq']
+
+    bigD={'exp_feature_id':meaIdL, 'exp_spike_sum': spikeCntL}
+    bigD['qa_avr_spike_freq']=spikeCntL/pmd['max_time']
+    return  spikeD,bigD
+
+
+#...!...!....................
+def read_spike_numpy(md,args):
+    pmd=md['dataset']
+    inpF=os.path.join(args.inpPath,args.sessionName,'spike_times.npy')
+    print('inpF:',inpF)
+    assert os.path.exists(inpF)
+
+    raw = np.load(inpF, allow_pickle=True)
+    print(f"Loaded '{inpF}' → type={type(raw)}, dtype={getattr(raw,'dtype',None)}, shape={getattr(raw,'shape',None)}")
+    # unwrap zero‐dim object‐array
+    if isinstance(raw, np.ndarray) and raw.dtype == object and raw.shape == ():
+        data = raw.item()
+        print("Unwrapped 0-d object array; now data is", type(data))
+    else:
+        data=raw
+    assert isinstance(data, dict)
+    keys = list(data.keys())
+    print(f"\nDetected dict with {len(keys)} keys.")
+    print('Sample keys:',keys[:20],'...', keys[-20:])
+
+    if 0: # dump some data
+        max_keys=5; max_vals=6
+        for i, k in enumerate(keys[:max_keys]):
+            v = data[k]
+            print(f"\nKey [{i}] = {k!r}:  type={type(v)}")
+            # try to view as array        
+            arr = np.asarray(v)
+            # flatten and take first max_vals elements
+            flat = arr.ravel()
+            print(f"  shape={arr.shape}, dtype={arr.dtype}")
+            if flat.size>0:
+                vals = flat[:max_vals]
+                str_vals = [f"{v:.6f}" for v in vals]
+                print(f"  first {len(str_vals)} values = [{', '.join(str_vals)}]")
+                
+    # neuron ID  MEA chip
+    meaIdL=np.array(sorted(keys),dtype=np.int16)  # here order of feature_id is settled
+    maxFeat=len(meaIdL)
+    # ... down select neurons
+
+    raw_sampling_freq=10000  # Hz
+    assert raw_sampling_freq%args.time_rebin==0 
+    pmd['sampling_freq'] =raw_sampling_freq/args.time_rebin   
+    
+   
+    
+    if args.verb>1: print('RSD: meaID list:',meaIdL)
+    pmd['num_feature']=len(meaIdL)
+        
+    spikeD={}
+    spikeCntL=np.zeros(pmd['num_feature'],dtype=int)  # num spikes per  neuron
+    maxTbin=0
+
+    for i, k in enumerate(meaIdL):
+        v = data[k]
+        rec = np.asarray(v)*pmd['sampling_freq']
+        #print('iii',i,k,rec.shape,rec[:5].astype(int))
+        #if i>4: break
+
+        spikeD[k]=rec.astype(int) # time-bin may repeat 
+        spikeCntL[i]=len(rec)
+        
+        if len(rec)==0:  continue        
+        mxTb=np.max(rec)
+        if maxTbin< mxTb: maxTbin=mxTb
         
     pmd['num_time_bin']=int(maxTbin)+1
     pmd['max_time']=pmd['num_time_bin']/pmd['sampling_freq']
@@ -171,7 +269,6 @@ def mon_spike_freq(bSpikeD,md,bigD,twindow_sec=60.):
 
 
 
-
 #=================================
 #=================================
 #  M A I N 
@@ -184,19 +281,24 @@ if __name__ == "__main__":
     expMD=buildPayloadMeta(args)
    
     # read raw data
-    binSpikeD,expD=read_spike_dict(expMD,args)
+    if args.inpExt=='pkl':
+        binSpikeD,expD=read_spike_dict(expMD,args)
+    if args.inpExt=='npy':
+        binSpikeD,expD=read_spike_numpy(expMD,args)
     #pprint(expMD)
     
 
     expD=flatten_spike_data(binSpikeD,expMD,expD)
     #... QA
     mon_spike_freq(binSpikeD,expMD,expD,twindow_sec=5.)   
+    
+    
   
     pprint(expMD)
     #...... WRITE   OUTPUT .........
     outF=os.path.join(args.outPath,expMD['short_name']+'.spike.h5')
     write4_data_hdf5(expD,outF,expMD)
-    print('   ./plot_expInput.py  --basePath $basePath  --inpName   %s  -p  b c d  -Y '%(expMD['short_name'] ))
+    print('   ./plot_expInput.py  --basePath $basePath  --inpName   %s  -p  b  d e  -Y '%(expMD['short_name'] ))
     #print('   ./fit_uoiVar.py  --inpName   %s   \n'%(expMD['short_name'] ))
    
 
