@@ -23,10 +23,9 @@ from time import time
 from pprint import pprint
 import numpy as np
 from PlotterExperiment import Plotter
-#from toy_coxDiagSim_fit_autocov import compute_fano, print_count_fano_table,compute_mean_autocov
-#from toy_coxCorSim_fit_crosscov import fit_exp_weighted, compute_mean_crosscov, compute_mean_crosscov_fast
 
-from toolbox.Util_CausalNet import compute_mean_crosscov_fastV2, fit_exponent_weighted
+
+from toolbox.Util_CausalNet import compute_mean_crosscov_fastV2, fit_exponent_weighted,  compute_mean_autocovV2
 
 import argparse
 #...!...!....................
@@ -37,12 +36,12 @@ def get_parser():
     
     parser.add_argument( "-Y","--noXterm", dest='noXterm',  action='store_false', default=True, help="enables X-term for interactive mode")         
     parser.add_argument("--basePath",default='out',help="head dir for set of experimentst")
-    parser.add_argument('--time_range' , default=[0., 1.0],  nargs=2,   type=float, help='fit data time range')
+    parser.add_argument('--time_range' , default=[0, 30_000],  nargs=2,   type=int, help='cov estimate data time range')
     parser.add_argument("--inpName",  default='exp_62a21daf',help='IBMQ experiment name assigned during submission')
     
     args = parser.parse_args()
     # make arguments  more flexible 
-    args.dataPath=os.path.join(args.basePath,'input_spike' )
+    args.dataPath=os.path.join(args.basePath,'input_fitter' )
     args.outPath=os.path.join(args.basePath,'postproc')
     args.showPlots=''.join(args.showPlots)
       
@@ -75,28 +74,33 @@ if __name__=="__main__":
             print(expD)
         stop2
         
-
-    spikes=expD['spikes_data'][:,:300_000]; dt_ms=1.
+    timeStep=expMD['dataset']['step_duration']; dt_ms=1.
+    spikes=expD['spikes_data'][:, args.time_range[0]: args.time_range[1]]
     #spikes=expD['spikes_data'][:,:]; dt_ms=1.
     print('M: sample size:',spikes.shape)
     
-        
     if  'e' in args.showPlots: # fit Cox‐process exponential decay
         max_lag=450  # (ms)
-        T0=time()
-        if 0: 
-            methN='auto-cov, spikes:%s '%(spikes.shape,)
-            times, C = compute_mean_autocov(spikes, dt_ms, max_lag_ms=max_lag)
-        else:
-            methN='cross-cov, spikes:%s '%(spikes.shape,)
-            times, covData = compute_mean_crosscov_fastV2(spikes, dt_ms, max_lag_ms=max_lag)
-        print('M: %s computed in elaT=%.1f sec'%(methN,time() -T0))
-   
-        # 2) fit Cox‐process exponential decay 
         fit_start=30;N_total = spikes.shape[1]
+        T0=time()
+
+        #1)  auto-correlation
+        _, autoCovData = compute_mean_autocovV2(spikes, dt_ms, max_lag_ms=max_lag)
+        
+        len1, crosCovData = compute_mean_crosscov_fastV2(spikes, max_lag_ms=max_lag)
+        
+        timesC=np.arange(len1,dtype=np.float32)*timeStep
+        
+        # cross-correlation
+        print('M:  computed in elaT=%.1f sec'%(time() -T0))
+        
         # Merge times and covData into one 2D vector
-        expD['cross_cov_data'] = np.vstack((times, covData))
-        expMD['cross_cov_fit']=fit_exponent_weighted(times, covData, dt_ms, N_total,  fit_start_ms=fit_start)
+        expD['auto_cov_data'] = np.vstack((timesC, autoCovData))
+        expD['cross_cov_data'] = np.vstack((timesC, crosCovData))
+        
+        #  fit Cox‐process exponential decay
+        expMD['auto_cov_fit']=fit_exponent_weighted(timesC, autoCovData, dt_ms, N_total,  fit_start_ms=fit_start)
+        expMD['cross_cov_fit']=fit_exponent_weighted(timesC, crosCovData, dt_ms, N_total,  fit_start_ms=fit_start)
         expMD['cross_cov_fit']['spikes_data_shape']=list(spikes.shape)
 
         
@@ -105,8 +109,8 @@ if __name__=="__main__":
     args.prjName=expMD['short_name']+'_exp'
     expMD['plot']={}
     
-    expMD['plot']['time_rangeLR']=[1200,1800]
-    expMD['plot']['time_rangeLR']=[1000,4300]
+    #expMD['plot']['time_rangeLR']=[1200,1800]
+    #expMD['plot']['time_rangeLR']=[1000,4300]
     #if args.time_range!=None: expMD['plot']['time_rangeLR']=args.time_range
 
     plot=Plotter(args)
@@ -123,8 +127,7 @@ if __name__=="__main__":
         plot.detailed_qa(expD,expMD,figId=4)
 
     if 'e' in args.showPlots:
-        #plot.cox_autocov_fit( times, C, tau_c, A,fit_start,expD,expMD,tit=methN,figId=5)
-        plot.cox_autocov_fit( expD,expMD,figId=5)
+        plot.cox_corrcov_fit( expD,expMD,figId=5)
  
     plot.display_all()
     print('M:done')

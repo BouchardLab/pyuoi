@@ -252,7 +252,7 @@ def gen_net_activity_contT(W, tau, sigma, T=60, h=0.001, seed=None, binFractalNo
     
 #################### Simulation ##################
 #...!...!....................
-def gen_net_activity_discrT(W, tau, sigma, T=10_00):
+def gen_net_activity_discrT(W, tau, sigma, n_steps=10_00):
     """
     Generate neural activity from a linear dynamical system defined by connectivity matrix W.
     Discrete ttime simulation
@@ -261,22 +261,16 @@ def gen_net_activity_discrT(W, tau, sigma, T=10_00):
       W         : Connectivity matrix.
       tau       : Time constant for simulation.
       sigma     : Noise variance strength.
-      T         : Total simulation time.
+      n_steps         : Total simulation time.
       seed      : Optional random seed.
     
     Returns:
       xt                : Integrated state trajectory over time.
     
     """
-    #print('tau:',tau, type(tau))
-   
-    
+       
     randGen = np.random.default_rng()
-    
-    # Create time points (dt=1)
-    tspace = np.arange(0, T)
-    n_steps = len(tspace)
-    
+       
     # Initialize state trajectory
     xt = np.zeros((n_steps, W.shape[0]))
     xt[0] = randGen.normal(size=(W.shape[0],))  # initial state
@@ -293,6 +287,6 @@ def gen_net_activity_discrT(W, tau, sigma, T=10_00):
     for t in range(1, n_steps):
         # Vectorized update: x[t] = x[t-1] + (1/tau) * (-x + W @ x) + sigma * noise
         xt[t] = xt[t-1] - I_minus_W @ xt[t-1] + sigma * noise_all[t-1]
-        #print(t,xt[t])
-    return tspace,xt
+       
+    return xt.T
 

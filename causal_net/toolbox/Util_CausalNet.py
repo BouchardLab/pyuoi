@@ -201,7 +201,7 @@ def compute_spike_moments(spikes, maxRebin=10,maxTime=300_000,verb=1):
         print(header)
         print('-' * len(header))
         for w, m, v, f in results:
-            if w not in [ 1,16,128,1024]: continue
+            #if w not in [ 1,16,128,1024]: continue
             print(f"{w:10d}  {m:10.3f}  {v:10.3f}  {f:8.3f}")
 
     return np.array(results)
@@ -285,7 +285,7 @@ def fit_exponent_weighted(times,
 
 
 #...!...!.................... 
-def compute_mean_crosscov_fastV2(spikes, dt_ms, max_lag_ms=None):
+def compute_mean_crosscov_fastV2(spikes, max_lag_ms=None):
     """
     Fast approximation to the average cross‐covariance over all i<j.
     Ignores the small 'self' term, which for nFeat~400 gives <1% bias.
@@ -299,12 +299,19 @@ def compute_mean_crosscov_fastV2(spikes, dt_ms, max_lag_ms=None):
       C     : array of approximate cross‐covariances, length L
     """
     nFeat, N = spikes.shape
-    dt  = dt_ms/1000.0
-    if max_lag_ms is None:
-        max_lag = N-1
-    else:
-        max_lag = min(int(max_lag_ms/dt_ms), N-1)
-
+    '''
+    #dt  = dt_ms/1000.0
+    #if max_lag_ms is None:
+    max_lag = N-1
+    #else:
+    #        max_lag = min(int(max_lag_ms/dt_ms), N-1)
+    '''
+    #dt = dt_ms/1000.0
+    #if max_lag_ms is None:
+    #    max_lag = N-1
+    #else:
+    max_lag = min(max_lag_ms, N-1)
+        
     # 1) zero‐mean each channel
     S = spikes.astype(np.float64)
     S -= S.mean(axis=1, keepdims=True)
@@ -325,12 +332,43 @@ def compute_mean_crosscov_fastV2(spikes, dt_ms, max_lag_ms=None):
         C[k] = R[:Nk].dot(R[k:]) / (Nk * nPairs)
 
     # 6) time‐axis
-    times = np.arange(L) * dt
-    return times, C
+    #times = np.arange(L,dtype=np.float32) #* dt
+    return L, C
 
 
 
 #...!...!.................... 
+
+def compute_mean_autocovV2(spikes, dt_ms, max_lag_ms=None):
+    """
+    Compute unbiased autocovariance C[k] = Cov[s[t], s[t+k]] averaged over channels.
+    spikes     : bool or {0,1} array of shape (nFeat, nTime)
+    dt_ms      : time‐bin size in ms
+    max_lag_ms : maximum lag to compute (in ms); if None uses full record
+    Returns:
+      times : array of lags (seconds), length L
+      C     : array of autocovariances, same length L
+    """
+    nFeat, N = spikes.shape
+    #dt = dt_ms/1000.0
+    #if max_lag_ms is None:
+    #    max_lag = N-1
+    #else:
+    max_lag = min(int(max_lag_ms/dt_ms), N-1)
+    Csum = np.zeros(max_lag+1, dtype=float)
+
+    L=max_lag+1
+    for i in range(nFeat):
+        s = spikes[i].astype(float)
+        μ = s.mean()
+        s0 = s - μ
+        # unbiased autocov for lags 0..max_lag
+        for k in range(L):
+            Csum[k] += np.dot(s0[:N-k], s0[k:])/(N-k)
+
+    C = Csum / nFeat
+    #times = np.arange(max_lag+1) * dt
+    return L, C
 
 
 

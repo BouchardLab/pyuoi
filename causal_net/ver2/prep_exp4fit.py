@@ -62,7 +62,7 @@ def commandline_parser():
    
     args = parser.parse_args()
     args.time_rebin=10 # 'rebin of raw time axis'
-    args.outPath=os.path.join(args.basePath,'input_spike')
+    args.outPath=os.path.join(args.basePath,'input_fitter')
     for arg in vars(args):
         print( 'myArgs:',arg, getattr(args, arg))
 
@@ -119,6 +119,7 @@ def read_spike_dict(md,args):
     raw_sampling_freq=10000  # Hz
     assert raw_sampling_freq%args.time_rebin==0 
     pmd['sampling_freq'] =raw_sampling_freq/args.time_rebin   
+    pmd['step_duration']=1./pmd['sampling_freq'] 
     
     # neuron ID  MEA chip
     meaIdL=np.array(sorted(spike_dict),dtype=np.int16)  # here order of feature_id is settled

@@ -41,6 +41,9 @@ def add_time_scale_marker(ax):
     ax.text((x_start + x_end) / 2, y_coord + (y_max - y_min) * 0.02, txt, 
             color='blue', fontsize=10, ha='center', va='bottom')
 
+#...!...!...................
+def plot_cov_fit(ax, timeV, covV, md):
+    a=1
     
 #...!...!....................
 def summary_column(md):
@@ -269,7 +272,7 @@ class Plotter(PlotterBackbone):
         ax.set_xlabel('Time (ms)')
 
 #...!...!..................
-    def cox_autocov_fit(self, expD, expMD, figId=5):
+    def cox_corrcov_fit(self, expD, expMD, figId=5):
         #pprint(expMD)
         tit = 'Cox Process Analysis, dataset: ' + expMD['short_name']
                 
@@ -310,10 +313,13 @@ class Plotter(PlotterBackbone):
         
         # Extract cross-covariance data and fit parameters
         # Extract times and C from the 2D array
+        
         cross_cov_data = expD['cross_cov_data']
+        #cross_cov_data = expD['auto_cov_data']
         times = cross_cov_data[0]  # First row: times
         C = cross_cov_data[1]      # Second row: covariance values
-           
+        #plot_cov_fit(ax2, times,C, expMD)
+         
         fit_params = expMD['cross_cov_fit']
         
         # Get fit parameters from dictionary
@@ -323,6 +329,7 @@ class Plotter(PlotterBackbone):
         fit_start_ms = fit_params['fit_start_ms']
         
         # convert cutoff to index
+        
         dt_s = times[1] - times[0]
         start_idx = int(round(fit_start_ms / (dt_s*1000.0)))
         if start_idx < 1:  start_idx = 1
