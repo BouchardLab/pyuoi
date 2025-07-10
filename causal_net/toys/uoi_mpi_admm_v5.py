@@ -5,8 +5,6 @@ IMG=nersc/causal-net:v4   # May 13
  export OMP_NUM_THREADS=2
  salloc -q interactive -C cpu --image=$IMG -t 4:00:00 -A m2043 -N 1
 
-
-
 uoi_lasso = UoI_Lasso(fit_VAR = True, fit_intercept=False, n_boots_sel=n_boots_sel, n_boots_est=n_boots_est, n_lambdas = n_lambdas, random_state=None, comm = boot_comm, global_comm = comm, n_admm = n_admm, admm_rho = rho, max_iter = 50, solver='admm', estimation_solver = "ls")
 
 - max_iter = 50; enough convergence and for faster runtime
@@ -16,7 +14,7 @@ uoi_lasso = UoI_Lasso(fit_VAR = True, fit_intercept=False, n_boots_sel=n_boots_s
 
 NOTE: distribution=block:block forces the ADMM processes for each bootstrap to localize to a single compute node for efficient communication
 
-Minimal example testing code consistency:
+Minimal example testing code consistency:  38 sec
  srun -n 1 --distribution=block:block shifter python uoi_mpi_admm_v5.py --num_feat 10 --num_samp 50 --num_admm 1
 >>> Fitting complete in 52.2 sec | numRanks=1
 
@@ -126,8 +124,8 @@ def main(num_feat, num_samp, lag, inpName, n_admm):
         n_lambdas = 48
         max_iter = 1000
         seed = 42
-        rho_scaler = 2.0
-        imbalance_tolerance = 0.1
+        rho_scaler = 1.5  # was 2.0
+        imbalance_tolerance = 10.  #was 0.1
         eps=1e-7
         uoi_lasso = UoI_Lasso(fit_VAR = True, fit_intercept=False, n_boots_sel=n_boots_sel, n_boots_est=n_boots_est, selection_frac = selection_frac, n_lambdas = n_lambdas, max_iter = max_iter, eps = eps, random_state=seed, comm = boot_comm, global_comm = comm, n_admm = n_admm, rho_scaler = rho_scaler, imbalance_tolerance = imbalance_tolerance, solver='admm', estimation_solver = "ls")
 

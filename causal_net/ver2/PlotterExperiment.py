@@ -41,10 +41,6 @@ def add_time_scale_marker(ax):
     ax.text((x_start + x_end) / 2, y_coord + (y_max - y_min) * 0.02, txt, 
             color='blue', fontsize=10, ha='center', va='bottom')
 
-#...!...!...................
-def plot_cov_fit(ax, timeV, covV, md):
-    a=1
-    
 #...!...!....................
 def summary_column(md):
     #pprint(md)
@@ -271,102 +267,117 @@ class Plotter(PlotterBackbone):
         #if 'time_rangeLR' in plm:  ax.set_xlim(tuple(plm['time_rangeLR']))
         ax.set_xlabel('Time (ms)')
 
+        
 #...!...!..................
-    def cox_corrcov_fit(self, expD, expMD, figId=5):
+    def fano_and_cov_fit(self, expD, expMD, figId=5):
         #pprint(expMD)
-        tit = 'Cox Process Analysis, dataset: ' + expMD['short_name']
+        tit = 'dataset: ' + expMD['short_name']
                 
         figId=self.smart_append(figId)        
-        nrow,ncol=2,1
-        fig=self.plt.figure(figId,facecolor='white', figsize=(6,7))
+        nrow,ncol=1,3
+        fig=self.plt.figure(figId,facecolor='white', figsize=(11,4))
 
-        # A) Top plot: Fano factor stored in expD['qa_spike_moments']
-        ax1 = self.plt.subplot(nrow,ncol,1)
-        
-        # Extract Fano factor data from spike moments
         spike_moments = expD['qa_spike_moments']
-        # spike_moments is array with columns: [window_size, mean, variance, fano_factor]
-        window_sizes = spike_moments[:, 0]  # window sizes in time bins
-        fano_factors = spike_moments[:, 3]  # fano factors
-        
-        ax1.semilogx(window_sizes, fano_factors, 'bo-', label='Fano factor')
-        ax1.axhline(y=1.0, color='red', linestyle='--', label='Poisson (F=1)')
-        ax1.set_xlabel('Window size (time bins)')
-        ax1.set_ylabel('Fano factor')
-        
-        # Calculate average spike rate from last row of qa_spike_moments
-        last_row = spike_moments[-1]  # [window_size, mean, variance, fano_factor]
-        mean_spike_count = last_row[1]  # mean spikes per window
-        window_size_bins = last_row[0]  # window size in time bins
-        sampling_freq = expMD['dataset']['sampling_freq']  # Hz
-        
-        # Convert to spike rate (spikes/sec)
-        window_duration_sec = window_size_bins / sampling_freq
-        avg_spike_rate = mean_spike_count / window_duration_sec
-        
-        ax1.set_title(f'Fano Factor (avg spike rate: {avg_spike_rate:.1f} Hz)')
-        ax1.legend()
-        ax1.grid(True)
-
-        # B) Bottom plot: Cross-covariance plot from expD['cross_cov_data'] and expMD['cross_cov_fit']
-        ax2 = self.plt.subplot(nrow,ncol,2)
-        
-        # Extract cross-covariance data and fit parameters
-        # Extract times and C from the 2D array
-        
         cross_cov_data = expD['cross_cov_data']
-        #cross_cov_data = expD['auto_cov_data']
-        times = cross_cov_data[0]  # First row: times
-        C = cross_cov_data[1]      # Second row: covariance values
-        #plot_cov_fit(ax2, times,C, expMD)
-         
-        fit_params = expMD['cross_cov_fit']
-        
-        # Get fit parameters from dictionary
-        tau_c = fit_params['tau']
-        A = fit_params['A']
-        B = fit_params['B']
-        fit_start_ms = fit_params['fit_start_ms']
-        
-        # convert cutoff to index
-        
-        dt_s = times[1] - times[0]
-        start_idx = int(round(fit_start_ms / (dt_s*1000.0)))
-        if start_idx < 1:  start_idx = 1
 
-        # data for fit‐line
-        t_fit = times[start_idx:]
-        c_fit = A * np.exp(-t_fit / tau_c) +B
-        #yA=A * np.exp(-t_fit / tau_c)
-        #c_fit = np.sqrt(yA**2+B**2)
+        #ax = self.plt.subplot(nrow,ncol,2)
+        
+        
+        #  Top plot: Fano factor 
+        ax = self.plt.subplot(nrow,ncol,1)
+        ax.set_title(tit)
+        #ax.set_title(tit)
+        
+        plot_fano(ax, spike_moments, expMD)
 
-        # plot empirical
-        ioff=10
-        data_shape = fit_params['spikes_data_shape']
-        dLab=f'data: {data_shape[0]}f  × {data_shape[1]}t '
-        ax2.plot(times[ioff:], C[ioff:], 'k.', label=dLab)  # skip 0-time
+        #.....  auto-correlation
+        ax = self.plt.subplot(nrow,ncol,2)
+        plot_cov_fit(ax, expD,expMD,tag='auto_cov')
 
-        # Calculate B/A ratio as percentage
-        B_over_A_ratio = (B/A) * 100 if A != 0 else 0
+        #.....  cross-correlation
+        ax = self.plt.subplot(nrow,ncol,3)
+        plot_cov_fit(ax, expD,expMD,tag='cross_cov')
         
-        # plot fit (only in fitted region)
-        ax2.plot(t_fit, c_fit, 'r-', label=f'fit τc={tau_c:.3f}s, B/A={B_over_A_ratio:.0f}%')
+# - - - - - -   CLASS end - - - - - --
 
-        # vertical line for cutoff
-        ax2.axvline(fit_start_ms/1000.0, color='gray', linestyle=':', 
-                   label=f'start at {fit_start_ms}ms')
+#...!...!...................
+def plot_fano(ax1, spike_moments, md):
+    # Extract Fano factor data from spike moments
+    
+    # spike_moments is array with columns: [window_size, mean, variance, fano_factor]
+    window_sizes = spike_moments[:, 0]  # window sizes in time bins
+    fano_factors = spike_moments[:, 3]  # fano factors
 
+    ax1.semilogx(window_sizes, fano_factors, 'bo-', label='Fano factor')
+    ax1.axhline(y=1.0, color='red', linestyle='--', label='Poisson (F=1)')
+    ax1.set_xlabel('Window size (time bins)')
+    ax1.set_ylabel('Fano factor')
+    # Calculate average spike rate from last row of qa_spike_moments
+    last_row = spike_moments[-1]  # [window_size, mean, variance, fano_factor]
+    mean_spike_count = last_row[1]  # mean spikes per window
+    window_size_bins = last_row[0]  # window size in time bins
+    sampling_freq = md['dataset']['sampling_freq']  # Hz
+    
+    # Convert to spike rate (spikes/sec)
+    window_duration_sec = window_size_bins / sampling_freq
+    avg_spike_rate = mean_spike_count / window_duration_sec
         
-        ax2.set_xlabel('lag(s)')
-        ax2.set_ylabel('cross-covariance')
-        ax2.set_title(expMD["short_name"]+' - Cross-covariance')
-        ax2.legend(loc='best')
-        ax2.grid(True)
+    
+    txt=summary_column(md)
+    txt+='\n avg_spike_rate:%.1f Hz'%avg_spike_rate
+    ax1.text(0.02, 0.95, txt, fontsize=10, color='blue', ha='left', va='top',transform=ax1.transAxes)
+
+    ax1.legend()
+    ax1.grid(True)
+
+#...!...!...................
+def plot_cov_fit(ax2, bigD, md, tag):
+    dsd=md['dataset']
+    stepSize=dsd['step_duration']
+    covV=bigD[tag+'_data']
+    nT=covV.shape[0]
+    timeV=np.arange(nT,dtype=np.float32)*stepSize
+    
+    fit_params = md[tag+'_fit']
         
-        # Add formula text to the plot
-        formula_text = f'C(t) = A·exp(-t/τc) + B'
-        ax2.text(0.05, 0.95, formula_text, transform=ax2.transAxes, 
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8),
-                verticalalignment='top', fontsize=10)
+    # Get fit parameters from dictionary
+    tau_c = fit_params['tau']
+    A = fit_params['A']
+    B = fit_params['B']
+    start_idx = fit_params['fit_start']
+  
+    # data for fit‐line
+    t_fit = timeV[start_idx:]
+    c_fit = A * np.exp(-t_fit / tau_c) +B
+    
+    # plot empirical
+    ioff=10
+    data_shape = md['cov_spikes_data_shape']
+    dLab=f'data: {data_shape[0]}f  × {data_shape[1]}t '
+    ax2.plot(timeV[ioff:], covV[ioff:], 'k.', label=dLab)  # skip 0-time
+    
+    # Calculate B/A ratio as percentage
+    B_over_A_ratio = (B/A) * 100 if A != 0 else 0
+    
+    # plot fit (only in fitted region)
+    ax2.plot(t_fit, c_fit, 'r-', label=f'fit τc={tau_c:.3f}s, B/A={B_over_A_ratio:.0f}%')
+
+    
+    # vertical line for cutoff
+    ax2.axvline(start_idx/1000.0, color='b', linestyle='--', 
+                label=f'start at {start_idx}ms')
+
+    ax2.axhline(0,ls='--',lw=1.)
+    ax2.set_xlabel('lag(s)')
+    ax2.set_ylabel('cross-covariance')
+    ax2.set_title(tag)
+    ax2.legend(loc='best')
+    ax2.grid(True)
         
+    # Add formula text to the plot
+    formula_text = r'C(t) =  A·exp(-t/τc) + B'
+    
+    ax2.text(0.10, 0.08, formula_text, transform=ax2.transAxes, 
+             bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8),   verticalalignment='top', fontsize=10)
         
+

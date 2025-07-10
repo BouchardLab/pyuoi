@@ -163,26 +163,24 @@ def read_spike_numpy(md,args):
     assert os.path.exists(inpF)
 
     raw = np.load(inpF, allow_pickle=True)
-    print(f"Loaded '{inpF}' → type={type(raw)}, dtype={getattr(raw,'dtype',None)}, shape={getattr(raw,'shape',None)}")
-    # unwrap zero‐dim object‐array
+    #print(f"Loaded '{inpF}' → type={type(raw)}, dtype={getattr(raw,'dtype',None)}, shape={getattr(raw,'shape',None)}")
+    
     if isinstance(raw, np.ndarray) and raw.dtype == object and raw.shape == ():
         data = raw.item()
-        print("Unwrapped 0-d object array; now data is", type(data))
+        #print("Unwrapped 0-d object array; now data is", type(data))
     else:
         data=raw
     assert isinstance(data, dict)
     keys = list(data.keys())
     print(f"\nDetected dict with {len(keys)} keys.")
-    print('Sample keys:',keys[:20],'...', keys[-20:])
+    print('Sample keys:',keys[:10],'...', keys[-10:])
 
     if 0: # dump some data
         max_keys=5; max_vals=6
         for i, k in enumerate(keys[:max_keys]):
             v = data[k]
-            print(f"\nKey [{i}] = {k!r}:  type={type(v)}")
-            # try to view as array        
-            arr = np.asarray(v)
-            # flatten and take first max_vals elements
+            print(f"\nKey [{i}] = {k!r}:  type={type(v)}")      
+            arr = np.asarray(v)            
             flat = arr.ravel()
             print(f"  shape={arr.shape}, dtype={arr.dtype}")
             if flat.size>0:
@@ -198,9 +196,8 @@ def read_spike_numpy(md,args):
     raw_sampling_freq=10000  # Hz
     assert raw_sampling_freq%args.time_rebin==0 
     pmd['sampling_freq'] =raw_sampling_freq/args.time_rebin   
-    
-   
-    
+    pmd['step_duration']=1./pmd['sampling_freq']
+
     if args.verb>1: print('RSD: meaID list:',meaIdL)
     pmd['num_feature']=len(meaIdL)
         
@@ -291,14 +288,14 @@ if __name__ == "__main__":
     expD=flatten_spike_data(binSpikeD,expMD,expD)
     #... QA
     mon_spike_freq(binSpikeD,expMD,expD,twindow_sec=5.)   
-    expD['qa_spike_moments']=compute_spike_moments(expD['spikes_data'], maxRebin=11,maxTime=300_000)
+    expD['qa_spike_moments']=compute_spike_moments(expD['spikes_data'], maxRebin=11,maxTime=300_000, verb=1)
     
   
     pprint(expMD)
     #...... WRITE   OUTPUT .........
     outF=os.path.join(args.outPath,expMD['short_name']+'.spike.h5')
     write4_data_hdf5(expD,outF,expMD)
-    print('   ./plot_expInput.py  --basePath $basePath  --inpName   %s  -p  b  d e  -Y '%(expMD['short_name'] ))
+    print('   ./plot_expInput.py  --basePath $basePath  --inpName   %s  -p e  d  b  -Y '%(expMD['short_name'] ))
     #print('   ./fit_uoiVar.py  --inpName   %s   \n'%(expMD['short_name'] ))
    
 

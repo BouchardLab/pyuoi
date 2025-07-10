@@ -90,6 +90,6 @@ if __name__ == '__main__':
     #...... WRITE   OUTPUT .........
     outF=os.path.join(args.outPath,MD['short_name']+'.daleM.h5')
     write4_data_hdf5(bigD,outF,MD)    
-    print('   ./plot_daleMatrix.py  --basePath $basePath  --matrixName   %s -p abc   -Y   '%(MD['short_name'] ))
+    print('   ./plot_daleMatrix.py  --basePath $basePath  --matrixName   %s -p ab   -Y   '%(MD['short_name'] ))
     print('   ./simu_netActivity.py  --basePath $basePath  --matrixName   %s   \n'%(MD['short_name'] ))
    

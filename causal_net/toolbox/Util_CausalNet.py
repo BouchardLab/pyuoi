@@ -201,7 +201,7 @@ def compute_spike_moments(spikes, maxRebin=10,maxTime=300_000,verb=1):
         print(header)
         print('-' * len(header))
         for w, m, v, f in results:
-            #if w not in [ 1,16,128,1024]: continue
+            if verb <2 and  w not in [ 1,16,128,1024]: continue
             print(f"{w:10d}  {m:10.3f}  {v:10.3f}  {f:8.3f}")
 
     return np.array(results)
@@ -210,11 +210,7 @@ def compute_spike_moments(spikes, maxRebin=10,maxTime=300_000,verb=1):
 
 
 #...!...!.................... 
-def fit_exponent_weighted(times,
-                     C,
-                     dt_ms,
-                     N_total,
-                     fit_start_ms=5):
+def fit_exponent_weighted (covV, N_total,timeStep,  fit_start=5):
     """
     Weighted fit of C(t) = A * exp(-t/tau) + B for t >= fit_start_ms.
     times        : array of lags (s)
@@ -224,45 +220,37 @@ def fit_exponent_weighted(times,
     fit_start_ms : ignore lags < this (ms)
     returns dictionary with fitted parameters and fitting range
     """
+    
+    timeV    = np.arange( len(covV))*timeStep
+    start_i=fit_start
+    t_all = timeV[start_i:]
+    C_all = covV[start_i:]
 
-    # 1) figure out which lags we’re fitting
-    start_i = int(np.ceil(fit_start_ms / dt_ms))
-    start_i = max(start_i, 1)    # never use the 0‐lag
-
-    t_all = times[start_i:]
-    C_all = C[start_i:]
     ks    = np.arange(start_i, start_i + len(C_all))
-
-    # 2) throw away any negative C (they can't be fit by positive‐A exponential)
-    pos    = C_all > 0
-    t_fit  = t_all[pos]
-    C_fit  = C_all[pos]
-    ks_fit = ks[pos]
-
+    
     # 3) build a sensible positive initial guess for A and tau
-    A0   = C_fit[0]
+    A0   = C_all[0]
     if A0 <= 0:
-        A0 = C_fit.max()
-    tau0 = (t_fit[np.argmin(np.abs(C_fit - C_fit[0]/np.e))]
-            if np.any(C_fit < C_fit[0]/np.e)
-            else t_fit[-1])
+        A0 = C_all.max()
+    tau0 = (t_all[np.argmin(np.abs(C_all - C_all[0]/np.e))]
+            if np.any(C_all < C_all[0]/np.e)
+            else t_all[-1])
     p0 = (A0, tau0, 0)
+    
     # 4) weights ~ 1/sqrt(N_total - k)
-    sigma = 1.0/np.sqrt(N_total - ks_fit)
+    sigma = 1.0/np.sqrt(N_total - ks)
 
     # 5) do the curve‐fit with A>=0, tau>=0
     def model(t, A, tau, B):
         return A * np.exp(-t/tau)+B
-        #yA=A * np.exp(-t/tau)
-        #return np.sqrt(yA**2+B**2)
-    lower = (0.0, 0.0, 0.0)
-    upper = (np.inf, np.inf, np.inf)
+        
     popt, pcov = curve_fit(model,
-                           t_fit, C_fit,
+                           t_all, C_all,
                            p0=p0,
                            sigma=sigma,
                            absolute_sigma=not False,
-                           bounds=(lower, upper))
+                           #bounds=(lower, upper)
+                           )
     A_est, tau_est, B_est = popt
     perr = np.sqrt(np.diag(pcov))
     A_err, tau_err, B_err = perr
@@ -276,41 +264,31 @@ def fit_exponent_weighted(times,
         'tau_err': tau_err,
         'A_err': A_err,
         'B_err': B_err,
-        'fit_start_ms': fit_start_ms,
-        'fit_time_range': (t_fit[0], t_fit[-1]),
-        'n_fit_points': len(t_fit)
+        'fit_start': fit_start,
+        'fit_time_range': (t_all[0], t_all[-1]),
+        'n_all_points': len(t_all)
     }
     return result
 
 
 
 #...!...!.................... 
-def compute_mean_crosscov_fastV2(spikes, max_lag_ms=None):
+def compute_mean_crosscov_fastV2(spikes, max_lag=None):
     """
     Fast approximation to the average cross‐covariance over all i<j.
     Ignores the small 'self' term, which for nFeat~400 gives <1% bias.
 
     spikes    : bool or {0,1} array, shape (nFeat, nTime)
-    dt_ms     : bin size in ms
-    max_lag_ms: maximum lag to compute (in ms); if None uses full record
+   
+    max_lag: maximum lag to compute (in bins); if None uses full record
 
     Returns
-      times : array of lags [s], length L
-      C     : array of approximate cross‐covariances, length L
+     
+      C     : array of approximate cross‐covariances
     """
     nFeat, N = spikes.shape
-    '''
-    #dt  = dt_ms/1000.0
-    #if max_lag_ms is None:
-    max_lag = N-1
-    #else:
-    #        max_lag = min(int(max_lag_ms/dt_ms), N-1)
-    '''
-    #dt = dt_ms/1000.0
-    #if max_lag_ms is None:
-    #    max_lag = N-1
-    #else:
-    max_lag = min(max_lag_ms, N-1)
+    
+    if max_lag is None:  max_lag = min(max_lag, N-1)
         
     # 1) zero‐mean each channel
     S = spikes.astype(np.float64)
@@ -331,15 +309,13 @@ def compute_mean_crosscov_fastV2(spikes, max_lag_ms=None):
         Nk = N - k
         C[k] = R[:Nk].dot(R[k:]) / (Nk * nPairs)
 
-    # 6) time‐axis
-    #times = np.arange(L,dtype=np.float32) #* dt
-    return L, C
+    return C
 
 
 
 #...!...!.................... 
 
-def compute_mean_autocovV2(spikes, dt_ms, max_lag_ms=None):
+def compute_mean_autocovV2(spikes,  max_lag=None):
     """
     Compute unbiased autocovariance C[k] = Cov[s[t], s[t+k]] averaged over channels.
     spikes     : bool or {0,1} array of shape (nFeat, nTime)
@@ -350,11 +326,7 @@ def compute_mean_autocovV2(spikes, dt_ms, max_lag_ms=None):
       C     : array of autocovariances, same length L
     """
     nFeat, N = spikes.shape
-    #dt = dt_ms/1000.0
-    #if max_lag_ms is None:
-    #    max_lag = N-1
-    #else:
-    max_lag = min(int(max_lag_ms/dt_ms), N-1)
+    if max_lag is None:  max_lag = min(max_lag, N-1)
     Csum = np.zeros(max_lag+1, dtype=float)
 
     L=max_lag+1
@@ -366,9 +338,8 @@ def compute_mean_autocovV2(spikes, dt_ms, max_lag_ms=None):
         for k in range(L):
             Csum[k] += np.dot(s0[:N-k], s0[k:])/(N-k)
 
-    C = Csum / nFeat
-    #times = np.arange(max_lag+1) * dt
-    return L, C
+    C = Csum / nFeat    
+    return C
 
 
 

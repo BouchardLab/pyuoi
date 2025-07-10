@@ -25,7 +25,34 @@ def summary_column(md):
     
     return txt
 
- 
+
+#...!...!..................
+def plot_dale_matrix(fig,ax,W):
+    normMap = colors.TwoSlopeNorm(vmin=W.min(), vcenter=0, vmax=W.max())
+    
+    im=ax.imshow(W, aspect='auto', origin='lower', cmap='bwr', norm=normMap, interpolation='nearest')
+    ax.set( xlabel='presyn. node index, source', ylabel='postsyn. node index, target')
+
+    ax.set_aspect(1.0)
+    ax.grid()
+    # Create the colorbar.
+    cbar = fig.colorbar(im, ax=ax, extend="both")
+    cbar.set_label('Dal-Matrix: coupling strength')
+
+#...!...!..................
+def plot_dale_eigen(fig,ax,Eigen,tit="Eigenvalue Spectrum"):
+    real_parts = np.real(Eigen)
+    imag_parts = np.imag(Eigen)
+    ax.scatter(real_parts, imag_parts, color='blue', marker='o')
+    ax.set_xlabel("Real Part")
+    ax.set_ylabel("Imaginary Part")
+    ax.set_title(tit)
+    ax.axhline(0, color='black', lw=0.5)
+    ax.axvline(0, color='black', lw=0.5)
+    ax.grid(True)
+    
+    ax.axvline(0,color='red', linestyle='--')
+        
 #............................
 #............................
 #............................
@@ -34,66 +61,30 @@ class Plotter(PlotterBackbone):
         PlotterBackbone.__init__(self,args)
 
 #...!...!..................
-    def Dale_matrix(self,bigD,md,figId=3):
+    def Dale_matrix_and_eigen(self,bigD,md,figId=3):
         dmm=md['dale_truth']    
         figId=self.smart_append(figId)        
-        nrow,ncol=1,1
-        fig=self.plt.figure(figId,facecolor='white', figsize=(7,6))
+        nrow,ncol=1,2
+        fig=self.plt.figure(figId,facecolor='white', figsize=(10,5))
+
+        #.... left ......
         ax = self.plt.subplot(nrow,ncol,1)
         W=bigD['Wtrue'].T
-        nfeat=W.shape[0]
-        
-        # Create a normalization that centers at 0.
-        #print('wmax=',W.max())
-        normMap = colors.TwoSlopeNorm(vmin=W.min(), vcenter=0, vmax=W.max())
 
-        
-        im=ax.imshow(W, aspect='auto', origin='lower', cmap='bwr', norm=normMap, interpolation='nearest')
-        tit='True Dale-matrix, %d neurons, name=%s'%(nfeat,md['short_name'])
-        ax.set(title=tit, xlabel='presyn. node index, source', ylabel='postsyn. node index, target')
-        # Create the colorbar.
-        cbar = fig.colorbar(im, ax=ax, extend="both")
-        cbar.set_label('Dal-Matrix: coupling strength')
-        # Define five ticks: min, midpoint (min to 0), 0, midpoint (0 to max), and max.
-        tick_min = W.min()
-        tick_max = W.max()
-        tick_mid_left = (tick_min + 0) / 2
-        tick_mid_right = (0 + tick_max) / 2
-        ticks = [tick_min, tick_mid_left, 0, tick_mid_right, tick_max]
-        
-        cbar.set_ticks(ticks)
-        cbar.set_ticklabels([f"{t:.1f}" for t in ticks])
-        ax.grid()
-
-        ax.set_xlim(-0.5,nfeat+0.5)
-        ax.set_ylim(-0.5,nfeat+0.5)
-        ax.set_aspect(1.0)
-
+        plot_dale_matrix(fig,ax,W)
+    
+        tit='True Dale, M%d,%s'%(W.shape[0],md['short_name'])
+        ax.set(title=tit)
         numExc=dmm['num_excit_neur']
         ax.axvline(numExc-0.5,color='k',ls='--')
         ax.text(0.1, 0.92, 'Excitatory', size=18,color='r',transform=ax.transAxes)
         ax.text(0.6, 0.92, 'Inhibitory', size=18,color='b',transform=ax.transAxes)
-        
-#...!...!..................
-    def Dale_eigen(self,bigD,md,figId=3):
-        figId=self.smart_append(figId)        
-        nrow,ncol=1,1
-        fig=self.plt.figure(figId,facecolor='white', figsize=(7,6))
-        ax = self.plt.subplot(nrow,ncol,1)
-
+        #..... right......
+        ax = self.plt.subplot(nrow,ncol,2)
         Eigen=bigD['Weigen']
+        plot_dale_eigen(fig,ax,Eigen)
         
-        real_parts = np.real(Eigen)
-        imag_parts = np.imag(Eigen)
-        ax.scatter(real_parts, imag_parts, color='blue', marker='o')
-        ax.set_xlabel("Real Part")
-        ax.set_ylabel("Imaginary Part")
-        ax.set_title("Eigenvalue Spectrum")
-        ax.axhline(0, color='black', lw=0.5)
-        ax.axvline(0, color='black', lw=0.5)
-        ax.grid(True)
-
-        ax.axvline(0,color='red', linestyle='--')
+        
         
 #...!...!..................
     def Dale_stats(self,bigD,md,figId=3):

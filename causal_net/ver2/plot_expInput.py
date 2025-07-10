@@ -36,15 +36,17 @@ def get_parser():
     
     parser.add_argument( "-Y","--noXterm", dest='noXterm',  action='store_false', default=True, help="enables X-term for interactive mode")         
     parser.add_argument("--basePath",default='out',help="head dir for set of experimentst")
-    parser.add_argument('--time_range' , default=[0, 30_000],  nargs=2,   type=int, help='cov estimate data time range')
+    parser.add_argument('--time_range' , default=[0, 300_000],  nargs=2,   type=int, help='cov  data time range (bins)')
+    parser.add_argument('--max_lag' , default=400,   type=int, help='cov lag (bins)')
     parser.add_argument("--inpName",  default='exp_62a21daf',help='IBMQ experiment name assigned during submission')
     
     args = parser.parse_args()
-    # make arguments  more flexible 
+    # make arguments  more flexible
+    args.fit_start_bin=50
     args.dataPath=os.path.join(args.basePath,'input_fitter' )
     args.outPath=os.path.join(args.basePath,'postproc')
     args.showPlots=''.join(args.showPlots)
-      
+    
     print( 'myArg-program:',parser.prog)
     for arg in vars(args):  print( 'myArg:',arg, getattr(args, arg))
 
@@ -74,34 +76,29 @@ if __name__=="__main__":
             print(expD)
         stop2
         
-    timeStep=expMD['dataset']['step_duration']; dt_ms=1.
+    timeStep=expMD['dataset']['step_duration']
     spikes=expD['spikes_data'][:, args.time_range[0]: args.time_range[1]]
-    #spikes=expD['spikes_data'][:,:]; dt_ms=1.
+
     print('M: sample size:',spikes.shape)
     
     if  'e' in args.showPlots: # fit Cox‐process exponential decay
-        max_lag=450  # (ms)
-        fit_start=30;N_total = spikes.shape[1]
+        max_lag=args.max_lag  # (bins)
+        fit_start=args.fit_start_bin; N_total = spikes.shape[1] 
         T0=time()
 
-        #1)  auto-correlation
-        _, autoCovData = compute_mean_autocovV2(spikes, dt_ms, max_lag_ms=max_lag)
-        
-        len1, crosCovData = compute_mean_crosscov_fastV2(spikes, max_lag_ms=max_lag)
-        
-        timesC=np.arange(len1,dtype=np.float32)*timeStep
-        
-        # cross-correlation
+        #1)  auto/corss-correlation
+        autoCovData = compute_mean_autocovV2(spikes,  max_lag=max_lag)
+        crosCovData = compute_mean_crosscov_fastV2(spikes, max_lag=max_lag)
         print('M:  computed in elaT=%.1f sec'%(time() -T0))
         
         # Merge times and covData into one 2D vector
-        expD['auto_cov_data'] = np.vstack((timesC, autoCovData))
-        expD['cross_cov_data'] = np.vstack((timesC, crosCovData))
+        expD['auto_cov_data'] = autoCovData
+        expD['cross_cov_data'] =  crosCovData
         
         #  fit Cox‐process exponential decay
-        expMD['auto_cov_fit']=fit_exponent_weighted(timesC, autoCovData, dt_ms, N_total,  fit_start_ms=fit_start)
-        expMD['cross_cov_fit']=fit_exponent_weighted(timesC, crosCovData, dt_ms, N_total,  fit_start_ms=fit_start)
-        expMD['cross_cov_fit']['spikes_data_shape']=list(spikes.shape)
+        expMD['auto_cov_fit']=fit_exponent_weighted( autoCovData,  N_total, timeStep, fit_start=fit_start)
+        expMD['cross_cov_fit']=fit_exponent_weighted( crosCovData, N_total, timeStep, fit_start=fit_start )
+        expMD['cov_spikes_data_shape']=list(spikes.shape)
 
         
     #--------------------------------
@@ -110,9 +107,7 @@ if __name__=="__main__":
     expMD['plot']={}
     
     #expMD['plot']['time_rangeLR']=[1200,1800]
-    #expMD['plot']['time_rangeLR']=[1000,4300]
-    #if args.time_range!=None: expMD['plot']['time_rangeLR']=args.time_range
-
+   
     plot=Plotter(args)
    
     if 'a' in args.showPlots:
@@ -127,7 +122,8 @@ if __name__=="__main__":
         plot.detailed_qa(expD,expMD,figId=4)
 
     if 'e' in args.showPlots:
-        plot.cox_corrcov_fit( expD,expMD,figId=5)
+        
+        plot.fano_and_cov_fit( expD,expMD,figId=6)
  
     plot.display_all()
     print('M:done')

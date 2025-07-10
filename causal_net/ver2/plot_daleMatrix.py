@@ -71,10 +71,8 @@ if __name__=="__main__":
     plot=Plotter(args)
    
     if 'a' in args.showPlots:
-        plot.Dale_matrix(bigD,MD,figId=1)
+        plot.Dale_matrix_and_eigen(bigD,MD,figId=1)
     if 'b' in args.showPlots:
-        plot.Dale_eigen(bigD,MD,figId=1)
-    if 'c' in args.showPlots:
         plot.Dale_stats(bigD,MD,figId=1)
    
 
