@@ -73,7 +73,7 @@ def postproc_fit(bigD,md):
     pmd=md['dataset']
     Mt=bigD['true_network_matrix'].T
     lag=0
-    fac=pmd['tau_response']/pmd['step_duration']
+    fac=pmd['simu']['tau_discount']/pmd['step_duration']
     Wf=fac*bigD['fit_A_model'][lag].T
     Wf-=(fac-1)*np.eye(Wf.shape[0])
     
@@ -181,5 +181,5 @@ if __name__=="__main__":
     #pprint(expMD)
     #pprint(expMD['dale_truth']['5index'])
     
-    pprint(expMD['fit_eval'])
+    #pprint(expMD['fit_eval'])
    

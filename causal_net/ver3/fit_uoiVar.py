@@ -154,6 +154,7 @@ def fit_uoiVar_M():
         fim={};  md['fit_uoi']=fim
         fim['lag_depth']=lag
         fim['data_shape']=list(mydata.shape)
+        fim['data_name']=args.inpName
         fim['num_rank']=comm.Get_size()
         fim['num_admm']=args.num_admm
         

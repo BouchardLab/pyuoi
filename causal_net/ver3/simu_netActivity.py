@@ -48,7 +48,7 @@ def commandline_parser():
     # Simulation parameters
     parser.add_argument("--time_steps", type=int, default=400_000, help=" (time steps) Total simulation time ")
     parser.add_argument("--sigma_noise", type=float, default=1., help="Noise variance strength.")
-    parser.add_argument("--tau_response", type=float, default=3, help="(time steps) response time to driving force")
+    parser.add_argument("--tau_memory", type=float, default=3, help="(time steps) response time to driving force")
     parser.add_argument("--step2ms", type=float, default=20., help=" (duration of time step in ms ")
 
     parser.add_argument("--basePath",default='dataDale',help="head dir for set of experimentst")
@@ -76,13 +76,16 @@ def buildSimuMeta(args,md):
     myHN=hashlib.md5(os.urandom(32)).hexdigest()[:7]
     md['hash']=myHN
     
-    md['simu']=sm={}  #  simulator
+    md['dataset']=dsm={}  # 
     dt=args.step2ms/1000.
-    sm['num_time_steps']=args.time_steps
-    sm['sigma_noise']=args.sigma_noise
-    sm['tau_response']=args.tau_response*dt
-    sm['step_duration']=dt  # only for spike generation
-        
+    dsm['num_time_steps']=args.time_steps
+    dsm['simu']={
+        'sigma_noise':args.sigma_noise,
+        'tau_memory':args.tau_memory*dt }
+    dsm['step_duration']=dt  # only for spike generation
+    dsm['type']='dale_simu'
+    dsm['num_feature']=dmm['num_any_neur']
+    
     if args.outName!=None:
         dmm['dale_name']=md.pop('short_name')
         md['short_name']=args.outName        
@@ -92,8 +95,8 @@ def buildSimuMeta(args,md):
     
 #...!...!....................
 def simu_spikes(stateV,md):
-    sim=md['simu']
-    dt=sim['step_duration']
+    dsm=md['dataset']
+    dt=dsm['step_duration']
     
     rate=np.exp(stateV)
     lamb=rate*dt
@@ -109,9 +112,9 @@ def simu_spikes(stateV,md):
     print(' spikes rate=%.1f Hz shape:%s range[%d,%d] nOver=%d'%(spikeRate,spikes.shape,np.min(spikes), maxSpike,nOver))
 
 
-    sim['max_rate_per_step']=int(maxRate)
-    sim['num_spike_overflow']=int(nOver)
-    sim['spikes_rate']=float(spikeRate)
+    dsm['max_rate_per_step']=int(maxRate)
+    dsm['num_spike_overflow']=int(nOver)
+    dsm['spikes_rate']=float(spikeRate)
 
     return np.clip(spikes, 0, 255).astype(np.uint8)
 
@@ -132,7 +135,7 @@ if __name__ == '__main__':
     print("M:Simulating network activity M:%s  time_steps: %d  ..."%(W.shape,args.time_steps))
     
     T0=time()
-    xt = gen_net_activity_discrT(W, tau=args.tau_response, sigma=args.sigma_noise, n_steps=args.time_steps)
+    xt = gen_net_activity_discrT(W, tau=args.tau_memory, sigma=args.sigma_noise, n_steps=args.time_steps)
     print("Simulation complete, elaT=%.1f min"%((time()-T0)/60.))
     expD['true_network_matrix']=W.astype(np.float32)
     expD['simu_state']=xt.astype(np.float32)
@@ -146,6 +149,6 @@ if __name__ == '__main__':
     #...... WRITE   OUTPUT .........
     outF=os.path.join(args.outPath,MD['short_name']+'.simNet.h5')
     write4_data_hdf5(expD,outF,MD)    
-    print('   ./plot_simNetActivity.py  --basePath $basePath   --simName   %s -p a b   -Y    --time_range 50 1000  \n'%(MD['short_name'] ))
+    print('   ./plot_simNetActivity.py  --basePath $basePath   --simName   %s -p a b c  -Y    --time_range 50 1000  \n'%(MD['short_name'] ))
     print('  ./prep_sim4fit.py --basePath $basePath  --simName   %s   \n'%(MD['short_name'] ))
   

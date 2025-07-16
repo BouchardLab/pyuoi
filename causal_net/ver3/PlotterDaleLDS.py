@@ -140,7 +140,7 @@ class Plotter(PlotterBackbone):
 #...!...!..................
     def rate_sample(self,bigD,md,nidxL,obsN='rate',figId=3):
         nn=min(10,len(nidxL))
-        sim=md['simu']
+        sim=md['dataset']
         dmm=md['dale_truth']
         pom=md['postproc']
         
@@ -162,19 +162,19 @@ class Plotter(PlotterBackbone):
         if obsN=='rate':
             tBin_sec=sim['step_duration']
             obsV=np.exp(obsV)*tBin_sec
-            tit+=', obs= spike prob/Tbin' 
-            yLab='spke prob/bin'
+            tit+=', obs=expected spikes/Tbin' 
+            yLab='EV spikes/bin'
             dCol='b'
             
         if obsN=='spikes':
             obsV=bigD['simu_spikes'].astype(np.float32)
             tit+=' obs=spikes'
-            yLab='count'
+            yLab='counts'
             dCol='red'
 
-        tit+=', sig_noise=%.1f'%(sim['sigma_noise'])
+        tit+=', sig_noise=%.1f'%(sim['simu']['sigma_noise'])
         tit+=', dt=%d msec'%(sim['step_duration']*1000.)
-        tit+=', tau=%d msec'%(sim['tau_response']*1000.)
+        tit+=', tau=%d msec'%(sim['simu']['tau_discount']*1000.)
         
         #print('tt',obsN,timeV.shape,obsV.shape)
         for n in range(nn):

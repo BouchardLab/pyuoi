@@ -50,8 +50,8 @@ def get_parser():
 
 #...!...!....................
 def postproc_netActivity(bigD,md):
-    sim=md['simu']
-    
+    sim=md['dataset']
+    assert 'simu' in sim['type']
     pom={}
     md['postproc']=pom
 

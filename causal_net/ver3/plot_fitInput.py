@@ -37,12 +37,12 @@ def get_parser():
     parser.add_argument( "-Y","--noXterm", dest='noXterm',  action='store_false', default=True, help="enables X-term for interactive mode")         
     parser.add_argument("--basePath",default='out',help="head dir for set of experimentst")
     parser.add_argument('--time_range' , default=[0, 300_000],  nargs=2,   type=int, help='cov  data time range (bins)')
-    parser.add_argument('--max_lag' , default=400,   type=int, help='cov lag (bins)')
+    parser.add_argument('--max_lag_bin' , default=400,   type=int, help='cov lag (bins)')
+    parser.add_argument('--fit_start_bin' , default=10,   type=int, help='cov fit start  (bins)')
     parser.add_argument("--inpName",  default='exp_62a21daf',help='IBMQ experiment name assigned during submission')
     
     args = parser.parse_args()
     # make arguments  more flexible
-    args.fit_start_bin=50
     args.dataPath=os.path.join(args.basePath,'input_fitter' )
     args.outPath=os.path.join(args.basePath,'postproc')
     args.showPlots=''.join(args.showPlots)
@@ -82,24 +82,28 @@ if __name__=="__main__":
     print('M: sample size:',spikes.shape, args.time_range)
     
     if  'e' in args.showPlots: # fit Cox‐process exponential decay
-        max_lag=args.max_lag  # (bins)
+        max_lag=args.max_lag_bin  # (bins)
         fit_start=args.fit_start_bin; N_total = spikes.shape[1] 
         T0=time()
 
-        expD['qa_spike_moments']=compute_spike_moments(expD['spikes_data'], maxRebin=11,maxTime=None, verb=1)
+        expD['qa_spike_moments']=compute_spike_moments(expD['spikes_data'], maxRebin=11,maxTime=300_000, verb=1)
 
         #1)  auto/corss-correlation
         autoCovData = compute_mean_autocovV2(spikes,  max_lag=max_lag)
         crosCovData = compute_mean_crosscov_fastV2(spikes, max_lag=max_lag)
         print('M:  computed in elaT=%.1f sec'%(time() -T0))
-        print('ss1',spikes.shape,autoCovData.shape)
+        #print('ss1',spikes.shape,autoCovData.shape)
         # Merge times and covData into one 2D vector
         expD['auto_cov_data'] = autoCovData
         expD['cross_cov_data'] =  crosCovData
-        
-        #  fit Cox‐process exponential decay
-        #expMD['auto_cov_fit']=fit_exponent_weighted( autoCovData,  N_total, timeStep, fit_start=fit_start)
-        #expMD['cross_cov_fit']=fit_exponent_weighted( crosCovData, N_total, timeStep, fit_start=fit_start )
+
+        try:
+            #  fit Cox‐process exponential decay
+            expMD['auto_cov_fit']=fit_exponent_weighted( autoCovData,  N_total, timeStep, fit_start=fit_start)
+            expMD['cross_cov_fit']=fit_exponent_weighted( crosCovData, N_total, timeStep, fit_start=fit_start )
+            expMD['done_cov_fit']=True
+        except:
+            expMD['done_cov_fit']=False
         expMD['cov_spikes_data_shape']=list(spikes.shape)
 
         
@@ -113,18 +117,21 @@ if __name__=="__main__":
     plot=Plotter(args)
    
     if 'a' in args.showPlots:
+        redundant_see_plot_simNetAct
         plot.input_features(expD,expMD,figId=1,mxFeat=6)
     if 'b' in args.showPlots:
+        same_fix
         plot.input_features_dense(expD,expMD,figId=2,mxFeat=9)
 
     if 'c' in args.showPlots:
+        
         plot.global_qa(expD,expMD,figId=3)
         
     if 'd' in args.showPlots:
+        
         plot.detailed_qa(expD,expMD,figId=4)
 
-    if 'e' in args.showPlots:
-        
+    if 'e' in args.showPlots:        
         plot.fano_and_cov_fit( expD,expMD,figId=6)
  
     plot.display_all()

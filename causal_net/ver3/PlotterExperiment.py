@@ -156,7 +156,7 @@ class Plotter(PlotterBackbone):
         pmd=md['dataset']
         plm=md['plot']
         nfeat=min(mxFeat,pmd['num_feature'])
-        ntime=pmd['num_time_bin']
+        ntime=pmd['num_time_steps']
         
         figId=self.smart_append(figId)        
         nrow,ncol=nfeat,1
@@ -353,7 +353,7 @@ def plot_cov_fit(ax2, bigD, md, tag):
     ax2.legend(loc='best')
     ax2.grid(True)
 
-    return
+    if not md['done_cov_fit'] :    return
         
     # Get fit parameters from dictionary
     fit_params = md[tag+'_fit']
@@ -376,14 +376,15 @@ def plot_cov_fit(ax2, bigD, md, tag):
 
     
     # vertical line for cutoff
-    ax2.axvline(start_idx/1000.0, color='b', linestyle='--', 
-                label=f'start at {start_idx}ms')
+    tStart= stepSize* start_idx
+    ax2.axvline(tStart, color='b', linestyle='--', 
+                label='start at %dms'%(tStart*1000))
 
         
     # Add formula text to the plot
     formula_text = r'C(t) =  A·exp(-t/τc) + B'
     
-    ax2.text(0.10, 0.08, formula_text, transform=ax2.transAxes, 
+    ax2.text(0.30, 0.4, formula_text, transform=ax2.transAxes, 
              bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8),   verticalalignment='top', fontsize=10)
         
-
+    ax2.legend(loc='best')

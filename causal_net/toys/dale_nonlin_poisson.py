@@ -1,3 +1,7 @@
+#!/usr/bin/env python3
+
+# uses non-liner discrete time evolution
+
 import itertools
 import numpy as np
 import sdeint
@@ -14,7 +18,7 @@ from tqdm import tqdm
 # How many repetitions of a given Dale LDS matrix to generate
 reps = 1   # was 20
 # Number of excitatory neurons (total neurons is twice this)
-M = 30  # was 100
+M = 10  # was 100
 # Synaptic connection probability
 p = 0.25
 # Diagonal time constants
@@ -120,36 +124,38 @@ def gen_matrices():
 
 #################### Simulation ##################
 
-def gen_activity(W, seed=None):
-    if seed is not None:
-        generator = np.random.default_rng(seed)
-    else:
-        generator = np.random.default_rng()
-    # f
-    def f_(x, t):
-        return 1/tau * (-1 * np.eye(W.shape[0]) @ x + W @ x)
+def generate_poisson_var1(T=100, d=2, seed=42, A=None, b=None):
+    """
+    Generates a multivariate Poisson VAR(1) process:
+        Y_t ~ Poisson(exp(A @ Y_{t-1} + b))
 
-    # G: linear i.i.d noise with sigma
-    def g_(x, t):
-        return sigma * np.eye(W.shape[0])
+    Args:
+        T (int): Number of time steps
+        d (int): Number of dimensions (variables)
+        seed (int): Random seed
+        A (np.ndarray): d x d autoregressive coefficient matrix
+        b (np.ndarray): d-dimensional intercept vector
 
-    # Generate random initial condition and then integrate over the desired time period
-    tspace = np.linspace(0, T, int(T/h))
-    
-    x0 = generator.normal(size=(W.shape[0],))
-    print('Integrating LDS')
-    xt = sdeint.itoSRI2(f_, g_, x0, tspace, generator=generator)    
-    print('Sampling spike counts')
-    spike_rates_trials = []
-    for _ in tqdm(range(num_trials)):
-        spike_counts = np.random.poisson(np.exp(xt))
-        if boxcox is not None:
-            spike_rates = np.array([scipy.stats.boxcox(spike_count, boxcox) for spike_count in spike_counts])
-        else:
-            spike_rates = spike_counts
-        spike_rates_trials.append(spike_rates)
-    spike_rates_trials = np.array(spike_rates_trials)
-    return xt, spike_rates_trials
+    Returns:
+        Y (np.ndarray): T x d time series of count data
+    """
+    np.random.seed(seed)
+   
+    # Initialize A and b if not given
+    if A is None:
+        A = np.random.uniform(-0.05/d, 0.1/d, size=(d, d))  # Keep A small for stability
+    if b is None:
+        b = np.random.uniform(-1.0/d, 1.0/d, size=(d,))
+   
+    Y = np.zeros((T, d), dtype=int)
+    Y[0] = np.random.poisson(np.exp(b))  # initial state
+   
+    for t in range(1, T):
+        eta = A @ Y[t-1] + b
+        lambda_t = np.exp(np.clip(eta, -5, 5))  # avoid overflow
+        Y[t] = np.random.poisson(lambda_t)
+
+    return Y, A, b
 
 if __name__ == '__main__':
     # Example usage
@@ -165,16 +171,21 @@ if __name__ == '__main__':
     # A is a nested list with the first index being the repetition, 
     # the second being the initial spectral absicca
     A = Alist[0][0]
-    xt, spike_rates_trials = gen_activity(A)
-    print('xt:',xt.shape,xt.dtype)
-    print('rate:',spike_rates_trials.shape,spike_rates_trials.dtype)
+    print('M: A shape:',A.shape)
 
-    np.set_printoptions(precision=3, suppress=True)
+    #    Y, A, b = generate_poisson_var1(T=200, d=40)
+    Y, A, b = generate_poisson_var1(T=T, d=2*M, A=A)
+    print("A matrix:\n", A)
+    print("Intercept vector b:\n", b)
+    print("Sample data (first 5 rows):\n", Y)
+
+
+    #np.set_printoptions(precision=3, suppress=True)
     iTrial=3
-    nTime=50
-    t0=5000
+    nTime=100
+    t0=20
     for i in range(5):
-        iNeur=i*10
+        iNeur=i*3
         print('\n iNeur=%d '%(iNeur))
-        print('xt:',xt[t0:t0+nTime,iNeur])
-        print('rate:',spike_rates_trials[iTrial,t0:t0+nTime,iNeur])
+        print('Yt:',Y[t0:t0+nTime,iNeur])
+        

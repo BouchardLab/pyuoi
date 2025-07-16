@@ -17,7 +17,7 @@ def summary_column(md):
     txt=md['short_name']
     txt+='\ninput '+sem['input_name']
     #txt+='\nsampFreq %d Hz'%(sem['sampling_freq'])
-    txt+='\ndecay:%d ms '%(pmd['tau_response'])
+    txt+='\ndecay:%d ms '%(pmd['simu']['tau_discount'])
     txt+='\nsel time [%.1f %.1f] s'%(sem['time_range'][0],sem['time_range'][1])
     txt+='\nsel features %d'%(sem['num_feature'])
     return txt
@@ -176,7 +176,7 @@ class Plotter(PlotterBackbone):
         dCol='darkred'
         obsN='excitatory '
         draw_correlation_plot(ax,Yexc,pof['exc'],dCol)
-        ax.set(xlabel='true '+obsN,title= 'input %s'%(sem['input_name']))
+        ax.set(xlabel='true '+obsN,title= 'input %s'%(fim['data_name']))
         ax.axhline(0, color='k', linestyle='--', lw=0.8)
         ax.axvline(0, color='k', linestyle='--', lw=0.8)
         
