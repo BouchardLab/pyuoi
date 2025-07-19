@@ -219,6 +219,7 @@ def eval_spikes_stats(Y, dt, num_excite, mxNn=5):
         std_fano_i = np.std(fano_factor[num_excite:])
         print('Inhib (%d neurons): Avg Rate=%.2f±%.2f Hz, Avg Fano=%.2f±%.2f' % (num_inhib, avg_rate_i, std_rate_i, avg_fano_i, std_fano_i))
 
+    print('')
 
 def main():
     parser = argparse.ArgumentParser(description="Simulate a recurrent neural network with Dale's principle.")
@@ -272,6 +273,15 @@ def main():
     Ri_arg = np.array(args.idleRate)
     Bi = np.log(Ri_arg)
     print('Idle Ri:%s   Bi:%s'%(Ri_arg,Bi))
+    evol_conf={
+        'num_steps': args.num_steps,
+        'step_size': args.step_size,
+        'idleRate': args.idleRate,
+        'evol_time': args.num_steps*args.step_size,
+    }
+    pprint(evol_conf)
+    print('')
+
     B_intercept = np.random.uniform(Bi[0],Bi[1], size=(Nn,))
     if args.verb > 0:
         print('B_intercept avr=%.1f  vec:%s'%(np.mean(B_intercept),B_intercept))
@@ -296,7 +306,7 @@ def main():
 
     # Save the data to a file
     outF='dale_nonlin_poissonV4.npz'
-    np.savez('dale_nonlin_poissonV4.npz', Y=Y, A=A, B_intercept=B_intercept, conf=dale_conf)
+    np.savez(outF, Y=Y, A=A, B_intercept=B_intercept, conf=dale_conf, evol_conf=evol_conf)
     print('Saved data to %s' % outF)
 
 if __name__ == '__main__':
