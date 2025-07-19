@@ -41,6 +41,7 @@ import os
 import sys
 import scipy.stats
 import argparse
+from pprint import pprint
 
 ###### Matrix generation ##################
 # Generate an initial network connectivity matrix
@@ -247,9 +248,20 @@ def main():
         'C': 1.5,   # Parameter for stabilization algorithm
         'B': 0.2    # Parameter for stabilization algorithm
     }
-    
+    pprint(dale_conf)
     # Nn is total number of neurons
     Nn = args.num_neurons
+
+    # sanity checks
+    assert Nn>=10
+    assert args.num_excite>=5
+    assert args.num_excite<Nn
+    assert args.num_steps>=1000
+    assert args.step_size>0.001
+    assert args.spectralR>0.5
+    assert args.idleRate[0]>0.5
+    assert args.idleRate[1]>args.idleRate[0]
+    np.set_printoptions(precision=3, suppress=True)    
 
     # Generate the stable Dale connectivity matrix A
     print("Generating stable Dale matrix for Nn=%d (%d Excit, %d Inhib)..." % (Nn, args.num_excite, Nn - args.num_excite))
@@ -268,10 +280,7 @@ def main():
     # Generate spike data using the Poisson VAR(1) process
     Y, A, b = generate_poisson_var1(num_steps=args.num_steps, dt=args.step_size, A=A, B_intercept=B_intercept, num_excite=args.num_excite, verb=args.verb)
 
-    # Evaluate and print statistics of the simulated spikes
-    eval_spikes_stats(Y, dt=args.step_size, num_excite=args.num_excite, mxNn=5)
    
-    np.set_printoptions(precision=3, suppress=True)
     nTime=100
     t0=0
     # Print a sample of the spike trains for a few neurons
@@ -282,6 +291,13 @@ def main():
         print('\nNeuron %d:'%(iNeur))
         print('Spike counts (first %d steps): %s' % (nTime, Y[t0:t0+nTime,iNeur]))
         
+    # Evaluate and print statistics of the simulated spikes
+    eval_spikes_stats(Y, dt=args.step_size, num_excite=args.num_excite, mxNn=5)
+
+    # Save the data to a file
+    outF='dale_nonlin_poissonV4.npz'
+    np.savez('dale_nonlin_poissonV4.npz', Y=Y, A=A, B_intercept=B_intercept, conf=dale_conf)
+    print('Saved data to %s' % outF)
 
 if __name__ == '__main__':
     main() 
