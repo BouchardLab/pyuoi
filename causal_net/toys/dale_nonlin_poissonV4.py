@@ -86,7 +86,7 @@ def gen_dale_matrics(conf):
 
 #################### Simulation ##################
 
-def generate_poisson_var1(num_steps, dt, A, B_intercept, seed=None, verb=0):
+def generate_poissonV2(num_steps, dt, A, B_intercept, seed=None, verb=0):
     """
     Generates a multivariate Poisson VAR(1) process:
         Y_t ~ Poisson(exp(A @ Y_{t-1} + B_intercept))
@@ -120,7 +120,7 @@ def generate_poisson_var1(num_steps, dt, A, B_intercept, seed=None, verb=0):
         #eta = B_intercept  # use it to see idle rate only
         lambda_t = np.exp(np.clip(eta, -5, 5))  # avoid overflow        
         Y[t] = np.random.poisson(lambda_t*dt)
-        if verb>0 and t<5: print('t=%d  Y[t] sum=%d  vec:%s'%(t,np.sum(Y[t]),Y[t]))
+        if verb>0 and t<5: print('t=%d  Y[t] sum=%d  vec:%s ...'%(t,np.sum(Y[t]),Y[t,:15]))
 
     return Y,A,B_intercept
 
@@ -138,9 +138,9 @@ def eval_spikes_stats(Y, dt, mxNn=10):
     fano_factor = np.divide(spike_variance, mean_counts_per_bin, out=np.zeros_like(spike_variance), where=mean_counts_per_bin!=0)
 
     
-    print('\n--- Spike Stats per Neuron (showing first %d)---' % mxNn)
+    print('\n--- Spike Stats per Neuron (showing first %d), time_evol=%.1f sec ---' %( mxNn,time_evol))
     np.set_printoptions(precision=2)
-    print('Total Spike Counts: %s' % spike_counts[:mxNn])
+    print('Total Spike Counts:                   %s' % spike_counts[:mxNn])
     print('Mean Firing Rate (Hz):                %s' % spike_rates[:mxNn])
     print('Mean Spike Count per bin (dt=%.3fs): %s' % (dt, mean_counts_per_bin[:mxNn]))
     print('Spike Count Variance per bin:         %s' % spike_variance[:mxNn])
@@ -148,14 +148,20 @@ def eval_spikes_stats(Y, dt, mxNn=10):
 
 
     total_avg_rate = np.mean(spike_rates)
-    print('\nAverage firing rate across all neurons: %.2f Hz' % total_avg_rate)
+    std_rate = np.std(spike_rates)
+    avg_fano = np.mean(fano_factor)
+    std_fano = np.std(fano_factor)
+    
+    print('\nAverage firing rate across all neurons: %.2f +/- %.2f Hz' % (total_avg_rate, std_rate))
+    print('Average Fano factor across all neurons: %.2f +/- %.2f' % (avg_fano, std_fano))
 
 def main():
     parser = argparse.ArgumentParser(description="Simulate a recurrent neural network with Dale's principle.")
-    parser.add_argument("--num_excit_neurons", type=int, default=20, help="Number of excitatory neurons (M). Total neurons will be 2*M.")
-    parser.add_argument("--num_steps", type=int, default=4000, help="Number of time steps for simulation.")
+    parser.add_argument("--num_excit_neurons", type=int, default=10, help="Number of excitatory neurons (M). Total neurons will be 2*M.")
+    parser.add_argument("--num_steps", type=int, default=8_000, help="Number of time steps for simulation.")
     parser.add_argument("--step_size", type=float, default=0.01, help="Integration time step size (dt) in seconds.")
-    parser.add_argument("--idleRate", type=float, nargs=2, default=[5.0, 10.1], help="Range of idle firing rates [min, max] in Hz.")
+    parser.add_argument("--idleRate", type=float, nargs=2, default=[2.0, 15.1], help="Range of idle firing rates [min, max] in Hz.")
+    parser.add_argument("--spect_radius", type=float, default=3.0, help="Initial spectral radius (R).")
     parser.add_argument("--verb", type=int, default=1, help="Verbosity level (0=quiet, 1=normal).")
     args = parser.parse_args()
 
@@ -163,7 +169,7 @@ def main():
         'M': args.num_excit_neurons,
         'p': 0.25,  # Synaptic connection probability
         'g': 2,     # Inhibitory-to-excitatory synaptic strength ratio
-        'R': 2.5,  # Initial spectral radius
+        'R': args.spect_radius,  # Initial spectral radius
         'eta': 10,  # Learning rate for stabilization algorithm
         'C': 1.5,   # Parameter for stabilization algorithm
         'B': 0.2    # Parameter for stabilization algorithm
@@ -194,7 +200,7 @@ def main():
         print('exp(B_intercept) avr=%.1f  vec:%s ...'%(np.mean(np.exp(B_intercept)),np.exp(B_intercept[:4])))
 
     # Generate spike data using the Poisson VAR(1) process
-    Y, A, b = generate_poisson_var1(num_steps=args.num_steps, dt=args.step_size, A=A, B_intercept=B_intercept, verb=args.verb)
+    Y, A, b = generate_poissonV2(num_steps=args.num_steps, dt=args.step_size, A=A, B_intercept=B_intercept, verb=args.verb)
 
     # Evaluate and print statistics of the simulated spikes
     eval_spikes_stats(Y, dt=args.step_size, mxNn=10)
