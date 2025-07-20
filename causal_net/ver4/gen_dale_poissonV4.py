@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
+python gen_dale_poissonV4.py --num_neurons 10 --num_excite 6 --num_steps 1000 --dataName test_dale
+
+
 This script simulates the activity of a recurrent neural network with biologically
 inspired constraints. The key features of the simulation are:
+
 
 1.  **Dale's Principle**: The network is composed of two populations of neurons:
     one purely excitatory and one purely inhibitory. This is enforced by the
@@ -42,21 +46,28 @@ import sys
 import scipy.stats
 import argparse
 from pprint import pprint
+import matplotlib.pyplot as plt
+import matplotlib.colors as colors
 
 ###### Matrix generation ##################
 # Generate an initial network connectivity matrix
-def gen_init_W(num_neurons, num_excite, p, gamma, R, diag=0):
+def gen_init_W(num_neurons, num_excite, p, gamma, R, varyW=0.5, diag=0):
     rand = np.random.default_rng()
 
     num_inhib = num_neurons - num_excite
     Ainit = np.zeros((num_neurons, num_neurons))
 
-    w = R/np.sqrt(p * (1 - p) * (1 + gamma**2)/2)
+    wC = R/np.sqrt(p * (1 - p) * (1 + gamma**2)/2)  # central value
+    # decide how much variation in weights
+    wL=wC/varyW
+    wR=wC*varyW
+
 
     # Excitatory neurons (rows 0 to num_excite-1)
     for j in range(num_excite):
         for k in range(num_neurons):
             if rand.binomial(1, p):
+                w=np.random.uniform(wL, wR)
                 Ainit[j, k] = w/np.sqrt(num_neurons)
 
 
@@ -72,7 +83,7 @@ def gen_init_W(num_neurons, num_excite, p, gamma, R, diag=0):
 
 # Optimize the inhibitory weights of a matrix A to render it stable (i.e. max re lambda < 0)
 # Implements the algorithm described here: https://epubs.siam.org/doi/abs/10.1137/070704034?journalCode=sjope8
-def stabilize(A, max_iter=1000, eta=10, C=1.5, B=0.2):
+def stabilize(A, max_iter=3000, eta=50, C=3.0, B=1.0):
 
     # Regularization of the spectral absicca, described on pg. 8 of the supplement here:
     # https://www.sciencedirect.com/science/article/pii/S0896627314003602?via%3Dihub#app2
@@ -108,7 +119,7 @@ def stabilize(A, max_iter=1000, eta=10, C=1.5, B=0.2):
 def gen_dale_matrics(conf):
     """Generates one stable Dale matrix based on configuration."""
     num_neurons, num_excite, p, g, r = conf['num_neurons'], conf['num_excite'], conf['p'], conf['g'], conf['R']
-    A = gen_init_W(num_neurons, num_excite, p, g, r, -1)
+    A = gen_init_W(num_neurons, num_excite, p, g, r, varyW=0.5, diag=-1)
     eig = np.linalg.eigvals(A)
     if np.max(np.real(eig)) >= 0:
         A = stabilize(A, eta=conf['eta'], C=conf['C'], B=conf['B'])
@@ -219,15 +230,107 @@ def eval_spikes_stats(Y, dt, num_excite, mxNn=5):
 
     print('')
 
+def plot_dale_matrix(fig,ax,W):
+    normMap = colors.TwoSlopeNorm(vmin=W.min(), vcenter=0, vmax=W.max())
+    
+    im=ax.imshow(W, aspect='auto', origin='upper', cmap='bwr', norm=normMap, interpolation='nearest')
+    ax.set( ylabel='presyn. node index, source', xlabel='postsyn. node index, target')
+
+    ax.set_aspect(1.0)
+    ax.grid()
+    # Create the colorbar.
+    cbar = fig.colorbar(im, ax=ax, extend="both")
+    #cbar.set_label('Dal-Matrix: coupling strength')
+
+def plot_dale_eigen(fig,ax,Eigen,tit="Eigenvalue Spectrum"):
+    real_parts = np.real(Eigen)
+    imag_parts = np.imag(Eigen)
+    ax.scatter(real_parts, imag_parts, color='blue', marker='o')
+    ax.set_xlabel("Real Part")
+    ax.set_ylabel("Imaginary Part")
+    ax.set_title(tit)
+    ax.axhline(0, color='black', lw=0.5)
+    ax.axvline(0, color='black', lw=0.5)
+    ax.grid(True)
+    
+    ax.axvline(0,color='red', linestyle='--')
+
+def plot_dale_matrix_and_eigen(A, num_excite, data_name, figId=3):
+    nrow,ncol=2,2
+    fig=plt.figure(figId,facecolor='white', figsize=(12,10))
+
+    #.... top left: Dale matrix ......
+    ax = plt.subplot(nrow,ncol,1)
+    W=A
+
+    plot_dale_matrix(fig,ax,W)
+
+    tit='True Dale, M%d,%s'%(W.shape[0], data_name)
+    ax.set(title=tit)
+    numExc=num_excite
+    ax.axvline(numExc-0.5,color='k',ls='--')
+    ax.text(0.06, 0.92, 'Excitatory', size=14,color='r',transform=ax.transAxes)
+    ax.text(0.06, 0.12, 'Inhibitory', size=14,color='b',transform=ax.transAxes)
+    
+    #..... top right: Eigenvalues ......
+    ax = plt.subplot(nrow,ncol,2)
+    Eigen=np.linalg.eigvals(A)
+    plot_dale_eigen(fig,ax,Eigen)
+    
+    #..... bottom: Weight distributions ......
+    # Prepare weight data
+    nnAny = A.shape[0]
+    nnExcit = num_excite
+    nnInhib = nnAny - nnExcit
+    
+    # Use all weights (including diagonal)
+    W1 = A
+    
+    # Mask excitatory and inhibitory columns (outgoing connections)
+    W_excit = W1[:nnExcit, :].flatten()  # From excitatory neurons
+    W_inhib = W1[nnExcit:, :].flatten()  # From inhibitory neurons
+    
+    # Skip 0's
+    W_excit = W_excit[W_excit != 0]
+    W_inhib = W_inhib[W_inhib != 0]
+    
+    # Bottom left: Excitatory weights
+    ax = plt.subplot(nrow,ncol,3)
+    ax.hist(W_excit, bins=50, color='tab:red', alpha=0.7, edgecolor='black')
+    ax.set_title(data_name + ' Excitatory Weights')
+    ax.set_ylabel('Count')
+    ax.set_yscale('log')
+    ax.grid(True, alpha=0.3)
+    ax.text(0.1, 0.6, 'diagonal', transform=ax.transAxes, rotation=45, fontsize=10)
+    ax.text(0.7, 0.8, 'off-diagonal', transform=ax.transAxes, fontsize=10)
+    
+    # Bottom right: Inhibitory weights
+    ax = plt.subplot(nrow,ncol,4)
+    ax.hist(W_inhib, bins=50, color='tab:blue', alpha=0.7, edgecolor='black')
+    ax.set_title('Inhibitory Weights')
+    ax.set_xlabel('Synaptic Weight Value')
+    ax.set_ylabel('Count')
+    ax.set_yscale('log')
+    ax.grid(True, alpha=0.3)
+    ax.text(0.1, 0.6, 'diagonal', transform=ax.transAxes, rotation=45, fontsize=10)
+    ax.text(0.4, 0.8, 'off-diagonal', transform=ax.transAxes, fontsize=10)
+    
+    plt.tight_layout()
+    
+    return fig
+
 def main():
     parser = argparse.ArgumentParser(description="Simulate a recurrent neural network with Dale's principle.")
-    parser.add_argument("--num_neurons", type=int, default=30, help="Total number of neurons in the network.")
+    parser.add_argument("--num_neurons", type=int, default=35, help="Total number of neurons in the network.")
     parser.add_argument("--num_excite", type=int, default=20, help="Number of excitatory neurons.")
-    parser.add_argument("--num_steps", type=int, default=8000, help="Number of time steps for simulation.")
+    parser.add_argument("--num_steps", type=int, default=100_000, help="Number of time steps for simulation.")
     parser.add_argument("--step_size", type=float, default=0.01, help="Integration time step size (dt) in seconds.")
     parser.add_argument("--idleRate", type=float, nargs=2, default=[2.0, 15.1], help="Range of idle firing rates [min, max] in Hz.")
-    parser.add_argument("--spectralR", type=float, default=2.5, help="Initial spectral radius (R).")
+    parser.add_argument("--spectralR", type=float, default=3.0, help="Initial spectral radius (R).")
+    parser.add_argument("--synaptic_prob", type=float, default=0.15, help="Synaptic connection probability (p).")
     parser.add_argument("--verb", type=int, default=1, help="Verbosity level (0=quiet, 1=normal).")
+    parser.add_argument("--dataName", type=str, default=None, help="Base name for output files (default: dale_spikes_xx).")
+    parser.add_argument("--outPath", type=str, default='out/', help="Output directory for all files.")
     args = parser.parse_args()
 
     if args.num_excite >= args.num_neurons:
@@ -237,10 +340,10 @@ def main():
     print(vars(args))
     print("")
 
-    dale_conf = {
+    dale_conf = { 
         'num_neurons': args.num_neurons,
         'num_excite': args.num_excite,
-        'p': 0.25,  # Synaptic connection probability
+        'p': args.synaptic_prob,  # Synaptic connection probability
         'g': 2,     # Inhibitory-to-excitatory synaptic strength ratio
         'R': args.spectralR,  # Initial spectral radius
         'eta': 10,  # Learning rate for stabilization algorithm
@@ -266,6 +369,30 @@ def main():
     print("Generating stable Dale matrix for Nn=%d (%d Excit, %d Inhib)..." % (Nn, args.num_excite, Nn - args.num_excite))
     A=gen_dale_matrics(dale_conf)
     print('Generated A shape:',A.shape)
+    
+    # Calculate and print sparsity of the generated matrix
+    total_connections = A.size
+    zero_connections = np.sum(np.abs(A) < 1e-10)  # Count near-zero as zero
+    non_zero_connections = total_connections - zero_connections
+    sparsity = zero_connections / total_connections
+    
+    print(f'Matrix sparsity: {sparsity*100:.1f}% ({zero_connections}/{total_connections} connections are zero)')
+    print(f'Non-zero connections: {non_zero_connections} ({(1-sparsity)*100:.1f}%)')
+    
+    # Separate analysis for excitatory and inhibitory
+    A_excit = A[:args.num_excite, :]  # Excitatory outgoing connections
+    A_inhib = A[args.num_excite:, :]  # Inhibitory outgoing connections
+    
+    excit_total = A_excit.size
+    excit_nonzero = np.sum(np.abs(A_excit) >= 1e-10)
+    excit_sparsity = 1 - (excit_nonzero / excit_total)
+    
+    inhib_total = A_inhib.size
+    inhib_nonzero = np.sum(np.abs(A_inhib) >= 1e-10)
+    inhib_sparsity = 1 - (inhib_nonzero / inhib_total)
+    
+    print(f'Excitatory sparsity: {excit_sparsity*100:.1f}% ({excit_nonzero}/{excit_total} non-zero)')
+    print(f'Inhibitory sparsity: {inhib_sparsity*100:.1f}% ({inhib_nonzero}/{inhib_total} non-zero)')
 
     # Initialize bias vector B based on idle firing rate
     Ri_arg = np.array(args.idleRate)
@@ -302,10 +429,37 @@ def main():
     # Evaluate and print statistics of the simulated spikes
     eval_spikes_stats(Y, dt=args.step_size, num_excite=args.num_excite, mxNn=5)
 
-    # Save the data to a file
-    outF='dale_nonlin_poissonV4.npz'
-    np.savez(outF, Y=Y, A=A, B_intercept=B_intercept, conf=dale_conf, evol_conf=evol_conf)
-    print('Saved data to %s' % outF)
+    # Create output directory if it doesn't exist
+    os.makedirs(args.outPath, exist_ok=True)
+    
+    # Determine output file prefix
+    if args.dataName is None:
+        base_name = 'dale_spikes_xx'
+    else:
+        base_name = args.dataName
+
+    # Plot Dale matrix and eigenvalues
+    print('\n--- Plotting Dale matrix and eigenvalues ---')
+    fig = plot_dale_matrix_and_eigen(A, args.num_excite, base_name)
+    
+    # Save plot as PNG
+    plot_file = os.path.join(args.outPath, f'{base_name}_dale_matrix.png')
+    fig.savefig(plot_file, bbox_inches='tight', dpi=150)
+    print('Plot saved to %s' % plot_file)
+
+    # Split output into two files
+    # 1. Spike trains only
+    spikes_file = os.path.join(args.outPath, f'{base_name}.spikes.npz')
+    np.savez(spikes_file, Y=Y)
+    print('Spike data saved to %s' % spikes_file)
+    
+    # 2. All other truth data
+    truth_file = os.path.join(args.outPath, f'{base_name}.truth.npz')
+    np.savez(truth_file, A=A, B_intercept=B_intercept, conf=dale_conf, evol_conf=evol_conf)
+    print('Truth data saved to %s' % truth_file)
+
+    # Show plot (this should be the last command)
+    plt.show()
 
 if __name__ == '__main__':
     main() 
