@@ -47,7 +47,7 @@ import sys
 import os
 from sklearn.model_selection import KFold
 import matplotlib.pyplot as plt
-from tqdm import tqdm
+
 import argparse
 
 # Check for GPU
@@ -244,7 +244,7 @@ def train_model(model, train_loader, val_loader, n_epochs, lr, l1_lambda=0.0, us
     return train_losses, val_losses
 
 def train_model_with_adaptive_l1(model, train_loader, val_loader, n_epochs, lr, l1_lambda=0.0, firing_rates=None, use_scheduler=False, 
-                                l1_rate_power=1.5, l1_low_firing_threshold=5.0, l1_low_firing_factor=0.1, disable_adaptive_l1=False):
+                                l1_rate_power=1.5, disable_adaptive_l1=False):
     """Train the Poisson GLM model with firing-rate-aware L1 regularization."""
     batch_size = train_loader.batch_size
     print(f"Using 1 GPU for training with adaptive L1, BS={batch_size}, target epochs={n_epochs}")
@@ -281,15 +281,7 @@ def train_model_with_adaptive_l1(model, train_loader, val_loader, n_epochs, lr, 
         # Normalize so the average penalty remains the same
         l1_weight_matrix = l1_weight_matrix / torch.mean(l1_weight_matrix)
         
-        # Extra protection for very low firing neurons
-        very_low_firing = firing_rates_tensor < l1_low_firing_threshold
-        low_firing_count = torch.sum(very_low_firing).item()
-        print(f"Applying extra L1 protection for {low_firing_count} very low firing neurons (< {l1_low_firing_threshold} Hz)")
-        print(f"L1 rate power: {l1_rate_power}, low firing factor: {l1_low_firing_factor}")
-        for i in range(len(very_low_firing)):
-            if very_low_firing[i]:
-                l1_weight_matrix[i, :] *= l1_low_firing_factor  # Use configurable factor
-                l1_weight_matrix[:, i] *= l1_low_firing_factor  # Both incoming and outgoing
+
         
         # Zero out diagonal elements in L1 weight matrix (they won't be penalized)
         l1_weight_matrix[diag_mask] = 0.0
@@ -365,7 +357,7 @@ def train_model_with_adaptive_l1(model, train_loader, val_loader, n_epochs, lr, 
 
     return train_losses, val_losses
 
-def cross_validate_l1_blind(Y_tensor, l1_values, batch_size, n_splits=5, n_epochs=50, num_workers=4):
+def cross_validate_l1_blind(Y_tensor, l1_values, batch_size, n_splits=5, n_epochs=50, num_workers=4, data_fraction=1.0):
     """Cross-validate to find optimal L1 regularization parameter without Dale's principle."""
     n_neurons = Y_tensor.shape[1]
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
@@ -376,7 +368,17 @@ def cross_validate_l1_blind(Y_tensor, l1_values, batch_size, n_splits=5, n_epoch
     X = Y_tensor[:-1]
     y = Y_tensor[1:]
     
-    for l1_lambda in tqdm(l1_values, desc="L1 values"):
+    # Use only a fraction of the data for cross-validation
+    if data_fraction < 1.0:
+        n_samples = len(X)
+        n_use = int(n_samples * data_fraction)
+        print(f"Using {data_fraction*100:.1f}% of data for cross-validation: {n_use}/{n_samples} samples")
+        # Randomly sample indices
+        indices = torch.randperm(n_samples)[:n_use]
+        X = X[indices]
+        y = y[indices]
+    
+    for l1_lambda in l1_values:
         fold_losses = []
         for fold, (train_idx, val_idx) in enumerate(kf.split(X)):
             # Create datasets
@@ -416,7 +418,7 @@ def cross_validate_l1(Y_tensor, num_excite, l1_values, batch_size, n_splits=5, n
     X = Y_tensor[:-1]
     y = Y_tensor[1:]
     
-    for l1_lambda in tqdm(l1_values, desc="L1 values"):
+    for l1_lambda in l1_values:
         fold_losses = []
         for fold, (train_idx, val_idx) in enumerate(kf.split(X)):
             # Create datasets
@@ -446,7 +448,7 @@ def cross_validate_l1(Y_tensor, num_excite, l1_values, batch_size, n_splits=5, n
     return best_l1, cv_results
 
 def identify_structure_blind(Y_tensor, l1_lambda, n_epochs=100, target_sparsity=0.9, lr=0.001, batch_size=256, num_workers=4,
-                           l1_rate_power=1.5, l1_low_firing_threshold=5.0, l1_low_firing_factor=0.1, disable_adaptive_l1=False):
+                           l1_rate_power=1.5, disable_adaptive_l1=False):
     """Stage 1: Identify network structure using L1 regularization without Dale's principle."""
     n_neurons = Y_tensor.shape[1]
     
@@ -479,8 +481,7 @@ def identify_structure_blind(Y_tensor, l1_lambda, n_epochs=100, target_sparsity=
     train_losses, val_losses = train_model_with_adaptive_l1(
         model, train_loader, val_loader, n_epochs, lr=lr, l1_lambda=l1_lambda, 
         firing_rates=firing_rates, use_scheduler=True,
-        l1_rate_power=l1_rate_power, l1_low_firing_threshold=l1_low_firing_threshold, 
-        l1_low_firing_factor=l1_low_firing_factor, disable_adaptive_l1=disable_adaptive_l1
+        l1_rate_power=l1_rate_power, disable_adaptive_l1=disable_adaptive_l1
     )
     
     # Extract learned matrix
@@ -915,7 +916,7 @@ def bootstrap_confidence_intervals(Y_tensor, num_excite, A_final, B_final, mask,
     X = Y_tensor[:-1]
     y = Y_tensor[1:]
     
-    for i in tqdm(range(n_bootstrap), desc="Bootstrap samples"):
+    for i in range(n_bootstrap):
         # Resample time indices with replacement
         n_samples = len(X)
         indices = torch.randperm(n_samples)[:int(0.8 * n_samples)]
@@ -988,6 +989,7 @@ def plot_results(A_true, A_estimated, train_losses_s1, val_losses_s1, train_loss
     axes[0, 0].set_xlabel('From neuron')
     axes[0, 0].set_ylabel('To neuron')
     plt.colorbar(im1, ax=axes[0, 0])
+    axes[0, 0].grid(True, alpha=0.3)
     
     # Estimated connectivity
     im2 = axes[0, 1].imshow(A_estimated, cmap='RdBu_r', vmin=-0.5, vmax=0.5)
@@ -995,6 +997,7 @@ def plot_results(A_true, A_estimated, train_losses_s1, val_losses_s1, train_loss
     axes[0, 1].set_xlabel('From neuron')
     axes[0, 1].set_ylabel('To neuron')
     plt.colorbar(im2, ax=axes[0, 1])
+    axes[0, 1].grid(True, alpha=0.3)
     
     # Difference
     diff = A_estimated - A_true
@@ -1003,6 +1006,7 @@ def plot_results(A_true, A_estimated, train_losses_s1, val_losses_s1, train_loss
     axes[0, 2].set_xlabel('From neuron')
     axes[0, 2].set_ylabel('To neuron')
     plt.colorbar(im3, ax=axes[0, 2])
+    axes[0, 2].grid(True, alpha=0.3)
     
     # Scatter plot of true vs estimated
     mask = np.abs(A_true) > 1e-6
@@ -1132,15 +1136,13 @@ def main():
     parser.add_argument("--lr_stage2", type=float, default=0.001, help="Learning rate for stage 2")
     parser.add_argument("--l1_lambda", type=float, default=1.0e-04, help="L1 regularization parameter (set to 0 to enable L1 scan)")
     parser.add_argument("--target_sparsity", type=float, default=0.8, help="Target sparsity level (0.9 = 90% zeros)")
-    parser.add_argument("--cv_folds", type=int, default=3, help="Number of cross-validation folds")
+    parser.add_argument("--cv_folds", type=int, default=2, help="Number of cross-validation folds")
     parser.add_argument("--bootstrap", action="store_true", help="Compute bootstrap confidence intervals")
     parser.add_argument("--n_bootstrap", type=int, default=20, help="Number of bootstrap samples")
     parser.add_argument("--num_workers", type=int, default=16, help="Number of data loader workers")
     
     # Firing-rate-aware L1 regularization parameters
     parser.add_argument("--l1_rate_power", type=float, default=1.0, help="Power for firing-rate-aware L1 penalty (1.0 = no bias, higher = stronger bias toward low-firing neurons)")
-    parser.add_argument("--l1_low_firing_threshold", type=float, default=0.05, help="Threshold (Hz) below which neurons get extra L1 protection")
-    parser.add_argument("--l1_low_firing_factor", type=float, default=0.3, help="Factor by which to reduce L1 penalty for low-firing neurons (0.1 = 10x less penalty)")
     parser.add_argument("--disable_adaptive_l1", action="store_true", help="Disable firing-rate-aware L1 regularization (use uniform L1 penalty)")
     
     args = parser.parse_args() 
@@ -1181,7 +1183,7 @@ def main():
         print(f"Testing L1 values: {l1_values}")
         
         best_l1, cv_results = cross_validate_l1_blind(Y_tensor, l1_values, 
-                                               batch_size=args.batch_size, n_splits=args.cv_folds, n_epochs=50, num_workers=args.num_workers)
+                                               batch_size=args.batch_size, n_splits=args.cv_folds, n_epochs=50, num_workers=args.num_workers, data_fraction=0.1)
         print(f"\nBest L1 parameter: {best_l1:.2e}")
         print(f"Stage 0 (Cross-validation) completed in {time.time() - stage_start_time:.1f} seconds")
     else:
@@ -1194,7 +1196,7 @@ def main():
     stage_start_time = time.time()
     mask, A_stage1, train_losses_s1, val_losses_s1 = identify_structure_blind(
         Y_tensor, best_l1, n_epochs=args.n_epochs_stage1, target_sparsity=args.target_sparsity, lr=args.lr_stage1, batch_size=args.batch_size, num_workers=args.num_workers,
-        l1_rate_power=args.l1_rate_power, l1_low_firing_threshold=args.l1_low_firing_threshold, l1_low_firing_factor=args.l1_low_firing_factor, disable_adaptive_l1=args.disable_adaptive_l1
+        l1_rate_power=args.l1_rate_power, disable_adaptive_l1=args.disable_adaptive_l1
     )
     stage1_time = time.time() - stage_start_time
     print(f"Stage 1 completed in {stage1_time:.1f} seconds")

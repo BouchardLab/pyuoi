@@ -268,7 +268,7 @@ def plot_dale_matrix_and_eigen(A, num_excite, data_name, figId=3):
     tit='True Dale, M%d,%s'%(W.shape[0], data_name)
     ax.set(title=tit)
     numExc=num_excite
-    ax.axvline(numExc-0.5,color='k',ls='--')
+    ax.axhline(numExc-0.5,color='k',ls='--')
     ax.text(0.06, 0.92, 'Excitatory', size=14,color='r',transform=ax.transAxes)
     ax.text(0.06, 0.12, 'Inhibitory', size=14,color='b',transform=ax.transAxes)
     
@@ -450,8 +450,10 @@ def main():
     # Split output into two files
     # 1. Spike trains only
     spikes_file = os.path.join(args.outPath, f'{base_name}.spikes.npz')
-    np.savez(spikes_file, Y=Y)
-    print('Spike data saved to %s' % spikes_file)
+    # Convert to uint8 and clip at max value
+    Y_uchar = np.clip(Y, 0, 255).astype(np.uint8)
+    np.savez(spikes_file, Y=Y_uchar)
+    print('Spike data saved to %s (uint8, clipped at 255)' % spikes_file)
     
     # 2. All other truth data
     truth_file = os.path.join(args.outPath, f'{base_name}.truth.npz')
