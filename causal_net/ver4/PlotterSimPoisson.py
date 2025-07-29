@@ -8,10 +8,75 @@ from pprint import pprint
 import numpy as np
 import matplotlib.gridspec as gridspec
 import matplotlib.colors as colors
-
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
 #...!...!..................
-def xplot_dale_matrix(fig,ax,W):
-    a=0
+def plot_coincidence_vs_independence_with_power_fit(
+        ax,
+        firing_rates_from,
+        firing_rates_to,
+        coincidence_rates_off_diag,
+        dt=0.01,
+        fit_color='k',
+        fit_label='Power fit'
+    ):
+    """
+    Plots expected vs observed coincidence rates and fits a power function.
+    
+    Parameters:
+        ax: matplotlib.axes.Axes object to plot on
+        firing_rates_from: np.ndarray, firing rates of 'from' population
+        firing_rates_to: np.ndarray, firing rates of 'to' population
+        coincidence_rates_off_diag: np.ndarray, observed coincidence rates (off-diagonal)
+        dt: float, time bin size (default 0.01)
+        fit_color: color for the fit line (default 'g')
+        fit_label: label for the fit line (default 'Power fit')
+    """
+    # Expected coincidence rate under independence
+    expected_coincidence = firing_rates_from * firing_rates_to * dt
+    
+    # Scatter plot
+    ax.scatter(expected_coincidence, coincidence_rates_off_diag, alpha=0.6, s=20)
+    
+    # Identity line
+    max_val = max(np.max(expected_coincidence), np.max(coincidence_rates_off_diag))
+    ax.plot([0, max_val], [0, max_val], 'r--', alpha=0.7)
+    
+    # Power function fit
+    def power_func(x, a, b):
+        return a * x**b
+
+    # Only fit to positive x values to avoid issues with log(0)
+    mask = expected_coincidence > 0
+    x_fit = expected_coincidence[mask]
+    y_fit = coincidence_rates_off_diag[mask]
+    try:
+        popt, pcov = curve_fit(power_func, x_fit, y_fit, p0=(1, 1), maxfev=5000)
+        a_fit, b_fit = popt
+        # Plot the fit
+        x_curve = np.linspace(0, max_val, 200)
+        y_curve = power_func(x_curve, a_fit, b_fit)
+        ax.plot(x_curve, y_curve, color=fit_color, lw=2, label=f'{fit_label}: $y={a_fit:.2f}x^{{{b_fit:.2f}}}$')
+        ax.legend()
+    except Exception as e:
+        print(f"Could not fit power function: {e}")
+    
+    # Labels and formatting
+    ax.set_xlabel('Expected coincidence rate (independence)')
+    ax.set_ylabel('Observed coincidence rate')
+    ax.set_title('Coincidence vs Independence')
+    ax.grid(True, alpha=0.3)
+    ax.set_aspect('equal')
+    
+    # Add statistics
+    correlation = np.corrcoef(expected_coincidence, coincidence_rates_off_diag)[0, 1]
+    ax.text(0.05, 0.95, f'Correlation: {correlation:.3f}', 
+            transform=ax.transAxes, fontsize=10,
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
+            verticalalignment='top')
+
+
     
 #............................
 #............................
@@ -145,6 +210,8 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.3)
         numExc=md['num_excit_neur']
         ax.axvline(numExc-0.5,color='k',ls='--')
+        ax.set_yscale('log')
+        #ax.set_ylim(0,)
         
         # 2D plot: Coincidence rates matrix
         ax = self.plt.subplot(nrow,ncol,3)
@@ -172,19 +239,13 @@ class Plotter(PlotterBackbone):
         coincidence_rates_off_diag = coincidence_rates[off_diag_mask]
         
         # Expected coincidence rate under independence
-        dt = 0.01  # Default time bin size
-        expected_coincidence = firing_rates_from * firing_rates_to * dt
-        
-        ax.scatter(expected_coincidence, coincidence_rates_off_diag, alpha=0.6, s=20)
-        ax.plot([0, np.max(expected_coincidence)], [0, np.max(expected_coincidence)], 'r--', alpha=0.7)
-        ax.set_xlabel('Expected coincidence rate (independence)')
-        ax.set_ylabel('Observed coincidence rate')
-        ax.set_title('Coincidence vs Independence')
-        ax.grid(True, alpha=0.3)
-        ax.set_aspect('equal')  # Fix aspect ratio to 1:1
-        
-        # Add statistics
-        correlation = np.corrcoef(expected_coincidence, coincidence_rates_off_diag)[0, 1]
-        ax.text(0.05, 0.95, f'Correlation: {correlation:.3f}', 
-               transform=ax.transAxes, fontsize=10,
-               bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        plot_coincidence_vs_independence_with_power_fit(
+            ax,
+            firing_rates_from,
+            firing_rates_to,
+            coincidence_rates_off_diag,
+            dt=0.01,
+            fit_color='g',
+            fit_label='Power fit'
+        )
+   

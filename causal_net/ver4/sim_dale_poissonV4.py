@@ -49,7 +49,8 @@ from pprint import pprint
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 from PlotterSimPoisson import Plotter
-
+from UtilDalePoisson import eval_spikes_stats, estimate_rates_with_errors, save_simulation_data
+from baseRateGen import generate_mixture_spike_frequencies
 
 ###### Matrix generation ##################
 # Generate an initial network connectivity matrix
@@ -85,18 +86,19 @@ def gen_init_W(num_neurons, num_excite, p, gamma, R, varyW=0.5, diag=0):
 
 # Optimize the inhibitory weights of a matrix A to render it stable (i.e. max re lambda < 0)
 # Implements the algorithm described here: https://epubs.siam.org/doi/abs/10.1137/070704034?journalCode=sjope8
-def stabilize(A, max_iter=3000, eta=50, C=3.0, B=1.0):
+def stabilize(A, max_iter=3000, eta=50, C=3.0, B=1.0,delta=0.2):
 
     # Regularization of the spectral absicca, described on pg. 8 of the supplement here:
     # https://www.sciencedirect.com/science/article/pii/S0896627314003602?via%3Dihub#app2
+    # delat is my margin from 0 toward negative
     
     alpha = np.max(np.real(np.linalg.eigvals(A)))
-    if alpha < 0:
+    if alpha < -delta:
         return A
 
     iter_ = 0
 
-    while alpha > 0 and iter_ < max_iter:
+    while alpha > -delta and iter_ < max_iter:
 
         alpha_e = max(C * alpha, C * alpha + B)
         Q = scipy.linalg.solve_continuous_lyapunov((A - alpha_e * np.eye(A.shape[0])).T, -2 * np.eye(A.shape[0]))   
@@ -179,7 +181,7 @@ def generate_poisson_var1(num_steps, dt, A, B_intercept, num_excite, verb=0):
     Y = np.zeros((num_steps, d), dtype=int)
     Y[0] = np.random.poisson(np.exp(B_intercept)*dt)  # initial state
     if verb>0:
-        print('t=0  Y[t] sum=%d, Excit(first 3):%s, Inhib(first 3):%s'%(np.sum(Y[0]), Y[0][:3], Y[0][num_excite:num_excite+3]))
+        print('t=0 Y[t] sum=%d, Excit(first 3):%s, Inhib(first 3):%s'%(np.sum(Y[0]), Y[0][:3], Y[0][num_excite:num_excite+3]))
 
     kk=7
     # Main simulation loop
@@ -193,118 +195,13 @@ def generate_poisson_var1(num_steps, dt, A, B_intercept, num_excite, verb=0):
 
     return Y,A,B_intercept
 
-def estimate_rates_with_errors(Y, dt=0.01):
-    """
-    Estimate single neuron firing rates and pairwise coincidence rates with statistical errors.
-    
-    Args:
-        Y: Spike data array (time_steps x n_neurons)
-        dt: Time bin size in seconds
-    
-    Returns:
-        firing_rates: Array of firing rates (Hz) for each neuron
-        firing_rate_errors: Standard errors of firing rate estimates
-        coincidence_rates: Matrix of coincidence rates (Hz) for each neuron pair
-        coincidence_rate_errors: Standard errors of coincidence rate estimates
-    """
-    n_time_steps, n_neurons = Y.shape
-    total_time = n_time_steps * dt
-    
-    # Estimate single neuron firing rates
-    spike_counts = np.sum(Y, axis=0)  # Total spikes per neuron
-    firing_rates = spike_counts / total_time  # Hz
-    
-    # Estimate firing rate standard errors (assuming Poisson process)
-    # For Poisson process, variance = mean, so SE = sqrt(mean/N)
-    firing_rate_errors = np.sqrt(firing_rates / n_time_steps)
-    
-    # Estimate pairwise coincidence rates
-    coincidence_rates = np.zeros((n_neurons, n_neurons))
-    coincidence_rate_errors = np.zeros((n_neurons, n_neurons))
-    
-    for i in range(n_neurons):
-        for j in range(n_neurons):
-            if i == j:
-                # Self-coincidence is just the firing rate
-                coincidence_rates[i, j] = firing_rates[i]
-                coincidence_rate_errors[i, j] = firing_rate_errors[i]
-            else:
-                # Count simultaneous spikes (coincidences)
-                coincidences = np.sum(Y[:, i] & Y[:, j])
-                coincidence_rates[i, j] = coincidences / total_time
-                
-                # Estimate standard error for coincidence rate
-                # For small coincidence rates, use Poisson approximation
-                if coincidences > 0:
-                    coincidence_rate_errors[i, j] = np.sqrt(coincidences) / total_time
-                else:
-                    # For zero coincidences, use upper bound based on firing rates
-                    coincidence_rate_errors[i, j] = np.sqrt(firing_rates[i] * firing_rates[j] / n_time_steps)
-                
-    return firing_rates, firing_rate_errors, coincidence_rates, coincidence_rate_errors
 
-def eval_spikes_stats(Y, dt, num_excite, mxNn=5):
-    """Evaluates and prints statistics of the generated spike data."""
-    num_steps_sim, Nn_sim = Y.shape
-    num_inhib = Nn_sim - num_excite
-    time_evol = num_steps_sim * dt
-    print('steps num_steps=%d, time_evol=%.1f sec, Nn=%d (%d Excit, %d Inhib)' % (num_steps_sim, time_evol, Nn_sim, num_excite, num_inhib))
+#########################
+#  MAIN
+#########################
 
-    spike_counts = np.sum(Y, axis=0)
-    spike_rates = spike_counts / time_evol
-    mean_counts_per_bin = np.mean(Y, axis=0)
-    spike_variance = np.var(Y, axis=0)
-    # Fano Factor can be undefined if mean is zero
-    fano_factor = np.divide(spike_variance, mean_counts_per_bin, out=np.zeros_like(spike_variance), where=mean_counts_per_bin!=0)
 
-    mxE = min(mxNn, num_excite)
-    mxI = min(mxNn, num_inhib)
 
-    print('\n--- Stats for first %d Excitatory Neurons ---' % mxE)
-    np.set_printoptions(precision=2)
-    print('Total Spike Counts:                   %s' % spike_counts[:mxE])
-    print('Mean Firing Rate (Hz):                %s' % spike_rates[:mxE])
-    print('Mean Spike Count per bin (dt=%.3fs): %s' % (dt, mean_counts_per_bin[:mxE]))
-    print('Spike Count Variance per bin:         %s' % spike_variance[:mxE])
-    print('Fano Factor (Var/Mean):               %s' % fano_factor[:mxE])
-
-    if num_inhib > 0:
-        print('\n--- Stats for first %d Inhibitory Neurons ---' % mxI)
-        np.set_printoptions(precision=2)
-        inhib_slice = slice(num_excite, num_excite + mxI)
-        print('Total Spike Counts:                   %s' % spike_counts[inhib_slice])
-        print('Mean Firing Rate (Hz):                %s' % spike_rates[inhib_slice])
-        print('Mean Spike Count per bin (dt=%.3fs): %s' % (dt, mean_counts_per_bin[inhib_slice]))
-        print('Spike Count Variance per bin:         %s' % spike_variance[inhib_slice])
-        print('Fano Factor (Var/Mean):               %s' % fano_factor[inhib_slice])
-
-    # --- Summary Stats ---
-    print('\n--- Population Summary Statistics ---')
-    # All neurons
-    avg_rate_all = np.mean(spike_rates)
-    std_rate_all = np.std(spike_rates)
-    avg_fano_all = np.mean(fano_factor)
-    std_fano_all = np.std(fano_factor)
-    print('All    (%d neurons): Avg Rate=%.2f±%.2f Hz, Avg Fano=%.2f±%.2f' % (Nn_sim, avg_rate_all, std_rate_all, avg_fano_all, std_fano_all))
-
-    # Excitatory neurons
-    avg_rate_e = np.mean(spike_rates[:num_excite])
-    std_rate_e = np.std(spike_rates[:num_excite])
-    avg_fano_e = np.mean(fano_factor[:num_excite])
-    std_fano_e = np.std(fano_factor[:num_excite])
-    print('Excit (%d neurons): Avg Rate=%.2f±%.2f Hz, Avg Fano=%.2f±%.2f' % (num_excite, avg_rate_e, std_rate_e, avg_fano_e, std_fano_e))
-
-    # Inhibitory neurons
-    if num_inhib > 0:
-        avg_rate_i = np.mean(spike_rates[num_excite:])
-        std_rate_i = np.std(spike_rates[num_excite:])
-        avg_fano_i = np.mean(fano_factor[num_excite:])
-        std_fano_i = np.std(fano_factor[num_excite:])
-        print('Inhib (%d neurons): Avg Rate=%.2f±%.2f Hz, Avg Fano=%.2f±%.2f' % (num_inhib, avg_rate_i, std_rate_i, avg_fano_i, std_fano_i))
-
-    print('')
-
- 
 def main():
     parser = argparse.ArgumentParser(description="Simulate a recurrent neural network with Dale's principle.")
     parser.add_argument("--num_neurons", type=int, default=35, help="Total number of neurons in the network.")
@@ -406,8 +303,12 @@ def main():
     pprint(evol_conf)
     print('')
 
-    B_intercept = np.random.uniform(Bi[0],Bi[1], size=(Nn,))
-    if args.verb > 1:
+    if 0: # do uniform freq sperad
+        B_intercept = np.random.uniform(Bi[0],Bi[1], size=(Nn,))
+    else:
+        B_intercept =  np.log(generate_mixture_spike_frequencies(num_samples=Nn))
+        #print('B_intercept:',B_intercept[:])
+    if args.verb > 1: 
         print('B_intercept avr=%.1f  vec:%s'%(np.mean(B_intercept),B_intercept))
         print('exp(B_intercept) avr=%.1f  vec:%s'%(np.mean(np.exp(B_intercept)),np.exp(B_intercept)))
 
@@ -440,21 +341,17 @@ def main():
     print(f"Firing rates: mean={np.mean(firing_rates):.2f} ± {np.std(firing_rates):.2f} Hz")
     print(f"Coincidence rates: mean={np.mean(coincidence_rates):.4f} ± {np.std(coincidence_rates):.4f} Hz")
 
-    # Split output into two files
-    # 1. Spike trains and rates
-    spikes_file = os.path.join(args.outPath, args.dataName+'.spikes.npz')
-    # Convert to uint8 and clip at max value
-    Y_uchar = np.clip(Y, 0, 255).astype(np.uint8)
-    np.savez(spikes_file, Y=Y_uchar, firing_rates=firing_rates, firing_rate_errors=firing_rate_errors, 
-             coincidence_rates=coincidence_rates, coincidence_rate_errors=coincidence_rate_errors)
-    print('Spike data and rates saved to %s (uint8, clipped at 255)' % spikes_file)
-    
-    # 2. All other truth data
-    truth_file = os.path.join(args.outPath, args.dataName+'.truth.npz')
-    np.savez(truth_file, A=A, B_intercept=B_intercept, conf=dale_conf, evol_conf=evol_conf)
-    print('Truth data saved to %s' % truth_file)
+    bigD = {
+            'firing_rates': firing_rates,
+            'firing_rate_errors': firing_rate_errors,
+            'coincidence_rates': coincidence_rates,
+            'coincidence_rate_errors': coincidence_rate_errors
+        }
+    # Save simulation data using utility function
+    save_simulation_data(Y, A, B_intercept, dale_conf, evol_conf, firing_rates, firing_rate_errors, 
+                        coincidence_rates, coincidence_rate_errors, args.dataName, args.outPath)
 
-    print('\n  ./fit_struct.py  --dataName %s ' % (args.dataName))
+    print('\n  ./fit_poisson.py  --dataName %s ' % (args.dataName))
     #--------------------------------
     # ....  plotting ........
     MD={'num_excit_neur':args.num_excite,'short_name':args.dataName}
@@ -466,7 +363,7 @@ def main():
     if 'b' in args.showPlots:
         plot.histo_true_weights(A,MD,figId=2)
     if 'c' in args.showPlots:
-        plot.rate_analysis(firing_rates, firing_rate_errors, coincidence_rates, coincidence_rate_errors, MD, figId=3)
+        plot.rate_analysis(bigD['firing_rates'], bigD['firing_rate_errors'], bigD['coincidence_rates'], bigD['coincidence_rate_errors'], MD, figId=3)
 
     plot.display_all()
     print('M:done')
