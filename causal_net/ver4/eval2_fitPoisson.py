@@ -198,7 +198,7 @@ def main():
     parser.add_argument("--dataName", type=str, default='dale_M120_3M', help="Base name for the dataset")
     parser.add_argument("--dataPath", type=str, default="out/", help="Path to the data directory")
     parser.add_argument('-d',"--target_density", type=float, default=None, help="Target density level (0.2 = 80% zeros), or use simu conf")
-    parser.add_argument('-p',"--showPlots", type=str,nargs='+', default="a", help="Plot types to show: a=structure, b=distributions, c=reconstruction, d=category")
+    parser.add_argument('-p',"--showPlots", type=str,nargs='+', default="ab", help="Plot types to show: a=structure, b=distributions, c=reconstruction, d=category, d=A-matrix histograms")
     parser.add_argument("--outPath", type=str, default="out/", help="Output path for plots (defaults to dataPath)")
     parser.add_argument('-X',"--noXterm", action="store_true", help="Disable X terminal for plotting")
     parser.add_argument("--verb", type=int, default=1, help="Verbosity level")
@@ -236,6 +236,9 @@ def main():
         
     if 'b' in args.showPlots:
         plot.daleA_and_eigen(bigD, maskD,MD, figId=2)
+        
+    if 'd' in args.showPlots:
+        plot.plot_slicedA_histos(bigD, maskD,MD, figId=3)
 
     # Display all plots
     plot.display_all()

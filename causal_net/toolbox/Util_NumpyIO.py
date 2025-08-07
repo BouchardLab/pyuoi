@@ -16,7 +16,7 @@ import json
 from pprint import pprint
 
 #...!...!..................
-def write1_data_npz(dataD,outF,metaD=None,verb=1):
+def write_data_npz(dataD,outF,metaD=None,verb=1):
     assert type(dataD)!=type(None)
     assert len(outF)>0
     
@@ -36,14 +36,14 @@ def write1_data_npz(dataD,outF,metaD=None,verb=1):
         rec = dataD[item]
         if verb>1: print('x=',item,type(rec))
         
-        if type(rec)==str: # special case
+        if isinstance(rec, dict):
+            # Serialize nested dictionary to a JSON string
+            rec_str = json.dumps(rec, default=lambda o: o.tolist() if isinstance(o, np.ndarray) else o)
+            rec = np.array([rec_str], dtype='object')
+        elif type(rec)==str:
             rec = np.array([rec], dtype='object')
-            if verb>0: print('npz-write :',item, 'as string',rec.shape,rec.dtype)
-        elif type(rec)!=np.ndarray: # packs a single value into np-array
+        elif type(rec)!=np.ndarray:
             rec = np.array([rec])
-            if verb>0: print('npz-write :',item, 'as single value',rec.shape,rec.dtype)
-        else:
-            if verb>0: print('npz-write :',item, rec.shape,rec.dtype)
         
         npz_data[item] = rec
     
@@ -55,7 +55,7 @@ def write1_data_npz(dataD,outF,metaD=None,verb=1):
 
     
 #...!...!..................
-def read1_data_npz(inpF,verb=1):
+def read_data_npz(inpF,verb=1):
     if verb>0:
             print('read data from npz:',inpF)
             start = time.time()
@@ -110,9 +110,8 @@ if __name__=="__main__":
     three=np.empty((2), dtype='object')
     three[0]='record aaaa'
     three[1]='much longer record bbb'
-    # WARN:  all declared elements of three[] must be initialized before writing NPZ
     
-    # this works too:
+    # this works too??:
     # three=np.array(['record aaaa','much longer record bbb'], dtype='object')
     
     text='This is text1'  
@@ -121,17 +120,35 @@ if __name__=="__main__":
    
     outD={'one':one,'two':two,'var1':var1,'atext':text,'three':three}
 
-    write1_data_npz(outD,outF,metaD=metaD,verb=verb)
+    # ... nested dict of numpy
+    subD={'one1':one,'two1':two}
+    outD['sub']=subD
+    
+    write_data_npz(outD,outF,metaD=metaD,verb=verb)
 
     print('\nM: *****  verify by reading it back from',outF)
-    big,meta2=read1_data_npz(outF,verb=verb)
+    big,meta2=read_data_npz(outF,verb=verb)
     from pprint import pprint        
     print(' recovered meta-data'); pprint(meta2)
     print('dump read-in data')
-    for x in big:
-        print('\nkey=',x); pprint(big[x])
+    for key, item in big.items():
+        # Detect nested dict stored as JSON in object array
+        if isinstance(item, np.ndarray) and item.dtype == object and len(item) == 1 and isinstance(item[0], str):
+            try:
+                parsed = json.loads(item[0])
+                if isinstance(parsed, dict):
+                    for subk, subv in parsed.items():
+                        print(f"{key}.{subk}: {subv}")
+                    continue
+            except json.JSONDecodeError:
+                pass
+        # Fallback: print numpy arrays or other items
+        if isinstance(item, np.ndarray):
+            print(f"{key}: {item.tolist()}")
+        else:
+            print(f"{key}: {item}")
   
     #decode one string from string-array
     rec2=big['three'][1]  # No need for .decode("utf-8") in npz
     print('rec2:',type(rec2),rec2)
-    print('\n check raw content:   python -c "import numpy as np; data=np.load(\'%s\'); print(data.files); [print(k, data[k].shape, data[k].dtype) for k in data.files]"\n'%outF) 
+    print('\n check raw content:   python -c "import numpy as np; data=np.load(\'%s\', allow_pickle=True); print(data.files); [print(k, data[k].shape, data[k].dtype) for k in data.files]"\n'%outF) 

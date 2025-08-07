@@ -210,8 +210,8 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.3)
         numExc=md['num_excit_neur']
         ax.axvline(numExc-0.5,color='k',ls='--')
-        ax.set_yscale('log')
-        #ax.set_ylim(0,)
+        #ax.set_yscale('log')
+        ax.set_ylim(0,)
         
         # 2D plot: Coincidence rates matrix
         ax = self.plt.subplot(nrow,ncol,3)

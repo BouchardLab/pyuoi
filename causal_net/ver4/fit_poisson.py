@@ -278,6 +278,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=2048*8, help="Batch size for training")
     parser.add_argument("--lr", type=float, default=0.001, help="Learning rate")
     parser.add_argument("--L1_alpha", type=float, default=2.0e-07, help="L1 regularization parameter")
+    parser.add_argument("--desync_time", type=int, default=0, help="Time shift for decorrelation (0=disabled, >0=shift consecutive neurons by this many time bins)")
     parser.add_argument("--num_workers", type=int, default=16, help="Number of data loader workers")
     
     args = parser.parse_args()

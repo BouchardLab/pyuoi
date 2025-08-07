@@ -183,7 +183,7 @@ def generate_poisson_var1(num_steps, dt, A, B_intercept, num_excite, verb=0):
     if verb>0:
         print('t=0 Y[t] sum=%d, Excit(first 3):%s, Inhib(first 3):%s'%(np.sum(Y[0]), Y[0][:3], Y[0][num_excite:num_excite+3]))
 
-    kk=7
+    kk=12
     # Main simulation loop
     for t in range(1, num_steps):
         eta = A @ Y[t-1] + B_intercept
@@ -303,9 +303,9 @@ def main():
     pprint(evol_conf)
     print('')
 
-    if 0: # do uniform freq sperad
+    if 1: # flat-freq sperad
         B_intercept = np.random.uniform(Bi[0],Bi[1], size=(Nn,))
-    else:
+    else: # expo-freq
         B_intercept =  np.log(generate_mixture_spike_frequencies(num_samples=Nn))
         #print('B_intercept:',B_intercept[:])
     if args.verb > 1: 
@@ -332,8 +332,8 @@ def main():
 
     # Compute firing rates and coincidence rates
     print("\n=== Computing Firing Rates and Coincidence Rates ===")
-    # Use only up to 500,000 samples for rate computation
-    max_samples_for_rates = 300000
+    # Use only subset of samples for rate computation
+    max_samples_for_rates = 100000
     Y_for_rates = Y[:max_samples_for_rates] if Y.shape[0] > max_samples_for_rates else Y
     print(f"Using {Y_for_rates.shape[0]} samples (out of {Y.shape[0]}) for rate computation")
     firing_rates, firing_rate_errors, coincidence_rates, coincidence_rate_errors = estimate_rates_with_errors(Y_for_rates, dt=args.step_size)

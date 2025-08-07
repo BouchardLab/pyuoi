@@ -66,6 +66,22 @@ def load_data_and_rates(args):
     n_samples = Y.shape[0]
     print(f"Using {n_samples} time steps for fitting")
     
+    # Apply decorrelation if requested
+    if hasattr(args, 'desync_time') and args.desync_time > 0:
+        print(f"\n=== Applying Time Decorrelation ===")
+        print(f"Shifting consecutive neurons by {args.desync_time} time bins")
+        
+        Y_decorr = Y.copy()
+        for neuron_idx in range(n_neurons):
+            shift_amount = neuron_idx * args.desync_time
+            if shift_amount > 0:
+                # Circular shift: move data to the right, wrap around
+                Y_decorr[:, neuron_idx] = np.roll(Y[:, neuron_idx], shift_amount)
+                
+        print(f"Applied time shifts from 0 to {(n_neurons-1) * args.desync_time} bins")
+        print(f"This destroys temporal correlations between neurons")
+        Y = Y_decorr
+    
     return {
         'Y': Y,
         'firing_rates': firing_rates,
