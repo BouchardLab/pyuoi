@@ -55,12 +55,11 @@ class PoissonGLModel(nn.Module):
                 
                 # Second part: B elements
                 self.C[n_trainable_A:] = B_t
-                
                 # Add random noise if requested
                 if noise_scale > 0:
                     noise = torch.randn_like(self.C) * noise_scale
                     self.C += noise
-                    print(f"Added random noise with scale {noise_scale} to Stage B initialization")
+                    #print(f"Added random noise with scale {noise_scale} to Stage B initialization")
             
             self.n_trainable_A = n_trainable_A
 

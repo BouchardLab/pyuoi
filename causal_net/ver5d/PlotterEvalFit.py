@@ -32,14 +32,10 @@ class Plotter(PlotterBackbone):
         B_true = trueD['B_true']
         A_fit = fitD['A_'+fitType]
         B_fit = fitD['B_'+fitType]
-  
-        train_losses = fitD['train_losses']
-        val_losses = fitD['val_losses']
-       
+        
         for j,ntype in enumerate(['exc','inh']):
             gmask=trueD['mask.geom.'+ntype]
             tmask=trueD['mask.true.'+ntype]
-            #fmask=fitD['mask.%s.%s'%(fitType,ntype)]
             fmask=fitD['mask.lasso.%s'%(ntype)]
         
             ax = self.plt.subplot(nrow,ncol,1+j)
@@ -69,21 +65,8 @@ class Plotter(PlotterBackbone):
             
         #...... Training curves
         ax = self.plt.subplot(nrow,ncol,3)
-        epoch0=3 # skip intial loss values
-        epochs = np.arange(len(train_losses))
-        ax.plot(epochs[epoch0:], train_losses[epoch0:], label='Train '+fitType, color='blue', linestyle='-')
-        ax.plot(epochs[epoch0:], val_losses[epoch0:], label='Val', color='blue', linestyle='--')
-
-        ax.set_xlim(0,)  # x-axis starts at 0
-
-        #pprint(md)
-        title = md["short_name"]
-        ax.set(xlabel='Epoch', ylabel='Loss', title=title)
-
-        titl='%dk samp'%(fmd["num_samples_used"]/1000)
-        ax.legend(title=titl)
-        ax.grid(True, alpha=0.3)
-       
+        plot_trainingCurves(ax,fitD,md,fitType)
+                            
         #..... all values of A
         ax = self.plt.subplot(nrow,ncol,4)
         ax.hist(A_fit[~mask_diag], bins=100, alpha=0.7)
@@ -142,7 +125,7 @@ class Plotter(PlotterBackbone):
         A_fit = fitD['A_'+fitType]
 
         num_neurons = A_fit.shape[0]
-        wzoomMx=0.10        
+        wzoomMx=0.05        
         # Remove diagonal elements by setting them to NaN
         A_fit_no_diag = A_fit.copy()
         np.fill_diagonal(A_fit_no_diag, np.nan)
@@ -218,6 +201,26 @@ class Plotter(PlotterBackbone):
 #............................
 #............................
    
+def plot_trainingCurves(ax,fitD,md,fitType,title='aa3'):
+    fmd=md['fit_'+fitType]
+            
+    train_losses = fitD['train_losses']
+    val_losses = fitD['val_losses']
+    epochsT=fitD['train_loss_epochs']
+    epochsV=fitD['val_loss_epochs']
+ 
+    epoch0=3 # skip intial loss values
+    epochs = np.arange(len(train_losses))
+    ax.plot(epochsT[epoch0:], train_losses[epoch0:], label='Train '+fitType, color='blue', linestyle='-')
+    ax.plot(epochsV, val_losses, label='Val', color='red', linestyle='--')
+    
+    title = md["short_name"]
+    ax.set(xlabel='Epoch', ylabel='Loss', title=title)
+    
+    titl='%dk samp'%(fmd["num_samples_used"]/1000)
+    ax.legend(title=titl)
+    ax.grid(True, alpha=0.3)
+  
 def plot_Afit(fig,ax,A,mask,title='aa'):
     Am=A.copy()
     Am[~mask]=0
@@ -278,8 +281,8 @@ def plot_correl_diag(fig,ax,Bt,Bf,exc_mask,title='aa2'):
     BtFl=Bt.flatten()
     BfFl=Bf.flatten()
   
-    ax.scatter(BtFl[exc_mask], BfFl[exc_mask], alpha=0.6, color='salmon',label='exc: %d'%np.sum(exc_mask), facecolors='none')
     ax.scatter(BtFl[~exc_mask], BfFl[~exc_mask], alpha=0.6, color='blue',label='inh: %d'%np.sum(~exc_mask), facecolors='none')
+    ax.scatter(BtFl[exc_mask], BfFl[exc_mask], alpha=0.6, color='salmon',label='exc: %d'%np.sum(exc_mask), facecolors='none')
     add_x45_lins(ax, only45=True)
     ax.set(aspect=1. ,xlabel='true value',ylabel='fitted',title=title)
     ax.grid(True, alpha=0.5)
@@ -360,9 +363,9 @@ def plot_1d_histo_with_stats(ax, group_values, start_row, end_row, group_idx, co
                    color='black', capsize=8, capthick=1, linewidth=1, zorder=9)
     
     ax.set_yscale('log')  # Set y-axis to log scale
-    ax.set_xlabel('A-matrix value')
+    ax.set_xlabel('off-diagonal weight value')
     ax.set_ylabel('count')
-    ax.set_title(f'Group {group_idx+1}: neurons {start_row}-{end_row-1} (n={len(group_values)})')
+    ax.set_title(f'Fitted weights, group {group_idx+1}: neurons {start_row}-{end_row-1} (n={len(group_values)})')
     ax.grid(True, alpha=0.3)
     
     # Limit y-range from 0.5 to max count

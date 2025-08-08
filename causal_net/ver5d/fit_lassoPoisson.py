@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+''' mutli GPU & 1 node execution
+ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --standalone --nproc_per_node=4 ./fit_lassoPoisson.py --dataName daleM600_443813 --batch_size 16384 --n_epochs 5 --dataPath /pscratch/sd/b/balewski/tmp2 
+'''
+
 import os
 import time
 import argparse
@@ -11,57 +15,17 @@ from torch.utils.data import TensorDataset, DataLoader
 from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
 from PoissonGLModel import PoissonGLModel, poisson_nll_loss
 
-from UtilTorch import check_gpu_availability, preprocess_data
+from UtilTorch import check_gpu_availability, preprocess_data, train_Poisson_model
 from UtilDalePoissonV5 import select_eges_from_fitLasso
 
-def train_Poisson_model(model, device, train_loader, val_loader, n_epochs, lr, L1_alpha=0.0, use_scheduler=False, firing_rates=None):
-    model.to(device)
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.1, total_iters=n_epochs) if use_scheduler else None
-     
-    diag_mask = torch.eye(model.n_neurons, device=device).bool()
-    L1_weight_matrix = torch.ones(model.n_neurons, model.n_neurons, device=device)
-    L1_weight_matrix[diag_mask] = 0.0
-    
-    firing_rates_tensor = torch.tensor(firing_rates, dtype=torch.float32, device=device) if firing_rates is not None else None
-    
-    train_losses, val_losses, learning_rates = [], [], []
-    start_time = time.time()
-    
-    for epoch in range(n_epochs):
-        model.train()
-        train_loss = 0
-        for Y_prev, Y_curr in train_loader:
-            Y_prev, Y_curr = Y_prev.float().to(device), Y_curr.float().to(device)
-            optimizer.zero_grad()
-            spikes = model(Y_prev)
-            loss = poisson_nll_loss(spikes, Y_curr, firing_rates_tensor)
-            if L1_alpha > 0:
-                loss += L1_alpha * torch.mean(torch.abs(model.A) * L1_weight_matrix)
-            loss.backward()
-            optimizer.step()
-            train_loss += loss.item()
-        
-        model.eval()
-        val_loss = 0
-        with torch.no_grad():
-            for Y_prev, Y_curr in val_loader:
-                Y_prev, Y_curr = Y_prev.float().to(device), Y_curr.float().to(device)
-                spikes = model(Y_prev)
-                val_loss += poisson_nll_loss(spikes, Y_curr, firing_rates_tensor).item()
-        
-        train_losses.append(train_loss / len(train_loader))
-        val_losses.append(val_loss / len(val_loader))
-        learning_rates.append(optimizer.param_groups[0]['lr'])
-        
-        if scheduler:
-            scheduler.step()
-           
-        if (epoch + 1) % 2 == 0:
-            print(f"Epoch {epoch+1}/{n_epochs}: TrainLoss={train_losses[-1]:.4f}, ValLoss={val_losses[-1]:.4f}, LR={learning_rates[-1]:.1e}, Elapsed={(time.time() - start_time):.1f}s")
-        
-            
-    return train_losses, val_losses, learning_rates
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
+from torch.utils.data import Dataset
+
+VAL_EVERY = 10  # validate every N epochs
+
+VAL_EVERY = 10  # validate every N epochs
 
 
 
@@ -85,12 +49,31 @@ def main():
 
     args = parser.parse_args()
 
-    print("Configuration:", vars(args))
-    device = check_gpu_availability()
+    # DDP init
+    is_dist = (int(os.environ.get('WORLD_SIZE', '1')) > 1) or ('LOCAL_RANK' in os.environ) or ('RANK' in os.environ)
+    if is_dist:
+        dist.init_process_group(backend='nccl')
+        local_rank = int(os.environ['LOCAL_RANK'])
+        rank = dist.get_rank()
+        world_size = dist.get_world_size()
+        torch.cuda.set_device(local_rank)
+        device = torch.device(f"cuda:{local_rank}")
+    else:
+        local_rank = 0; rank = 0; world_size = 1
+        device = check_gpu_availability()
+    if rank==0:
+        print("Configuration:", vars(args))
+        print("world_size=%d" % (world_size))
+    # enable fast matmul paths
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.set_float32_matmul_precision('high')
+    gpu_name = torch.cuda.get_device_name(device) if isinstance(device, torch.device) and device.type=='cuda' else str(device)
+    print("[rank %d] Using device %s : %s" % (rank, str(device), gpu_name))
     
-    # --- Modern data loading from fit_stageA.py ---
+    # --- Modern data loading  ---
     spikesFF = os.path.join(args.dataPath, f"{args.dataName}.spikes.npz")
-    spikeD, spikeMD = read_data_npz(spikesFF)
+    spikeD, spikeMD = read_data_npz(spikesFF,verb=rank==0)
     dataYield, dataRates = spikeD['spikes'], np.clip(spikeD['single_rates'], 0.1, 40.0)
     T, M = dataYield.shape
     step_size = spikeMD['dale_simu_stats']['time_step_sec']
@@ -108,56 +91,70 @@ def main():
     
     assert n_train >= args.batch_size, f"ERROR: Not enough training samples ({n_train}) for batch size ({args.batch_size})."
 
+    class NumpyPairDataset(Dataset):
+        def __init__(self, X_np, Y_np):
+            self.X = X_np
+            self.Y = Y_np
+            self.n = X_np.shape[0]
+        def __len__(self):
+            return self.n
+        def __getitem__(self, idx):
+            return torch.from_numpy(self.X[idx]).to(dtype=torch.float32), torch.from_numpy(self.Y[idx]).to(dtype=torch.float32)
+
     def make_loader(X, Yt, shuffle=True):
-        return DataLoader(TensorDataset(torch.tensor(X, dtype=torch.float32), torch.tensor(Yt, dtype=torch.float32)), 
-                         batch_size=args.batch_size, shuffle=shuffle, drop_last=shuffle)
+        dataset = NumpyPairDataset(X, Yt)
+        if is_dist:
+            sampler = DistributedSampler(dataset, shuffle=shuffle)
+            return DataLoader(dataset, batch_size=max(1, args.batch_size//world_size), sampler=sampler, shuffle=False, drop_last=shuffle,
+                              pin_memory=True, pin_memory_device='cuda', num_workers=8, persistent_workers=True, prefetch_factor=8)
+        else:
+            return DataLoader(dataset, batch_size=args.batch_size, shuffle=shuffle, drop_last=shuffle, pin_memory=True, pin_memory_device='cuda', num_workers=8,
+                              persistent_workers=True, prefetch_factor=8)
     
     train_loader = make_loader(X_np[:n_train], Yt_np[:n_train])
     val_loader = make_loader(X_np[n_train:], Yt_np[n_train:], shuffle=False)
     
-    print(f"Loaded T={T}, M={M}, using {n_pairs} pairs ({n_train} train, {n_pairs-n_train} val), step_size={step_size}")
+    if rank==0:
+        print(f"Loaded T={T}, M={M}, using {n_pairs} pairs ({n_train} train, {n_pairs-n_train} val), world_size={world_size}, per_gpu_bs={args.batch_size//max(1,world_size)}")
 
     # --- Original training logic from fit_poissonV4.py ---
-    model = PoissonGLModel(M)
+    base_model = PoissonGLModel(M).to(device)
+    model = DDP(base_model, device_ids=[local_rank]) if is_dist else base_model
     start_time = time.time()
-    train_losses, val_losses, learning_rates = train_Poisson_model(
-        model, device, train_loader, val_loader, args.n_epochs, lr=args.lr, L1_alpha=args.L1_alpha, firing_rates=dataRates, use_scheduler=True
+    train_losses, val_losses, learning_rates, train_epochs, val_epochs = train_Poisson_model(
+        model, device, train_loader, val_loader, args.n_epochs, lr=args.lr, L1_alpha=args.L1_alpha, firing_rates=dataRates, use_scheduler=True,
+        train_sampler=train_loader.sampler if isinstance(train_loader.sampler, DistributedSampler) else None
     )
     total_time = time.time() - start_time
-    print(f"Training completed in {total_time:.1f} seconds")
+    if rank==0:
+        print(f"Training completed in {total_time:.1f} seconds")
 
     # --- Modern output saving from fit_stageA.py ---
-    lassoD = {
-        'A_lasso': model.A.detach().cpu().numpy(), 
-        'B_lasso': model.B.detach().cpu().numpy(),
-        'train_losses': np.array(train_losses), 
-        'val_losses': np.array(val_losses),
-        'learning_rates': np.array(learning_rates),
-        'firing_rates': dataRates
-    }
-    
-    lassoMD = {
-        'lassoFit_output_name': fit_core, 'lassoFit_input_name': args.dataName,
-        'batch_size': args.batch_size, 'num_samples_used': n_pairs, 'n_epochs': args.n_epochs,
-        'num_train_samples': n_train, 'num_val_samples': n_pairs-n_train,
-        'learning_rate': args.lr, 'L1_alpha': args.L1_alpha, 'step_size': step_size,
-        'training_time_sec': total_time, 'num_neurons': M,
-    }
-
-    # ... select edges in A_fit matrix ...
-    lassoD['ampl_thres']= args.ampl_thres
-    spikeMD['fit_lasso']=lassoMD
-    maskF=select_eges_from_fitLasso(lassoD,args.ampl_thres)
-    
-    for xx in maskF:
-        lassoD['mask.lasso.'+xx]=maskF[xx]
-    spikeMD['short_name']=fit_core
+    if rank==0:
+        mdl = model.module if hasattr(model,'module') else model
+        lassoD = { 'A_lasso': mdl.A.detach().cpu().numpy(), 'B_lasso': mdl.B.detach().cpu().numpy(), 'train_losses': np.array(train_losses), 'val_losses': np.array(val_losses), 'train_loss_epochs': np.array(train_epochs, dtype=np.int32), 'val_loss_epochs': np.array(val_epochs, dtype=np.int32), 'learning_rates': np.array(learning_rates), 'firing_rates': dataRates }
+        lassoMD = { 'lassoFit_output_name': fit_core, 'lassoFit_input_name': args.dataName, 'batch_size': args.batch_size, 'num_samples_used': n_pairs, 'n_epochs': args.n_epochs, 'num_train_samples': n_train, 'num_val_samples': n_pairs-n_train, 'learning_rate': args.lr, 'L1_alpha': args.L1_alpha, 'step_size': step_size, 'training_time_sec': total_time, 'num_neurons': M }
+        # ... select edges in A_fit matrix ...
+        lassoD['ampl_thres']= args.ampl_thres
+        spikeMD['fit_lasso']=lassoMD
+        maskF=select_eges_from_fitLasso(lassoD,args.ampl_thres)
+        for xx in maskF:
+            lassoD['mask.lasso.'+xx]=maskF[xx]
+        spikeMD['short_name']=fit_core
      
-    fitFF = os.path.join(args.dataPath, f"{fit_core}.lasso.npz")
-    write_data_npz(lassoD, fitFF, metaD=spikeMD)
+    if rank==0:
+        fitFF = os.path.join(args.dataPath, f"{fit_core}.lasso.npz")
+        write_data_npz(lassoD, fitFF, metaD=spikeMD)
 
-    print('\n  ./eval_fit.py  --dataName %s   -p a b ' % (fit_core))
-    print('\n  ./fit_regressPoisson.py  --dataName %s  ' % (fit_core))
+    if rank==0:
+        print('\n  ./eval_fit.py  --dataName %s   -p a b ' % (fit_core))
+        print('\n  ./fit_regressPoisson.py  --dataName %s  ' % (fit_core))
+        print(' --dataPath /pscratch/sd/b/balewski/tmp2')
+    
+    # ensure distributed shutdown to avoid resource leak warning
+    if is_dist and dist.is_initialized():
+        dist.barrier()
+        dist.destroy_process_group()
 
 if __name__ == "__main__":
     main()
