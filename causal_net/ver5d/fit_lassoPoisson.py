@@ -81,7 +81,7 @@ def main():
     parser.add_argument("--L1_alpha", type=float, default=1e-3)
     parser.add_argument("--fitName", type=str, default=None)
     parser.add_argument("--desync_time", type=int, default=0, help="Time shift for decorrelation (0=disabled, >0=shift consecutive neurons by this many time bins)")
-    parser.add_argument('-a',"--ampl_thres", type=float, default=0.07, help="minima amplitude of valid off-diagonal edge")
+    parser.add_argument('-a',"--ampl_thres", type=float, default=0.05, help="minima amplitude of valid off-diagonal edge")
 
     args = parser.parse_args()
 
@@ -151,13 +151,13 @@ def main():
     
     for xx in maskF:
         lassoD['mask.lasso.'+xx]=maskF[xx]
-    fitMD['short_name']=fit_core
+    spikeMD['short_name']=fit_core
      
     fitFF = os.path.join(args.dataPath, f"{fit_core}.lasso.npz")
     write_data_npz(lassoD, fitFF, metaD=spikeMD)
 
-    print('\n  ./eval_fit.py  --dataName %s ' % (fit_core))
-    print('\n  ./fit_regress.py  --dataName %s   -p a  ' % (fit_core))
+    print('\n  ./eval_fit.py  --dataName %s   -p a b ' % (fit_core))
+    print('\n  ./fit_regressPoisson.py  --dataName %s  ' % (fit_core))
 
 if __name__ == "__main__":
     main()

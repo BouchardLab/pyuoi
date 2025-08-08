@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import TensorDataset, DataLoader
 
 from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
-from PoissonGLM import PoissonGLModel, poisson_nll_loss
+from PoissonGLModel import PoissonGLModel, poisson_nll_loss
 
 from UtilTorch import check_gpu_availability, preprocess_data
 from fit_lassoPoisson import train_Poisson_model
@@ -168,7 +168,7 @@ def main():
     fitMD['short_name']=args.fitName
     write_data_npz(bigD, fit2FF, metaD=fitMD)
 
-    print('\n  ./eval_fit.py  --dataName %s ' % (args.fitName))
+    print('\n  ./eval_fit.py  --dataName %s -p a ' % (args.fitName))
 
 if __name__ == "__main__":
     main()

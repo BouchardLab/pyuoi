@@ -35,10 +35,15 @@ def gen_init_W(num_neurons, num_excite, rho_true, gamma, R, varyW, minW,diag=0):
     wC = R/np.sqrt(p_eff * (1 - p_eff) * (1 + gamma**2)/2)  # central value
     
     # decide how much variation in  weights
-    wL=max(wC/varyW  / np.sqrt(num_neurons),minW)
-    wR=wC*varyW  / np.sqrt(num_neurons)
-    print(f"    Weight parameters: wC={wC:.3f}, wL={wL:.3f}, wR={wR:.3f}, p_eff={p_eff:.3f}")
-
+    assert varyW<1
+    wL=wC*varyW  / np.sqrt(num_neurons)
+    wR=wC/varyW  / np.sqrt(num_neurons)
+    if wL< minW:  # shift both by the difference
+        delW=minW-wL
+        wL+=delW
+        wR+=delW
+    print(f"    Weight parameters: wL={wL:.3f}, wR={wR:.3f}, p_eff={p_eff:.3f}")
+    
     for j in range(num_neurons):
         # Determine the number of connections for this neuron
         num_connections = rho_true[j]
@@ -84,7 +89,7 @@ def stabilize(A, max_iter=3000, eta=50, C=3.0, B=1.0,delta=0.2,minW=0.1):
     iter_ = 0
 
     while alpha > -delta and iter_ < max_iter:
-        if iter_ % 500 == 0:
+        if iter_ % 100 == 0:
             print(f"    Iteration {iter_}: alpha={alpha:.3f}")
 
         alpha_e = max(C * alpha, C * alpha + B)
@@ -124,7 +129,7 @@ def gen_dale_matrics(conf, rho_true):
 
     # additional configuration
     varyW=0.5  #  controll variation of excitatory weights
-    minW=0.25  # sets minimal value of any weights, also after stabilization
+    minW=0.1  # sets minimal value of any weights, also after stabilization
     eigenGap=0.2 # sets threshold on Re(eigen value) after stabilization
     
     A = gen_init_W(num_neurons, num_excite, rho_true, g, r, varyW=varyW, minW=minW, diag=-1)
@@ -243,13 +248,15 @@ def main():
     parser.add_argument('-X',"--noXterm", action="store_true", help="Disable X terminal for plotting") 
     parser.add_argument("-p", "--showPlots",  default='a b', nargs='+',help="abc-string listing shown plots: a=Dale_matrix_and_eigen, b=histo_true_weights, c=rate_analysis")
 
+    np.set_printoptions(precision=3, suppress=True)
+
     args = parser.parse_args()
     args.showPlots=''.join(args.showPlots)
     # Determine output file prefix
     if args.dataName is None:
         args.dataName='daleM%d_'%args.num_neurons+hashlib.md5(os.urandom(32)).hexdigest()[:6]
         
-
+    
     print("\nStarting simulation with configuration:")
     print(vars(args))
     print("")
@@ -285,10 +292,12 @@ def main():
         'B': 0.2,    # Parameter for stabilization algorithm
         'edge_prob': args.edge_prob
     }
-    print("Dale configuration:"); pprint(dale_conf)
 
+    if args.verb>1:
+        
+        print("Dale configuration:"); pprint(dale_conf)
+        
     # sanity checks
-    print("Running sanity checks...")
     assert Nn>=10
     assert args.num_excite>=5
     assert args.num_excite<Nn
@@ -297,9 +306,7 @@ def main():
     assert args.spectralR>0.5
     assert args.idleRate[0]>0.5
     assert args.idleRate[1]>args.idleRate[0]
-    print("All sanity checks passed!")
-    np.set_printoptions(precision=3, suppress=True)
-
+    
     # Generate the stable Dale connectivity matrix A
     print("Generating stable Dale matrix for Nn=%d (%d Excit, %d Inhib)..." % (Nn, args.num_excite, Nn - args.num_excite))
     A_dale=gen_dale_matrics(dale_conf, rho_true)
@@ -353,8 +360,7 @@ def main():
    
     # Prepare data for saving
     Y_uchar = np.clip(Y, 0, 255).astype(np.uint8)
-    print("Spike data converted to uint8: shape=%s, dtype=%s" % (Y_uchar.shape, Y_uchar.dtype))
-    
+        
     spikeD = {
             'spikes': Y_uchar,
             'single_rates': rates_dict['single_rates'],
@@ -368,23 +374,17 @@ def main():
     maskD=geom_edges_mask(trueMD)
     true_edges_mask(maskD,trueD['A_true'])
 
-    #print('ee',sorted(maskD))
     for xx in maskD:
         recD=maskD[xx]
-        #print(xx,'ff',sorted(recD))
         for yy in recD:
             name='mask.%s.%s'%(xx,yy)
             trueD[name]=recD[yy]
-
-    #print('yyy',sorted(trueD))
     
     outFt = os.path.join(args.outPath, args.dataName + '.truth.npz')
-    print("Saving truth data to: %s" % outFt)
     write_data_npz(trueD, outFt, metaD=trueMD)
 
    
     outFs = os.path.join(args.outPath, args.dataName + '.spikes.npz')
-    print("Saving spike data to: %s" % outFs)
     write_data_npz(spikeD, outFs, metaD=spikeMD)
 
     print("\nNext step command:")

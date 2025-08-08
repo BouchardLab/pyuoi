@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 
-class PoissonGLM(nn.Module):
+class PoissonGLModel(nn.Module):
     """
     Generalized Linear Model for multivariate Poisson spike counts.
     rate_t = exp(A @ Y_prev + B) * dt

@@ -142,7 +142,6 @@ def estimate_rates(Y, dt, num_excite, max_samples_for_rates, mxNn=5):
 
 def geom_edges_mask(md):
     dale_conf=md['dale_conf']
-    pprint(dale_conf)
     Nn=dale_conf['num_neurons']
     Ne=dale_conf['num_excite']
     Ni=Nn-Ne
@@ -179,7 +178,6 @@ def true_edges_mask(maskD, A_true):
         tmask = gmask & (A_abs>1e-8)
         nGeom=np.sum(gmask)
         nTrue=np.sum(tmask)
-        #print('true mask',ntype,nGeom,nTrue)
         maskT[ntype]=tmask
 
 

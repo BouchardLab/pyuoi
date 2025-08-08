@@ -26,7 +26,6 @@ class Plotter(PlotterBackbone):
         nrow,ncol=1,2
         fig=self.plt.figure(figId,facecolor='white', figsize=(10,5))
 
-        #pprint(md)
         dmd=md['dale_conf']
         numExc=dmd['num_excite']
         numNeur=dmd['num_neurons']
@@ -70,8 +69,7 @@ class Plotter(PlotterBackbone):
     def histo_weights_rates(self,trueD,spikeD,md,figId=3):        
         figId=self.smart_append(figId)        
         nrow,ncol=2,2
-        fig=self.plt.figure(figId,facecolor='white', figsize=(10,8))
-        pprint(md)
+        fig=self.plt.figure(figId,facecolor='white', figsize=(10,8))        
         data_name=md['short_name']
         dmd=md['dale_conf']
         numExc=dmd['num_excite']

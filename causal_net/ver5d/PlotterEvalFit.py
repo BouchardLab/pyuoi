@@ -270,7 +270,7 @@ def plot_correl_offdiag(fig,ax,At,Af,tmask,fmask,title='aa2'):
     if np.any(TP):  # Only plot if there are TP points
         x_cg = np.mean(At[TP])
         y_cg = np.mean(Af[TP])
-        ax.scatter(x_cg, y_cg, marker='+', s=200, color='k', linewidths=2, label='TP avr')
+        ax.scatter(x_cg, y_cg, marker='+', s=200, color='k', linewidths=2) #, label='TP avr')
     ax.legend()
 
 
