@@ -52,14 +52,14 @@ def estimate_rates(Y, dt, num_excite, max_samples_for_rates, mxNn=5):
         'num_neurons': Nn_sim,
         'num_excitatory': num_excite,
         'num_inhibitory': num_inhib,
-        'avg_spike_rate_all': np.mean(spike_rates),
-        'std_spike_rate_all': np.std(spike_rates),
-        'avg_fano_factor_all': np.mean(fano_factor),
-        'std_fano_factor_all': np.std(fano_factor),
-        'avg_spike_rate_excit': np.mean(spike_rates[:num_excite]),
-        'std_spike_rate_excit': np.std(spike_rates[:num_excite]),
-        'avg_fano_factor_excit': np.mean(fano_factor[:num_excite]),
-        'std_fano_factor_excit': np.std(fano_factor[:num_excite])
+        'avg_spike_rate_all': float(np.mean(spike_rates)),
+        'std_spike_rate_all': float(np.std(spike_rates)),
+        'avg_fano_factor_all': float(np.mean(fano_factor)),
+        'std_fano_factor_all': float(np.std(fano_factor)),
+        'avg_spike_rate_excit': float(np.mean(spike_rates[:num_excite])),
+        'std_spike_rate_excit': float(np.std(spike_rates[:num_excite])),
+        'avg_fano_factor_excit': float(np.mean(fano_factor[:num_excite])),
+        'std_fano_factor_excit': float(np.std(fano_factor[:num_excite])),
     }
     
     
@@ -97,7 +97,7 @@ def estimate_rates(Y, dt, num_excite, max_samples_for_rates, mxNn=5):
     std_rate_all = np.std(spike_rates)
     avg_fano_all = np.mean(fano_factor)
     std_fano_all = np.std(fano_factor)
-    print('All    (%d neurons): Avg Rate=%.2f±%.2f Hz, Avg Fano=%.2f±%.2f' % (Nn_sim, avg_rate_all, std_rate_all, avg_fano_all, std_fano_all))
+    print('All   (%d neurons): Avg Rate=%.2f±%.2f Hz, Avg Fano=%.2f±%.2f' % (Nn_sim, avg_rate_all, std_rate_all, avg_fano_all, std_fano_all))
 
     avg_rate_e = np.mean(spike_rates[:num_excite])
     std_rate_e = np.std(spike_rates[:num_excite])
@@ -111,7 +111,6 @@ def estimate_rates(Y, dt, num_excite, max_samples_for_rates, mxNn=5):
         avg_fano_i = np.mean(fano_factor[num_excite:])
         std_fano_i = np.std(fano_factor[num_excite:])
         print('Inhib (%d neurons): Avg Rate=%.2f±%.2f Hz, Avg Fano=%.2f±%.2f' % (num_inhib, avg_rate_i, std_rate_i, avg_fano_i, std_fano_i))
-    print('')
 
     # Part 2: from estimate_rates_with_errors (computes rates, no errors)
     n_time_steps, n_neurons = Y_for_rates.shape
@@ -135,7 +134,7 @@ def estimate_rates(Y, dt, num_excite, max_samples_for_rates, mxNn=5):
         'coincidence_rates': coincidence_rates
     }
     
-    print("Coincidence rates: mean=%.4f ± %.4f Hz" % (np.mean(rates_dict['coincidence_rates']), np.std(rates_dict['coincidence_rates'])))
+    print("Coincidence rates: mean=%.4f ± %.4f Hz\n" % (np.mean(rates_dict['coincidence_rates']), np.std(rates_dict['coincidence_rates'])))
 
     return stats_dict, rates_dict
 
@@ -168,7 +167,9 @@ def geom_edges_mask(md):
     maskD={'geom':maskG}
     return maskD
 
-def true_edges_mask(maskD, A_true):
+
+def true_edges_mask(maskD, trueD):
+    A_true=trueD['A_true']
     #print('\ntrue_edge_mask')
     maskD['true']=maskT={}
     maskG=maskD['geom']
@@ -179,8 +180,9 @@ def true_edges_mask(maskD, A_true):
         nGeom=np.sum(gmask)
         nTrue=np.sum(tmask)
         maskT[ntype]=tmask
-
-
+    tmp=maskT['exc']  | maskT['inh']
+    trueD['edge_cnt_true']=np.sum(tmp,axis=1)  # sum edges alog neuron
+    
 def select_eges_from_fitLasso( bigD, amplThres=0.2):
     print('\nselect_eges_from_fitL1 amplThres=%.2f' % amplThres)
     maskF = {}

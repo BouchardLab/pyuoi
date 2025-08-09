@@ -111,19 +111,18 @@ class Plotter(PlotterBackbone):
 
         #.... : rho_true vs neuron index
         ax = self.plt.subplot(nrow,ncol,4)
-        rho_true = trueD['rho_true']
+        edgeTV = trueD['edge_cnt_true']
         x_vals = np.arange(numNeur)
         
         # Create the filled step plot
-        ax.fill_between(x_vals, rho_true, step='mid', color='salmon', alpha=0.7)
-        #1ax.plot(x_vals, rho_true, drawstyle='steps-mid', color='black', lw=0.5)
+        ax.fill_between(x_vals, edgeTV, step='mid', color='salmon', alpha=0.7)
                 
         ax.set_xlabel('Neuron index')
         ax.set_ylabel('num true edges')
         ax.set_ylim(0,)
         ax.grid(True, alpha=0.3)
         probLo, probHi = dmd['edge_prob']
-        rho_title = f'edgeCount_true, edge_prob=[{probLo:.2f}, {probHi:.2f}]'
+        rho_title = f'outgoing edges, true, edge_prob=[{probLo:.2f}, {probHi:.2f}]'
         ax.set_title(rho_title)
 
          # Scatter plot: Firing rate vs coincidence rate (off-diagonal only)

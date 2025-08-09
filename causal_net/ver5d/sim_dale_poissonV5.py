@@ -23,7 +23,7 @@ from toolbox.Util_NumpyIO import write_data_npz
 
 ###### Matrix generation ##################
 # Generate an initial network connectivity matrix
-def gen_init_W(num_neurons, num_excite, rho_true, gamma, R, varyW, minW,diag=0):
+def gen_init_W(num_neurons, num_excite, rho_target, gamma, R, varyW, minW,diag=0):
     print(f"  Generating initial connectivity matrix: N={num_neurons}, excit={num_excite}, gamma={gamma:.1f}, R={R:.1f}")
     rand = np.random.default_rng()
 
@@ -31,7 +31,7 @@ def gen_init_W(num_neurons, num_excite, rho_true, gamma, R, varyW, minW,diag=0):
     Ainit = np.zeros((num_neurons, num_neurons))
     
     # this scaling is a guess, may need adjustment
-    p_eff = np.mean(rho_true) / num_neurons
+    p_eff = np.mean(rho_target) / num_neurons
     wC = R/np.sqrt(p_eff * (1 - p_eff) * (1 + gamma**2)/2)  # central value
     
     # decide how much variation in  weights
@@ -46,7 +46,7 @@ def gen_init_W(num_neurons, num_excite, rho_true, gamma, R, varyW, minW,diag=0):
     
     for j in range(num_neurons):
         # Determine the number of connections for this neuron
-        num_connections = rho_true[j]
+        num_connections = rho_target[j]
         if num_connections == 0:
             continue
         
@@ -121,7 +121,7 @@ def stabilize(A, max_iter=3000, eta=50, C=3.0, B=1.0,delta=0.2,minW=0.1):
     return A
 
 # Generate the full set of matrices for use in subsequent synthetic experiments
-def gen_dale_matrics(conf, rho_true):
+def gen_dale_matrics(conf, rho_target):
     """Generates one stable Dale matrix based on configuration."""
     print(f"\n=== Generating Dale Matrix ===")
     num_neurons, num_excite, g, r = conf['num_neurons'], conf['num_excite'], conf['g'], conf['R']
@@ -132,7 +132,7 @@ def gen_dale_matrics(conf, rho_true):
     minW=0.1  # sets minimal value of any weights, also after stabilization
     eigenGap=0.2 # sets threshold on Re(eigen value) after stabilization
     
-    A = gen_init_W(num_neurons, num_excite, rho_true, g, r, varyW=varyW, minW=minW, diag=-1)
+    A = gen_init_W(num_neurons, num_excite, rho_target, g, r, varyW=varyW, minW=minW, diag=-1)
     eig = np.linalg.eigvals(A)
     print(f"Initial eigenvalues: real range [{np.min(np.real(eig)):.3f}, {np.max(np.real(eig)):.3f}]")
     
@@ -237,7 +237,7 @@ def main():
     parser = argparse.ArgumentParser(description="Simulate a recurrent neural network with Dale's principle.")
     parser.add_argument("--num_neurons", type=int, default=50, help="Total number of neurons in the network.")
     parser.add_argument("--num_excite", type=int, default=30, help="Number of excitatory neurons.")
-    parser.add_argument("--edge_prob", type=float, nargs=2, default=[0.05, 0.2], help="Range of edge probability [min, max] for Rho_true generation.")
+    parser.add_argument("--edge_prob", type=float, nargs=2, default=[0.05, 0.2], help="Range of edge probability [min, max] for rho_target generation.")
     parser.add_argument("--num_steps", type=int, default=10_000, help="Number of time steps for simulation.")
     parser.add_argument("--step_size", type=float, default=0.01, help="Integration time step size (dt) in seconds.")
     parser.add_argument("--idleRate", type=float, nargs=2, default=[2, 10.], help="Range of idle firing rates [min, max] in Hz.")
@@ -270,17 +270,17 @@ def main():
     print("Output directory exists: %s" % args.outPath)
 
     Nn = args.num_neurons
-    # Generate Rho_true Vector
-    print("\n=== Generating Rho_true Vector ===")
+    # Generate rho_target Vector
+    print("\n=== Generating rho_target Vector ===")
     probLo, probHi = args.edge_prob
     min_rho = args.num_neurons * probLo
     max_rho = args.num_neurons * probHi
-    rho_true = np.random.uniform(min_rho, max_rho, size=args.num_neurons)
-    rho_true = np.maximum(5.0, rho_true).astype(int)
-    #1rho_true=np.linspace(5,5,args.num_neurons).astype(int)  # testing only
+    rho_target = np.random.uniform(min_rho, max_rho, size=args.num_neurons)
+    rho_target = np.maximum(5.0, rho_target).astype(int)  # 
+    #1rho_target=np.linspace(1,args.num_neurons,args.num_neurons).astype(int)  # testing only, linear growth
 
-    print(f"Generated rho_true from range [%.2f, %.2f] with min value 5.0" % (min_rho, max_rho))
-    print("rho_true stats: min=%d, max=%d, mean=%.2f" % (np.min(rho_true), np.max(rho_true), np.mean(rho_true)))
+    print(f"Generated rho_target from range [%.2f, %.2f] with min value 5.0" % (min_rho, max_rho))
+    print("edge_count_target stats: min=%d, max=%d, mean=%.2f" % (np.min(rho_target), np.max(rho_target), np.mean(rho_target)))
 
     dale_conf = {
         'num_neurons': args.num_neurons,
@@ -309,7 +309,7 @@ def main():
     
     # Generate the stable Dale connectivity matrix A
     print("Generating stable Dale matrix for Nn=%d (%d Excit, %d Inhib)..." % (Nn, args.num_excite, Nn - args.num_excite))
-    A_dale=gen_dale_matrics(dale_conf, rho_true)
+    A_dale=gen_dale_matrics(dale_conf, rho_target)
         
     # Calculate and print sparsity of the generated matrix
     total_connections = A_dale.size
@@ -322,39 +322,36 @@ def main():
     
 
     # Initialize bias vector B based on idle firing rate
-    print("\n=== Initializing Bias Vector ===")
+    #print("\n=== Initializing Bias Vector ===")
     Ri_arg = np.array(args.idleRate)
     Bi = np.log(Ri_arg)
-    print('Idle Ri:%s   Bi:%s'%(Ri_arg,Bi))
+    #print('Idle Ri:%s   Bi:%s'%(Ri_arg,Bi))
     evol_conf={
         'num_steps': args.num_steps,
         'step_size': args.step_size,
         'idleRate': args.idleRate,
         'evol_time': args.num_steps*args.step_size,
     }
-    print("Evolution configuration:")
-    pprint(evol_conf) 
-    print('')
-    B_idle = np.random.uniform(Bi[0],Bi[1], size=(Nn,))
-    print(f"Bias vector stats: min={np.min(B_idle):.3f}, max={np.max(B_idle):.3f}, mean={np.mean(B_idle):.3f}")
+    #print("Evolution configuration:");    pprint(evol_conf) 
 
+    B_idle = np.random.uniform(Bi[0],Bi[1], size=(Nn,))
+    #print(f"Bias vector stats: min={np.min(B_idle):.3f}, max={np.max(B_idle):.3f}, mean={np.mean(B_idle):.3f}")
     
     # Generate spike data using the Poisson  process
-    print("\n=== Generating Rho_true Vector ===")
+    #print("\n=== Generating rho_target Vector ===")
     probLo, probHi = args.edge_prob
     min_rho = args.num_neurons * probLo
     max_rho = args.num_neurons * probHi
-    rho_true = np.random.uniform(min_rho, max_rho, size=args.num_neurons)
-    rho_true = np.maximum(5.0, rho_true).astype(int)
-    print(f"Generated rho_true from range [{min_rho:.2f}, {max_rho:.2f}] with min value 5.0")
-    print("rho_true stats: min=%d, max=%d, mean=%.2f" % (np.min(rho_true), np.max(rho_true), np.mean(rho_true)))
-
+    rho_target = np.random.uniform(min_rho, max_rho, size=args.num_neurons)
+    rho_target = np.maximum(5.0, rho_target).astype(int)
+    #print(f"Generated rho_target from range [{min_rho:.2f}, {max_rho:.2f}] with min value 5.0")
+    print("rho_target stats: min=%d, max=%d, mean=%.2f" % (np.min(rho_target), np.max(rho_target), np.mean(rho_target)))
+    
     start_time = time.time()
     Y = generate_poissonV5(num_steps=args.num_steps, dt=args.step_size, A=A_dale, B_intercept=B_idle, num_excite=args.num_excite, verb=args.verb)
     sim_time = time.time() - start_time
     print("Spike generation completed in %.1f seconds" % sim_time)
 
-   
     # Evaluate spike stats and compute firing rates
     stats_dict, rates_dict = estimate_rates(Y, dt=args.step_size, num_excite=args.num_excite, max_samples_for_rates=100000, mxNn=5)
    
@@ -369,17 +366,17 @@ def main():
     spikeMD={'dale_simu_stats':stats_dict, 'input_file':args.dataName}
     
     # Save simulation data using utility function
-    trueD = { 'A_true': A_dale, 'B_true': B_idle, 'rho_true': rho_true}
+    trueD = { 'A_true': A_dale, 'B_true': B_idle}
     trueMD = {'dale_conf': dale_conf, 'evol_conf': evol_conf,'short_name':args.dataName}
     maskD=geom_edges_mask(trueMD)
-    true_edges_mask(maskD,trueD['A_true'])
+    true_edges_mask(maskD,trueD)
 
     for xx in maskD:
         recD=maskD[xx]
         for yy in recD:
             name='mask.%s.%s'%(xx,yy)
             trueD[name]=recD[yy]
-    
+
     outFt = os.path.join(args.outPath, args.dataName + '.truth.npz')
     write_data_npz(trueD, outFt, metaD=trueMD)
 

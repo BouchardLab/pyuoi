@@ -25,14 +25,9 @@ from torch.utils.data import Dataset
 
 VAL_EVERY = 10  # validate every N epochs
 
-VAL_EVERY = 10  # validate every N epochs
-
-
-
 #########################
 #  MAIN
 #########################
-
 
 def main():
     parser = argparse.ArgumentParser()

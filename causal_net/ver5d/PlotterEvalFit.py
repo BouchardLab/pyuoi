@@ -25,7 +25,7 @@ class Plotter(PlotterBackbone):
         
         figId=self.smart_append(figId)        
         nrow,ncol=2,4
-        fig=self.plt.figure(figId,facecolor='white', figsize=(13,7))
+        fig=self.plt.figure(figId,facecolor='white', figsize=(16,7))
 
         # Unpack arrays from bigD
         A_true = trueD['A_true']
@@ -70,9 +70,9 @@ class Plotter(PlotterBackbone):
         #..... all values of A
         ax = self.plt.subplot(nrow,ncol,4)
         ax.hist(A_fit[~mask_diag], bins=100, alpha=0.7)
-        ax.set_xlabel("Value")
-        ax.set_ylabel("Count")
-        ax.set_title(" Off-Diagonal Weights")
+        ax.set_xlabel("Off-Diagonal Weights")
+        ax.set_ylabel("edge count")
+        ax.set_title("Fit "+fitType)
         ax.grid(True)
         ax.set_yscale('log')
 
@@ -145,9 +145,9 @@ class Plotter(PlotterBackbone):
         
         # Use ax.hist2d() directly with log scale
         H, xedges, yedges, im = ax.hist2d(A_flat, row_indices, bins=[50, num_neurons], cmap='Greys', vmax=6)
-        ax.set_xlabel('A-matrix value')
+        ax.set_xlabel('non-diag weigts')
         ax.set_ylabel('neuron index')
-        ax.set_title(f'2D non-diag A-matrix (Fit), epochs={fmd["n_epochs"]}')
+        ax.set_title(f'Fit {fitType}, epochs={fmd["n_epochs"]}')
         fig.colorbar(im, ax=ax)
         
         # Add horizontal lines to mark K block boundaries
@@ -165,7 +165,7 @@ class Plotter(PlotterBackbone):
         H2, xedges2, yedges2, im2 = ax.hist2d(A_flat_narrow, row_indices_narrow, bins=[51, num_neurons], cmap='Purples', norm=colors.LogNorm())
         ax.set_xlabel('A-matrix value')
         ax.set_ylabel('Neuron index')
-        ax.set_title(f'Input: {md["short_name"]}  zoom-in')
+        ax.set_title(f'Input: {md["short_name"]},  zoom-in')
         ax.set_xlim(-wzoomMx,wzoomMx)
         fig.colorbar(im2, ax=ax)
         
@@ -356,7 +356,7 @@ def plot_1d_histo_with_stats(ax, group_values, start_row, end_row, group_idx, co
         
         # Add circle for mean with horizontal error bar for RMSE at half height
         max_count = np.max(counts)
-        half_height = max_count / 20
+        half_height = max_count / 200
         
         # Draw horizontal error bar for RMSE
         ax.errorbar(mean_val, half_height, xerr=rmse_val, fmt='o',

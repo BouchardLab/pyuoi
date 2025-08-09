@@ -21,14 +21,12 @@ def write_data_npz(dataD,outF,metaD=None,verb=1):
     assert len(outF)>0
     
     if metaD!=None:
-        #pprint(metaD)
         metaJ=json.dumps(metaD, default=str)
-        #print('meta.JSON:',metaJ)
         dataD['meta.JSON']=metaJ
     
-    if verb>0:
+    if verb>1:
             print('saving data as npz:',outF)
-            start = time.time()
+    start = time.time()
     
     # Prepare data for npz saving
     npz_data = {}
@@ -56,9 +54,9 @@ def write_data_npz(dataD,outF,metaD=None,verb=1):
     
 #...!...!..................
 def read_data_npz(inpF,verb=1):
-    if verb>0:
+    if verb>1:
             print('read data from npz:',inpF)
-            start = time.time()
+    start = time.time()
     
     # Load npz file
     npz_file = np.load(inpF, allow_pickle=True)

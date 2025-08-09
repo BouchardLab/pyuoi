@@ -96,9 +96,9 @@ def train_Poisson_model(model, device, train_loader, val_loader, n_epochs, lr, L
            
         if (epoch + 1) % print_every == 0 and (not dist.is_initialized() or dist.get_rank()==0):
             if latest_val is not None:
-                print(f"Epoch {epoch+1}/{n_epochs}: TrainLoss={train_losses[-1]:.4f}, ValLoss={latest_val:.4f}, LR={learning_rates[-1]:.1e}, Elapsed={(time.time() - start_time):.1f}s")
+                print(f"Epoch {epoch+1}/{n_epochs}: TrainLoss={train_losses[-1]:.5f}, ValLoss={latest_val:.5f}, LR={learning_rates[-1]:.1e}, Elapsed={(time.time() - start_time):.1f}s")
             else:
-                print(f"Epoch {epoch+1}/{n_epochs}: TrainLoss={train_losses[-1]:.4f}, LR={learning_rates[-1]:.1e}, Elapsed={(time.time() - start_time):.1f}s")
+                print(f"Epoch {epoch+1}/{n_epochs}: TrainLoss={train_losses[-1]:.5f}, LR={learning_rates[-1]:.1e}, Elapsed={(time.time() - start_time):.1f}s")
         
             
     return train_losses, val_losses, learning_rates, train_epochs, val_epochs
