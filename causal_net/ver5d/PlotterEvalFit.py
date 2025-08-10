@@ -49,19 +49,13 @@ class Plotter(PlotterBackbone):
         gexc_1d= trueD['mask.geom.exc_idx']
         mask_diag= trueD['mask.geom.diag']
         title = 'fit (diagonal)'
-        ax = self.plt.subplot(nrow,ncol,3+ncol)
-        
+        ax = self.plt.subplot(nrow,ncol,3+ncol) 
         plot_correl_diag(fig,ax,A_true[mask_diag],A_fit[mask_diag],gexc_1d,title=title)
        
         # ...  B-term
         title = 'fit (B-term)'
         ax = self.plt.subplot(nrow,ncol,4+ncol)        
         plot_correl_diag(fig,ax,B_true,B_fit,gexc_1d,title=title)
-       
-        ''' use it later
-        gmask=maskG['diag']  # fmask is the same as tmask
-        plot_histo(ax,A_true[gmask],A_fit[gmask],title=title)
-        '''
             
         #...... Training curves
         ax = self.plt.subplot(nrow,ncol,3)
@@ -112,10 +106,9 @@ class Plotter(PlotterBackbone):
         
 
 #...!...!..................
-    def plot_slicedA_histos(self, fitD, md, fitType,figId=1, k=5):
+    def slicedA_histos(self, fitD, md, fitType,figId=1, k=5):
         #pprint(md)
         fmd=md['fit_'+fitType]
-
         
         figId=self.smart_append(figId)        
         nrow,ncol=k,2  # Add 1 extra row for the neuron stats plot
@@ -196,7 +189,62 @@ class Plotter(PlotterBackbone):
         ax = self.plt.subplot(nrow,ncol,1+(k-1)*ncol)
         plot_neuron_stats(ax, A_flat_narrow, row_indices_narrow, num_neurons)
         
-    
+#...!...!..................
+    def residuals(self, trueD,fitD, md, fitType,figId=1):
+        #pprint(md)
+        fmd=md['fit_'+fitType]
+        
+        figId=self.smart_append(figId)        
+        nrow,ncol=2,4
+        fig=self.plt.figure(figId,facecolor='white', figsize=(12,6))
+
+        # Unpack arrays from bigD
+        A_true = trueD['A_true']
+        B_true = trueD['B_true']
+        A_fit = fitD['A_'+fitType]
+        B_fit = fitD['B_'+fitType]
+        
+        for j,ntype in enumerate(['exc','inh']):
+            gmask=trueD['mask.geom.'+ntype]
+            tmask=trueD['mask.true.'+ntype]
+            fmask=fitD['mask.lasso.%s'%(ntype)]
+        
+            ax = self.plt.subplot(nrow,ncol,1+j)
+            title = 'fit (%s)' % ntype
+            valT,valF=plot_correl_offdiag(fig,ax,A_true,A_fit,tmask,fmask,title=title)
+
+            ax = self.plt.subplot(nrow,ncol,1+j+ncol)
+            plot_1D_residuals(ax, valT,valF,lab='TP off-diag '+ntype,col='green')
+
+            if ntype=='exc':
+                txt=md["short_name"]
+            else:
+                txt='fit: '+fitType
+            ax.text(0.05, 0.2, txt, transform=ax.transAxes, fontsize=8)
+
+        # ... diagonal
+        gexc_1d= trueD['mask.geom.exc_idx']
+        mask_diag= trueD['mask.geom.diag']
+        title = 'fit (diagonal)'
+        ax = self.plt.subplot(nrow,ncol,3)
+        vecT=A_true[mask_diag].flatten()
+        vecF=A_fit[mask_diag].flatten()
+        plot_correl_diag(fig,ax,vecT,vecF,gexc_1d,title=title)
+        
+        ax = self.plt.subplot(nrow,ncol,3+ncol)        
+        plot_1D_residuals(ax, vecT[~gexc_1d],vecF[~gexc_1d],lab='inh diag',col='blue')
+        plot_1D_residuals(ax, vecT[gexc_1d],vecF[gexc_1d],lab='exc diag',col='tomato',first=False)
+
+        # ...  B-term
+        title = 'fit (B-term)'
+        ax = self.plt.subplot(nrow,ncol,4)
+        vecT=B_true
+        vecF=B_fit
+        plot_correl_diag(fig,ax,vecT,vecF,gexc_1d,title=title)
+        
+        ax = self.plt.subplot(nrow,ncol,4+ncol)        
+        plot_1D_residuals(ax, vecT[~gexc_1d],vecF[~gexc_1d],lab='inh B-term',col='blue')
+        plot_1D_residuals(ax, vecT[gexc_1d],vecF[gexc_1d],lab='exc B-term',col='tomato',first=False)
 #............................
 #............................
 #............................
@@ -212,7 +260,7 @@ def plot_trainingCurves(ax,fitD,md,fitType,title='aa3'):
     epoch0=3 # skip intial loss values
     epochs = np.arange(len(train_losses))
     ax.plot(epochsT[epoch0:], train_losses[epoch0:], label='Train '+fitType, color='blue', linestyle='-')
-    ax.plot(epochsV, val_losses, label='Val', color='red', linestyle='--')
+    ax.plot(epochsV, val_losses, label='Val NLL', color='red', linestyle='--')
     
     title = md["short_name"]
     ax.set(xlabel='Epoch', ylabel='Loss', title=title)
@@ -249,7 +297,7 @@ def add_x45_lins(ax, only45=False):
         np.max([ax.get_xlim(), ax.get_ylim()]),  # max of both axes
     ]
     # 45 degree line y=x
-    ax.plot(lims, lims, '--', color='m', linewidth=1)
+    ax.plot(lims, lims, '--', color='k', linewidth=0.8)
     if  only45: return
 
     ax.axvline(0, linestyle='--', color='k', linewidth=1)
@@ -262,9 +310,9 @@ def plot_correl_offdiag(fig,ax,At,Af,tmask,fmask,title='aa2'):
     TN = ~tmask & ~fmask  # True Negative: predicted False, actually False
     FN = tmask & ~fmask  # False Negative: predicted False, actually True
 
-    ax.scatter(At[TP], Af[TP], alpha=0.6, color='green',label='TP: %d'%np.sum(TP), facecolors='none')
-    ax.scatter(At[FN], Af[FN], alpha=0.6, color='red',label='FN: %d'%np.sum(FN))
-    ax.scatter(At[FP], Af[FP], alpha=0.6, color='orange',label='FP: %d'%np.sum(FP))
+    ax.scatter(At[TP], Af[TP], alpha=0.6, color='green',label='TP: %d'%np.sum(TP),marker='.',s=5) #, facecolors='none')
+    ax.scatter(At[FN], Af[FN], alpha=0.6, color='red',s=5,label='FN: %d'%np.sum(FN))
+    ax.scatter(At[FP], Af[FP], alpha=0.6, color='orange',s=5,label='FP: %d'%np.sum(FP))
 
     ax.set(aspect=1. ,xlabel='true weight',ylabel='fitted',title=title)
     ax.grid(True, alpha=0.5)
@@ -275,19 +323,18 @@ def plot_correl_offdiag(fig,ax,At,Af,tmask,fmask,title='aa2'):
         y_cg = np.mean(Af[TP])
         ax.scatter(x_cg, y_cg, marker='+', s=200, color='k', linewidths=2) #, label='TP avr')
     ax.legend()
-
+    return At[TP], Af[TP]
 
 def plot_correl_diag(fig,ax,Bt,Bf,exc_mask,title='aa2'):
     BtFl=Bt.flatten()
     BfFl=Bf.flatten()
   
-    ax.scatter(BtFl[~exc_mask], BfFl[~exc_mask], alpha=0.6, color='blue',label='inh: %d'%np.sum(~exc_mask), facecolors='none')
-    ax.scatter(BtFl[exc_mask], BfFl[exc_mask], alpha=0.6, color='salmon',label='exc: %d'%np.sum(exc_mask), facecolors='none')
+    ax.scatter(BtFl[~exc_mask], BfFl[~exc_mask], alpha=0.6, color='blue',label='inh: %d'%np.sum(~exc_mask), marker='.',s=5) #facecolors='none')
+    ax.scatter(BtFl[exc_mask], BfFl[exc_mask], alpha=0.6, color='tomato',label='exc: %d'%np.sum(exc_mask), marker='.',s=5) #, facecolors='none')
     add_x45_lins(ax, only45=True)
     ax.set(aspect=1. ,xlabel='true value',ylabel='fitted',title=title)
     ax.grid(True, alpha=0.5)
     ax.legend()
-
 
 
 #...!...!..................
@@ -417,3 +464,38 @@ def plot_neuron_stats(ax, A_flat_narrow, row_indices_narrow, num_neurons):
     ax.set_title('Per-neuron zero-values stats')
     ax.grid(True, alpha=0.3)
     ax.axhline(y=0, color='black', linestyle='-', linewidth=0.5, alpha=0.5)
+
+
+#...!...!..................
+def plot_1D_residuals(ax, valT,valF,lab,col,first=True):
+    fac=100
+    res=fac*(valT-valF)
+    
+    # Plot histogram of residuals
+    n, bins, patches = ax.hist(res, bins=30, color=col, edgecolor='none', alpha=0.7)
+
+    # Compute statistics: mean, standard deviation, and RMSE
+    mean_val = np.mean(res)
+    std_val = np.std(res)
+    n_entries = len(res)
+
+    # Determine half of the maximum bin height to position the error bar
+    half_height = np.max(n) / 2.0
+
+    # Draw horizontal error bar for RMSE at the computed mean and half-height
+    ax.errorbar(mean_val, half_height, xerr=std_val, fmt='o',
+                color='black', capsize=8, capthick=1, linewidth=1, zorder=9)
+
+    # Add text to the figure displaying the mean, standard deviation, and RMSE
+    textstr = f"{lab}\nN    = {n_entries}\nMean = {mean_val:.2f}\nStd  = {std_val:.2f}"
+
+    if first:
+        x0=0.95
+    else:
+        x0=0.4
+    ax.text(x0, 0.95, textstr, transform=ax.transAxes, fontsize=8,
+        verticalalignment='top', horizontalalignment='right')
+
+    # Add a black vertical line at x = 0
+    ax.axvline(0, color='black', linestyle='--', linewidth=1)
+    ax.set(xlabel='residuals x %d'%fac)

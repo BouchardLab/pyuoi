@@ -90,8 +90,7 @@ def main():
 
      # Combine metadata  TMP
     MD = {**fitMD, **trueMD, 'short_name': args.dataName, 'post': vars(args)}
-            
-  
+             
     if args.ampl_thres!=None:
         maskD['fitL1']=select_eges_from_fitL1(bigD,args.ampl_thres)
         oo1
@@ -106,11 +105,14 @@ def main():
         plot.correl_after_thresh(trueD,fitD,MD, fitType=fitType,figId=1)
                 
     if 'b' in args.showPlots:
-        plot.plot_slicedA_histos(fitD, MD, fitType=fitType, figId=3)
+        plot.slicedA_histos(fitD, MD, fitType=fitType, figId=2)
 
     if 'c' in args.showPlots:
+        plot.residuals(trueD,fitD,MD, fitType=fitType,figId=3)
+
+    if 'd' in args.showPlots:
         fix_me
-        plot.daleA_and_eigen(bigD, maskD,MD, figId=2)
+        plot.daleA_and_eigen(bigD, maskD,MD, figId=4)
 
     plot.display_all()
 

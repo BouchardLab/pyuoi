@@ -6,8 +6,33 @@ python gen_dale_poissonV5.py --num_neurons 10 --num_excite 6 --num_steps 1000 --
 This script simulates the activity of a recurrent neural network with biologically
 inspired constraints. The key features of the simulation are:
 
+***Dale Poisson Simulator - Program Summary***
+This program simulates the activity of a recurrent neuronal network using a discrete-time
+Poisson generalized linear model (GLM). The network obeys Dale's principle, meaning that
+each neuron is either excitatory (producing only positive outgoing weights) or inhibitory
+(producing only negative outgoing weights).
+
+Key Features:
+
+Connectivity Matrix Generation:
+
+The recurrent connectivity matrix A is generated with random weights that respect Dale's principle.
+The parameter R scales the baseline synaptic strength and influences the initial spectral radius of A.
+Regularization of A:
+
+A stability check is performed by computing the maximum real part of the eigenvalues.
+Inhibitory weights (A_ij < 0) are iteratively adjusted using a gradient derived from Lyapunov equations.
+Updates continue until the maximum real eigenvalue falls below a threshold (-delta), ensuring stable dynamics.
+Poisson Process Simulation:
+
+At each time step t, the firing rate for each neuron is computed as: lambda(t, i) = exp( sum_j A_ij * Y(t-1, j) + B_i )
+Spike counts Y(t, i) are drawn from a Poisson distribution with rate lambda(t, i) * dt.
+Additional customization is provided via command-line arguments, allowing you to set the
+number of neurons, number of excitatory neurons, spectral radius (R), time step (dt), and
+simulation duration. The program saves the generated spike data, firing rates, connectivity
+matrix, and other simulation details for further analysis.
+
 """
-# uses non-linear discrete time evolution
 
 import numpy as np
 import time,hashlib
@@ -189,7 +214,7 @@ def generate_poissonV5(num_steps, dt, A, B_intercept, num_excite, verb=0):
             A (np.ndarray): The input connectivity matrix.
             B_intercept (np.ndarray): The input intercept vector.
     """
-    print(f"\n=== Generating Poisson VAR(1) Process ===")
+    print(f"\n=== Generating Poisson  Process ===")
     print(f"Simulation parameters: steps={num_steps}, dt={dt:.3f}, neurons={A.shape[0]}, excit={num_excite}")
     print(f"Matrix A stats: min={np.min(A):.3f}, max={np.max(A):.3f}, mean={np.mean(A):.3f}")
     print(f"Bias B stats: min={np.min(B_intercept):.3f}, max={np.max(B_intercept):.3f}, mean={np.mean(B_intercept):.3f}")

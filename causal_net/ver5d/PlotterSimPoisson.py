@@ -89,9 +89,9 @@ class Plotter(PlotterBackbone):
         binX=30
         ax.hist(A[m_exc], bins=binX, color='red', alpha=0.7, edgecolor=None,label='exc:%d'%np.sum(m_exc))
         ax.hist(A[m_inh], bins=binX, color='blue', alpha=0.7, edgecolor=None,label='inh:%d'%np.sum(m_inh))
-        ax.hist(A[m_diag], bins=binX, color='green', alpha=0.7, edgecolor=None,label='diag:%d'%np.sum(m_diag))
+       #1 ax.hist(A[m_diag], bins=binX, color='green', alpha=0.7, edgecolor=None,label='diag:%d'%np.sum(m_diag))
 
-        ax.set_yscale('log')
+        #ax.set_yscale('log')
         ax.legend(loc='upper left')
         tit='True Dale, M%d, %s'%(A.shape[0],md['short_name'])
         ax.set(title=tit, xlabel='Weight value')
@@ -155,22 +155,12 @@ def plot_coincidence_vs_independence_with_power_fit(
         coincidence_rates_off_diag,
         dt
     ):
-    """
-    Plots expected vs observed coincidence rates and fits a power function.
-
-    Parameters:
-        ax: matplotlib.axes.Axes object to plot on
-        firing_rates_from: np.ndarray, firing rates of 'from' population
-        firing_rates_to: np.ndarray, firing rates of 'to' population
-        coincidence_rates_off_diag: np.ndarray, observed coincidence rates (off-diagonal)
-        dt: float, time bin size 
-    """
+   
     # Expected coincidence rate under independence
     expected_coincidence = firing_rates_from * firing_rates_to * dt
 
     # Scatter plot
-    ax.scatter(expected_coincidence, coincidence_rates_off_diag, alpha=0.6, s=20)
-
+    ax.scatter(expected_coincidence, coincidence_rates_off_diag, alpha=0.6, s=5, marker='+') #, facecolors='none',color='royalblue')
     
     # Identity line
     max_val = max(np.max(expected_coincidence), np.max(coincidence_rates_off_diag))
