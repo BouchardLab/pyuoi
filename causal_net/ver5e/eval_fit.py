@@ -6,7 +6,6 @@ import argparse
 import sys
 from toolbox.Util_NumpyIO import read_data_npz
 from PlotterEvalFit import Plotter
-#from UtilDalePoissonV5 import select_eges_from_fitL1
  
 from pprint import pprint
 
@@ -44,7 +43,7 @@ def main():
     parser.add_argument("--dataPath", type=str, default="out/", help="Path to the data directory")
     parser.add_argument('-a',"--ampl_thres", type=float, default=None, help="minima amplitude of valid off-diagonal edge")
     parser.add_argument('-p',"--showPlots", type=str,nargs='+', default="ab", help="Plot types to show: a=structure, b=distributions, c=reconstruction, d=category, d=A-matrix histograms")
-    parser.add_argument("--outPath", type=str, default="out/", help="Output path for plots (defaults to dataPath)")
+    parser.add_argument("--outPath", type=str, default=None, help="Output path for plots (defaults to dataPath)")
     parser.add_argument('-X',"--noXterm", action="store_true", help="Disable X terminal for plotting")
     parser.add_argument('-v',"--verb", type=int, default=1, help="Verbosity level")
        
@@ -53,7 +52,7 @@ def main():
     if args.outPath is None:   args.outPath = args.dataPath
     args.showPlots=''.join(args.showPlots)
     print(vars(args))
-    print("")
+    
 
     # Load fit results
     fitFF = os.path.join(args.dataPath, f"{args.dataName}.lasso.npz")
@@ -75,22 +74,19 @@ def main():
     if args.verb>1: 
         pprint(fitMD); exit(1)
 
-    truthF = fitMD['fit_lasso']['lassoFit_input_name']    
-    truthFF = os.path.join(args.dataPath, f"{truthF}.truth.npz")
-    if not truthFF or not os.path.exists(truthFF):
-        raise FileNotFoundError(f"Truth file not found at {truthFF}")
+    if 0:
+        truthF = fitMD['fit_lasso']['lassoFit_input_name']    
+        truthFF = os.path.join(args.dataPath, f"{truthF}.truth.npz")
+        if not truthFF or not os.path.exists(truthFF):
+            raise FileNotFoundError(f"Truth file not found at {truthFF}")
         
-    trueD,trueMD = read_data_npz(truthFF)
-    #A_true = trueD['A_true']
-    #B_true = trueD['B_true']
-    
-    # Combine data
-    #bigD = {**fitD, 'A_true': A_true, 'B_true': B_true}
-    #, 'A_fit': fitD['A'], 'B_fit': fitD['B']}
-
-     # Combine metadata  TMP
-    MD = {**fitMD, **trueMD, 'short_name': args.dataName, 'post': vars(args)}
-             
+        trueD,trueMD = read_data_npz(truthFF)
+   
+        # Combine metadata  TMP
+        MD = {**fitMD, **trueMD, 'short_name': args.dataName, 'post': vars(args)}
+    else:
+        MD = {**fitMD,  'short_name': args.dataName, 'post': vars(args)}
+        
     if args.ampl_thres!=None:
         maskD['fitL1']=select_eges_from_fitL1(bigD,args.ampl_thres)
         oo1

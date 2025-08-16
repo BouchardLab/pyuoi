@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 ''' mutli GPU & 1 node execution
- OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --standalone --nproc_per_node=4 ./fit_lassoPoisson.py --dataName daleM600_443813 --batch_size 16384 --n_epochs 5 --dataPath /pscratch/sd/b/balewski/tmp2 
+salloc -q interactive -C gpu  -t 4:00:00 -A m2043 -N 1
+module load pytorch
+
+ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --standalone --nproc_per_node=4 ./fit_lassoPoisson.py --dataName daleM600_443813 --n_epochs 5 --dataPath $dataPath 
 '''
 
 import os
@@ -23,8 +26,6 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import Dataset
 
-VAL_EVERY = 10  # validate every N epochs
-
 #########################
 #  MAIN
 #########################
@@ -32,7 +33,7 @@ VAL_EVERY = 10  # validate every N epochs
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataName", type=str, default="dale_2aee70")
-    parser.add_argument("--dataPath", type=str, default="out/")
+    parser.add_argument("--dataPath", type=str, default="/pscratch/sd/b/balewski/2025_causalNet_tmp/")
     parser.add_argument("--num_samples", type=int, default=None)
     parser.add_argument("--n_epochs", type=int, default=7)
     parser.add_argument("--batch_size", type=int, default=2048*8)
@@ -41,6 +42,7 @@ def main():
     parser.add_argument("--fitName", type=str, default=None)
     parser.add_argument("--desync_time", type=int, default=0, help="Time shift for decorrelation (0=disabled, >0=shift consecutive neurons by this many time bins)")
     parser.add_argument('-a',"--ampl_thres", type=float, default=0.05, help="minima amplitude of valid off-diagonal edge")
+    parser.add_argument("--Tmask", action='store_true', help="Use time mask to remove time bins from data")
 
     args = parser.parse_args()
 
@@ -66,24 +68,41 @@ def main():
     gpu_name = torch.cuda.get_device_name(device) if isinstance(device, torch.device) and device.type=='cuda' else str(device)
     print("[rank %d] Using device %s : %s" % (rank, str(device), gpu_name))
     
-    # --- Modern data loading  ---
+    # --- data loading  ---
     spikesFF = os.path.join(args.dataPath, f"{args.dataName}.spikes.npz")
     spikeD, spikeMD = read_data_npz(spikesFF,verb=rank==0)
     dataYield, dataRates = spikeD['spikes'], np.clip(spikeD['single_rates'], 0.1, 40.0)
     T, M = dataYield.shape
     pprint(spikeMD)
-    #1step_size = spikeMD['dale_simu_stats']['time_step_sec']
-    step_size = spikeMD['bin_size_ms']/1000.0 # for mizuseki-data
+    step_size = spikeMD['time_step_sec']
+   
+    # --- time mask loading ---
+    time_mask = None
+    if args.Tmask:
+        maskFF = os.path.join(args.dataPath, f"{args.dataName}.tmask.npz")
+        maskD, maskMD = read_data_npz(maskFF, verb=rank==0)
+        time_mask = maskD['time_mask']
 
-
+        #1time_mask=~ time_mask  ; print('WARN burst-mask reversed')
+        
+        # Handle size mismatch - clip mask if it's longer than data
+        if len(time_mask) > T:
+            if rank==0:
+                print(f"Time mask length ({len(time_mask)}) > data length ({T}), clipping mask")
+            time_mask = time_mask[:T]
+        elif len(time_mask) < T:
+            if rank==0:
+                print(f"Time mask length ({len(time_mask)}) < data length ({T}), using available mask")
+            # Keep the mask as is, preprocess_data will handle the shorter length
+   
     if args.fitName is None:
         import random, string
         hash_str =  ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
-        fit_core = f"{args.dataName}_{hash_str}"
+        fit_core = f"{args.dataName}-{hash_str}"
     else:
         fit_core = args.fitName
     
-    X_np, Yt_np = preprocess_data(dataYield, args)
+    X_np, Yt_np = preprocess_data(dataYield, args, time_mask=time_mask)
     n_pairs, train_split = X_np.shape[0], 0.8
     n_train = int(n_pairs * train_split)
     
@@ -133,7 +152,7 @@ def main():
         lassoD = { 'A_lasso': mdl.A.detach().cpu().numpy(), 'B_lasso': mdl.B.detach().cpu().numpy(), 'train_losses': np.array(train_losses), 'val_losses': np.array(val_losses), 'train_loss_epochs': np.array(train_epochs, dtype=np.int32), 'val_loss_epochs': np.array(val_epochs, dtype=np.int32), 'learning_rates': np.array(learning_rates), 'firing_rates': dataRates }
         lassoMD = { 'lassoFit_output_name': fit_core, 'lassoFit_input_name': args.dataName, 'batch_size': args.batch_size, 'num_samples_used': n_pairs, 'n_epochs': args.n_epochs, 'num_train_samples': n_train, 'num_val_samples': n_pairs-n_train, 'learning_rate': args.lr, 'L1_alpha': args.L1_alpha, 'step_size': step_size, 'training_time_sec': total_time, 'num_neurons': M }
         # ... select edges in A_fit matrix ...
-        lassoD['ampl_thres']= args.ampl_thres
+        lassoMD['ampl_thres']= args.ampl_thres
         spikeMD['fit_lasso']=lassoMD
         maskF=select_eges_from_fitLasso(lassoD,args.ampl_thres)
         for xx in maskF:
@@ -145,9 +164,9 @@ def main():
         write_data_npz(lassoD, fitFF, metaD=spikeMD)
 
     if rank==0:
-        print('\n  ./eval_fit.py  --dataName %s   -p a b ' % (fit_core))
-        print('\n  ./fit_regressPoisson.py  --dataName %s  ' % (fit_core))
-        print(' --dataPath /pscratch/sd/b/balewski/tmp2')
+        print('\n  ./eval_fit.py --dataPath $dataPath  --dataName %s   -p  b e ' % (fit_core))
+        print('\n  ./fit_regressPoisson.py  --dataPath $dataPath --dataName %s  ' % (fit_core))
+        print('    --dataPath '+args.dataPath)
     
     # ensure distributed shutdown to avoid resource leak warning
     if is_dist and dist.is_initialized():

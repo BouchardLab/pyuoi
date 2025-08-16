@@ -74,8 +74,9 @@ class Plotter(PlotterBackbone):
 
 #...!...!..................
     def slicedA_histos(self, fitD, md, fitType,figId=1, k=5):
-        #pprint(md)
+        #pprint(md); aa67
         fmd=md['fit_'+fitType]
+        ampl_thres=fmd['ampl_thres']
         
         figId=self.smart_append(figId)        
         nrow,ncol=k,2  # Add 1 extra row for the neuron stats plot
@@ -149,8 +150,8 @@ class Plotter(PlotterBackbone):
             group_values = group_values[~np.isnan(group_values)]
             
             # Plot 1D histogram with statistics
-            plot_1d_histo_with_stats(ax, group_values, start_row, end_row, i, 
-                                   color_list[i % len(color_list)], wzoomMx)
+            plot_1d_weight_histo_with_stats(ax, group_values, start_row, end_row, i, 
+                                            color_list[i % len(color_list)], ampl_thres/2)
         
         # Neuron statistics plot at bottom right
         ax = self.plt.subplot(nrow,ncol,1+(k-1)*ncol)
@@ -248,7 +249,7 @@ class Plotter(PlotterBackbone):
          
         figId=self.smart_append(figId)        
         nrow,ncol=1,2
-        fig=self.plt.figure(figId,facecolor='white', figsize=(10,5))
+        fig=self.plt.figure(figId,facecolor='white', figsize=(8,4))
 
         ax = self.plt.subplot(nrow,ncol,1)
         plot_trainingCurves(ax,fitD,md,fitType)
@@ -261,7 +262,7 @@ class Plotter(PlotterBackbone):
 
         ax.scatter(reF, imF, color='red', marker='o', facecolors='none',label='fit',s=20)
         ax.set_ylim(-0.1,)
-        ax.set_xlim(right=1)
+        #1ax.set_xlim(right=1)
         ax.axhline(0, linestyle='--', color='k', linewidth=1)
         ax.axvline(0, linestyle='--', color='k', linewidth=1)
         ax.grid(True, alpha=0.3)
@@ -363,19 +364,18 @@ def plot_correl_diag(fig,ax,Bt,Bf,exc_mask,title='aa2'):
 
 
 #...!...!..................
-def plot_1d_histo_with_stats(ax, group_values, start_row, end_row, group_idx, color, wzoomMx):
+def plot_1d_weight_histo_with_stats(ax, group_values, start_row, end_row, group_idx, color, ggd_range):
     """Plot 1D histogram with statistics for a single group"""
     
     # Create histogram for this group with log scale
     counts, bins, _ = ax.hist(group_values, bins=100, alpha=0.7, color=color)
     
-    # Draw vertical lines at ±wzoomMx and compute statistics in that range
-    ax.axvline(x=-wzoomMx, color='black', linestyle='--', linewidth=1, alpha=0.8)
-    ax.axvline(x=wzoomMx, color='black', linestyle='--', linewidth=1, alpha=0.8)
+    ax.axvline(x=-ggd_range, color='black', linestyle='--', linewidth=1, alpha=0.8)
+    ax.axvline(x=ggd_range, color='black', linestyle='--', linewidth=1, alpha=0.8)
     ax.axvline(x=0, color='black', linestyle=':', linewidth=1, alpha=0.8)
 
-    # Compute mean and RMSE in the range ±wzoomMx
-    mask_range = (group_values >= -wzoomMx) & (group_values <= wzoomMx)
+    # Compute mean and RMSE in the range ±ggd_range
+    mask_range = (group_values >= -ggd_range) & (group_values <= ggd_range)
     values_in_range = group_values[mask_range]
     
     if len(values_in_range) > 0:
@@ -401,12 +401,14 @@ def plot_1d_histo_with_stats(ax, group_values, start_row, end_row, group_idx, co
             ggd_text = f'β={beta:.4f}\nx₀={loc_str}\nμ={scale_str}'
             
             # Plot GGD fit curve
-            x_fit = np.linspace(-wzoomMx, wzoomMx, 100)
+            ggd_plot_range=2*ggd_range
+            x_fit = np.linspace(-ggd_plot_range, ggd_plot_range, 100)
             # Scale the PDF to match histogram counts
             ggd_pdf = gennorm.pdf(x_fit, beta, loc, scale)
+            
             # Scale to match histogram by finding the maximum bin count in range
             bin_centers = (bins[:-1] + bins[1:]) / 2
-            mask_fit_bins = (bin_centers >= -wzoomMx) & (bin_centers <= wzoomMx)
+            mask_fit_bins = (bin_centers >= -ggd_plot_range) & (bin_centers <= ggd_plot_range)
             if np.any(mask_fit_bins):
                 max_count_in_range = np.max(counts[mask_fit_bins])
                 max_pdf = np.max(ggd_pdf)
