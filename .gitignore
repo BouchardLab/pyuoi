@@ -122,3 +122,4 @@ model/
 *.h5
 .cursor
 *.npz
+old/

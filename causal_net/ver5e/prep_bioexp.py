@@ -157,8 +157,7 @@ def unroll_bioexp(rawD,md):
 
     # keep handy in meta for downstream
     sel['num_chan']=nchan
-    sel['max_spike_per_bin']=np.max(spikes2D)
-
+    sel['max_spike_per_bin']=int(np.max(spikes2D))
 
     Y_uchar = np.clip(spikes2D, 0, 255).astype(np.uint8)
     spikeD={'spikes':Y_uchar,
@@ -169,7 +168,7 @@ def unroll_bioexp(rawD,md):
     }
 
     #.... extract spikeMD for fitter
-    spikeMD={'time_step_sec': 1./pmd['sampling_freq'], 'short_name':md['short_name']}
+    spikeMD={'time_step_sec': 1./pmd['sampling_freq'], 'short_name':md['short_name'], 'type':'bioExp'}
     return bioD,spikeD,spikeMD
     
 #=================================

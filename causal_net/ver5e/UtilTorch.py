@@ -67,7 +67,7 @@ def preprocess_data(Y, args, time_mask=None):
         return Y[:num_samples], Y[1:num_samples + 1]
 
 
-def train_Poisson_model(model, device, train_loader, val_loader, n_epochs, lr, L1_alpha=0.0, use_scheduler=False, firing_rates=None, train_sampler=None, val_every=20, print_every=5):
+def train_Poisson_model(model, device, train_loader, n_epochs, lr, L1_alpha=0.0, use_scheduler=False, firing_rates=None, train_sampler=None, print_every=10):
     use_fused = (isinstance(device, torch.device) and device.type=='cuda' and torch.cuda.is_available())
     assert use_fused
     optimizer = optim.Adam(model.parameters(), lr=lr, fused=True)
@@ -80,54 +80,43 @@ def train_Poisson_model(model, device, train_loader, val_loader, n_epochs, lr, L
     
     firing_rates_tensor = torch.tensor(firing_rates, dtype=torch.float32, device=device) if firing_rates is not None else None
     
-    train_losses, val_losses, learning_rates = [], [], []
-    train_epochs, val_epochs = [], []
+    train_losses_w_L1, train_losses_wo_L1, learning_rates = [], [], []
+    train_epochs = []
     start_time = time.time()
 
     for epoch in range(n_epochs):
         if train_sampler is not None:   train_sampler.set_epoch(epoch)
         model.train()
-        train_loss = 0
+        train_loss_w_L1 = 0
+        train_loss_wo_L1 = 0
         for Y_prev, Y_curr in train_loader:
             Y_prev, Y_curr = Y_prev.float().to(device, non_blocking=True), Y_curr.float().to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
             spikes = model(Y_prev)
-            loss = poisson_nll_loss(spikes, Y_curr, firing_rates_tensor)
+            base_loss = poisson_nll_loss(spikes, Y_curr, firing_rates_tensor)
+            loss_with_L1 = base_loss.clone()
             if L1_alpha > 0:
-                loss += L1_alpha * torch.mean(torch.abs(mdl.A) * L1_weight_matrix)
-            loss.backward()
+                loss_with_L1 += L1_alpha * torch.mean(torch.abs(mdl.A) * L1_weight_matrix)
+            loss_with_L1.backward()
             optimizer.step()
-            train_loss += loss.item()
+            train_loss_w_L1 += loss_with_L1.item()
+            train_loss_wo_L1 += base_loss.item()
         
-        # record train each epoch
-        train_losses.append(train_loss / len(train_loader))
+        # record train losses each epoch
+        train_losses_w_L1.append(train_loss_w_L1 / len(train_loader))
+        train_losses_wo_L1.append(train_loss_wo_L1 / len(train_loader))
         train_epochs.append(epoch + 1)
-
-        # validate every val_every epochs (and final epoch)
-        latest_val = None
-        if ((epoch + 1) % val_every == 0) or (epoch + 1 == n_epochs):
-            model.eval()
-            vloss_sum = 0.0
-            with torch.inference_mode():
-                for Y_prev, Y_curr in val_loader:
-                    Y_prev, Y_curr = Y_prev.float().to(device, non_blocking=True), Y_curr.float().to(device, non_blocking=True)
-                    spikes = model(Y_prev)
-                    vloss_sum += poisson_nll_loss(spikes, Y_curr, firing_rates_tensor).item()
-            latest_val = vloss_sum / len(val_loader)
-            val_losses.append(latest_val)
-            val_epochs.append(epoch + 1)
         learning_rates.append(optimizer.param_groups[0]['lr'])
         
         if scheduler:
             scheduler.step()
            
         if (epoch + 1) % print_every == 0 and (not dist.is_initialized() or dist.get_rank()==0):
-            if latest_val is not None:
-                print(f"Epoch {epoch+1}/{n_epochs}: TrainLoss={train_losses[-1]:.5f}, ValLoss={latest_val:.5f}, Elapsed={(time.time() - start_time):.1f}s")
-            else:
-                print(f"Epoch {epoch+1}/{n_epochs}: TrainLoss={train_losses[-1]:.5f}, LR={learning_rates[-1]:.1e}, Elapsed={(time.time() - start_time):.1f}s")
+            
+            print(f"Epoch {epoch+1}/{n_epochs}:  Loss_Tot={train_losses_w_L1[-1]:.4g}, only_L1={(train_losses_w_L1[-1]-train_losses_wo_L1[-1]):.3g}, Elapsed={(time.time() - start_time):.1f}s")
+    
         
             
-    return train_losses, val_losses, learning_rates, train_epochs, val_epochs
+    return train_losses_w_L1, train_losses_wo_L1, learning_rates, train_epochs
 
 

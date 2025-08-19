@@ -119,7 +119,7 @@ if __name__=="__main__":
     rebD,timeMask=analyze_spikes(spikeD, spikeMD)
 
      #...... WRITE   OUTPUT .........
-    maskFF=spikesFF.replace('spikes','tmask')
+    maskFF=spikesFF.replace('spikes','timeMask')
     write_data_npz({'time_mask':timeMask}, maskFF, metaD=None)
 
     filter_bursts(spikeD, spikeMD,timeMask)

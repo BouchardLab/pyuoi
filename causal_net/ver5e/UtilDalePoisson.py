@@ -119,22 +119,9 @@ def estimate_rates(Y, dt, num_excite, max_samples_for_rates, mxNn=5):
     # Firing rates are already computed as `spike_rates`
     firing_rates = spike_rates
 
-    # Estimate pairwise coincidence rates
-    coincidence_rates = np.zeros((n_neurons, n_neurons))
-    for i in range(n_neurons):
-        for j in range(n_neurons):
-            if i == j:
-                coincidence_rates[i, j] = firing_rates[i]
-            else:
-                coincidences = np.sum(Y_for_rates[:, i] & Y_for_rates[:, j])
-                coincidence_rates[i, j] = coincidences / total_time
-    
     rates_dict = {
-        'single_rates': firing_rates,
-        'coincidence_rates': coincidence_rates
+        'single_rates': firing_rates
     }
-    
-    print("Coincidence rates: mean=%.4f ± %.4f Hz\n" % (np.mean(rates_dict['coincidence_rates']), np.std(rates_dict['coincidence_rates'])))
 
     return stats_dict, rates_dict
 
@@ -183,39 +170,71 @@ def true_edges_mask(maskD, trueD):
     tmp=maskT['exc']  | maskT['inh']
     trueD['edge_cnt_true']=np.sum(tmp,axis=1)  # sum edges alog neuron
     
-def select_eges_from_fitLasso( bigD, amplThres=0.2):
+def select_edges_from_fitLasso( bigD, amplThres=0.2):
     print('\nselect_eges_from_fitL1 amplThres=%.2f' % amplThres)
     maskF = {}
+    maskMD={'ampl_thres':amplThres}
     A_fit = bigD['A_lasso']
     A_abs = np.abs(A_fit)
-    n = A_fit.shape[0]
-    offdiag = ~np.eye(n, dtype=bool)  # mask for off-diagonal elements
+    nN = A_fit.shape[0] # number of neurons
+    offdiag = ~np.eye(nN, dtype=bool)  # mask for off-diagonal elements
 
     # Select elements where abs(A_fit) > amplThres, only off-diagonal
     fmask = (A_abs > amplThres) & offdiag
 
-    # Initialize 1D masks classyfuing neurons
-    exc_1d = np.zeros(n, dtype=bool)
-    inh_1d = np.zeros(n, dtype=bool)
-    iso_1d = np.zeros(n, dtype=bool)
+    #.... neuronType is extended characterization of edges of each row of A-array
+    KT=8
+    '''  features : [ itype, nPos, nNeg,nRej, sumPos, sumNeg, avrRej, stdRej ]
+        sumNeg - is positive, it is sum of abs values
+        itype:  0: no connection, +2: nNeg==0 +1 : sumPos>sumNeg, -2: nPos==0, -1: sumNeg>sumPos
+        TMP:  avrRej, stdRej are not computed 
+    '''
+    neurType=np.zeros((nN,KT))
+    for i in range(nN):
+        selM = fmask[i, :]
+        if np.any(selM):  # some non-diagonal edges
+            Asel=A_fit[i, selM]
+            #  Compute the number of positive and negative elements
+            nPos = (Asel > 0).sum()
+            nNeg = (Asel < 0).sum()
+            nRej=nN - nPos -nNeg
+            # Compute the sum of positive and negative elements
+            sumPos = Asel[Asel > 0].sum()
+            sumNeg = -Asel[Asel < 0].sum()
+            # classify neuron as excitatory/inhibitory or inbetween
+            if nNeg==0 and nPos>0: itype=2
+            elif nNeg>0 and nPos==0: itype=-2
+            else:
+                delSum=sumPos -sumNeg            
+                if delSum>0 : itype=1
+                else: itype=-1
+            avrRej=0; stdRej=0 # tmp
+            neurType[i]=[itype, nPos, nNeg,nRej, sumPos, sumNeg, avrRej, stdRej ]
 
-    for i in range(n):
-        sel = fmask[i, :]
-        if np.any(sel):
-            avg = np.mean(A_fit[i, sel])
+    print('neurType[::10]:\n',neurType[::10])
+
+    #... collect masks ....
+    maskF['exist'] = fmask
+
+    # Initialize 1D masks classyfing neurons using majority votting
+    exc_1d = np.zeros(nN, dtype=bool)
+    inh_1d = np.zeros(nN, dtype=bool)
+    iso_1d = np.zeros(nN, dtype=bool)
+    for i in range(nN):
+        selM = fmask[i, :]
+        if np.any(selM):
+            avg = np.mean(A_fit[i, selM])
             if avg > 0:
                 exc_1d[i] = True
             else:
                 inh_1d[i] = True
         else:
             iso_1d[i] = True
-
+   
     # Convert 1D masks to 2D masks by broadcasting over columns
     exc_mask = (exc_1d[:, None]) & (A_fit > amplThres) & offdiag
     inh_mask = (inh_1d[:, None]) & (A_fit < -amplThres) & offdiag
 
-    #... collect masks ....
-    maskF['above'] = fmask
     maskF['exc'] = exc_mask
     maskF['inh'] = inh_mask
 
@@ -224,11 +243,14 @@ def select_eges_from_fitLasso( bigD, amplThres=0.2):
     maskF['iso_idx'] = iso_1d
 
     # Optionally, you can combine all for a 'pass' mask:
-    maskF['pass'] = exc_mask | inh_mask | ~offdiag
-    bigD['A_pass'] = np.where(maskF['pass'], A_fit, 0)
+    #maskF['pass'] = exc_mask | inh_mask | ~offdiag
+    #bigD['A_pass'] = np.where(maskF['pass'], A_fit, 0)
 
     nGeom = np.sum(offdiag)
     nFit = np.sum( exc_mask | inh_mask  )
     print('fit mask', nGeom, nFit, 'amplThres=%.3f' % amplThres)
-    return maskF
+   
+    
+    return maskF,maskMD
+ 
 

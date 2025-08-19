@@ -2,7 +2,7 @@
 __author__ = "Jan Balewski"
 __email__ = "janstar1122@gmail.com"
 
-''' = = = = =  NPZ advanced storage = = =
+''' = = = = =  Numpy NPZ advanced storage = = =
 It can hold:
 * python dictionaries which must pass: json.dumps(dict)
 * single float or int variables w/o np-array packing. It is recovered as 1-value array
@@ -12,7 +12,7 @@ It can hold:
 
 import numpy as np
 import time, os
-import json
+import json,time
 from pprint import pprint
 
 #...!...!..................
@@ -20,69 +20,66 @@ def write_data_npz(dataD,outF,metaD=None,verb=1):
     assert type(dataD)!=type(None)
     assert len(outF)>0
     
+    # Create a copy to avoid modifying original data
+    saveD = dataD.copy()
+    
     if metaD!=None:
+        #pprint(metaD)
         metaJ=json.dumps(metaD, default=str)
-        dataD['meta.JSON']=metaJ
+        #print('meta.JSON:',metaJ)
+        saveD['meta.JSON']=np.array([metaJ], dtype='object')
     
-    if verb>1:
+    if verb>0:
             print('saving data as npz:',outF)
-    start = time.time()
+            start = time.time()
     
-    # Prepare data for npz saving
-    npz_data = {}
-    for item in dataD:
-        rec = dataD[item]
+    # Process data to ensure all items are numpy arrays
+    for item in list(saveD.keys()):
+        rec=saveD[item]
         if verb>1: print('x=',item,type(rec))
-        
-        if isinstance(rec, dict):
-            # Serialize nested dictionary to a JSON string
-            rec_str = json.dumps(rec, default=lambda o: o.tolist() if isinstance(o, np.ndarray) else o)
-            rec = np.array([rec_str], dtype='object')
-        elif type(rec)==str:
-            rec = np.array([rec], dtype='object')
-        elif type(rec)!=np.ndarray:
-            rec = np.array([rec])
-        
-        npz_data[item] = rec
+        if type(rec)==str: # special case - convert string to object array
+            saveD[item] = np.array([rec], dtype='object')
+            if verb>0:print('npz-write :',item, 'as string array',saveD[item].shape,saveD[item].dtype)
+            continue
+        if type(rec)!=np.ndarray: # packs a single value into np-array
+            saveD[item]=np.array([rec])
+            if verb>0:print('npz-write :',item, saveD[item].shape,saveD[item].dtype)
+        else:
+            if verb>0:print('npz-write :',item, rec.shape,rec.dtype)
+
+    # Save to NPZ format
+    np.savez_compressed(outF, **saveD)
     
-    # Save using np.savez_compressed for better compression
-    np.savez_compressed(outF, **npz_data)
-    
-    xx = os.path.getsize(outF)/1048576
+    xx=os.path.getsize(outF)/1048576
     print('closed  npz:',outF,' size=%.2f MB, elaT=%.1f sec'%(xx,(time.time() - start)))
 
     
 #...!...!..................
 def read_data_npz(inpF,verb=1):
-    if verb>1:
+    if verb>0:
             print('read data from npz:',inpF)
-    start = time.time()
+            start = time.time()
     
-    # Load npz file
-    npz_file = np.load(inpF, allow_pickle=True)
-    objD = {}
+    npzData = np.load(inpF, allow_pickle=True)
+    objD={}
     
-    for x in npz_file.files:
-        if verb>1: print('\nitem=',x,type(npz_file[x]),npz_file[x].shape,npz_file[x].dtype)
+    for x in npzData.files:
+        obj = npzData[x]
+        if verb>1: print('\nitem=',x,type(obj),obj.shape,obj.dtype)
         
-        if npz_file[x].dtype==object:
-            obj = npz_file[x]
-            if verb>0: print('read str:',x,len(obj),type(obj))
+        if obj.dtype==object:
+            if verb>0: print('read obj:',x,len(obj),type(obj))
         else:
-            obj = npz_file[x]
             if verb>0: print('read obj:',x,obj.shape,obj.dtype)
-        objD[x] = obj
+        objD[x]=obj
     
-    # Close the npz file
-    npz_file.close()
+    npzData.close()
     
-    # Extract metadata if present
     try:
-        inpMD = json.loads(objD.pop('meta.JSON')[0])
+        inpMD=json.loads(objD.pop('meta.JSON')[0])
         if verb>1: print('  recovered meta-data with %d keys'%len(inpMD))
     except:
-        inpMD = None
-    
+        inpMD=None
     if verb>0:
         print(' done npz, num rec:%d  elaT=%.1f sec'%(len(objD),(time.time() - start)))
 
@@ -108,8 +105,9 @@ if __name__=="__main__":
     three=np.empty((2), dtype='object')
     three[0]='record aaaa'
     three[1]='much longer record bbb'
+    # WARN:  all decalred elements of three[] must be initialized before writeing NPZ
     
-    # this works too??:
+    # this works too:
     # three=np.array(['record aaaa','much longer record bbb'], dtype='object')
     
     text='This is text1'  
@@ -118,10 +116,6 @@ if __name__=="__main__":
    
     outD={'one':one,'two':two,'var1':var1,'atext':text,'three':three}
 
-    # ... nested dict of numpy
-    subD={'one1':one,'two1':two}
-    outD['sub']=subD
-    
     write_data_npz(outD,outF,metaD=metaD,verb=verb)
 
     print('\nM: *****  verify by reading it back from',outF)
@@ -129,24 +123,10 @@ if __name__=="__main__":
     from pprint import pprint        
     print(' recovered meta-data'); pprint(meta2)
     print('dump read-in data')
-    for key, item in big.items():
-        # Detect nested dict stored as JSON in object array
-        if isinstance(item, np.ndarray) and item.dtype == object and len(item) == 1 and isinstance(item[0], str):
-            try:
-                parsed = json.loads(item[0])
-                if isinstance(parsed, dict):
-                    for subk, subv in parsed.items():
-                        print(f"{key}.{subk}: {subv}")
-                    continue
-            except json.JSONDecodeError:
-                pass
-        # Fallback: print numpy arrays or other items
-        if isinstance(item, np.ndarray):
-            print(f"{key}: {item.tolist()}")
-        else:
-            print(f"{key}: {item}")
+    for x in big:
+        print('\nkey=',x); pprint(big[x])
   
-    #decode one string from string-array
-    rec2=big['three'][1]  # No need for .decode("utf-8") in npz
+    #get one string from string-array
+    rec2=big['three'][1] 
     print('rec2:',type(rec2),rec2)
-    print('\n check raw content:   python -c "import numpy as np; data=np.load(\'%s\', allow_pickle=True); print(data.files); [print(k, data[k].shape, data[k].dtype) for k in data.files]"\n'%outF) 
+    print('\n check raw content with: python -c "import numpy as np; data=np.load(\'%s\', allow_pickle=True); print(list(data.files)); data.close()"\n'%outF)
