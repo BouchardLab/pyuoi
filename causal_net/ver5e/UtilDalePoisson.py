@@ -170,17 +170,17 @@ def true_edges_mask(maskD, trueD):
     tmp=maskT['exc']  | maskT['inh']
     trueD['edge_cnt_true']=np.sum(tmp,axis=1)  # sum edges alog neuron
     
-def select_edges_from_fitLasso( bigD, amplThres=0.2):
-    print('\nselect_eges_from_fitL1 amplThres=%.2f' % amplThres)
+def select_edges_from_fitLasso( bigD, amplThres):
+    print('\nselect_eges_from_fitL1 amplThres=%s' % amplThres)
     maskF = {}
     maskMD={'ampl_thres':amplThres}
     A_fit = bigD['A_lasso']
-    A_abs = np.abs(A_fit)
+
     nN = A_fit.shape[0] # number of neurons
     offdiag = ~np.eye(nN, dtype=bool)  # mask for off-diagonal elements
 
     # Select elements where abs(A_fit) > amplThres, only off-diagonal
-    fmask = (A_abs > amplThres) & offdiag
+    fmask = ((A_fit < amplThres[0]) | (A_fit > amplThres[1])) & offdiag
 
     #.... neuronType is extended characterization of edges of each row of A-array
     KT=8
@@ -232,8 +232,8 @@ def select_edges_from_fitLasso( bigD, amplThres=0.2):
             iso_1d[i] = True
    
     # Convert 1D masks to 2D masks by broadcasting over columns
-    exc_mask = (exc_1d[:, None]) & (A_fit > amplThres) & offdiag
-    inh_mask = (inh_1d[:, None]) & (A_fit < -amplThres) & offdiag
+    inh_mask = (inh_1d[:, None]) & (A_fit < amplThres[0]) & offdiag
+    exc_mask = (exc_1d[:, None]) & (A_fit > amplThres[1]) & offdiag
 
     maskF['exc'] = exc_mask
     maskF['inh'] = inh_mask
@@ -242,15 +242,19 @@ def select_edges_from_fitLasso( bigD, amplThres=0.2):
     maskF['inh_idx'] = inh_1d
     maskF['iso_idx'] = iso_1d
 
-    # Optionally, you can combine all for a 'pass' mask:
-    #maskF['pass'] = exc_mask | inh_mask | ~offdiag
-    #bigD['A_pass'] = np.where(maskF['pass'], A_fit, 0)
+    #  prep seed for the 2nd fitter
+    maskD={}  
+    maskF['pass'] = fmask | ~offdiag
+    maskD['A_init'] = np.where(maskF['pass'], A_fit, 0)
+    maskD['B_init']=bigD['B_lasso']
 
     nGeom = np.sum(offdiag)
     nFit = np.sum( exc_mask | inh_mask  )
-    print('fit mask', nGeom, nFit, 'amplThres=%.3f' % amplThres)
-   
+    print('fit mask', nGeom, nFit, 'amplThres=%s' % amplThres)
     
-    return maskF,maskMD
+    for xx in maskF:
+            maskD['mask.lasso.'+xx]=maskF[xx]
+    
+    return maskD,maskMD
  
 

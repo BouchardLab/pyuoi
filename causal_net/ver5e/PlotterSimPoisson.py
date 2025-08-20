@@ -111,7 +111,7 @@ class Plotter(PlotterBackbone):
         ax.set_ylim(0,)
         ax.grid(True, alpha=0.3)
         probLo, probHi = dmd['edge_prob']
-        rho_title = f'outgoing edges, true, edge_prob=[{probLo:.2f}, {probHi:.2f}]'
+        rho_title = f'outgoing edges, true, prob=[{probLo:.2f}, {probHi:.2f}]'
         ax.set_title(rho_title)
 
         #.... : firing rates
@@ -132,6 +132,7 @@ class Plotter(PlotterBackbone):
         ax.set_xlabel('Firing rate (Hz)')
         ax.grid(True, alpha=0.3)
         ax.set_title('Single rates spectrum')
+        ax.set_xlim(0,)
         median_val = np.median(single_rates)
         ax.axvline(median_val, color='r', linestyle='--', linewidth=1.5)
         y_max = ax.get_ylim()[1]

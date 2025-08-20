@@ -87,7 +87,7 @@ class PoissonGLModel(nn.Module):
 
 
 def poisson_nll_loss(spikes, targets, firing_rates):
-    eps = 1e-10
+    eps = 1e-8
     firing_rates_safe = torch.maximum(firing_rates, torch.tensor(0.1, device=firing_rates.device))
     weights = 1.0 / firing_rates_safe
     weights /= torch.mean(weights)

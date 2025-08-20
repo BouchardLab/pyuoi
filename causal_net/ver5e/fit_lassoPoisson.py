@@ -18,7 +18,7 @@ from torch.utils.data import TensorDataset, DataLoader
 from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
 from PoissonGLModel import PoissonGLModel, poisson_nll_loss
 
-from UtilTorch import check_gpu_availability, preprocess_data, train_Poisson_model
+from UtilTorch import check_gpu_availability, preprocess_data, train_Poisson_model, NumpyPairDataset, make_loader
 
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -105,27 +105,7 @@ def main():
     
     assert n_pairs >= args.batch_size, f"ERROR: Not enough samples ({n_pairs}) for batch size ({args.batch_size})."
 
-    class NumpyPairDataset(Dataset):
-        def __init__(self, X_np, Y_np):
-            self.X = X_np
-            self.Y = Y_np
-            self.n = X_np.shape[0]
-        def __len__(self):
-            return self.n
-        def __getitem__(self, idx):
-            return torch.from_numpy(self.X[idx]).to(dtype=torch.float32), torch.from_numpy(self.Y[idx]).to(dtype=torch.float32)
-
-    def make_loader(X, Yt, shuffle=True):
-        dataset = NumpyPairDataset(X, Yt)
-        if is_dist:
-            sampler = DistributedSampler(dataset, shuffle=shuffle)
-            return DataLoader(dataset, batch_size=max(1, args.batch_size//world_size), sampler=sampler, shuffle=False, drop_last=shuffle,
-                              pin_memory=True, pin_memory_device='cuda', num_workers=8, persistent_workers=True, prefetch_factor=8)
-        else:
-            return DataLoader(dataset, batch_size=args.batch_size, shuffle=shuffle, drop_last=shuffle, pin_memory=True, pin_memory_device='cuda', num_workers=8,
-                              persistent_workers=True, prefetch_factor=8)
-    
-    train_loader = make_loader(X_np, Yt_np)
+    train_loader = make_loader(X_np, Yt_np, args, is_dist=is_dist)
     
     if rank==0:
         print(f"Loaded T={T}, M={M}, using {n_pairs} pairs (all for training), world_size={world_size}, per_gpu_bs={args.batch_size//max(1,world_size)}")
@@ -134,7 +114,7 @@ def main():
     base_model = PoissonGLModel(M).to(device)
     model = DDP(base_model, device_ids=[local_rank]) if is_dist else base_model
     start_time = time.time()
-    train_losses_w_L1, train_losses_wo_L1, learning_rates, train_epochs = train_Poisson_model(
+    losses_total, losses_wo_L1, learning_rates, train_epochs = train_Poisson_model(
         model, device, train_loader, args.n_epochs, lr=args.lr, L1_alpha=args.L1_alpha, firing_rates=dataRates, use_scheduler=True,
         train_sampler=train_loader.sampler if isinstance(train_loader.sampler, DistributedSampler) else None
     )
@@ -145,20 +125,18 @@ def main():
     # --- Modern output saving from fit_Lasso ---
     if rank==0:
         mdl = model.module if hasattr(model,'module') else model
-        lassoD = { 'A_lasso': mdl.A.detach().cpu().numpy(), 'B_lasso': mdl.B.detach().cpu().numpy(), 'train_losses_w_L1': np.array(train_losses_w_L1), 'train_losses_wo_L1': np.array(train_losses_wo_L1), 'train_loss_epochs': np.array(train_epochs, dtype=np.int32), 'learning_rates': np.array(learning_rates), 'firing_rates': dataRates }
+        lassoD = { 'A_lasso': mdl.A.detach().cpu().numpy(), 'B_lasso': mdl.B.detach().cpu().numpy(), 'losses_total': np.array(losses_total), 'losses_wo_L1': np.array(losses_wo_L1), 'losses_epochs': np.array(train_epochs, dtype=np.int32), 'learning_rates': np.array(learning_rates), 'firing_rates': dataRates }
         lassoMD = { 'lassoFit_output_name': fit_core, 'lassoFit_input_name': args.dataName, 'batch_size': args.batch_size, 'num_samples_used': n_pairs, 'n_epochs': args.n_epochs, 'num_train_samples': n_pairs, 'learning_rate': args.lr, 'L1_alpha': args.L1_alpha, 'step_size': step_size, 'training_time_sec': total_time, 'num_neurons': M }
-        # ... select edges in A_fit matrix ...
-       
+        spikeMD['fit_type']='lasso'       
         spikeMD['fit_lasso']=lassoMD
-        
-  
+          
     if rank==0:
         fitFF = os.path.join(args.dataPath, f"{fit_core}.lassoFit.npz")
         write_data_npz(lassoD, fitFF, metaD=spikeMD)
 
     if rank==0:
         print('\n  ./eval_fitLasso.py --dataPath $dataPath  --dataName %s   -p  a b   e ' % (fit_core))
-        print('\n  ./fit_regressPoisson.py  --dataPath $dataPath --dataName %s  ' % (fit_core))
+        print('\n  ./fit_regressPoisson.py  --dataName %s  ' % (fit_core))
         print('    --dataPath '+args.dataPath)
     
     # ensure distributed shutdown to avoid resource leak warning

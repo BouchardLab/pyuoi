@@ -3,6 +3,8 @@ import numpy as np
 import time
 import torch.optim as optim
 import torch.distributed as dist
+from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from PoissonGLModel import poisson_nll_loss
 
 def check_gpu_availability():
@@ -67,7 +69,7 @@ def preprocess_data(Y, args, time_mask=None):
         return Y[:num_samples], Y[1:num_samples + 1]
 
 
-def train_Poisson_model(model, device, train_loader, n_epochs, lr, L1_alpha=0.0, use_scheduler=False, firing_rates=None, train_sampler=None, print_every=10):
+def train_Poisson_model(model, device, train_loader, n_epochs, lr, L1_alpha=0.0, use_scheduler=False, firing_rates=None, train_sampler=None, print_every=5):
     use_fused = (isinstance(device, torch.device) and device.type=='cuda' and torch.cuda.is_available())
     assert use_fused
     optimizer = optim.Adam(model.parameters(), lr=lr, fused=True)
@@ -113,10 +115,32 @@ def train_Poisson_model(model, device, train_loader, n_epochs, lr, L1_alpha=0.0,
            
         if (epoch + 1) % print_every == 0 and (not dist.is_initialized() or dist.get_rank()==0):
             
-            print(f"Epoch {epoch+1}/{n_epochs}:  Loss_Tot={train_losses_w_L1[-1]:.4g}, only_L1={(train_losses_w_L1[-1]-train_losses_wo_L1[-1]):.3g}, Elapsed={(time.time() - start_time):.1f}s")
+            print(f"Epoch {epoch+1}/{n_epochs}:  Loss_Tot={train_losses_w_L1[-1]:.5g}, only_L1={(train_losses_w_L1[-1]-train_losses_wo_L1[-1]):.4g}, Elapsed={(time.time() - start_time):.1f}s")
     
         
             
     return train_losses_w_L1, train_losses_wo_L1, learning_rates, train_epochs
+
+
+class NumpyPairDataset(Dataset):
+    def __init__(self, X_np, Y_np):
+        self.X = X_np
+        self.Y = Y_np
+        self.n = X_np.shape[0]
+    def __len__(self):
+        return self.n
+    def __getitem__(self, idx):
+        return torch.from_numpy(self.X[idx]).to(dtype=torch.float32), torch.from_numpy(self.Y[idx]).to(dtype=torch.float32)
+
+def make_loader(X, Yt, args, is_dist=False, shuffle=True):
+    dataset = NumpyPairDataset(X, Yt)
+    if is_dist:
+        sampler = DistributedSampler(dataset, shuffle=shuffle)
+        world_size = dist.get_world_size() if dist.is_initialized() else 1
+        return DataLoader(dataset, batch_size=max(1, args.batch_size//world_size), sampler=sampler, shuffle=False, drop_last=shuffle,
+                          pin_memory=True, pin_memory_device='cuda', num_workers=8, persistent_workers=True, prefetch_factor=8)
+    else:
+        return DataLoader(dataset, batch_size=args.batch_size, shuffle=shuffle, drop_last=shuffle, pin_memory=True, pin_memory_device='cuda', num_workers=8,
+                          persistent_workers=True, prefetch_factor=8)
 
 

@@ -10,24 +10,24 @@ import matplotlib.gridspec as gridspec
 import matplotlib.colors as colors
 from matplotlib.colors import TwoSlopeNorm
 from scipy.stats import gennorm
-#from brokenaxes import brokenaxes
 
 #............................
 #............................
 #............................
-class Plotter(PlotterBackbone):
+class Plotter(PlotterBackbone): 
     def __init__(self, args):
         PlotterBackbone.__init__(self,args)         
 
 #...!...!..................
-    def correl_after_thresh(self, trueD,fitD, maskD,md, fitType,figId=1):
+    def correl_after_thresh(self, trueD,fitD, maskD,md, figId=1):  
         #pprint(md)
-        #fmd=md['fit_'+fitType]
-        amplThres=md['ampl_thres']
         
+        amplThres=md['ampl_thres']
+        fitType=md['fit_type']
+        #fmd=md['fit_'+fitType]
         figId=self.smart_append(figId)        
         nrow,ncol=2,4
-        fig=self.plt.figure(figId,facecolor='white', figsize=(16,7))
+        fig=self.plt.figure(figId,facecolor='white', figsize=(15,6))
 
         # Unpack arrays from bigD
         A_true = trueD['A_true']
@@ -42,15 +42,18 @@ class Plotter(PlotterBackbone):
         
             ax = self.plt.subplot(nrow,ncol,1+j)
             title = 'fit (%s)' % ntype
-            plot_Afit(fig,ax,A_fit,fmask,title=title)
-          
+            plot_A2D(fig,ax,A_fit,fmask,title=title)
+
             ax = self.plt.subplot(nrow,ncol,1+ncol+j)
-            plot_correl_offdiag(fig,ax,A_true,A_fit,tmask,fmask,title=title)
+            plot_correl_offdiag(fig,ax,A_true,A_fit,tmask,fmask)
             if ntype=='exc':
-                ax.axhline(amplThres, linestyle='--', color='m', linewidth=1)
+                ax.axhline(amplThres[1], linestyle='--', color='m', linewidth=1)
+                title = 'fit (%s)  thr>%.2f' %( ntype,amplThres[1])
             else:
-                ax.axhline(-amplThres, linestyle='--', color='m', linewidth=1)
-                
+                ax.axhline(amplThres[0], linestyle='--', color='m', linewidth=1)
+                title = 'fit (%s)  thr<-%.2f' %( ntype,amplThres[0])
+            ax.set_title(title)
+
         # ... diagonal
         gexc_1d= trueD['mask.geom.exc_idx']
         mask_diag= trueD['mask.geom.diag']
@@ -65,24 +68,26 @@ class Plotter(PlotterBackbone):
             
         #...... Training curves
         ax = self.plt.subplot(nrow,ncol,3)
-        plot_trainingCurves(ax,fitD,md,fitType)
+        plot_trainingCurves(ax,fitD,md)
                             
         #..... all values of A
         ax = self.plt.subplot(nrow,ncol,4)
         ax.hist(A_fit[~mask_diag], bins=100, alpha=0.7)
         ax.set_xlabel("Off-Diagonal Weights")
         ax.set_ylabel("edge count")
-        tit="Fit %s,  amplThrs>%.2f"%(fitType,amplThres)
+        tit="Fit %s,  amplThrs>%s"%(fitType,amplThres)
         ax.set_title(tit)
         ax.grid(True)
         ax.set_yscale('log')
-        ax.axvline(-amplThres, linestyle='--', color='m', linewidth=1)
-        ax.axvline(amplThres, linestyle='--', color='m', linewidth=1)
+        ax.axvline(amplThres[0], linestyle='--', color='m', linewidth=1)
+        ax.axvline(amplThres[1], linestyle='--', color='m', linewidth=1)
 
 
 #...!...!..................
-    def slicedA_histos(self, fitD, md, fitType,figId=1, k=5):
+    def slicedA_histos(self, fitD, md, figId=1, k=5):
         #pprint(md); aa67
+        fitType=md['fit_type']
+
         fmd=md['fit_'+fitType]
         amplThres=md['ampl_thres']
         
@@ -102,8 +107,8 @@ class Plotter(PlotterBackbone):
         # Left column: 2D histogram of A-matrix (top 2 rows)
         ax = self.plt.subplot2grid((nrow, ncol), (0, 0), rowspan=2)
         ax.axvline(0, linestyle='--', color='lime', linewidth=1)
-        ax.axvline(-amplThres, linestyle='--', color='m', linewidth=1)
-        ax.axvline(amplThres, linestyle='--', color='m', linewidth=1)
+        ax.axvline(amplThres[0], linestyle='--', color='m', linewidth=1)
+        ax.axvline(amplThres[1], linestyle='--', color='m', linewidth=1)
         
         # Create 2D histogram: x-axis is value, y-axis is row index
         A_flat = A_fit_no_diag.flatten()
@@ -134,7 +139,7 @@ class Plotter(PlotterBackbone):
         
         # Use ax.hist2d() directly with log scale and narrowed range
         H2, xedges2, yedges2, im2 = ax.hist2d(A_flat_narrow, row_indices_narrow, bins=[51, num_neurons], cmap='Purples', norm=colors.LogNorm())
-        ax.set_xlabel('A-matrix value')
+        ax.set_xlabel('non-diagonal weights')
         ax.set_ylabel('Neuron index')
         ax.set_title(f'Input: {md["short_name"]},  zoom-in')
         ax.set_xlim(-wzoomMx,wzoomMx)
@@ -162,16 +167,17 @@ class Plotter(PlotterBackbone):
             # Plot 1D histogram with statistics
             plot_1d_weight_histo_with_stats(ax, group_values, start_row, end_row, i, 
                                             color_list[i % len(color_list)], amplThres)
-            ax.axvline(-amplThres, linestyle='--', color='m', linewidth=1)
-            ax.axvline(amplThres, linestyle='--', color='m', linewidth=1)
+            ax.axvline(amplThres[0], linestyle='--', color='m', linewidth=1)
+            ax.axvline(amplThres[1], linestyle='--', color='m', linewidth=1)
   
         # Neuron statistics plot at bottom right
         ax = self.plt.subplot(nrow,ncol,1+(k-1)*ncol)
         plot_neuron_stats(ax, A_flat_narrow, row_indices_narrow, num_neurons)
         
 #...!...!..................
-    def residuals(self, trueD,fitD, maskD,md, fitType,figId=1):
+    def residuals(self, trueD,fitD, maskD,md, figId=1):
         #pprint(md)
+        fitType=md['fit_type']
         fmd=md['fit_'+fitType]
         
         figId=self.smart_append(figId)        
@@ -191,7 +197,8 @@ class Plotter(PlotterBackbone):
         
             ax = self.plt.subplot(nrow,ncol,1+j)
             title = 'fit (%s)' % ntype
-            valT,valF=plot_correl_offdiag(fig,ax,A_true,A_fit,tmask,fmask,title=title)
+            valT,valF=plot_correl_offdiag(fig,ax,A_true,A_fit,tmask,fmask)
+            ax.set_title(title)
 
             ax = self.plt.subplot(nrow,ncol,1+j+ncol)
             plot_1D_residuals(ax, valT,valF,lab='TP off-diag '+ntype,col='green')
@@ -227,7 +234,8 @@ class Plotter(PlotterBackbone):
         plot_1D_residuals(ax, vecT[gexc_1d],vecF[gexc_1d],lab='exc B-term',col='tomato',first=False)
 
 #...!...!..................
-    def compare_eigen(self, trueD,fitD, md, fitType,figId=4):
+    def compare_eigen(self, trueD,fitD, md,figId=4):
+        fitType=md['fit_type']
         # Unpack arrays from bigD
         A_true = trueD['A_true']
         B_true = trueD['B_true']
@@ -253,8 +261,9 @@ class Plotter(PlotterBackbone):
         plot_correl_diag(fig,ax,vecT,vecF,gexc_1d,title=title)
         
 #...!...!..................
-    def experiment_eigen(self, fitD, md, fitType,figId=4):
-        
+    def experiment_eigen(self, fitD, md,figId=5):
+        fitType=md['fit_type']
+
         # Unpack arrays from bigD
         A_fit = fitD['A_'+fitType]
         B_fit = fitD['B_'+fitType]
@@ -287,56 +296,59 @@ class Plotter(PlotterBackbone):
 #............................
 #............................
    
-def plot_trainingCurves(ax,fitD,md,fitType,title='aa3'):
+def plot_trainingCurves(ax,fitD,md,title='aa3'):
+    fitType=md['fit_type']
     fmd=md['fit_'+fitType]
 
     epoch0=10 # skip intial loss values
-    lossTot = fitD['train_losses_w_L1'][epoch0:]
-    lossL1= lossTot - fitD['train_losses_wo_L1'][epoch0:] 
-    epochsT=fitD['train_loss_epochs'][epoch0:]
+    lossTot = fitD['losses_total'][epoch0:]
+    epochsT=fitD['losses_epochs'][epoch0:]
  
     # Plot total loss on left y-axis
     ax.plot(epochsT, lossTot, label='total '+fitType, color='blue', linestyle='-')
+
+    titl='%dk samp'%(fmd["num_samples_used"]/1000)
     
-    # Create second y-axis for L1 loss
-    ax2 = ax.twinx()
-    ax2.plot(epochsT, lossL1, label='L1 loss', color='red', linestyle='--')
-    
+    if fitType=='lasso':  # Create second y-axis for L1 loss
+        lossL1= lossTot - fitD['losses_wo_L1'][epoch0:]  
+        ax2 = ax.twinx()
+        ax2.plot(epochsT, lossL1, label='L1 loss', color='red', linestyle='--')
+        ax2.set_ylabel('L1 loss', color='red')
+        ax2.tick_params(axis='y', labelcolor='red')
+        # Format second y-axis ticks in scientific notation
+        from matplotlib.ticker import FuncFormatter
+        ax2.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.1e}'))
+        # Combine legends from both axes
+        lines1, labels1 = ax.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax.legend(lines1 + lines2, labels1 + labels2, title=titl)
+    else:
+        ax.legend( title=titl)
+            
     title = md["short_name"]
     ax.set(xlabel='Epoch', title=title)
-    ax.set_ylabel('Total Loss', color='blue')
-    ax2.set_ylabel('L1 loss', color='red')
+    ax.set_ylabel('Loss', color='blue')
     
     # Color the y-axis labels to match the lines
     ax.tick_params(axis='y', labelcolor='blue')
-    ax2.tick_params(axis='y', labelcolor='red')
-    
-    # Format second y-axis ticks in scientific notation
-    from matplotlib.ticker import FuncFormatter
-    ax2.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.1e}'))
-    
-    # Combine legends from both axes
-    lines1, labels1 = ax.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    titl='%dk samp'%(fmd["num_samples_used"]/1000)
-    ax.legend(lines1 + lines2, labels1 + labels2, title=titl)
     ax.grid(True, alpha=0.3)
   
-def plot_Afit(fig,ax,A,mask,title='aa'):
+def plot_A2D(fig,ax,A,mask,title='aa'):
     Am=A.copy()
     Am[~mask]=0
  
     vmin = Am.min()-0.3
     vmax = Am.max()+0.3
-    print('mm',vmin,vmax,title)
+    
     norm = TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
     im1=ax.imshow(Am, cmap='bwr', norm=norm, origin='lower')  # 'RdBu_r'
 
     masked_values = Am[mask]
-    vmin = masked_values.min()
-    vmax = masked_values.max()
+    #vmin = masked_values.min()
+    #vmax = masked_values.max()
     
-    title='%s n=%d'%(title,1)
+    nval=np.sum(mask)
+    title='%s n=%d'%(title,nval)
     ax.set(title=title, ylabel='From neuron', xlabel='To neuron')
     fig.colorbar(im1, ax=ax)
     ax.grid(True, alpha=0.5)
@@ -357,7 +369,7 @@ def add_x45_lins(ax, only45=False):
     ax.axhline(0, linestyle='--', color='k', linewidth=1)
 
     
-def plot_correl_offdiag(fig,ax,At,Af,tmask,fmask,title='aa2'):    
+def plot_correl_offdiag(fig,ax,At,Af,tmask,fmask):    
     FP = ~tmask &  fmask  # False Positive: predicted True, actually False
     TP =  tmask &  fmask  # True Positive: predicted True, actually True
     TN = ~tmask & ~fmask  # True Negative: predicted False, actually False
@@ -365,9 +377,9 @@ def plot_correl_offdiag(fig,ax,At,Af,tmask,fmask,title='aa2'):
 
     ax.scatter(At[TP], Af[TP], alpha=0.6, color='green',label='TP: %d'%np.sum(TP),marker='.',s=5) #, facecolors='none')
     ax.scatter(At[FN], Af[FN], alpha=0.6, color='red',s=5,label='FN: %d'%np.sum(FN))
-    ax.scatter(At[FP], Af[FP], alpha=0.6, color='orange',s=5,label='FP: %d'%np.sum(FP))
+    ax.scatter(At[FP], Af[FP], alpha=0.6, color='blue',s=5,label='FP: %d'%np.sum(FP))
 
-    ax.set(aspect=1. ,xlabel='true weight',ylabel='fitted',title=title)
+    ax.set(aspect=1. ,xlabel='true weight',ylabel='fitted')
     ax.grid(True, alpha=0.5)
 
     add_x45_lins(ax)
@@ -391,13 +403,14 @@ def plot_correl_diag(fig,ax,Bt,Bf,exc_mask,title='aa2'):
 
 
 #...!...!..................
-def plot_1d_weight_histo_with_stats(ax, group_values, start_row, end_row, group_idx, color, ggd_range):
+def plot_1d_weight_histo_with_stats(ax, group_values, start_row, end_row, group_idx, color, ggd_rangeL):
     """Plot 1D histogram with statistics for a single group"""
-    
+
+    ggd_range=(ggd_rangeL[0]+ggd_rangeL[1])/2.  # TMP
     # Create histogram for this group with log scale
     counts, bins, _ = ax.hist(group_values, bins=100, alpha=0.7, color=color)
     
-    ax.axvline(x=-ggd_range, color='black', linestyle='--', linewidth=1, alpha=0.8)
+    ax.axvline(x=ggd_range, color='black', linestyle='--', linewidth=1, alpha=0.8)
     ax.axvline(x=ggd_range, color='black', linestyle='--', linewidth=1, alpha=0.8)
     ax.axvline(x=0, color='black', linestyle=':', linewidth=1, alpha=0.8)
 

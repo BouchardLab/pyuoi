@@ -153,9 +153,9 @@ def gen_dale_matrics(conf, rho_target):
     print(f"Parameters: N={num_neurons}, excit={num_excite}, g={g:.1f}, r={r:.1f}")
 
     # additional configuration
-    varyW=0.5  #  controll variation of excitatory weights
+    varyW=0.6  #  controls variation of excitatory weights
     minW=0.1  # sets minimal value of any weights, also after stabilization
-    eigenGap=0.2 # sets threshold on Re(eigen value) after stabilization
+    eigenGap=0.1 # sets threshold on Re(eigen value) after stabilization
     
     A = gen_init_W(num_neurons, num_excite, rho_target, g, r, varyW=varyW, minW=minW, diag=-1)
     eig = np.linalg.eigvals(A)
@@ -318,8 +318,7 @@ def main():
         'edge_prob': args.edge_prob
     }
 
-    if args.verb>1:
-        
+    if args.verb>1:        
         print("Dale configuration:"); pprint(dale_conf)
         
     # sanity checks
@@ -350,7 +349,7 @@ def main():
         'num_steps': args.num_steps,
         'step_size': args.step_size,
         'evol_time': args.num_steps*args.step_size,
-         'expRate': args.expRate
+        'expRate': args.expRate
     }
 
     if not args.expRate:
@@ -369,7 +368,7 @@ def main():
             'min_freq': 1.0,
             'max_freq': 15.0
         }
-
+        evol_conf['rate_gen_conf']=rateGen_conf
         B_idle = np.log(gen_exponential_freq( num_samples=Nn,**rateGen_conf)    )
         
     # Generate spike data using the Poisson  process
@@ -396,12 +395,11 @@ def main():
             'spikes': Y_uchar,
             'single_rates': rates_dict['single_rates'],
         }
-    spikeMD={ 'short_name':args.dataName,'time_step_sec':args.step_size,'type':'simDale' }
+    spikeMD={ 'short_name':args.dataName,'time_step_sec':args.step_size,'data_type':'simDale' }
     
     # Save simulation data using utility function
     trueD = { 'A_true': A_dale, 'B_true': B_idle}
     trueMD = {'dale_conf': dale_conf, 'evol_conf': evol_conf,'short_name':args.dataName,'dale_simu_stats':stats_dict}
-    trueMD['rate_gen_conf']=rateGen_conf
     maskD=geom_edges_mask(trueMD)
     true_edges_mask(maskD,trueD)
 
