@@ -15,7 +15,7 @@ from pprint import pprint
 def print_scores(trueD,fitD,maskD):  # saves no output!
     print('\nscore_classifier')
     fmask=maskD['mask.lasso.exist']
-    for ntype in ['exc','inh']:
+    for ntype in ['excA','inhA']:
         tmask=trueD['mask.true.'+ntype]
           
         FP = np.sum(~tmask &  fmask)  # False Positive: predicted True, actually False
@@ -65,9 +65,9 @@ def main():
     fitFF = os.path.join(args.dataPath, f"{args.dataName}.lassoFit.npz")
     fitD, fitMD = read_data_npz(fitFF)
       
-    if 0:  # patch old data
-        #fitMD['type']='simDale'
-        fitMD['fit_type']='lasso'
+    if 1:  # patch old data
+        fitMD['data_type']='simDale'
+        #fitMD['fit_type']='lasso'
     #pprint(fitMD)
    
     if args.verb>1: 
@@ -81,12 +81,18 @@ def main():
         truthFF = os.path.join(args.dataPath, f"{truthF}.simTruth.npz")
         trueD,trueMD = read_data_npz(truthFF)
 
+        # Load spike data for frequency sorting
+        spikesFF = os.path.join(args.dataPath, f"{truthF}.spikes.npz")
+        spikeD, spikeMD = read_data_npz(spikesFF)
+
         print_scores(trueD,fitD,maskD)
         
         # Combine metadata   just for plotter
         MD = {**fitMD, **trueMD, 'short_name': args.dataName} #, 'post': vars(args)}
     else:
         MD = {**fitMD,  'short_name': args.dataName} #, 'post': vars(args)}
+        # For non-simDale data, we don't have spike data, so create a minimal spikeD
+        spikeD = None
 
     MD.update(maskMD)
         
@@ -101,7 +107,7 @@ def main():
         plot.correl_after_thresh(trueD,fitD,maskD,MD,figId=1)
                 
     if 'b' in args.showPlots:
-        plot.slicedA_histos(fitD, MD, figId=2)
+        plot.slicedA_histos(fitD, MD, spikeD, figId=2)
 
     if 'c' in args.showPlots:
         plot.residuals(trueD,fitD,maskD,MD,figId=3)
@@ -111,6 +117,9 @@ def main():
 
     if 'e' in args.showPlots:
         plot.experiment_eigen(fitD,MD, figId=5)
+        
+    if 'f' in args.showPlots:
+        plot.freqSortA_histos(fitD, MD, spikeD, figId=2)
 
     plot.display_all()
 

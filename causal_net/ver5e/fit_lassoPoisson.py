@@ -135,7 +135,7 @@ def main():
         write_data_npz(lassoD, fitFF, metaD=spikeMD)
 
     if rank==0:
-        print('\n  ./eval_fitLasso.py --dataPath $dataPath  --dataName %s   -p  a b   e ' % (fit_core))
+        print('\n  ./eval_fitLasso.py --dataPath $dataPath  --dataName %s   -p  a b   e  --ampl_thres -0.12  0.08 ' % (fit_core))
         print('\n  ./fit_regressPoisson.py  --dataName %s  ' % (fit_core))
         print('    --dataPath '+args.dataPath)
     

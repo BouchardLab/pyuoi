@@ -386,21 +386,48 @@ def main():
     print("Spike generation completed in %.1f seconds" % sim_time)
 
     # Evaluate spike stats and compute firing rates
-    stats_dict, rates_dict = estimate_rates(Y, dt=args.step_size, num_excite=args.num_excite, max_samples_for_rates=100000, mxNn=5)
+    stats_dict, rates_dict , neur_freqIdx= estimate_rates(Y, dt=args.step_size, num_excite=args.num_excite, max_samples=100000, mxNn=5)
    
-    # Prepare data for saving
+    # Prepare data for saving - reorder by frequency (highest to lowest firing rate)
     Y_uchar = np.clip(Y, 0, 255).astype(np.uint8)
+    Y_freq_sorted = Y_uchar[:, neur_freqIdx]  # Reorder neurons by frequency
+    rates_freq_sorted = rates_dict['single_rates'][neur_freqIdx]  # Reorder rates by frequency
+    
+    # Create reverse mapping: natural_index -> frequency_sorted_position
+    neur_natIdx = np.empty(len(neur_freqIdx), dtype=int)
+    neur_natIdx[neur_freqIdx] = np.arange(len(neur_freqIdx))
         
     spikeD = {
-            'spikes': Y_uchar,
-            'single_rates': rates_dict['single_rates'],
-        }
+        'spikes': Y_freq_sorted,
+        'single_rates': rates_freq_sorted
+    }
     spikeMD={ 'short_name':args.dataName,'time_step_sec':args.step_size,'data_type':'simDale' }
     
-    # Save simulation data using utility function
-    trueD = { 'A_true': A_dale, 'B_true': B_idle}
+    # Reorder connectivity matrix to match frequency-sorted neuron order
+    A_freq_sorted = A_dale[np.ix_(neur_freqIdx, neur_freqIdx)]  # Reorder both rows and columns
+    B_freq_sorted = B_idle[neur_freqIdx]  # Reorder bias vector
+    
+    # Create metadata first (needed for geom_edges_mask)
     trueMD = {'dale_conf': dale_conf, 'evol_conf': evol_conf,'short_name':args.dataName,'dale_simu_stats':stats_dict}
+    
+    # Create masks in natural order first, then reorder to match frequency-sorted data
     maskD=geom_edges_mask(trueMD)
+    
+    # Reorder geometric masks to match frequency-sorted neuron order
+    maskG = maskD['geom']
+    
+    # Reorder 2D masks (connectivity masks)
+    maskG['diagA'] = maskG['diagA'][np.ix_(neur_freqIdx, neur_freqIdx)]
+    maskG['excA'] = maskG['excA'][np.ix_(neur_freqIdx, neur_freqIdx)]
+    maskG['inhA'] = maskG['inhA'][np.ix_(neur_freqIdx, neur_freqIdx)]
+    
+    # Reorder 1D masks (neuron type masks)
+    maskG['exc_idx'] = maskG['exc_idx'][neur_freqIdx]
+    maskG['inh_idx'] = maskG['inh_idx'][neur_freqIdx]
+    
+    # Save simulation data using utility function
+    trueD = { 'A_true': A_freq_sorted, 'B_true': B_freq_sorted, 'neur_natIdx': neur_natIdx}
+    
     true_edges_mask(maskD,trueD)
 
     for xx in maskD:
@@ -429,6 +456,9 @@ def main():
     if 'b' in args.showPlots:
         plot.histo_weights_rates(trueD,spikeD,trueMD,figId=2)
  
+    if 'c' in args.showPlots:
+        plot.histo_weights_rates(trueD,spikeD,trueMD,byFreq=True,figId=2)
+  
     plot.display_all()
     print('Simulation completed successfully!')
 

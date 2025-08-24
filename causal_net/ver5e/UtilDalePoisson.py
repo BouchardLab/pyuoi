@@ -6,9 +6,50 @@ Utility functions for Dale Poisson simulation data processing
 
 import numpy as np
 import os
+import time
 from pprint import pprint
 
-def estimate_rates(Y, dt, num_excite, max_samples_for_rates, mxNn=5):
+def compute_consecutive_coincidence_rate(Y,time_evol):
+    """
+    Compute the frequency of coincidences for 2 consecutive time bins for 2 different channels.
+    
+    Args:
+        Y (np.ndarray): Spike data array (time_steps x n_neurons).
+    
+    Returns:
+        float: conc_rate_all - the overall coincidence rate
+    """
+    num_steps, num_neurons = Y.shape
+    
+    # We need at least 2 time steps for consecutive bins
+    if num_steps < 2:
+        return 0.0
+    
+    # Get consecutive time slices using vectorized operations
+    Y_t = Y[:-1, :]  # Y[0:T-1, :] - current time bins
+    Y_t_plus_1 = Y[1:, :]  # Y[1:T, :] - next time bins
+    
+    # Create boolean masks for non-zero values
+    mask_t = (Y_t != 0)  # Shape: (T-1, N)
+    mask_t_plus_1 = (Y_t_plus_1 != 0)  # Shape: (T-1, N)
+    
+    # Use broadcasting to compute all channel pairs at once
+    # mask_t[:, :, None] has shape (T-1, N, 1)
+    # mask_t_plus_1[:, None, :] has shape (T-1, 1, N)
+    # Broadcasting gives shape (T-1, N, N) for all pairs
+    coincidences = mask_t[:, :, None] & mask_t_plus_1[:, None, :]
+    
+    # Remove diagonal (same channel pairs) using boolean indexing
+    diagonal_mask = np.eye(num_neurons, dtype=bool)
+    coincidences[:, diagonal_mask] = False
+    
+    # Count total coincidences across all time steps
+    coincidence_count = np.sum(coincidences)
+    
+    conc_rate = coincidence_count / time_evol/num_neurons
+    return conc_rate  # Hz, per neuron
+
+def estimate_rates(Y, dt, num_excite, max_samples, mxNn=5):
     """
     Evaluates spike statistics and estimates firing/coincidence rates.
 
@@ -26,24 +67,27 @@ def estimate_rates(Y, dt, num_excite, max_samples_for_rates, mxNn=5):
     """
     # 1. Clip data to max_samples_for_rates
     print("\n=== Estimating Rates & Stats ===")
-    if Y.shape[0] > max_samples_for_rates:
-        print("Using %d samples (out of %d) for rate computation" % (max_samples_for_rates, Y.shape[0]))
-        Y_for_rates = Y[:max_samples_for_rates]
-    else:
-        Y_for_rates = Y
-        print("Using all %d samples for rate computation" % (Y.shape[0],))
+    if Y.shape[0] > max_samples:
+        print("Using %d samples (out of %d) for rate computation" % (max_samples, Y.shape[0]))
+        Y = Y[:max_samples]
 
     # Part 1: from eval_spikes_stats
-    num_steps_sim, Nn_sim = Y_for_rates.shape
+    num_steps_sim, Nn_sim = Y.shape
     num_inhib = Nn_sim - num_excite
     time_evol = num_steps_sim * dt
     print('steps num_steps=%d, time_evol=%.1f sec, Nn=%d (%d Excit, %d Inhib)' % (num_steps_sim, time_evol, Nn_sim, num_excite, num_inhib))
 
-    spike_counts = np.sum(Y_for_rates, axis=0)
+    spike_counts = np.sum(Y, axis=0)
     spike_rates = spike_counts / time_evol
-    mean_counts_per_bin = np.mean(Y_for_rates, axis=0)
-    spike_variance = np.var(Y_for_rates, axis=0)
+    mean_counts_per_bin = np.mean(Y, axis=0)
+    spike_variance = np.var(Y, axis=0)
     fano_factor = np.divide(spike_variance, mean_counts_per_bin, out=np.zeros_like(spike_variance), where=mean_counts_per_bin != 0)
+    
+    # Compute consecutive coincidence rate
+    start_time = time.time()
+    conc_rate_per_neuron = compute_consecutive_coincidence_rate(Y,time_evol)
+    elapsed_time = time.time() - start_time
+    print('Coincidence rate %.2g Hz, Y.shape=%s elaT %.3f sec' % (conc_rate_per_neuron, Y.shape, elapsed_time))
 
     stats_dict = {
         'num_steps': num_steps_sim,
@@ -60,6 +104,7 @@ def estimate_rates(Y, dt, num_excite, max_samples_for_rates, mxNn=5):
         'std_spike_rate_excit': float(np.std(spike_rates[:num_excite])),
         'avg_fano_factor_excit': float(np.mean(fano_factor[:num_excite])),
         'std_fano_factor_excit': float(np.std(fano_factor[:num_excite])),
+        'conc_rate_per_neuron': float(conc_rate_per_neuron),
     }
     
     
@@ -111,19 +156,22 @@ def estimate_rates(Y, dt, num_excite, max_samples_for_rates, mxNn=5):
         avg_fano_i = np.mean(fano_factor[num_excite:])
         std_fano_i = np.std(fano_factor[num_excite:])
         print('Inhib (%d neurons): Avg Rate=%.2f±%.2f Hz, Avg Fano=%.2f±%.2f' % (num_inhib, avg_rate_i, std_rate_i, avg_fano_i, std_fano_i))
+    print('Coincidence rate per neuron %.2g Hz\n' % (conc_rate_per_neuron))         
 
     # Part 2: from estimate_rates_with_errors (computes rates, no errors)
-    n_time_steps, n_neurons = Y_for_rates.shape
+    n_time_steps, n_neurons = Y.shape
     total_time = n_time_steps * dt
 
-    # Firing rates are already computed as `spike_rates`
-    firing_rates = spike_rates
+    
+    # Compute index of neurons sorted by frequency (from highest to lowest)
+    neur_freq_index = np.argsort(spike_rates)[::-1]
 
     rates_dict = {
-        'single_rates': firing_rates
+        'single_rates': spike_rates,
+        'neur_freqIdx':neur_freq_index
     }
 
-    return stats_dict, rates_dict
+    return stats_dict, rates_dict, neur_freq_index
 
 
 def geom_edges_mask(md):
@@ -150,7 +198,7 @@ def geom_edges_mask(md):
     inh_1d= np.zeros((Nn), dtype=bool)
     inh_1d[Ne:] = True
 
-    maskG={'diag':diag_mask, 'exc':exc_mask,'inh':inh_mask,'exc_idx':exc_1d,'inh_idx':inh_1d}
+    maskG={'diagA':diag_mask, 'excA':exc_mask,'inhA':inh_mask,'exc_idx':exc_1d,'inh_idx':inh_1d}
     maskD={'geom':maskG}
     return maskD
 
@@ -161,13 +209,13 @@ def true_edges_mask(maskD, trueD):
     maskD['true']=maskT={}
     maskG=maskD['geom']
     A_abs = np.abs(A_true)
-    for ntype in ['exc','inh']:
+    for ntype in ['excA','inhA']:
         gmask=maskG[ntype]
         tmask = gmask & (A_abs>1e-8)
         nGeom=np.sum(gmask)
         nTrue=np.sum(tmask)
         maskT[ntype]=tmask
-    tmp=maskT['exc']  | maskT['inh']
+    tmp=maskT['excA']  | maskT['inhA']
     trueD['edge_cnt_true']=np.sum(tmp,axis=1)  # sum edges alog neuron
     
 def select_edges_from_fitLasso( bigD, amplThres):
@@ -235,8 +283,8 @@ def select_edges_from_fitLasso( bigD, amplThres):
     inh_mask = (inh_1d[:, None]) & (A_fit < amplThres[0]) & offdiag
     exc_mask = (exc_1d[:, None]) & (A_fit > amplThres[1]) & offdiag
 
-    maskF['exc'] = exc_mask
-    maskF['inh'] = inh_mask
+    maskF['excA'] = exc_mask
+    maskF['inhA'] = inh_mask
 
     maskF['exc_idx'] = exc_1d
     maskF['inh_idx'] = inh_1d
