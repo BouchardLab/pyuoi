@@ -20,11 +20,9 @@ class Plotter(PlotterBackbone):
 
 #...!...!..................
     def correl_after_thresh(self, trueD,fitD, maskD,md,byFreq=False, figId=1):  
-        #pprint(md)
         
         amplThres=md['ampl_thres']
         fitType=md['fit_type']
-        #fmd=md['fit_'+fitType]
         figId=self.smart_append(figId)        
         nrow,ncol=2,4
         fig=self.plt.figure(figId,facecolor='white', figsize=(15,6))
@@ -114,19 +112,15 @@ class Plotter(PlotterBackbone):
         A_flat = A_fit_no_diag.flatten()
         row_indices = np.repeat(np.arange(num_neurons), num_neurons)
         
-        # Data is now stored frequency-sorted, so no additional reordering needed
-        # Just display with appropriate labels
-        
         # Remove NaN values (diagonal elements)
         valid_mask = ~np.isnan(A_flat)
         A_flat = A_flat[valid_mask]
         row_indices = row_indices[valid_mask]
         
-        # Use ax.hist2d() directly with log scale
         H, xedges, yedges, im = ax.hist2d(A_flat, row_indices, bins=[50, num_neurons], cmap='Greys', vmax=6)
         ax.set_xlabel('non-diag weigts')
         ax.set_ylabel('freq-sorted neuron index')
-        ax.set_title(f'Fit {fitType}, epochs={fmd["n_epochs"]}')
+        ax.set_title(f'Fit {fitType}, epochs={fmd["n_epochs"]}, sampl/k={fmd["num_samples_used"]/1000}')
         fig.colorbar(im, ax=ax)
         
         # Add horizontal lines to mark K block boundaries
@@ -187,7 +181,7 @@ class Plotter(PlotterBackbone):
         
         figId=self.smart_append(figId)        
         nrow,ncol=k,2  # Add 1 extra row for the neuron stats plot
-        fig=self.plt.figure(figId,facecolor='white', figsize=(16,10))
+        fig=self.plt.figure(figId,facecolor='white', figsize=(16,12))
 
         # Unpack arrays from bigD
         A_fit = fitD['A_'+fitType]
@@ -197,15 +191,24 @@ class Plotter(PlotterBackbone):
         # Remove diagonal elements by setting them to NaN
         A_fit_no_diag = A_fit.copy()
         np.fill_diagonal(A_fit_no_diag, np.nan)
+        A_flat = A_fit_no_diag.flatten()
         
-        # Left column: 2D histogram of A-matrix (top 4 rows)
-        ax = self.plt.subplot2grid((nrow, ncol), (0, 0), rowspan=4)
+        #------- top left plot w/ 1D histo fo weights
+        ax = self.plt.subplot(nrow,ncol,1)
+        ax.hist(A_flat, bins=200, color='green', alpha=0.7, edgecolor=None)
+        ax.set_yscale('log')
+        ax.set_ylim(0.5)
+        ax.grid()
+        ax.set(xlabel='non-diag weights ',ylabel='count',title=f'All weights, Fit {fitType}')
+
+        
+        # Left column: 2D histogram of A-matrix (mutiple rows)
+        ax = self.plt.subplot2grid((nrow, ncol), (1, 0), rowspan=5)
         ax.axvline(0, linestyle='--', color='lime', linewidth=1)
         ax.axvline(amplThres[0], linestyle='--', color='m', linewidth=1)
         ax.axvline(amplThres[1], linestyle='--', color='m', linewidth=1)
         
         # Create 2D histogram: x-axis is value, y-axis is row index
-        A_flat = A_fit_no_diag.flatten()
         row_indices = np.repeat(np.arange(num_neurons), num_neurons)
         
         # Remove NaN values (diagonal elements)
@@ -215,38 +218,45 @@ class Plotter(PlotterBackbone):
         
         # Use ax.hist2d() directly with log scale
         H, xedges, yedges, im = ax.hist2d(A_flat, row_indices, bins=[50, num_neurons], cmap='Greys', vmax=6)
+
+        cbar = fig.colorbar(im, ax=ax, 
+                            orientation='horizontal',  # Make it horizontal
+                            location='bottom',          # Place it below
+                            shrink=0.7,                 # Make it 70% width
+                            pad=0.1)                    # Add some padding from plot
+
         ax.set_xlabel('non-diag weigts')
         ax.set_ylabel('freq-sorted neuron index')
-        # Add lasso fit output name to 2D plot title
+  
         lasso_name = md['fit_lasso']['lassoFit_output_name']
-        title_text = f'{lasso_name},  Fit {fitType}, epochs={fmd["n_epochs"]}'
+        title_text = f'{lasso_name},  Fit {fitType}, epochs={fmd["n_epochs"]}, sampl/k={fmd["num_samples_used"]/1000}'
         
         ax.set_title(title_text)
-        fig.colorbar(im, ax=ax)
+       
         
         # Add horizontal lines to mark K block boundaries
         add_k_block_lines(ax, num_neurons, k) 
         
         # Add frequency annotations for the k=6 rows being analyzed
         # Shift selection by half separation for better spread
-        single_rates = spikeD['single_rates'] if spikeD else None
-        if single_rates is not None:
-            for i in range(k):
-                rowIdx = i * (num_neurons // k) + (num_neurons // k) // 2
-                rowIdx = min(rowIdx, num_neurons - 1)  # Ensure we don't exceed bounds
-                freq_val = single_rates[rowIdx]
-                # Add horizontal line and frequency annotation
-                ax.axhline(rowIdx, color='yellow', linewidth=2, alpha=0.8)
-                ax.text(ax.get_xlim()[0] + 0.02 * (ax.get_xlim()[1] - ax.get_xlim()[0]), rowIdx, f'{freq_val:.1f}Hz', 
-                       verticalalignment='center', horizontalalignment='left',
-                       bbox=dict(boxstyle='round,pad=0.2', facecolor='yellow', alpha=0.7),
-                       fontsize=8)
-        
+        single_rates = spikeD['single_rates']
+        idxOff= (num_neurons // k) // 2  +2
+        for i in range(k):
+            rowIdx = i * (num_neurons // k) +idxOff
+            rowIdx = min(rowIdx, num_neurons - 1)  # Ensure we don't exceed bounds
+            freq_val = single_rates[rowIdx]
+            # Add horizontal line and frequency annotation
+            ax.axhline(rowIdx, color='yellow', linewidth=2, alpha=0.8)
+            ax.text(ax.get_xlim()[0] + 0.02 * (ax.get_xlim()[1] - ax.get_xlim()[0]), rowIdx, f'{freq_val:.1f}Hz', 
+                   verticalalignment='center', horizontalalignment='left',
+                   bbox=dict(boxstyle='round,pad=0.2', facecolor='yellow', alpha=0.7),
+                   fontsize=8)
+
         # Collect data from all k=5 rows to determine global x-range for aligned histograms
         selected_rows_data = []
         selected_row_indices = []
         for i in range(k):
-            rowIdx = i * (num_neurons // k) + (num_neurons // k) // 2
+            rowIdx = i * (num_neurons // k) + idxOff
             rowIdx = min(rowIdx, num_neurons - 1)  # Ensure we don't exceed bounds
             row_data = A_fit_no_diag[rowIdx, :]
             valid_data = row_data[~np.isnan(row_data)]
@@ -257,7 +267,7 @@ class Plotter(PlotterBackbone):
         # Determine global x-range and bin edges for consistent plotting
         if selected_rows_data:
             global_min, global_max = np.min(selected_rows_data), np.max(selected_rows_data)
-            n_bins_global = 25  # Fixed bin count for consistency
+            n_bins_global = 50  # Fixed bin count for consistency
             global_bin_edges = np.linspace(global_min, global_max, n_bins_global + 1)
         else:
             global_bin_edges = None
@@ -267,79 +277,14 @@ class Plotter(PlotterBackbone):
             ax = self.plt.subplot(nrow,ncol,2+i*ncol)
             # Reverse order: start from bottom (k-1) and go up
             reversed_i = k - 1 - i
-            rowIdx = reversed_i * (num_neurons // k) + (num_neurons // k) // 2
+            rowIdx = reversed_i * (num_neurons // k) + idxOff
             rowIdx = min(rowIdx, num_neurons - 1)  # Ensure we don't exceed bounds
             is_bottom_plot = (i == k - 1)  # Last plot is at the bottom
             plot_row_histogram(ax, A_fit_no_diag, rowIdx, single_rates, global_bin_edges, is_bottom_plot)
         
         # Minimize whitespace between 1D plots
-        self.plt.subplots_adjust(hspace=0.05, wspace=0.3)
-        
-#...!...!..................
-def plot_row_histogram(ax, A_fit_no_diag, rowIdx, single_rates=None, global_bin_edges=None, is_bottom_plot=False):
-    """Plot histogram of a specific row from the 2D matrix with statistics"""
-    
-    # Extract row data (exclude diagonal element which is NaN)
-    row_data = A_fit_no_diag[rowIdx, :]
-    valid_data = row_data[~np.isnan(row_data)]
-    
-    if len(valid_data) == 0:
-        ax.text(0.5, 0.5, 'No valid data', transform=ax.transAxes, ha='center', va='center')
-        return
-    
-    # Plot histogram with consistent binning
-    if global_bin_edges is not None:
-        counts, bin_edges, _ = ax.hist(valid_data, bins=global_bin_edges, alpha=0.7, color='skyblue')
-    else:
-        n_bins = min(30, len(valid_data)//3)  # Adaptive bin count fallback
-        counts, bin_edges, _ = ax.hist(valid_data, bins=n_bins, alpha=0.7, color='skyblue')
-    
-    # Find most probable value (bin center with highest count)
-    max_count_idx = np.argmax(counts)
-    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-    xMPV = bin_centers[max_count_idx]
-    
-    # Define slice range
-    xDel = 0.1
-    slice_mask = (valid_data >= (xMPV - xDel)) & (valid_data <= (xMPV + xDel))
-    sliced_data = valid_data[slice_mask]
-    
-    # Compute standard deviation of sliced data
-    if len(sliced_data) > 1:
-        std_val = np.std(sliced_data)
-        x0 = np.mean(sliced_data)
-    else:
-        std_val = 0.0
-        x0 = xMPV
-    
-    # Draw dashed lines for the range
-    ax.axvline(xMPV - xDel, linestyle='--', color='red', alpha=0.7)
-    ax.axvline(xMPV + xDel, linestyle='--', color='red', alpha=0.7)
-    ax.axvline(xMPV, linestyle='-', color='red', linewidth=2, label='MPV')
-
-    # Add merged text with statistics and row/frequency info inside the plot
-    freq_text = f', {single_rates[rowIdx]:.1f}Hz' if single_rates is not None else ''
-    info_text = f'Row {rowIdx}{freq_text}\nx0={x0:.3f}, std={std_val:.3f}'
-    
-    ax.text(0.98, 0.95, info_text, transform=ax.transAxes, fontsize=8, 
-            verticalalignment='top', horizontalalignment='right',
-            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
-    
-    # Set consistent x-axis limits when using global binning
-    if global_bin_edges is not None:
-        ax.set_xlim(global_bin_edges[0], global_bin_edges[-1])
-    
-    '''
-    # Only label bottom plot's x-axis for cleaner layout
-    if is_bottom_plot:
-        ax.set_xlabel('Weight value')
-    else:
-        ax.set_xlabel('')  # Remove x-axis label for non-bottom plots
-    '''
-    ax.set_ylabel('Count')  # Restore y-axis label
-    ax.set_yscale('log')
-    ax.grid(True, alpha=0.3)
-
+        self.plt.subplots_adjust(hspace=0.05, wspace=0.1)
+ 
 #...!...!..................
     def residuals(self, trueD,fitD, maskD,md, figId=1):
         #pprint(md)
@@ -504,11 +449,11 @@ def plot_A2D(fig,ax,A,mask,title='aa',byFreq=True,trueD=None):
     Am[~mask]=0
     
     # If byFreq=False, reorder matrix to natural neuron indexing
-    if not byFreq and trueD is not None and 'neur_natIdx' in trueD:
-        neur_natIdx = trueD['neur_natIdx']
+    if not byFreq and trueD is not None and 'neur_revFreqIdx' in trueD:
+        neur_revFreqIdx = trueD['neur_revFreqIdx']  # freq_sorted_position → natural_index
         # Reorder both rows and columns from frequency-sorted to natural order
-        Am = Am[np.ix_(neur_natIdx, neur_natIdx)]
-        mask = mask[np.ix_(neur_natIdx, neur_natIdx)]
+        Am = Am[np.ix_(neur_revFreqIdx, neur_revFreqIdx)]
+        mask = mask[np.ix_(neur_revFreqIdx, neur_revFreqIdx)]
         Am[~mask]=0  # Re-apply mask after reordering
  
     vmin = Am.min()-0.3
@@ -523,8 +468,13 @@ def plot_A2D(fig,ax,A,mask,title='aa',byFreq=True,trueD=None):
     
     nval=np.sum(mask)
     title='%s n=%d'%(title,nval)
-    ylabel_text = 'From neuron (natural idx)' if (not byFreq and trueD is not None and 'neur_natIdx' in trueD) else 'From neuron (freq-sorted)'
-    xlabel_text = 'To neuron (natural idx)' if (not byFreq and trueD is not None and 'neur_natIdx' in trueD) else 'To neuron (freq-sorted)'
+    # Simplified axis labels based on display order
+    if byFreq:
+        ylabel_text = 'From neuron (freq-sorted)'
+        xlabel_text = 'To neuron (freq-sorted)'
+    else:
+        ylabel_text = 'From neuron (natural idx)'
+        xlabel_text = 'To neuron (natural idx)'
     ax.set(title=title, ylabel=ylabel_text, xlabel=xlabel_text)
     fig.colorbar(im1, ax=ax)
     ax.grid(True, alpha=0.5)
@@ -702,7 +652,7 @@ def plot_neuron_stats(ax, A_flat_narrow, row_indices_narrow, num_neurons):
     ax.errorbar(neuron_indices, means, yerr=rmses, fmt='o', 
                color='blue', capsize=3, capthick=1, linewidth=1, markersize=3)
     
-    ax.set_xlabel('Neuron index')
+    ax.set_xlabel('Neuron freq-sorted index')
     ax.set_ylabel('Mean ± RMSE')
     ax.set_title('Per-neuron zero-values stats')
     ax.grid(True, alpha=0.3)
@@ -764,3 +714,73 @@ def plot_both_eigen(ax, eigT,eigF):
     ax.set_ylabel("Imaginary Part")
     ax.legend()
  
+       
+#...!...!..................
+def plot_row_histogram(ax, A_fit_no_diag, rowIdx, single_rates=None, global_bin_edges=None, is_bottom_plot=False):
+    """Plot histogram of a specific row from the 2D matrix with statistics"""
+    
+    # Extract row data (exclude diagonal element which is NaN)
+    row_data = A_fit_no_diag[rowIdx, :]
+    valid_data = row_data[~np.isnan(row_data)]
+    
+    if len(valid_data) == 0:
+        ax.text(0.5, 0.5, 'No valid data', transform=ax.transAxes, ha='center', va='center')
+        return
+    
+    # Plot histogram with consistent binning
+    if global_bin_edges is not None:
+        counts, bin_edges, _ = ax.hist(valid_data, bins=global_bin_edges, color='chocolate')
+    else:
+        neve_happens
+        n_bins = min(60, len(valid_data)//3)  # Adaptive bin count fallback
+        counts, bin_edges, _ = ax.hist(valid_data, bins=n_bins, alpha=0.7, color='skyblue')
+    
+    # Find most probable value (bin center with highest count)
+    max_count_idx = np.argmax(counts)
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+    xMPV = bin_centers[max_count_idx]
+    
+    # Define slice range
+    xDel = 0.1
+    slice_mask = (valid_data >= (xMPV - xDel)) & (valid_data <= (xMPV + xDel))
+    sliced_data = valid_data[slice_mask]
+    
+    # Compute standard deviation of sliced data
+    if len(sliced_data) > 1:
+        std_val = np.std(sliced_data)
+        x0 = np.mean(sliced_data)
+    else:
+        std_val = 0.0
+        x0 = xMPV
+    
+    # Draw dashed lines for the range
+    ax.axvline(xMPV - xDel, linestyle='--', color='k', alpha=0.7)
+    ax.axvline(xMPV + xDel, linestyle='--', color='k', alpha=0.7)
+    ax.axvline(xMPV, linestyle='-', color='k', linewidth=2, label='MPV')
+
+    # Add merged text with statistics and row/frequency info inside the plot
+    freq_text = f', {single_rates[rowIdx]:.1f}Hz' if single_rates is not None else ''
+    info_text = f'Row {rowIdx}{freq_text}\nx0={x0:.3f}, std={std_val:.3f}'
+    
+    ax.text(0.98, 0.95, info_text, transform=ax.transAxes, fontsize=8, 
+            verticalalignment='top', horizontalalignment='right',
+            bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.8))
+    
+    # Set consistent x-axis limits when using global binning
+    if global_bin_edges is not None:
+        ax.set_xlim(global_bin_edges[0], global_bin_edges[-1])
+    
+    if not is_bottom_plot:
+        ax.set_xlabel('Weight value')
+
+    '''
+    # Only label bottom plot's x-axis for cleaner layout
+    if is_bottom_plot:
+        ax.set_xlabel('Weight value')
+    else:
+        ax.set_xlabel('')  # Remove x-axis label for non-bottom plots
+    '''
+    ax.set_ylabel('Count')  # Restore y-axis label
+    ax.set_yscale('log')
+    ax.set_ylim(0.5,)
+    ax.grid(True, alpha=0.3)

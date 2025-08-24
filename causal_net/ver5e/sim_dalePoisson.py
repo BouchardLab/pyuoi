@@ -388,45 +388,45 @@ def main():
     # Evaluate spike stats and compute firing rates
     stats_dict, rates_dict , neur_freqIdx= estimate_rates(Y, dt=args.step_size, num_excite=args.num_excite, max_samples=100000, mxNn=5)
    
-    # Prepare data for saving - reorder by frequency (highest to lowest firing rate)
-    Y_uchar = np.clip(Y, 0, 255).astype(np.uint8)
-    Y_freq_sorted = Y_uchar[:, neur_freqIdx]  # Reorder neurons by frequency
-    rates_freq_sorted = rates_dict['single_rates'][neur_freqIdx]  # Reorder rates by frequency
+    # REMAP MATRICES TO FREQUENCY-SORTED ORDER (PRIMARY INDEX)
+    # Store both mapping directions with clear names
+    neur_revFreqIdx = neur_freqIdx.copy()  # freq_sorted_position → natural_index (original from estimate_rates)
+    neur_freqIdx = np.empty(len(neur_revFreqIdx), dtype=int)  # natural_index → freq_sorted_position
+    neur_freqIdx[neur_revFreqIdx] = np.arange(len(neur_revFreqIdx))
     
-    # Create reverse mapping: natural_index -> frequency_sorted_position
-    neur_natIdx = np.empty(len(neur_freqIdx), dtype=int)
-    neur_natIdx[neur_freqIdx] = np.arange(len(neur_freqIdx))
+    # Reorder connectivity matrix and bias vector immediately
+    A_freq_sorted = A_dale[np.ix_(neur_revFreqIdx, neur_revFreqIdx)]  # Reorder both rows and columns
+    B_freq_sorted = B_idle[neur_revFreqIdx]  # Reorder bias vector
+    
+    # Create explicit neuron type masks for frequency-sorted order
+    natural_exc_mask = np.zeros(args.num_neurons, dtype=bool)
+    natural_exc_mask[:args.num_excite] = True
+    natural_inh_mask = np.zeros(args.num_neurons, dtype=bool)
+    natural_inh_mask[args.num_excite:] = True
+    
+    # Map neuron types to frequency-sorted positions
+    freq_sorted_exc_mask = natural_exc_mask[neur_revFreqIdx]
+    freq_sorted_inh_mask = natural_inh_mask[neur_revFreqIdx]
+    
+    # Store remapped matrices in trueD (primary data structure)
+    trueD = { 'A_true': A_freq_sorted, 'B_true': B_freq_sorted, 'neur_freqIdx': neur_freqIdx, 'neur_revFreqIdx': neur_revFreqIdx}
+    
+    # Create metadata for freq-sorted data (this is now primary)
+    trueMD = {'dale_conf': dale_conf, 'evol_conf': evol_conf,'short_name':args.dataName,'dale_simu_stats':stats_dict}  # , 'exc_neuron_mask': freq_sorted_exc_mask, 'inh_neuron_mask': freq_sorted_inh_mask}
+    
+    # Create masks for frequency-sorted data (primary index)
+    maskD=geom_edges_mask(trueMD,freq_sorted_exc_mask,freq_sorted_inh_mask)
+    
+    # Prepare spike data for saving - reorder by frequency
+    Y_uchar = np.clip(Y, 0, 255).astype(np.uint8)
+    Y_freq_sorted = Y_uchar[:, neur_revFreqIdx]  # Reorder neurons by frequency
+    rates_freq_sorted = rates_dict['single_rates'][neur_revFreqIdx]  # Reorder rates by frequency
         
     spikeD = {
         'spikes': Y_freq_sorted,
         'single_rates': rates_freq_sorted
     }
     spikeMD={ 'short_name':args.dataName,'time_step_sec':args.step_size,'data_type':'simDale' }
-    
-    # Reorder connectivity matrix to match frequency-sorted neuron order
-    A_freq_sorted = A_dale[np.ix_(neur_freqIdx, neur_freqIdx)]  # Reorder both rows and columns
-    B_freq_sorted = B_idle[neur_freqIdx]  # Reorder bias vector
-    
-    # Create metadata first (needed for geom_edges_mask)
-    trueMD = {'dale_conf': dale_conf, 'evol_conf': evol_conf,'short_name':args.dataName,'dale_simu_stats':stats_dict}
-    
-    # Create masks in natural order first, then reorder to match frequency-sorted data
-    maskD=geom_edges_mask(trueMD)
-    
-    # Reorder geometric masks to match frequency-sorted neuron order
-    maskG = maskD['geom']
-    
-    # Reorder 2D masks (connectivity masks)
-    maskG['diagA'] = maskG['diagA'][np.ix_(neur_freqIdx, neur_freqIdx)]
-    maskG['excA'] = maskG['excA'][np.ix_(neur_freqIdx, neur_freqIdx)]
-    maskG['inhA'] = maskG['inhA'][np.ix_(neur_freqIdx, neur_freqIdx)]
-    
-    # Reorder 1D masks (neuron type masks)
-    maskG['exc_idx'] = maskG['exc_idx'][neur_freqIdx]
-    maskG['inh_idx'] = maskG['inh_idx'][neur_freqIdx]
-    
-    # Save simulation data using utility function
-    trueD = { 'A_true': A_freq_sorted, 'B_true': B_freq_sorted, 'neur_natIdx': neur_natIdx}
     
     true_edges_mask(maskD,trueD)
 
@@ -452,7 +452,7 @@ def main():
     plot=Plotter(args)
     
     if 'a' in args.showPlots:
-        plot.Dale_matrix_and_eigen(A_dale,trueMD,figId=1)
+        plot.Dale_matrix_and_eigen(trueD['A_true'],trueMD,trueD,figId=1)
     if 'b' in args.showPlots:
         plot.histo_weights_rates(trueD,spikeD,trueMD,figId=2)
  

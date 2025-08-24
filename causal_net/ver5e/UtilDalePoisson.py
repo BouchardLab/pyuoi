@@ -174,29 +174,22 @@ def estimate_rates(Y, dt, num_excite, max_samples, mxNn=5):
     return stats_dict, rates_dict, neur_freq_index
 
 
-def geom_edges_mask(md):
+def geom_edges_mask(md,exc_1d,inh_1d):
     dale_conf=md['dale_conf']
     Nn=dale_conf['num_neurons']
-    Ne=dale_conf['num_excite']
-    Ni=Nn-Ne
-
+    
     # Create diagonal mask
     diag_mask = np.eye(Nn, dtype=bool)
-    # exc_mask: first Ne rows, all columns, except diagonal
+    
+    # exc_mask: excitatory neuron rows, all columns, except diagonal
     exc_mask = np.zeros((Nn, Nn), dtype=bool)
-    exc_mask[:Ne, :] = True
+    exc_mask[exc_1d, :] = True
     exc_mask = exc_mask & (~diag_mask)  # remove diagonal
 
-    # inh_mask: next Ni rows, all columns, except diagonal
+    # inh_mask: inhibitory neuron rows, all columns, except diagonal
     inh_mask = np.zeros((Nn, Nn), dtype=bool)
-    inh_mask[Ne:, :] = True
+    inh_mask[inh_1d, :] = True
     inh_mask = inh_mask & (~diag_mask)  # remove diagonal
-
-    # create 1d masks for exc & inh
-    exc_1d= np.zeros((Nn), dtype=bool)
-    exc_1d[:Ne] = True
-    inh_1d= np.zeros((Nn), dtype=bool)
-    inh_1d[Ne:] = True
 
     maskG={'diagA':diag_mask, 'excA':exc_mask,'inhA':inh_mask,'exc_idx':exc_1d,'inh_idx':inh_1d}
     maskD={'geom':maskG}

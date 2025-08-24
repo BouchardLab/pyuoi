@@ -20,48 +20,64 @@ class Plotter(PlotterBackbone):
         PlotterBackbone.__init__(self,args)
 
 #...!...!..................
-    def Dale_matrix_and_eigen(self,W,md,figId=3):
+    def Dale_matrix_and_eigen(self,W_freq,md,trueD,figId=3):
         
         figId=self.smart_append(figId)        
-        nrow,ncol=1,2
-        fig=self.plt.figure(figId,facecolor='white', figsize=(10,5))
+        nrow,ncol=1,3
+        fig=self.plt.figure(figId,facecolor='white', figsize=(15,3.5))
 
         dmd=md['dale_conf']
         numExc=dmd['num_excite']
         numNeur=dmd['num_neurons']
         
-        #.... left ......
+        # Reconstruct natural-order matrix from frequency-sorted matrix
+        neur_freqIdx = trueD['neur_freqIdx']  # natural_index → freq_sorted_position
+        W_natural = W_freq[np.ix_(neur_freqIdx, neur_freqIdx)]
+        
+        # Common normalization for both plots
+        vmin = min(W_freq.min(), W_natural.min())
+        vmax = max(W_freq.max(), W_natural.max())
+        normMap = colors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
+        
+        #.... Position 1: Natural order Dale matrix ......
         ax = self.plt.subplot(nrow,ncol,1)
-        normMap = colors.TwoSlopeNorm(vmin=W.min(), vcenter=0, vmax=W.max())
-
-        im=ax.imshow(W, aspect=1., origin='lower', cmap='bwr', norm=normMap, interpolation='nearest')
-        ax.set( xlabel='presyn. node index, source', ylabel='postsyn. node index, target')
-
+        im=ax.imshow(W_natural, aspect=1., origin='lower', cmap='bwr', norm=normMap, interpolation='nearest')
+        ax.set( xlabel='presyn. neuron index (natural idx)', ylabel='postsyn. neuron index (natural idx)')
         ax.set_aspect(1.0)
         ax.grid()
-        cbar = fig.colorbar(im, ax=ax, extend="both")
-
-        tit='True Dale, M%d, %s'%(W.shape[0],md['short_name'])
-        ax.set(title=tit)
-        ax.axhline(numExc-0.5,color='k',ls='--')
- 
-        #..... right......
+        cbar = fig.colorbar(im, ax=ax, extend="both", shrink=0.5)
+        
+        tit_natural='True Dale (natural), M%d, %s'%(W_natural.shape[0],md['short_name'])
+        ax.set(title=tit_natural)
+        ax.axhline(numExc-0.5,color='k',ls='--', label='E/I boundary')
+        ax.axvline(numExc-0.5,color='k',ls='--')
+        
+        #.... Position 2: Frequency-sorted Dale matrix ......
         ax = self.plt.subplot(nrow,ncol,2)
-        Eigen=np.linalg.eigvals(W)
+        im=ax.imshow(W_freq, aspect=1., origin='lower', cmap='bwr', norm=normMap, interpolation='nearest')
+        ax.set( xlabel='presyn. neuron index (freq-sorted)', ylabel='postsyn. neuron index (freq-sorted)')
+        ax.set_aspect(1.0)
+        ax.grid()
+        cbar = fig.colorbar(im, ax=ax, extend="both", shrink=0.7)
+
+        tit_freq='True Dale (freq-sorted), M%d, %s'%(W_freq.shape[0],md['short_name'])
+        ax.set(title=tit_freq)
+        # Note: In frequency-sorted order, excitatory/inhibitory neurons are mixed, so no simple boundary line
+ 
+        #..... Position 3: Eigenvalues......
+        ax = self.plt.subplot(nrow,ncol,3)
+        Eigen=np.linalg.eigvals(W_freq)  # Use freq-sorted matrix for eigenvalues
         real_parts = np.real(Eigen)
         imag_parts = np.imag(Eigen)
         ax.scatter(real_parts, imag_parts, color='blue', marker='o')
         ax.set_xlabel("Real Part")
         ax.set_ylabel("Imaginary Part")
-        ax.set_title(tit)
+        tit3='Eigenvalues, M%d, %s'%(W_freq.shape[0],md['short_name'])
+        ax.set_title(tit3)
         ax.axhline(0, color='black', lw=0.5)
         ax.axvline(0, color='black', lw=0.5)
-        ax.grid(True)
-    
         ax.axvline(0,color='red', linestyle='--')
-
-        #.... right 
-        ax = self.plt.subplot(nrow,ncol,2)
+        ax.grid(True)
       
         
 #...!...!..................
@@ -77,83 +93,55 @@ class Plotter(PlotterBackbone):
                 
         A=trueD['A_true']
 
-        if byFreq:
-            # Data is already frequency-sorted, display as-is
-            neurIdx=np.arange(numNeur)
-            neurXlab='freq sorted neurons index'
-        else:
-            # Reorder frequency-sorted data back to natural neuron order
-            neur_natIdx = trueD['neur_natIdx']
-            neurIdx = neur_natIdx  # Maps natural position → frequency-sorted position
-            neurXlab='natural index neurons'
-            
-        single_rates = spikeD['single_rates']
-                  
-        m_diagA=trueD['mask.geom.diagA']
-        m_excA=trueD['mask.true.excA']
-        m_inhA=trueD['mask.true.inhA']
-        m_inh1d=trueD['mask.geom.inh_idx']
-        #print('iinn',np.sum(m_inh1d), m_inh1d.shape); aa 
+        # Data is now stored in frequency-sorted order by default
+        single_rates = spikeD['single_rates']  # Already in freq-sorted order
+        edgeTV = trueD['edge_cnt_true']        # Already in freq-sorted order
+        m_diagA = trueD['mask.geom.diagA']     # Already in freq-sorted order
+        m_excA = trueD['mask.true.excA']       # Already in freq-sorted order
+        m_inhA = trueD['mask.true.inhA']       # Already in freq-sorted order
+        m_inh1d = trueD['mask.geom.inh_idx']   # Already in freq-sorted order
         
-        #....   sorted weights
+        #....   weights histogram (always use freq-sorted data)
         ax = self.plt.subplot(nrow,ncol,1)
         binX=30
         ax.hist(A[m_excA], bins=binX, color='red', alpha=0.7, edgecolor=None,label='exc:%d'%np.sum(m_excA))
         ax.hist(A[m_inhA], bins=binX, color='blue', alpha=0.7, edgecolor=None,label='inh:%d'%np.sum(m_inhA))
-       #1 ax.hist(A[m_diag], bins=binX, color='green', alpha=0.7, edgecolor=None,label='diag:%d'%np.sum(m_diag))
 
         ax.legend(loc='upper left')
         tit='True Dale, M%d, %s'%(A.shape[0],md['short_name'])
         ax.set(title=tit, xlabel='Weight value')
-
         ax.axvline(0,color='k',ls='--')
         ax.grid(True, alpha=0.3)
         
-        #.... : rho_true vs neuron index
-        ax = self.plt.subplot(nrow,ncol,2)
-        edgeTV = trueD['edge_cnt_true']
+        # Prepare data for neuron-indexed plots based on display order
+        if byFreq:
+            # Display data in frequency-sorted order (as stored)
+            display_single_rates = single_rates
+            display_edgeTV = edgeTV
+            display_inh_mask = m_inh1d
+            neurXlab = 'freq sorted neurons index'
+        else:
+            # Convert to natural neuron order for display
+            neur_revFreqIdx = trueD['neur_revFreqIdx']  # freq_sorted_position → natural_index
+            
+            # Create arrays in natural order
+            display_single_rates = np.zeros_like(single_rates)
+            display_edgeTV = np.zeros_like(edgeTV)
+            
+            # Map firing rates and edge counts from freq-sorted back to natural order
+            display_single_rates[neur_revFreqIdx] = single_rates
+            display_edgeTV[neur_revFreqIdx] = edgeTV
+            
+            # For natural order, create inhibitory mask based on original neuron types
+            # First num_excite neurons are excitatory, rest are inhibitory
+            display_inh_mask = np.zeros(numNeur, dtype=bool)
+            display_inh_mask[numExc:] = True  # Inhibitory neurons start at index numExc
+            neurXlab = 'natural indexed neurons'
+        
         x_vals = np.arange(numNeur)
-        
-        # Reorder edge counts based on byFreq flag (same logic as firing rates)
-        sortedEdgeTV = edgeTV[neurIdx]
-        
-        #  plot edge count per neuron 
-        ax.fill_between(x_vals, sortedEdgeTV, step='mid', color='salmon', alpha=0.7)
-                
-        ax.set_xlabel(neurXlab)
-        ax.set_ylabel('num true edges')
-        ax.set_ylim(0,)
-        ax.grid(True, alpha=0.3)
-        probLo, probHi = dmd['edge_prob']
-        rho_title = f'outgoing edges, true, prob=[{probLo:.2f}, {probHi:.2f}]'
-        ax.set_title(rho_title)
-
-        #....  firing rates ..... 
-        ax = self.plt.subplot(nrow,ncol,3)
-        chanW=0.9
-
-        # this is to complicated for a human, but seems to work
-        sortSR=single_rates[neurIdx]
-        
-        # Create masks for inhibitory and excitatory neurons in sorted order
-        inh_mask_sorted = m_inh1d[neurIdx]
-        exc_mask_sorted = ~m_inh1d[neurIdx]
-        
-        # Plot inhibitory neurons in blue
-        ax.bar(x_vals[inh_mask_sorted], sortSR[inh_mask_sorted], width=chanW, color='blue', align='center', alpha=0.7, label='Inhibitory')
-                
-        # Plot excitatory neurons in red
-        ax.bar(x_vals[exc_mask_sorted], sortSR[exc_mask_sorted], width=chanW, color='red', align='center', alpha=0.7, label='Excitatory')
-        
-        ax.set_xlabel(neurXlab)
-        ax.set_ylabel('Firing rate (Hz)')
-        ax.set_ylim(0,)
-        ax.grid(True, alpha=0.3)
-        ax.set_title('Single Neuron Firing Rates')
-        ax.legend()
 
         #.... : histogram of rates
-        ax = self.plt.subplot(nrow,ncol,4)
+        ax = self.plt.subplot(nrow,ncol,2)
         yLog= md['evol_conf']['expRate'] 
         ax.hist(single_rates, bins=20, log=yLog)
         x_vals = np.arange(numNeur)
@@ -168,6 +156,35 @@ class Plotter(PlotterBackbone):
         median_text = f"median: {median_val:.2f} (Hz), N={single_rates.shape[0]}"
         ax.text( x=median_val * 1.1,  y=y_max * 0.7, s=median_text,  color='red')
 
+        
+        #.... : rho_true vs neuron index
+        ax = self.plt.subplot(nrow,ncol,3)
+        ax.fill_between(x_vals, display_edgeTV, step='mid', color='salmon', alpha=0.7)
+        ax.set_xlabel(neurXlab)
+        ax.set_ylabel('num true edges')
+        ax.set_ylim(0,)
+        ax.grid(True, alpha=0.3)
+        probLo, probHi = dmd['edge_prob']
+        rho_title = f'outgoing edges, true, prob=[{probLo:.2f}, {probHi:.2f}]'
+        ax.set_title(rho_title)
+
+        #....  firing rates ..... 
+        ax = self.plt.subplot(nrow,ncol,4)
+        chanW=0.9        
+        # Create masks for inhibitory and excitatory neurons
+        inh_mask_display = display_inh_mask
+        exc_mask_display = ~display_inh_mask
+        
+        ax.bar(x_vals[inh_mask_display], display_single_rates[inh_mask_display], width=chanW, color='blue', align='center', alpha=0.7, label='Inhibitory')
+                
+        ax.bar(x_vals[exc_mask_display], display_single_rates[exc_mask_display], width=chanW, color='red', align='center', alpha=0.7, label='Excitatory')
+        
+        ax.set_xlabel(neurXlab)
+        ax.set_ylabel('Firing rate (Hz)')
+        ax.set_ylim(0,)
+        ax.grid(True, alpha=0.3)
+        ax.set_title('Single Neuron Firing Rates')
+        ax.legend()
  
 
 #............................
