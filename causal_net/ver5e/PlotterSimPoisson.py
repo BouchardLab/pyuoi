@@ -109,7 +109,7 @@ class Plotter(PlotterBackbone):
 
         ax.legend(loc='upper left')
         tit='True Dale, M%d, %s'%(A.shape[0],md['short_name'])
-        ax.set(title=tit, xlabel='Weight value')
+        ax.set(title=tit, xlabel='Weight value',ylabel='num edges')
         ax.axvline(0,color='k',ls='--')
         ax.grid(True, alpha=0.3)
         
@@ -147,6 +147,7 @@ class Plotter(PlotterBackbone):
         x_vals = np.arange(numNeur)
         ax.set_xlabel('num neurons')
         ax.set_xlabel('Firing rate (Hz)')
+        ax.set_ylabel('num neurons')
         ax.grid(True, alpha=0.3)
         ax.set_title('Single rates spectrum')
         ax.set_xlim(0,)
