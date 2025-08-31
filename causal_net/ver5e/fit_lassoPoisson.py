@@ -108,7 +108,7 @@ def main():
     train_loader = make_loader(X_np, Yt_np, args, is_dist=is_dist)
     
     if rank==0:
-        print(f"Loaded T={T}, M={M}, using {n_pairs} pairs (all for training), world_size={world_size}, per_gpu_bs={args.batch_size//max(1,world_size)}")
+        print(f"Loaded nT={T/1000}k, M={M}, using {n_pairs/1000}k pairs (all for training), world_size={world_size}, per_gpu_bs={args.batch_size//max(1,world_size)}")
 
     # --- Original training logic from fit_poissonV4.py ---
     base_model = PoissonGLModel(M).to(device)
@@ -135,7 +135,7 @@ def main():
         write_data_npz(lassoD, fitFF, metaD=spikeMD)
 
     if rank==0:
-        print('\n  ./eval_fitLasso.py --dataPath $dataPath  --dataName %s   -p  a    f  --ampl_thres -0.12  0.08 ' % (fit_core))
+        print('\n  ./eval_fitLasso.py --dataPath $dataPath  --dataName %s   -p  a   --ampl_thres -0.10  0.08 ' % (fit_core))
         print('\n  ./fit_regressPoisson.py  --dataName %s  ' % (fit_core))
         print('    --dataPath '+args.dataPath)
     

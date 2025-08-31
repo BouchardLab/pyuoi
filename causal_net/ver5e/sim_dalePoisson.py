@@ -358,6 +358,7 @@ def main():
         Ri_arg = np.array(args.idleRate)
         Bi = np.log(Ri_arg)
         B_idle = np.random.uniform(Bi[0],Bi[1], size=(Nn,))
+        #1B_idle[:args.num_excite]-=1.4  # reduce excite rate
         
     else:
         from UtilFreqGen import gen_exponential_freq
@@ -376,7 +377,7 @@ def main():
     min_rho = args.num_neurons * probLo
     max_rho = args.num_neurons * probHi
     rho_target = np.random.uniform(min_rho, max_rho, size=args.num_neurons)
-    rho_target = np.maximum(5.0, rho_target).astype(int)
+    rho_target = np.maximum(4.0, rho_target).astype(int)
     #print(f"Generated rho_target from range [{min_rho:.2f}, {max_rho:.2f}] with min value 5.0")
     print("rho_target stats: min=%d, max=%d, mean=%.2f" % (np.min(rho_target), np.max(rho_target), np.mean(rho_target)))
     
@@ -412,7 +413,7 @@ def main():
     trueD = { 'A_true': A_freq_sorted, 'B_true': B_freq_sorted, 'neur_freqIdx': neur_freqIdx, 'neur_revFreqIdx': neur_revFreqIdx}
     
     # Create metadata for freq-sorted data (this is now primary)
-    trueMD = {'dale_conf': dale_conf, 'evol_conf': evol_conf,'short_name':args.dataName,'dale_simu_stats':stats_dict}  # , 'exc_neuron_mask': freq_sorted_exc_mask, 'inh_neuron_mask': freq_sorted_inh_mask}
+    trueMD = {'dale_conf': dale_conf, 'evol_conf': evol_conf,'short_name':args.dataName,'dale_simu_stats':stats_dict}  
     
     # Create masks for frequency-sorted data (primary index)
     maskD=geom_edges_mask(trueMD,freq_sorted_exc_mask,freq_sorted_inh_mask)

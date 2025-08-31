@@ -154,7 +154,7 @@ class Plotter(PlotterBackbone):
         median_val = np.median(single_rates)
         ax.axvline(median_val, color='r', linestyle='--', linewidth=1.5)
         y_max = ax.get_ylim()[1]
-        median_text = f"median: {median_val:.2f} (Hz), N={single_rates.shape[0]}"
+        median_text = f"median: {median_val:.2f} (Hz)\n N={single_rates.shape[0]}"
         ax.text( x=median_val * 1.1,  y=y_max * 0.7, s=median_text,  color='red')
 
         

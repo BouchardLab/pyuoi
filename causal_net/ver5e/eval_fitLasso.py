@@ -11,30 +11,6 @@ from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
 
 from pprint import pprint
 
-
-def print_scores(trueD,fitD,maskD):  # saves no output!
-    print('\nscore_classifier')
-    fmask=maskD['mask.lasso.exist']
-    for ntype in ['excA','inhA']:
-        tmask=trueD['mask.true.'+ntype]
-          
-        FP = np.sum(~tmask &  fmask)  # False Positive: predicted True, actually False
-        TP = np.sum( tmask &  fmask)  # True Positive: predicted True, actually True
-        TN = np.sum(~tmask & ~fmask)  # True Negative: predicted False, actually False
-        FN = np.sum( tmask & ~fmask)  # False Negative: predicted False, actually True
-
-        prec = TP / (TP + FP) if (TP + FP) > 0 else 0
-        recal = TP / (TP + FN) if (TP + FN) > 0 else 0
-        F1 = 2*prec*recal/(prec+recal) if (prec + recal) > 0 else 0
-
-        nTrue = np.sum(tmask)
-        nFit = np.sum(fmask)
-        print('score', ntype, 'nT=%d nF=%d' % (nTrue, nFit),
-              'TP=%d FP=%d TN=%d FN=%d prec=%.3f rec=%.3f F1=%.3f' % (
-                  TP, FP, TN, FN, prec, recal, F1))
-
-
-
 #########################
 #  MAIN
 #########################
@@ -42,7 +18,7 @@ def print_scores(trueD,fitD,maskD):  # saves no output!
 def main():
     parser = argparse.ArgumentParser(description="Evaluate and plot results from fit_poisson.py")
     parser.add_argument("--dataName", type=str, default='dale_M120_3M', help="Base name for the dataset")
-    parser.add_argument("--dataPath", type=str, default="out/", help="Path to the data directory")
+    parser.add_argument("--dataPath", type=str, default="/pscratch/sd/b/balewski/2025_causalNet_tmp/", help="Path to the data directory")
     parser.add_argument('-A',"--ampl_thres", type=float, default=[0.10],nargs='+', help=" inh< tht0, exct>th1 of accepted off-diagonal edge")
     parser.add_argument('-p',"--showPlots", type=str,nargs='+', default="ab", help="Plot types to show: a=structure, b=distributions, c=reconstruction, d=category, d=A-matrix histograms")
     parser.add_argument("--outPath", type=str, default=None, help="Output path for plots (defaults to dataPath)")
@@ -84,8 +60,6 @@ def main():
         # Load spike data for frequency sorting
         spikesFF = os.path.join(args.dataPath, f"{truthF}.spikes.npz")
         spikeD, spikeMD = read_data_npz(spikesFF)
-
-        print_scores(trueD,fitD,maskD)
         
         # Combine metadata   just for plotter
         MD = {**fitMD, **trueMD, 'short_name': args.dataName} #, 'post': vars(args)}
