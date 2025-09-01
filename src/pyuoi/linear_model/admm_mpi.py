@@ -9,6 +9,7 @@ from optparse import OptionParser
 import gc
 from copy import deepcopy
 from .sparse_comm_util import *
+from time import time
 
 
 
@@ -65,9 +66,17 @@ def sparse_factor(X, rho):
     
     return factor
 
+def soft_threshold(v, k, mask):
+    if mask is not None:
+        mask = mask.reshape(-1, 1)
+        k_masked = mask * k
+    else: 
+        k_masked = k
+
+    return np.sign(v) * np.maximum(np.abs(v) - k_masked, 0.0)
 
 
-def soft_threshold(v, k):
+def soft_threshold_old(v, k):
     return np.sign(v) * np.maximum(np.abs(v) - k, 0.0)
     
 
@@ -134,7 +143,7 @@ class ADMM_Lasso:
         self.rho_scaler = rho_scaler
         self.imbalance_tolerance = imbalance_tolerance
     
-    def fit(self, X= None, y = None, z = None, rho = None, sparse_input = True):
+    def fit(self, X= None, y = None, z = None, rho = None, sparse_input = True, param_mask = None):
         """
         Fit model with coordinate descent.
         
@@ -152,6 +161,12 @@ class ADMM_Lasso:
         self : object
             Returns self.
         """
+        self.comm_time = 0
+        self.compute_time1 = 0
+        self.compute_time2 = 0
+        self.compute_time3 = 0
+        self.total_time = 0
+        
         max_iter = self.max_iter
         abs_tol = self.abs_tol
         rel_tol = self.rel_tol
@@ -167,6 +182,8 @@ class ADMM_Lasso:
         '''
         Data
         '''
+        start_total_time = time()
+        start_time = time()
         if rank == 0:
             
             m, n = X.shape
@@ -189,7 +206,7 @@ class ADMM_Lasso:
     
         n = comm.bcast(n, root=0)
 
-        # using non-sensibel features number as termination signals
+        # using non-sensible features number as termination signals
         if n == -1: 
             self.terminate_selection = True
             return self
@@ -257,6 +274,7 @@ class ADMM_Lasso:
         
         m, n = X.shape
         comm.Bcast([y, MPI.DOUBLE])
+        param_mask = comm.bcast(param_mask, root=0) 
 
         # m is n_samp per ADMM process!
          # this is for accomdating the definition of MSE term in ADMM-LASSO convention
@@ -273,6 +291,7 @@ class ADMM_Lasso:
         # save a matrix-vector multiply
         Xty = X.T.dot(y)
 
+        self.comm_time += time()-start_time
     
         # initialize ADMM solver
 
@@ -294,10 +313,14 @@ class ADMM_Lasso:
         recv = np.zeros(3)
     
         # cache the (Cholesky) factorization
+        start_compute_time = time()
         if sparse_input:
             factor_obj = sparse_factor(X, rho)
         else:
             L, U = factor(X, rho)
+        self.compute_time1 += time()-start_compute_time
+
+        
     
 
         objval = []
@@ -320,13 +343,17 @@ class ADMM_Lasso:
             #     u += (x - z)
     
             # x-update 
+            
             q = Xty + rho * (z - u)  # (temporary value)
     
             if sparse_input:
                 if m >= n:
                     x = factor_obj.solve(q)
                 else:
+                    #print("CAUTION: n_samples < n_features", flush = True)
+                    start_compute_time = time()
                     ULXq = factor_obj.solve(X.dot(q))
+                    self.compute_time2 += time()-start_compute_time
                     x = (q * 1. / rho) - ((X.T.dot(ULXq)) * 1. / (rho**2))                    
             else:
                 if m >= n:  
@@ -339,20 +366,27 @@ class ADMM_Lasso:
             w = x + u
     
             zprev = np.copy(z)
+            
+
+            start_time = time()
     
             comm.Barrier()
             comm.Allreduce([w, MPI.DOUBLE], [z, MPI.DOUBLE]) # the resulting z is sum of N variants, so it has to be divided by N before all usage
-            
-    
+            self.comm_time += time()-start_time
+
+            start_compute_time = time()
             # z-update            
             if alpha == 0:  #Linear regression case
                 z = z * 1. / N
             else:
-                z = soft_threshold(z * 1. / N, alpha * 1. / (N * rho))
-
-            r = x-z
-            u += r   
+                z = soft_threshold(z * 1. / N, alpha * 1. / (N * rho), mask = param_mask)
             
+            r = x-z
+            u += r  
+            self.compute_time3 += time()-start_compute_time
+            
+
+            start_time = time()
             send[0] = r.T.dot(r)[0][0]
             send[1] = x.T.dot(x)[0][0]
             #send[2] = u.T.dot(u)[0][0] / (rho**2)
@@ -361,6 +395,8 @@ class ADMM_Lasso:
             
             comm.Barrier()
             comm.Allreduce([send, MPI.DOUBLE], [recv, MPI.DOUBLE])
+
+            self.comm_time += time()-start_time
             
 
             r_res = np.sqrt(recv[0])
@@ -391,13 +427,17 @@ class ADMM_Lasso:
             # r = x - z
             if rank == 0:
                 rho_history.append(rho)
-        #if rank == 0:
-        #    np.save("rho_plot/rho_"+str(self.rho_scaler)+"_20k_160.npy", rho_history)
+
+        # if rank == 0:
+        #     np.save("rho_plot/rho_"+str(self.rho_scaler)+"_20k_160.npy", rho_history)
+
         
         # Set attributes after fitting
         self.coef_ = z
         self.intercept_ = 0
         self.n_iter_ = k
+
+        self.total_time += time()- start_total_time
         
         
         return self

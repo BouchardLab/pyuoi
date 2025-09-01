@@ -61,7 +61,8 @@ def log_likelihood_glm(model, y_true, y_pred):
             else:
                 ll = 0.
         else:
-            ll = np.mean(y_true * np.log(y_pred) - y_pred)
+            #ll = np.mean(y_true * np.log(y_pred) - y_pred)  #old: using mean error, which was inconsistent with the poisson loss function for VAR case(that used 1/n_samples factor)
+            ll = -np.sum(y_true * np.log(y_pred) - y_pred)
     else:
         raise ValueError('Model is not available.')
     return ll
