@@ -267,6 +267,7 @@ def main():
     parser.add_argument("--step_size", type=float, default=0.01, help="Integration time step size (dt) in seconds.")
     parser.add_argument("--idleRate", type=float, nargs=2, default=[2, 10.], help="Range of idle firing rates [min, max] in Hz.")
     parser.add_argument("--expRate", action="store_true", help="Switch to exponentially decausing rate")
+    parser.add_argument("--inh_rate_ampl", type=float, default=None, help="boost B-value for inhibitory neurons")
     parser.add_argument("--spectralR", type=float, default=2.0, help="Initial spectral radius (R).")
     parser.add_argument("--verb", type=int, default=1, help="Verbosity level (0=quiet, 1=normal).")
     parser.add_argument("--dataName", type=str, default=None, help="Base name for output files (default: dale_spikes_xx).")
@@ -315,7 +316,8 @@ def main():
         'eta': 10,  # Learning rate for stabilization algorithm
         'C': 1.5,   # Parameter for stabilization algorithm
         'B': 0.2,    # Parameter for stabilization algorithm
-        'edge_prob': args.edge_prob
+        'edge_prob': args.edge_prob,
+        'inh_rate_ampl': args.inh_rate_ampl
     }
 
     if args.verb>1:        
@@ -358,7 +360,8 @@ def main():
         Ri_arg = np.array(args.idleRate)
         Bi = np.log(Ri_arg)
         B_idle = np.random.uniform(Bi[0],Bi[1], size=(Nn,))
-        #1B_idle[:args.num_excite]-=1.4  # reduce excite rate
+        if args.inh_rate_ampl!=None:
+            B_idle[:args.num_excite]-=args.inh_rate_ampl  # reduce excite rate
         
     else:
         from UtilFreqGen import gen_exponential_freq
@@ -439,8 +442,7 @@ def main():
 
     outFt = os.path.join(args.outPath, args.dataName + '.simTruth.npz')
     write_data_npz(trueD, outFt, metaD=trueMD)
-
-   
+    #1pprint(trueMD)
     outFs = os.path.join(args.outPath, args.dataName + '.spikes.npz')
     write_data_npz(spikeD, outFs, metaD=spikeMD)
 
