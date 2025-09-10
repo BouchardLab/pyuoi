@@ -232,6 +232,12 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
         self.tol = tol
         self.global_comm = global_comm
         self.n_admm = n_admm
+        self.total_time = 0
+        self.comm_time = 0
+        self.compute_time1 = 0
+        self.compute_time2 = 0
+        self.compute_time3 = 0
+        self.kron_time = 0
 
         
 
@@ -321,6 +327,11 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
             while True:
                 #the first bcast call in fit is blocking, so the non-root process will wait for the root to distribute data
                 self._selection_lm.fit()
+                #runtime scaling results
+                # if self.global_comm.rank == 100:
+                #     self.total_time+=self._selection_lm.total_time
+                #     self.comm_time+=self._selection_lm.comm_time
+                #     self.compute_time+=self._selection_lm.compute_time
                 if self._selection_lm.terminate_selection:
                     break
 
@@ -356,7 +367,16 @@ class UoI_Lasso(AbstractUoILinearRegressor, LinearRegression):
     
                 self._selection_lm.set_params(**reg_params)
                 # rerun fit
-                self._selection_lm.fit(X, y)
+                self._selection_lm.fit(X, y, param_mask = self.param_mask)
+
+                #runtime scaling results
+                if self.comm.rank == 0:
+                    self.total_time+=self._selection_lm.total_time
+                    self.comm_time+=self._selection_lm.comm_time
+                    self.compute_time1+=self._selection_lm.compute_time1
+                    self.compute_time2+=self._selection_lm.compute_time2
+                    self.compute_time3+=self._selection_lm.compute_time3
+
                 # store coefficients
                 coefs[reg_param_idx] = self._selection_lm.coef_.ravel()
     

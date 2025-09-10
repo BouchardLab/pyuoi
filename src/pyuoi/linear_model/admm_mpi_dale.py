@@ -11,6 +11,17 @@ from copy import deepcopy
 
 
 
+def adaptive_rho_update(r_res, s_res, primal_eps, dual_eps, rho, u, rho_scaler, imbalance_tolerance, n = None, p=None):
+
+    if r_res/primal_eps > imbalance_tolerance * s_res/dual_eps:
+        rho *= rho_scaler
+        u /= rho_scaler
+    elif s_res/dual_eps > imbalance_tolerance * r_res/primal_eps:
+        rho /= rho_scaler
+        u *= rho_scaler
+
+    return rho , u 
+
 def objective(X, y, alpha, x, z):
     if alpha == 0:
         return .5 * np.square(X.dot(x) - y).sum()
@@ -27,14 +38,13 @@ def factor(X, rho):
     U = sparse.csc_matrix(L.T)
     return L, U
 
+
 def soft_threshold(v, k):
-    v[np.where(v > k)] -= k
-    v[np.where(v < -k)] += k
-    v[np.intersect1d(np.where(v > -k), np.where(v < k))] = 0
-    return v
+    return np.sign(v) * np.maximum(np.abs(v) - k, 0.0)
+    
 
 
-def EG_update(z,x_old,x,u, rho, alpha):
+def EG_update(z, x_old, x, u, rho, alpha, rank, k):
     """
      Parameters
         ----------
@@ -49,12 +59,12 @@ def EG_update(z,x_old,x,u, rho, alpha):
     max_exp = 70
 
     x_array = rho /alpha  * (x-z+u) * np.sign(x)
-    #print(np.min(x_array),np.max(x_array),flush = True)
     
     # Clip values to safe range
     x_safe = np.clip(x_array, min_exp, max_exp)
-    
-    
+
+    # if rank == 0:
+    #     print(k,  rho, np.max(x_safe), flush = True)
     z_new = x_old * np.exp(x_safe)
     return z_new
 
@@ -111,7 +121,7 @@ class ADMM_Dale:
     """
     
     def __init__(self, comm, rho = None, alpha=None, fit_intercept=False, max_iter=50,
-                 abs_tol=1e-3, rel_tol = 1e-2, warm_start=False, random_state=None):
+                 abs_tol=1e-3, rel_tol = 1e-2, rho_scaler = 2, imbalance_tolerance = 10, warm_start=False, random_state=None):
         self.alpha = alpha
         self.fit_intercept = fit_intercept
         self.max_iter = max_iter
@@ -120,8 +130,11 @@ class ADMM_Dale:
         self.warm_start = warm_start
         self.random_state = random_state
         self.comm = comm
-    
-    def fit(self, X= None, y = None, z = None, rho = None):
+        self.rho_scaler = rho_scaler
+        self.imbalance_tolerance = imbalance_tolerance
+
+
+    def fit(self, X= None, y = None, z = None, rho_0_scaler = 1e-3, verbose = False):        
         """
         Fit model with coordinate descent.
         
@@ -157,22 +170,20 @@ class ADMM_Dale:
         Data
         '''
         if rank == 0:
-            if rho is None:
-                # heuristic rho selection
-                if X.shape[1]<1e3:
-                    rho = X.shape[0]/X.shape[1]
-                else:
-                    rho = 100/X.shape[1]
-                
+ 
             m, n = X.shape
             
-            # this is for accomdating the definition of regularization term in ADMM-LASSO convention
-            alpha = self.alpha * m
+           
+            # scaled global alpha values, 
+            # *m(number of samples in this bootstrap) accounts for the ADMM objective function being the total SSE
+            # /N(n_admm) accounts for the change in L1-penalty scale when the SSE term optimization is distributed
+            alpha = self.alpha * m / N 
+
         else:
             n = np.zeros(1).astype('int')
             m = np.zeros(1).astype('int')
-            rho = np.zeros(1).astype('double')
             alpha = np.zeros(1).astype('double')
+        
             
     
         self.terminate_selection = False
@@ -191,7 +202,7 @@ class ADMM_Dale:
         
         m = comm.bcast(m, root=0)
 
-        rho = comm.bcast(rho, root=0)
+        
         alpha = comm.bcast(alpha, root=0)
 
 
@@ -246,6 +257,8 @@ class ADMM_Dale:
         m, n = X.shape
         comm.Bcast([y, MPI.DOUBLE])
         comm.Bcast([z, MPI.DOUBLE])
+
+        rho = alpha*rho_0_scaler
     
         # do the send-receisve again for y?? or integrate back into the last send-receive operation?? or just Bcast it like right now
         y = np.ascontiguousarray(y.ravel()[rank::N].reshape((m, 1)))
@@ -258,9 +271,9 @@ class ADMM_Dale:
         # initialize ADMM solver
 
         if z is None:
-            #z = np.random.normal(scale=0.01, size=(n, 1))
-            z = np.zeros((n, 1))
-        x_original = deepcopy(z)
+            z = np.random.normal(scale=1, size=(n, 1))
+            #z = np.zeros((n, 1))
+        z_original = deepcopy(z)
         x = deepcopy(z)
 
 
@@ -273,7 +286,14 @@ class ADMM_Dale:
         # cache the (Cholesky) factorization
         L, U = factor(X, rho)
     
-
+        # Saving state
+        if rank == 0 and verbose:
+            print('\n%3s\t%10s\t%10s\t%10s\t%10s\t%10s' % ('iter',
+                                                          'r norm', 
+                                                          'eps pri', 
+                                                          's norm', 
+                                                          'eps dual', 
+                                                          'objective'))
         objval = []
         r_norm = []
         s_norm = []
@@ -308,7 +328,8 @@ class ADMM_Dale:
     
             send[0] = r.T.dot(r)[0][0]
             send[1] = x.T.dot(x)[0][0]
-            send[2] = u.T.dot(u)[0][0] / (rho**2)
+            #send[2] = u.T.dot(u)[0][0] / (rho**2)
+            send[2] = u.T.dot(u)[0][0] * (rho**2)
     
             zprev = np.copy(z)
     
@@ -321,33 +342,50 @@ class ADMM_Dale:
             if alpha == 0:  #Linear regression case
                 z = z * 1. / N
             else:
-                z = EG_update(z, x_old, x, u, rho, alpha)
+                z = EG_update(z, x_old, x, u, rho, alpha, rank, k)
+
+                
+            r_res = np.sqrt(recv[0])
+            s_res = np.sqrt(N) * rho * norm(z - zprev)
+
+            primal_eps = np.sqrt(n * N) * abs_tol + rel_tol * np.maximum(np.sqrt(recv[1]), np.sqrt(N) * norm(z))
+            dual_eps = np.sqrt(n * N) * abs_tol + rel_tol * np.sqrt(recv[2])
+            
     
             # diagnostics, reporting, termination checks
             objval.append(objective(X, y, alpha, x, z))
-            # prires -> norm(x-z)
-            r_norm.append(np.sqrt(recv[0]))
-            # dualres -> norm(-rho*(z-zold))
-            s_norm.append(np.sqrt(N) * rho * norm(z - zprev))
-            eps_pri.append(np.sqrt(n * N) * abs_tol +
-                           rel_tol * np.maximum(np.sqrt(recv[1]), np.sqrt(N) * norm(z)))
-            eps_dual.append(np.sqrt(n * N) * abs_tol + rel_tol * np.sqrt(recv[2]))
-    
-    
+            r_norm.append(r_res)
+            s_norm.append(s_res)
+            eps_pri.append(primal_eps)
+            eps_dual.append(dual_eps)  
+
+            if rank == 0 and verbose:
+                print('%4d\t%10.4f\t%10.4f\t%10.4f\t%10.4f\t%10.2f' % (k + 1,
+                                                                  r_norm[k],
+                                                                  eps_pri[k],
+                                                                  s_norm[k],
+                                                                  eps_dual[k],
+                                                                  objval[k]))    
+                
             if r_norm[k] < eps_pri[k] and s_norm[k] < eps_dual[k] and k > 0:
                 break
-    
+                
+            rho, u = adaptive_rho_update(r_res, s_res, primal_eps, dual_eps, rho, u, self.rho_scaler, self.imbalance_tolerance)
+            
+
+
+ 
             # Compute residual
             r = x - z
 
-            print(np.all(np.sign(x)==np.sign(x_original)), flush =  True)
-            sign_preserved.append(np.all(np.sign(x)==np.sign(x_original)))
-            param_list.append(deepcopy(x))
+            # print(np.sum(np.sign(z)==np.sign(z_original)), flush =  True)
+            sign_preserved.append(np.sum(np.sign(z)==np.sign(z_original)))
+            param_list.append(deepcopy(z))
         
         # Set attributes after fitting
         self.coef_ = z
         self.intercept_ = 0
-        self.n_iter_ = None
+        self.n_iter_ = k
         self.sign_preserved = sign_preserved
         self.param_list = param_list
         

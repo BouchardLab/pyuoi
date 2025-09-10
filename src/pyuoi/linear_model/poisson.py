@@ -9,6 +9,58 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.utils.validation import check_is_fitted
 
 from ..lbfgs import fmin_lbfgs
+from scipy.optimize import fmin_l_bfgs_b
+from .admm_mpi_poisson import ADMM_Poisson
+from mpi4py import MPI
+from scipy import sparse
+
+def _pack_coefficients(A, b):
+    """
+    Pack A matrix and b vector into coefficient vector.
+    
+    Parameters
+    ----------
+    A : (p, p) array
+    b : (p,) array
+    
+    Returns
+    -------
+    coefficients : (p*(p+1),) array
+    """
+    p = A.shape[0]
+    coefficients = np.zeros(p * (p + 1))
+    
+    for i in range(p):
+        start_idx = i * (p + 1)
+        coefficients[start_idx] = b[i]
+        coefficients[start_idx + 1 : start_idx + p + 1] = A[i, :]
+    
+    return coefficients
+
+def _unpack_coefficients(coefficients):
+    """
+    Unpack coefficient vector into A matrix and b vector.
+    
+    Parameters
+    ----------
+    coefficients : (p*(p+1),) array
+        Flattened coefficients [b_1, A_{1,:}, b_2, A_{2,:}, ...]
+        
+    Returns
+    -------
+    A : (p, p) array
+    b : (p,) array
+    """
+    p = 20
+    A = np.zeros((p, p))
+    b = np.zeros(p)
+    
+    for i in range(p):
+        start_idx = i * (p + 1)
+        b[i] = coefficients[start_idx]
+        A[i, :] = coefficients[start_idx + 1 : start_idx + p + 1]
+    
+    return A, b    
 
 
 class Poisson(BaseEstimator):
@@ -52,7 +104,7 @@ class Poisson(BaseEstimator):
         The fitted intercept.
     """
     def __init__(self, alpha=1.0, l1_ratio=1., fit_intercept=True,
-                 standardize=False, max_iter=1000, tol=1e-5, warm_start=False,
+                 standardize=False, max_iter=1000, tol=1e-5, warm_start=False, feature_weights = 1, dt = 1,
                  solver='lbfgs'):
         self.alpha = alpha
         self.l1_ratio = l1_ratio
@@ -62,6 +114,8 @@ class Poisson(BaseEstimator):
         self.tol = tol
         self.warm_start = warm_start
         self.solver = solver
+        self.feature_weights = feature_weights
+        self.dt = dt
 
     def fit(self, X, y, sample_weight=None):
         """Fit the Poisson GLM.
@@ -77,6 +131,11 @@ class Poisson(BaseEstimator):
             Array of weights assigned to the individual samples. If ``None``,
             then each sample is provided an equal weight.
         """
+
+        ## this is for fittign VAR only
+        weights = np.tile(self.feature_weights, (int(len(y)/len(self.feature_weights)), 1))
+        sample_weight = weights.T.flatten()
+        
         self.n_samples, self.n_features = X.shape
         X, y = self._pre_fit(X, y)
 
@@ -105,22 +164,80 @@ class Poisson(BaseEstimator):
                 coef = np.append(coef, intercept)
 
             # create lbfgs function
-            def func(x, g, *args):
+            def func(x, *args):
                 loss, grad = _poisson_loss_and_grad(x, *args)
-                g[:] = grad
                 return loss
+
+            def grad(x, *args):
+                loss, grad = _poisson_loss_and_grad(x, *args)
+                return grad
 
             l1_penalty = self.alpha * self.l1_ratio
             l2_penalty = self.alpha * (1 - self.l1_ratio)
 
-            # orthant-wise lbfgs optimization
-            coef = fmin_lbfgs(func, coef,
-                              orthantwise_c=l1_penalty,
-                              args=(X, y, l2_penalty, sample_weight),
-                              max_iterations=self.max_iter,
-                              epsilon=self.tol,
-                              orthantwise_end=self.n_features)
 
+            # # create lbfgs function
+            # def func(x, g, *args):
+            #     loss, grad = _poisson_loss_and_grad(x, *args)
+            #     g[:] = grad
+            #     return loss
+            # orthant-wise lbfgs optimization
+            # coef = fmin_lbfgs(func, coef,
+            #                   orthantwise_c=l1_penalty,
+            #                   args=(X, y, l2_penalty, sample_weight),
+            #                   max_iterations=self.max_iter,
+            #                   epsilon=self.tol,
+            #                   orthantwise_end=self.n_features)
+
+            # Initialize coefficients
+
+
+            # p = 20
+            # A_init = np.random.randn(p, p) * 0.01
+            # b_init = np.zeros(p) - 1.0
+            
+            # coefficients_init = _pack_coefficients(A_init, b_init)
+
+            # # Set up bounds if not provided
+  
+            # bounds = []
+            # for i in range(p):
+            #     # Intercept bounds
+            #     bounds.append((-10.0, 0))
+            #     # A matrix row bounds (encourage negative diagonal)
+            #     for j in range(p):
+            #         if i == j:
+            #             bounds.append((-5.0, 0.5))  # Diagonal
+            #         else:
+            #             bounds.append((-5.0, 5.0))  # Off-diagonal
+        
+            # Optimize using L-BFGS-B
+
+
+            result = fmin_l_bfgs_b(
+                func=func,
+                x0=coef,
+                fprime=grad,  # Providing gradient speeds up convergence
+                args=(X, y, l2_penalty, self.dt, sample_weight),
+                bounds=None,  # No bounds for fully dense model
+                maxiter=self.max_iter,
+                maxfun=15000,
+                pgtol=1e-5,
+                factr=1e7,  # Higher precision: use factr=10 for very high precision
+            )
+
+            
+            coef, min_nll, info = result
+
+            
+
+            # A,b = _unpack_coefficients(coef)
+
+            #print(np.mean(X), np.mean(b), flush = True)
+            # np.save("result/real_b", b)
+            # np.save("result/real_A", A)
+
+            
             if self.fit_intercept:
                 self.coef_ = coef[:self.n_features]
                 self.intercept_ = coef[-1]
@@ -155,8 +272,14 @@ class Poisson(BaseEstimator):
         mode : array_like, shape (n_samples)
             The predicted response values, i.e. the modes.
         """
+        if sparse.issparse(X):
+            dot = lambda X, coef: X.dot(coef)  # sparse matrix-vector multiplication
+        else:
+            dot = lambda X, coef: np.dot(X, coef)    
+        
         check_is_fitted(self, ['coef_', 'intercept_'])
-        mu = np.exp(self.intercept_ + np.dot(X, self.coef_))
+        #mu = np.exp(np.clip(self.intercept_ + dot(X, self.coef_), -5, 5))*self.dt
+        mu = np.exp(self.intercept_ + dot(X, self.coef_))*self.dt
         mode = np.floor(mu)
         return mode
 
@@ -173,12 +296,21 @@ class Poisson(BaseEstimator):
         mu : array_like, shape (n_samples)
             The predicted response values, i.e. the conditional means.
         """
+
+       
+        if sparse.issparse(X):
+            dot = lambda X, coef: X.dot(coef)  # sparse matrix-vector multiplication
+        else:
+            dot = lambda X, coef: np.dot(X, coef)        
+   
         if self.fit_intercept:
             check_is_fitted(self, ['coef_', 'intercept_'])
-            mu = np.exp(self.intercept_ + np.dot(X, self.coef_))
+            #mu = np.exp(np.clip(self.intercept_ + dot(X, self.coef_), -5, 5))*self.dt
+            mu = np.exp(self.intercept_ + dot(X, self.coef_))*self.dt
         else:
             check_is_fitted(self, ['coef_'])
-            mu = np.exp(np.dot(X, self.coef_))
+            #mu = np.exp(np.clip(dot(X, self.coef_), -5, 5))*self.dt
+            mu = np.exp(dot(X, self.coef_))*self.dt
         return mu
 
     def _cd(self, X, y, sample_weight=None):
@@ -262,7 +394,7 @@ class Poisson(BaseEstimator):
         coef : ndarray, shape (n_features,)
             The current estimates of the parameters.
         X : ndarray, shape (n_samples, n_features)
-            The design matrix.
+            The design matrix.f
         w : ndarray, shape (n_samples,)
             The weights applied to each sample after linearization of the
             log-likelihood.
@@ -314,7 +446,7 @@ class Poisson(BaseEstimator):
     def _pre_fit(self, X, y):
         """Perform standardization, if needed, before fitting."""
         if self.standardize:
-            self._X_scaler = StandardScaler()
+            self._X_scaler = StandardScaler(with_mean=self.fit_intercept)
             X = self._X_scaler.fit_transform(X)
         return X, y
 
@@ -463,16 +595,15 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         Boolean array indicating whether a given regressor (column) is selected
         for estimation for a given regularization parameter value (row).
     """
-    def __init__(self, n_real_features = 1, fit_VAR = False, n_boots_sel=12, n_boots_est=12, n_lambdas=48,
+    def __init__(self, fit_VAR = False, n_boots_sel=12, n_boots_est=12, n_lambdas=48,
                  alphas=np.array([1.]), selection_frac=0.8,
                  estimation_frac=0.8, stability_selection=0.75,
                  estimation_score='log', estimation_target=None,
-                 solver='lbfgs', warm_start=True,
-                 eps=1e-3, tol=1e-5,  fit_intercept=True,
+                 solver='lbfgs', estimation_solver = 'lbfgs', warm_start=True,
+                 eps=1e-3, tol=1e-8,  fit_intercept=True,
                  standardize=True, max_iter=1000,
-                 random_state=None, comm=None, logger=None):
+                 random_state=None, comm=None, global_comm = None, n_admm = None, rho_scaler = 2, imbalance_tolerance = 10, l1_suppression = None, weights = 1, dt = 1, logger=None):
         super(UoI_Poisson, self).__init__(
-            n_real_features = n_real_features,
             fit_VAR = fit_VAR, 
             n_boots_sel=n_boots_sel,
             n_boots_est=n_boots_est,
@@ -490,23 +621,87 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         self.n_alphas = len(alphas)
         self.warm_start = warm_start
         self.eps = eps
+        self.solver = solver 
+        self.estimation_solver = estimation_solver 
         self.lambdas = None
-        self._selection_lm = Poisson(
-            fit_intercept=fit_intercept,
-            standardize=standardize,
-            max_iter=max_iter,
-            tol=tol,
-            warm_start=warm_start,
-            solver=solver)
+        self.global_comm = global_comm
+        self.n_admm = n_admm
+        self.l1_suppression = l1_suppression
+        self.dt =dt
+
+        if solver == "admm":
+
+            
+             #every rank will have their corresponding admm_comm!!!
+            admm_comm_list = []
+            admm_group_list = []
+
+            # global rank
+            rank = self.global_comm.rank 
+            # idx of the correponding bootstrap
+            boot_rank = rank//n_admm
+     
+
+            # all ranks of the corresponding admm group for that given bootstrap
+            admm_ranks_list = [np.arange(boot_rank*n_admm, (boot_rank+1)*n_admm) for boot_rank in range(int(self.global_comm.Get_size()//n_admm))]
+
+            for admm_ranks in admm_ranks_list:
+            
+                admm_group_list.append(self.global_comm.group.Incl(admm_ranks))
+                admm_comm_list.append(self.global_comm.Create(admm_group_list[-1]))
+
+
+            self.admm_comm = admm_comm_list[boot_rank]
+            
+            self._selection_lm = ADMM_Poisson(
+                comm = self.admm_comm,
+                max_iter=max_iter,
+                abs_tol=tol,
+                rel_tol = tol/10,
+                rho_scaler = rho_scaler,
+                feature_weights = weights,
+                dt = dt,
+                imbalance_tolerance = imbalance_tolerance,
+                warm_start=warm_start,
+                random_state=random_state,
+                fit_intercept=fit_intercept)  
+        else:
+            self._selection_lm = Poisson(
+                fit_intercept=fit_intercept,
+                max_iter=max_iter,
+                tol=tol,
+                warm_start=warm_start,
+                feature_weights = weights, 
+                dt = dt,
+                solver=solver)
+
         # estimation is a Poisson regression with no regularization
-        self._estimation_lm = Poisson(
-            alpha=0.,
-            l1_ratio=1.,
-            fit_intercept=fit_intercept,
-            max_iter=max_iter,
-            tol=tol,
-            warm_start=False,
-            solver=solver)
+        if estimation_solver == "admm":
+            self._estimation_lm = ADMM_Poisson(
+                    comm = self.admm_comm,
+                    max_iter=max_iter,
+                    abs_tol=tol,
+                    rel_tol = tol/10,
+                    rho_scaler = rho_scaler,
+                    feature_weights = weights,
+                    dt = dt,
+                    imbalance_tolerance = imbalance_tolerance,
+                    warm_start=False,
+                    random_state=random_state,
+                    fit_intercept=fit_intercept) 
+            self._estimation_lm.set_params(alpha = 0,  l1_ratio= 0)
+
+        else:   
+            self._estimation_lm = Poisson(
+                alpha=0.,
+                l1_ratio=1.,
+                fit_intercept=fit_intercept,
+                max_iter=max_iter,
+                tol=tol,
+                warm_start=False,
+                feature_weights = weights,
+                dt = dt,
+                solver=estimation_solver)
 
     def get_reg_params(self, X, y):
         r"""Calculates the regularization parameters (alpha and lambda) to be
@@ -530,18 +725,34 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         """
         n_samples = X.shape[0]
         if self.lambdas is None:
-            self.lambdas = np.zeros((self.n_alphas, self.n_lambdas))
+            self.lambdas = np.zeros((self.n_alphas, self.n_lambdas-self.l1_suppression))
             # a set of lambdas are generated for each alpha value (l1_ratio in
             # sci-kit learn parlance)
             for alpha_idx, alpha in enumerate(self.alphas):
                 # calculate upper bound for lambda sweep
                 ybar = y.mean()
                 lambda_max = np.max(np.abs(np.dot(X.T, y - ybar)))
-                lambda_max /= n_samples * alpha
+                lambda_max /= n_samples * alpha           
+
+                # Estimate zero-inflation level
+                observed_zeros = (X == 0).mean()  # ~0.9 in your case
+                expected_poisson_zeros = np.exp(-X[X>0].mean())
+                # Adjust λ_max based on excess zeros
+                excess_zeros = max(0, observed_zeros - expected_poisson_zeros)
+                lambda_adjustment = 1 + excess_zeros
+                # lambda_max = lambda_max * lambda_adjustment
+
+            
+                
                 self.lambdas[alpha_idx, :] = np.logspace(
                     start=np.log10(lambda_max),
                     stop=np.log10(self.eps * lambda_max),
-                    num=self.n_lambdas)
+                    num=self.n_lambdas)[self.l1_suppression:]
+                
+                # self.lambdas[alpha_idx, :] = np.array([2e-5, 1e-4])
+                
+                self.lambdas[alpha_idx, :] /= X.shape[1]
+            # print(self.lambdas, flush = True)
 
         # place the regularization parameters into a list of dictionaries
         reg_params = list()
@@ -552,6 +763,21 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
 
         return reg_params
 
+    def admm_queue(self):
+
+        if self.solver == "admm":
+            while True:
+                #the first bcast call in fit is blocking, so the non-root process will wait for the root to distribute data
+                self._selection_lm.fit()
+                if self._selection_lm.terminate_selection:
+                    break
+
+        if self.estimation_solver == "admm":
+            while True:
+                self._estimation_lm.fit()
+                if self._estimation_lm.terminate_estimation:
+                    break
+        
     def _score_predictions(self, metric, fitter, X, y, support, boot_idxs=None):
         """Score, according to some metric, predictions provided by a model.
 
@@ -585,10 +811,11 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
             The score.
         """
 
-        # Select the train data
-        if boot_idxs is not None:
-            X = X[boot_idxs[self._estimation_target]]
-            y = y[boot_idxs[self._estimation_target]]
+        # # Select the train data
+        # OBSOLETE: from older version
+        # if boot_idxs is not None:
+        #     X = X[boot_idxs[self._estimation_target]]
+        #     y = y[boot_idxs[self._estimation_target]]
 
         # for Poisson, use predict_mean to calculate the "predicted" values
         
@@ -661,6 +888,32 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         """
         return PoissonInterceptFitterNoFeatures(y)
 
+    def uoi_selection_sweep(self, X, y, reg_param_values):
+        """Overwrite base class selection sweep to accommodate pycasso
+        path-wise solution"""
+
+
+        if self.solver == 'admm':
+            
+            n_param_values = len(reg_param_values)            
+            n_coef = self.get_n_coef(X, y)   
+            coefs = np.zeros((n_param_values, n_coef))
+    
+            # apply the selection regression to bootstrapped datasets
+            for reg_param_idx, reg_params in enumerate(reg_param_values):
+                # reset the regularization parameter
+    
+                self._selection_lm.set_params(**reg_params)
+                # rerun fit
+                self._selection_lm.fit(X, y, param_mask = self.param_mask)
+                # store coefficients
+                coefs[reg_param_idx] = self._selection_lm.coef_.ravel()
+    
+            return coefs
+        
+        else:
+            return super(UoI_Poisson, self).uoi_selection_sweep(X, y,
+                                                              reg_param_values)
 
 class PoissonInterceptFitterNoFeatures(object):
     def __init__(self, y):
@@ -669,7 +922,7 @@ class PoissonInterceptFitterNoFeatures(object):
         else:
             self.intercept_ = -np.inf
 
-    def predict(self, X):
+    def predict(self, X, dt = 1):
         """Predicts the response variable given a design matrix. The output is
         the mode of the Poisson distribution.
 
@@ -683,11 +936,11 @@ class PoissonInterceptFitterNoFeatures(object):
         mode : array_like, shape (n_samples)
             The predicted response values, i.e. the modes.
         """
-        mu = np.exp(self.intercept_)
+        mu = np.exp(np.clip(self.intercept_, -5, 5))*dt
         mode = np.floor(mu)
         return mode
 
-    def predict_mean(self, X):
+    def predict_mean(self, X, dt = 1):
         """Calculates the mean response variable given a design matrix.
 
         Parameters
@@ -700,19 +953,20 @@ class PoissonInterceptFitterNoFeatures(object):
         mu : array_like, shape (n_samples)
             The predicted response values, i.e. the conditional means.
         """
-        mu = np.exp(self.intercept_)
+        mu = np.exp(np.clip(self.intercept_, -5, 5))*dt
         return mu
 
 
-def _poisson_loss_and_grad(coef, X, y, l2_penalty, sample_weight=None):
-    """Computes the Poisson loss and gradient.
 
+def _poisson_loss_and_grad(coef, X, y, l2_penalty = 0, dt = 1, sample_weight=None):
+    """Computes the Poisson loss and gradient with sparse matrix support.
+    
     Parameters
     ----------
     coef : ndarray, shape (n_features,) or (n_features + 1,)
         Coefficient vector.
-    X : array-like, shape (n_samples, n_features)
-        Design matrix.
+    X : array-like or scipy.sparse matrix, shape (n_samples, n_features)
+        Design matrix. Can be dense or sparse.
     y : ndarray, shape (n_samples,)
         Response vector.
     l2_penalty : float
@@ -720,7 +974,7 @@ def _poisson_loss_and_grad(coef, X, y, l2_penalty, sample_weight=None):
     sample_weight : array-like, shape (n_samples,), default None
         Array of weights assigned to the individual samples. If None, then each
         sample is provided an equal weight.
-
+        
     Returns
     -------
     out : float
@@ -729,29 +983,114 @@ def _poisson_loss_and_grad(coef, X, y, l2_penalty, sample_weight=None):
         Poisson gradient.
     """
     n_samples, n_features = X.shape
+
+    n_samples = 1  # overriding to give total error instead of mean error
     grad = np.empty_like(coef)
-
+    
     if sample_weight is None:
-        sample_weight = np.ones(n_samples)
-
+        #sample_weight = np.ones(n_samples)
+        sample_weight = 1
+    
     # extract intercept
     if grad.shape[0] > n_features:
         intercept = coef[-1]
         coef = coef[:n_features]
     else:
         intercept = 0
-
+    
+    # calculate linear predictor (eta)
+    if sparse.issparse(X):
+        eta = intercept + X.dot(coef)  # sparse matrix-vector multiplication
+    else:
+        eta = intercept + np.dot(X, coef)
+    
     # calculate likelihood
-    eta = intercept + np.dot(X, coef)
-    out = -np.sum(sample_weight * (y * eta - np.exp(eta))) / n_samples
+    out = -np.sum(sample_weight * (y * eta + np.log(dt) - np.exp(eta)*dt)) / n_samples
     out += 0.5 * l2_penalty * np.dot(coef, coef)
-
+    
+    # calculate residuals
+    y_res = sample_weight * (y - np.exp(eta)*dt)
+    
     # gradient of parameters
-    y_res = sample_weight * (y - np.exp(eta))
-    grad[:n_features] = -np.dot(X.T, y_res) / n_samples + l2_penalty * coef
-
+    if sparse.issparse(X):
+        # For sparse matrices, use X.T.dot() for efficient transpose multiplication
+        grad[:n_features] = -X.T.dot(y_res) / n_samples + l2_penalty * coef
+    else:
+        grad[:n_features] = -np.dot(X.T, y_res) / n_samples + l2_penalty * coef
+    
     # gradient of intercept
     if grad.shape[0] > n_features:
         grad[-1] = -np.mean(y_res)
-
+    
     return out, grad
+
+def _negative_log_likelihood(coefficients, design_matrix, y):
+    """
+    Compute negative log-likelihood in vectorized form.
+    
+    Parameters
+    ----------
+    coefficients : (p*(p+1),) array
+        Model coefficients
+    design_matrix : sparse array
+        Design matrix
+    y : array
+        Vectorized response
+        
+    Returns
+    -------
+    nll : float
+        Negative log-likelihood
+    """
+    # Compute linear predictor
+    eta = design_matrix @ coefficients
+    
+    # Clip to prevent overflow
+    eta = np.clip(eta, -20, np.log(1e6))
+    
+    # Compute rates
+    lam = np.exp(eta)
+    
+    # Negative log-likelihood: -y * eta + lambda
+    nll = np.sum(-y * eta + lam)
+    
+
+    
+    return nll
+
+def _gradient(coefficients, design_matrix, y):
+    """
+    Compute gradient of negative log-likelihood.
+    
+    Parameters
+    ----------
+    coefficients : (p*(p+1),) array
+        Model coefficients
+    design_matrix : sparse array
+        Design matrix
+    y : array
+        Vectorized response
+        
+    Returns
+    -------
+    grad : (p*(p+1),) array
+        Gradient vector
+    """
+    # Compute linear predictor
+    eta = design_matrix @ coefficients
+    
+    # Clip to prevent overflow
+    eta = np.clip(eta, -20, np.log(1e6))
+    
+    # Compute rates
+    lam = np.exp(eta)
+    
+    # Gradient w.r.t. eta: -y + lambda
+    grad_eta = -y + lam
+    
+    # Gradient w.r.t. coefficients
+    grad = design_matrix.T @ grad_eta
+    
+
+    return grad
+    
