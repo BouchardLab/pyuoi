@@ -27,11 +27,13 @@ def get_parser():
 
     parser.add_argument("--dataPath",default='/pscratch/sd/b/balewski/2025_causalNet_tmp/',help="head dir for any further data processing")
 
-    parser.add_argument('-T','--time_range' , default=[0., 60],  nargs=2,   type=float, help='display data time range')
+    parser.add_argument('-T','--time_range' , default=[0., 600],  nargs=2,   type=float, help='display data time range in seconds')
+    parser.add_argument('--burst_freq_thres' , default=40.,    type=float, help='tags high freq channels for burts detection')
+    parser.add_argument('--burst_chan_thres' , default=30,    type=int, help='final thres eliminating time bins')
   
     parser.add_argument("--dataName",  default='HET_80k_1-fc62ef',help='preprocessed  session name')
 
-    parser.add_argument('-R','--time_rebin2', default=20, type=int, help='rebin current time axis')
+    parser.add_argument('-R','--time_rebin2', default=50, type=int, help='rebin current time axis')
    
     args = parser.parse_args()
     # make arguments  more flexible
@@ -48,10 +50,9 @@ def get_parser():
 
 
 #...!...!....................
-def analyze_spikes(spikeD, md):
-    rateThr2=30
-    
-    spikeYield, dataRates = spikeD['spikes'], spikeD['single_rates']
+def detect_spike_bursts(spikeD, md):
+    rateThr2=args.burst_freq_thres
+    spikeYield = spikeD['spikes'] #, spikeD['single_rates']
     time_step=md['time_step_sec']
     tReb2=args.time_rebin2
     assert tReb2<101  # this would exceed 1 seconds
@@ -74,7 +75,7 @@ def analyze_spikes(spikeD, md):
 
     #.... compute running sume over K bins
     K = 5  # Number of bins for the running sum
-    mCnt=4 # minimal number of highRate neurons to flag the cluster in time
+    mCnt=args.burst_chan_thres # minimal number of highRate neurons to flag the cluster in time
     # Create a kernel for the running sum
     kernel = np.ones(K)/K
 
@@ -94,16 +95,16 @@ def analyze_spikes(spikeD, md):
     ntime//=tReb2
     rebD['timeV']= np.linspace(0, (ntime - 1) * time_step2, ntime)
 
-    print('usable time frac:%.3f  nchan=%d'%(rebD['usable_time_fract'],nchan))
+    print('usable time frac:%.3f  nchan=%d  thr=%.1f Hz'%(rebD['usable_time_fract'],nchan, rateThr2))
     timeMask=np.repeat(XM, tReb2)
     return rebD,timeMask
 
 #...!...!....................
 def filter_bursts(spikeD, md,timeMask):
     pprint(md)
-    spikeD['spikes'][timeMask]=0
+    spikeD['spikes'][:len(timeMask)][timeMask]=0
     
- 
+  
 #=================================
 #=================================
 #  M A I N 
@@ -115,17 +116,16 @@ if __name__=="__main__":
 
     spikesFF = os.path.join(args.dataPath, f"{args.dataName}.spikes.npz")
     spikeD, spikeMD = read_data_npz(spikesFF)
-
-    rebD,timeMask=analyze_spikes(spikeD, spikeMD)
+    if args.verb>1: pprint(spikeMD)
+    
+    rebD,timeMask=detect_spike_bursts(spikeD, spikeMD)
 
      #...... WRITE   OUTPUT .........
     maskFF=spikesFF.replace('spikes','timeMask')
     write_data_npz({'time_mask':timeMask}, maskFF, metaD=None)
 
     filter_bursts(spikeD, spikeMD,timeMask)
-     
-    rebD,timeMask=analyze_spikes(spikeD, spikeMD)
-     
+          
     #--------------------------------
     # ....  plotting ........
     args.prjName=spikeMD['short_name']

@@ -267,9 +267,9 @@ def main():
     parser.add_argument("--step_size", type=float, default=0.01, help="Integration time step size (dt) in seconds.")
     parser.add_argument("--idleRate", type=float, nargs=2, default=[2, 10.], help="Range of idle firing rates [min, max] in Hz.")
     parser.add_argument("--expRate", action="store_true", help="Switch to exponentially decausing rate")
-    parser.add_argument("--inh_rate_ampl", type=float, default=None, help="boost B-value for inhibitory neurons")
+    parser.add_argument("--exc_rate_dump", type=float, default=None, help="boost B-value for inhibitory neurons")
     parser.add_argument("--spectralR", type=float, default=2.0, help="Initial spectral radius (R).")
-    parser.add_argument("--verb", type=int, default=1, help="Verbosity level (0=quiet, 1=normal).")
+    parser.add_argument('-v',"--verb", type=int, default=1, help="Verbosity level (0=quiet, 1=normal).")
     parser.add_argument("--dataName", type=str, default=None, help="Base name for output files (default: dale_spikes_xx).")
     parser.add_argument("--outPath", type=str, default='/pscratch/sd/b/balewski/2025_causalNet_tmp/', help="Output directory for all files.")
     parser.add_argument('-X',"--noXterm", action="store_true", help="Disable X terminal for plotting") 
@@ -317,7 +317,6 @@ def main():
         'C': 1.5,   # Parameter for stabilization algorithm
         'B': 0.2,    # Parameter for stabilization algorithm
         'edge_prob': args.edge_prob,
-        'inh_rate_ampl': args.inh_rate_ampl
     }
 
     if args.verb>1:        
@@ -352,6 +351,7 @@ def main():
         'step_size': args.step_size,
         'evol_time': args.num_steps*args.step_size,
         'expRate': args.expRate
+        'exc_rate_dump': args.exc_rate_dump
     }
 
     if not args.expRate:
@@ -360,8 +360,8 @@ def main():
         Ri_arg = np.array(args.idleRate)
         Bi = np.log(Ri_arg)
         B_idle = np.random.uniform(Bi[0],Bi[1], size=(Nn,))
-        if args.inh_rate_ampl!=None:
-            B_idle[:args.num_excite]-=args.inh_rate_ampl  # reduce excite rate
+        if args.exc_rate_dumpl!=None:
+            B_idle[:args.num_excite]-=args.exc_rate_dump  # reduce excite rate
         
     else:
         from UtilFreqGen import gen_exponential_freq
@@ -393,7 +393,6 @@ def main():
     stats_dict, rates_dict , neur_freqIdx= estimate_rates(Y, dt=args.step_size, num_excite=args.num_excite, max_samples=100000, mxNn=5)
    
     # REMAP MATRICES TO FREQUENCY-SORTED ORDER (PRIMARY INDEX)
-    # Store both mapping directions with clear names
     neur_revFreqIdx = neur_freqIdx.copy()  # freq_sorted_position → natural_index (original from estimate_rates)
     neur_freqIdx = np.empty(len(neur_revFreqIdx), dtype=int)  # natural_index → freq_sorted_position
     neur_freqIdx[neur_revFreqIdx] = np.arange(len(neur_revFreqIdx))
@@ -442,10 +441,11 @@ def main():
 
     outFt = os.path.join(args.outPath, args.dataName + '.simTruth.npz')
     write_data_npz(trueD, outFt, metaD=trueMD)
-    #1pprint(trueMD)
+    if args.verb>2:  pprint(trueMD)
     outFs = os.path.join(args.outPath, args.dataName + '.spikes.npz')
     write_data_npz(spikeD, outFs, metaD=spikeMD)
-
+    if args.verb>2:  pprint(spikeMD)
+        
     print("\nNext step command:")
     print("  ./fit_lassoPoisson.py  --dataName %s  --n_epochs  50 " % args.dataName)
     

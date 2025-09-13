@@ -125,7 +125,7 @@ def main():
     # --- Modern output saving from fit_Lasso ---
     if rank==0:
         mdl = model.module if hasattr(model,'module') else model
-        lassoD = { 'A_lasso': mdl.A.detach().cpu().numpy(), 'B_lasso': mdl.B.detach().cpu().numpy(), 'losses_total': np.array(losses_total), 'losses_wo_L1': np.array(losses_wo_L1), 'losses_epochs': np.array(train_epochs, dtype=np.int32), 'learning_rates': np.array(learning_rates), 'firing_rates': dataRates }
+        lassoD = { 'A_lasso': mdl.A.detach().cpu().numpy(), 'B_lasso': mdl.B.detach().cpu().numpy(), 'losses_total': np.array(losses_total), 'losses_wo_L1': np.array(losses_wo_L1), 'losses_epochs': np.array(train_epochs, dtype=np.int32), 'learning_rates': np.array(learning_rates), 'single_rates': dataRates }
         lassoMD = { 'lassoFit_output_name': fit_core, 'lassoFit_input_name': args.dataName, 'batch_size': args.batch_size, 'num_samples_used': n_pairs, 'n_epochs': args.n_epochs, 'num_train_samples': n_pairs, 'learning_rate': args.lr, 'L1_alpha': args.L1_alpha, 'step_size': step_size, 'training_time_sec': total_time, 'num_neurons': M }
         spikeMD['fit_type']='lasso'       
         spikeMD['fit_lasso']=lassoMD
@@ -135,7 +135,9 @@ def main():
         write_data_npz(lassoD, fitFF, metaD=spikeMD)
 
     if rank==0:
-        print('\n  ./eval_fitLasso.py --dataPath $dataPath  --dataName %s   -p  a   --ampl_thres -0.10  0.08 ' % (fit_core))
+        if spikeMD=='simDale':         flags=' -p  a   --ampl_thres -0.10  0.08 '
+        else:         flags=' -p  f  e  b  '
+        print('\n  ./eval_fitLasso.py --dataPath $dataPath  --dataName %s  %s  ' % (fit_core,flags))
         print('\n  ./fit_regressPoisson.py  --dataName %s  ' % (fit_core))
         print('    --dataPath '+args.dataPath)
     

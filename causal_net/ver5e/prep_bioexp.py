@@ -7,18 +7,13 @@ __email__ = "janstar1122@gmail.com"
 preprocess experimental data from Roy/Mandar
 
 Use case:
-rawPath=/global/cfs/cdirs/m2043/causal_inference/DIV13
-dataPath=/pscratch/sd/b/balewski/2025_causalNet_vault2/
-dataPath=/pscratch/sd/b/balewski/2025_causalNet_tmp/
-
-./prep_bioexp.py    --dataPath $dataPath  expPath=$expPath  --sessionName  HET_80k_1
 
 sessionName  should encompas all below as short string
 
-Canine_organoids_PVS – Type of the Culture
-250619 – recording date 
-M08020 – chip name
-000093 – run number
+B6J - cell line name
+250619 - recording date 
+M08020 - chip id
+000093 - run number
 Well000 -- well number
 
 '''
@@ -27,7 +22,7 @@ import numpy as np
 import pickle
 from pprint import pprint
 from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
-
+from readExp_npy  import read_spike_npy
 
 import argparse
 #...!...!..................
@@ -36,13 +31,15 @@ def commandline_parser():
     parser.add_argument("-v","--verb",type=int, help="increase debug verbosity", default=1)
     parser.add_argument("--expPath",required=True,help="raw experimnetal data on CFS")
     
-    parser.add_argument("--sessionName",  default='HET_80k_1',help='raw data session name')
+    parser.add_argument("--sessionName",  default='celllinename/dateofrecording/chipID/Assaytype/runnumber/wellnumber',help='raw data session name')
     parser.add_argument("--dataPath",default='/pscratch/sd/b/balewski/2025_causalNet_tmp/',help="head dir for any further data processing")
-    parser.add_argument("--outName",  default=None,help='(optional) output file name - Is it needed?')
+    parser.add_argument("--shortName",  default=None,help='(optional) output file name - Is it needed?')
 
     # .... activity speciffic speciffic, 
-    parser.add_argument('--time_rebin', default=100, type=int, help='rebin of raw time axis')
-    parser.add_argument('--freqRange', default=[0.1,30], type=float, nargs=2,help='rebin of raw time axis')
+    #parser.add_argument('--time_rebin', default=100, type=int, help='rebin of raw time axis')
+    parser.add_argument('--samp_freq', default=100, type=int, help='sets binning of time axis')
+
+    parser.add_argument('--freqRange', default=[1.,50], type=float, nargs=2,help='rebin of raw time axis')
     
     args = parser.parse_args()
     
@@ -56,44 +53,44 @@ def buildBioMeta(args):
     pd={}  # payload
     pd['raw_bioexp_path']=args.expPath
     pd['session_name']=args.sessionName
-    pd['culture_type']='my culture 77'
-    pd['recording_date']='19630417'
-    pd['chip_name']='M12345'
-    pd['run_number']='010203'
-    pd['well_no']='Well1234'
+    txtL=args.sessionName.split('/')
+    #print('tt',txtL); aa
+    pd['cell_line_name']=txtL[0]
+    pd['recording_date']=txtL[1]
+    pd['chip_ID']=txtL[2]
+    pd['run_num']=txtL[4]
+    pd['well_num']=txtL[5]
 
     sel={'freq_range':args.freqRange}
     md={ 'bioexp':pd,'selector':sel}
     myHN=hashlib.md5(os.urandom(32)).hexdigest()[:6]
     md['hash']=myHN
-    if args.outName==None:
-        md['short_name']='%s-%s'%(args.sessionName,md['hash'])
+    if args.shortName==None:
+        md['short_name']='%s-%s'%(pd['recording_date'],md['hash'])
     else:
-        md['short_name']=args.outName
+        md['short_name']=args.shortName
 
     if args.verb>1:  print('\nBMD:');pprint(md)
     return md
 
 
-#...!...!....................
-def read_spike_dict(md,args):
+def read_spike_npy(md,args):
     pmd=md['bioexp']
-    inpF=os.path.join(args.expPath,args.sessionName,'spike_dict.pkl')
+    inpF=os.path.join(args.expPath,args.sessionName,'spike_times.npy')
     print('inpF:',inpF)
     assert os.path.exists(inpF)
-    # Load the dictionary from the .pkl file
-    with open(inpF, "rb") as f:
-        spike_dict = pickle.load(f)
+    # Load the dictionary from the .npy file
+    spike_dict = np.load(inpF, allow_pickle=True).item()
 
-    raw_sampling_freq=10000  # Hz, number from Roy
-    assert raw_sampling_freq%args.time_rebin==0 
-    pmd['sampling_freq'] =raw_sampling_freq/args.time_rebin   
+    #print('spike_dict',spike_dict);ok
+    print('spike_dict',sorted(spike_dict))
+    pmd['sampling_freq'] =args.samp_freq
     
     # neuron ID  MEA chip
     meaIdL=np.array(sorted(spike_dict))  # here order of feature_id is settled
     maxFeat=len(meaIdL)
     
-    if args.verb>1: print('RSD: meaID list:',meaIdL)
+    if args.verb>1: print('RSN: meaID list:',meaIdL)
     pmd['num_feature']=len(meaIdL)
      
     spikeT={}  # spike times
@@ -102,7 +99,8 @@ def read_spike_dict(md,args):
 
     j=0
     for k in meaIdL:
-        rec=np.array(spike_dict[k])/args.time_rebin        
+        rec=np.array(spike_dict[k])*args.samp_freq
+        #print(rec[:100],len(rec)) 
         spikeT[k]=rec.astype(int) # time-bin may repeat 
         spikeCntL[j]=len(rec)
         j+=1
@@ -110,42 +108,46 @@ def read_spike_dict(md,args):
              continue        
         mxTb=np.max(rec)
         if maxTbin< mxTb: maxTbin=mxTb
-        
+        #exit(0)    
     pmd['num_time_bin']=int(maxTbin)+1
     pmd['max_time']=pmd['num_time_bin']/pmd['sampling_freq']
     chanFreq=spikeCntL/  pmd['max_time']
-    rawD={'spikeT':spikeT,'chanFreq':chanFreq,'chanID':meaIdL}
+    rawD={'spikeT':spikeT,'chanFreq':chanFreq,'MEA_idx':meaIdL}
     return  rawD
+
 
 #...!...!....................
 def unroll_bioexp(rawD,md): 
     pmd=md['bioexp']
     sel=md['selector']
     frLo, frHi = sel['freq_range']
-    # ensure proper ordering even if provided reversed
-    if frLo > frHi:
-        frLo, frHi = frHi, frLo
-    chanFreq = np.asarray(rawD['chanFreq'], dtype=float)
-
-    # vectorized boolean mask for channels within (frLo, frHi) range
-    chanMask = (chanFreq > frLo) & (chanFreq < frHi)
     print('frLo, frHi',frLo, frHi)
-    print('chanMask all=%d , passed=%d'%(chanMask.shape[0],np.sum(chanMask)))
+    assert frLo < frHi
+    chanFreq = np.asarray(rawD['chanFreq'], dtype=float)    
+    # vectorized boolean mask for channels within (frLo, frHi) range
+    freqMask = (chanFreq > frLo) & (chanFreq < frHi)
+    print('freqMask all=%d , passed=%d'%(freqMask.shape[0],np.sum(freqMask)))
    
-    if args.verb>1:
-        print('chanFreq',chanFreq[:10])
-        print('chanMask',chanMask[:10])
-        print('chanFreq',chanFreq[-10:])
-        print('chanMask',chanMask[-10:])
+    # --- drop channles out of freq range
+    chanFreq=rawD['chanFreq'][freqMask]
+    MEA_idx=rawD['MEA_idx'][freqMask]
+
+   # .... REMAP MATRICES TO FREQUENCY-SORTED ORDER (PRIMARY INDEX)
+    neur_freqIdx = np.argsort(chanFreq)[::-1]  # indices that sort chanFreq by value
+    neur_revFreqIdx = np.empty(len(neur_freqIdx), dtype=int)  # natural_index → freq_sorted_position
+    neur_revFreqIdx[neur_freqIdx] = np.arange(len(neur_freqIdx))
     
+    #--- reorder channles by frequency
+    chanFreq=chanFreq[neur_freqIdx]
+    MEA_idx=MEA_idx[neur_freqIdx]
+    print('chanFreq',chanFreq[:5],'...',chanFreq[-5:],'Hz')
+
     # create spike matrix: rows=time bins, cols=accepted channels
     ntime=pmd['num_time_bin']
-    chanID=rawD['chanID']
-    usedChanID=chanID[chanMask]
-    nchan=usedChanID.shape[0]
+    nchan=MEA_idx.shape[0]
     spikes2D=np.zeros((ntime,nchan),dtype=np.int32)
     spikeT=rawD['spikeT']
-    for ic, ch in enumerate(usedChanID):
+    for ic, ch in enumerate(MEA_idx):
         tV=spikeT[ch]
         if len(tV)==0:  continue
         # tV holds time-bin indices where this channel fired one or more spikes
@@ -153,7 +155,7 @@ def unroll_bioexp(rawD,md):
         # minlength=ntime guarantees the vector spans the full recording duration
         cnt=np.bincount(tV, minlength=ntime)
         spikes2D[:,ic]=cnt.astype(np.int32)
-    print('spikes2D shape',spikes2D.shape,' usedChanID',usedChanID.shape)
+    print('spikes2D shape',spikes2D.shape)
 
     # keep handy in meta for downstream
     sel['num_chan']=nchan
@@ -161,14 +163,19 @@ def unroll_bioexp(rawD,md):
 
     Y_uchar = np.clip(spikes2D, 0, 255).astype(np.uint8)
     spikeD={'spikes':Y_uchar,
-          'single_rates':chanFreq[chanMask]
+          'single_rates':chanFreq
             }
-    bioD={
-        'used_chan_id':usedChanID
-    }
+
+    bioD={ }
+    bioD['neur_freqIdx']=neur_freqIdx
+    bioD['neur_revFreqIdx']=neur_revFreqIdx
+    bioD['MEA_idx']=MEA_idx
+
+    
+   
 
     #.... extract spikeMD for fitter
-    spikeMD={'time_step_sec': 1./pmd['sampling_freq'], 'short_name':md['short_name'], 'type':'bioExp'}
+    spikeMD={'time_step_sec': 1./pmd['sampling_freq'], 'short_name':md['short_name'], 'data_type':'bioExp'}
     return bioD,spikeD,spikeMD
     
 #=================================
@@ -183,26 +190,30 @@ if __name__ == "__main__":
     bioMD=buildBioMeta(args)
     
     # read raw data
-    rawD=read_spike_dict(bioMD,args)
+    #rawD=read_spike_dict(bioMD,args)
+    rawD=read_spike_npy(bioMD,args)
 
     #.... filter & unroll data
     bioD,spikeD,spikeMD=unroll_bioexp(rawD,bioMD)
-
-    print('\n bioD:',sorted(bioD))
-    pprint(bioMD)
-    print('\nspikeD:',sorted(spikeD))
-    pprint(spikeMD)
+    
 
     #...... WRITE   OUTPUT .........
     outFt = os.path.join(args.dataPath, bioMD['short_name'] + '.bioexp.npz')
     write_data_npz(bioD, outFt, metaD=bioMD)
-
+    if args.verb>2:
+        print('\n bioD:',sorted(bioD))
+        pprint(bioMD)
+  
     outFs = outFt.replace('.bioexp.','.spikes.')
     write_data_npz(spikeD, outFs, metaD=spikeMD)
+    if args.verb>2:  
+        print('\nspikeD:',sorted(spikeD))
+        pprint(spikeMD)
+
 
     print("\nNext step command:")
-    print("  ./fit_lassoPoisson.py  --dataPath $dataPath  --dataName %s  --n_epochs  50 " % bioMD['short_name'] )
     print('   ./view_bioexp.py  --dataPath $dataPath  --dataName   %s  -p  a b  '%(bioMD['short_name'] ))
+    print("  ./fit_lassoPoisson.py  --dataPath $dataPath  --dataName %s  --n_epochs  50 " % bioMD['short_name'] )
     print('    --dataPath '+args.dataPath)
    
 

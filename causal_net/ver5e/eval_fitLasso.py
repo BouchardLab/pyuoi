@@ -41,7 +41,7 @@ def main():
     fitFF = os.path.join(args.dataPath, f"{args.dataName}.lassoFit.npz")
     fitD, fitMD = read_data_npz(fitFF)
       
-    if 1:  # patch old data
+    if 0:  # patch old data
         fitMD['data_type']='simDale'
         #fitMD['fit_type']='lasso'
     #pprint(fitMD)
@@ -51,23 +51,21 @@ def main():
 
     maskD,maskMD=select_edges_from_fitLasso(fitD,args.ampl_thres)
     maskMD['fit_lasso']=fitMD['fit_lasso']
-    
-    if fitMD['data_type']=='simDale':
-        truthF = fitMD['fit_lasso']['lassoFit_input_name']    
-        truthFF = os.path.join(args.dataPath, f"{truthF}.simTruth.npz")
-        trueD,trueMD = read_data_npz(truthFF)
 
-        # Load spike data for frequency sorting
-        spikesFF = os.path.join(args.dataPath, f"{truthF}.spikes.npz")
-        spikeD, spikeMD = read_data_npz(spikesFF)
-        
+    # Load spike data for frequency sorting
+    spikeF = fitMD['fit_lasso']['lassoFit_input_name']    
+    spikesFF = os.path.join(args.dataPath, f"{spikeF}.spikes.npz")
+    spikeD, spikeMD = read_data_npz(spikesFF)
+
+    if fitMD['data_type']=='simDale':
+        #truthF = fitMD['fit_lasso']['lassoFit_input_name']    
+        truthFF = os.path.join(args.dataPath, f"{spikeF}.simTruth.npz")
+        trueD,trueMD = read_data_npz(truthFF)    
         # Combine metadata   just for plotter
         MD = {**fitMD, **trueMD, 'short_name': args.dataName} #, 'post': vars(args)}
     else:
         MD = {**fitMD,  'short_name': args.dataName} #, 'post': vars(args)}
-        # For non-simDale data, we don't have spike data, so create a minimal spikeD
-        spikeD = None
-
+    
     MD.update(maskMD)
         
     outFt = os.path.join(args.outPath, args.dataName + '.edgeMask.npz')

@@ -92,7 +92,7 @@ class Plotter(PlotterBackbone):
         figId=self.smart_append(figId)        
         nrow,ncol=k,2  # Add 1 extra row for the neuron stats plot
         fig=self.plt.figure(figId,facecolor='white', figsize=(16,10))
-
+        
         # Unpack arrays from bigD
         A_fit = fitD['A_'+fitType]
 
@@ -232,13 +232,8 @@ class Plotter(PlotterBackbone):
         title_text = f'{lasso_name},  Fit {fitType}, epochs={fmd["n_epochs"]}, sampl/k={fmd["num_samples_used"]/1000}'
         
         ax.set_title(title_text)
-       
-        
-        # Add horizontal lines to mark K block boundaries
-        add_k_block_lines(ax, num_neurons, k) 
-        
+                 
         # Add frequency annotations for the k=6 rows being analyzed
-        # Shift selection by half separation for better spread
         single_rates = spikeD['single_rates']
         idxOff= (num_neurons // k) // 2  +2
         for i in range(k):
@@ -247,10 +242,9 @@ class Plotter(PlotterBackbone):
             freq_val = single_rates[rowIdx]
             # Add horizontal line and frequency annotation
             ax.axhline(rowIdx, color='yellow', linewidth=2, alpha=0.8)
-            ax.text(ax.get_xlim()[0] + 0.02 * (ax.get_xlim()[1] - ax.get_xlim()[0]), rowIdx, f'{freq_val:.1f}Hz', 
+            ax.text(ax.get_xlim()[0] + 0.02 * (ax.get_xlim()[1] - ax.get_xlim()[0]), rowIdx, f'{freq_val:.1f} Hz', 
                    verticalalignment='center', horizontalalignment='left',
-                   bbox=dict(boxstyle='round,pad=0.2', facecolor='yellow', alpha=0.7),
-                   fontsize=8)
+                    fontsize=12)
 
         # Collect data from all k=5 rows to determine global x-range for aligned histograms
         selected_rows_data = []
@@ -614,7 +608,7 @@ def plot_1d_weight_histo_with_stats(ax, group_values, start_row, end_row, group_
 
 
 #...!...!..................
-def add_k_block_lines(ax, num_neurons, k):
+def XXadd_k_block_lines(ax, num_neurons, k):
     """Add horizontal lines to mark K block boundaries"""
     rows_per_group = num_neurons // k
     for i in range(1, k):  # Don't draw line at the very top or bottom
