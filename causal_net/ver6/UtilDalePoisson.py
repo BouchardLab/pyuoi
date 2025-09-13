@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+"""
+Utility functions for Dale Poisson simulation data processing 
+
+"""
+
+import numpy as np
+import os
+import time
+from pprint import pprint
+
+def compute_consecutive_coincidence_rate(Y,time_evol):
+    """
+    Compute the frequency of coincidences for 2 consecutive time bins for 2 different channels.
+    
+    Args:
+        Y (np.ndarray): Spike data array (time_steps x n_neurons).
+    
+    Returns:
+        float: conc_rate_all - the overall coincidence rate
+    """
+    num_steps, num_neurons = Y.shape
+    
+    # We need at least 2 time steps for consecutive bins
+    if num_steps < 2:
+        return 0.0
+    
+    # Get consecutive time slices using vectorized operations
+    Y_t = Y[:-1, :]  # Y[0:T-1, :] - current time bins
+    Y_t_plus_1 = Y[1:, :]  # Y[1:T, :] - next time bins
+    
+    # Create boolean masks for non-zero values
+    mask_t = (Y_t != 0)  # Shape: (T-1, N)
+    mask_t_plus_1 = (Y_t_plus_1 != 0)  # Shape: (T-1, N)
+    
+    # Use broadcasting to compute all channel pairs at once
+    # mask_t[:, :, None] has shape (T-1, N, 1)
+    # mask_t_plus_1[:, None, :] has shape (T-1, 1, N)
+    # Broadcasting gives shape (T-1, N, N) for all pairs
+    coincidences = mask_t[:, :, None] & mask_t_plus_1[:, None, :]
+    
+    # Remove diagonal (same channel pairs) using boolean indexing
+    diagonal_mask = np.eye(num_neurons, dtype=bool)
+    coincidences[:, diagonal_mask] = False
+    
+    # Count total coincidences across all time steps
+    coincidence_count = np.sum(coincidences)
+    
+    conc_rate = coincidence_count / time_evol/num_neurons
+    return conc_rate  # Hz, per neuron
+
+def estimate_rates(Y, dt, num_excite, max_samples, mxNn=5):
+    """
+    Evaluates spike statistics and estimates firing/coincidence rates.
+
+    Args:
+        Y (np.ndarray): Spike data array (time_steps x n_neurons).
+        dt (float): Time bin size in seconds.
+        num_excite (int): Number of excitatory neurons.
+        max_samples_for_rates (int): The maximum number of time samples to use for calculation.
+        mxNn (int, optional): Max number of neurons to show in detailed stats. Defaults to 5.
+
+    Returns:
+        tuple: A tuple containing two dictionaries:
+            - stats_dict (dict): Contains detailed spike statistics.
+            - rates_dict (dict): Contains firing rates and coincidence rates.
+    """
+    # 1. Clip data to max_samples_for_rates
+    print("\n=== Estimating Rates & Stats ===")
+    if Y.shape[0] > max_samples:
+        print("Using %d samples (out of %d) for rate computation" % (max_samples, Y.shape[0]))
+        Y = Y[:max_samples]
+
+    # Part 1: from eval_spikes_stats
+    num_steps_sim, Nn_sim = Y.shape
+    num_inhib = Nn_sim - num_excite
+    time_evol = num_steps_sim * dt
+    print('steps num_steps=%d, time_evol=%.1f sec, Nn=%d (%d Excit, %d Inhib)' % (num_steps_sim, time_evol, Nn_sim, num_excite, num_inhib))
+
+    spike_counts = np.sum(Y, axis=0)
+    spike_rates = spike_counts / time_evol
+    mean_counts_per_bin = np.mean(Y, axis=0)
+    spike_variance = np.var(Y, axis=0)
+    fano_factor = np.divide(spike_variance, mean_counts_per_bin, out=np.zeros_like(spike_variance), where=mean_counts_per_bin != 0)
+    
+    # Compute consecutive coincidence rate
+    start_time = time.time()
+    conc_rate_per_neuron = compute_consecutive_coincidence_rate(Y,time_evol)
+    elapsed_time = time.time() - start_time
+    print('Coincidence rate %.2g Hz, Y.shape=%s elaT %.3f sec' % (conc_rate_per_neuron, Y.shape, elapsed_time))
+
+    stats_dict = {
+        'num_steps': num_steps_sim,
+        'time_evol_sec': time_evol,
+        'time_step_sec': dt,
+        'num_neurons': Nn_sim,
+        'num_excitatory': num_excite,
+        'num_inhibitory': num_inhib,
+        'avg_spike_rate_all': float(np.mean(spike_rates)),
+        'std_spike_rate_all': float(np.std(spike_rates)),
+        'avg_fano_factor_all': float(np.mean(fano_factor)),
+        'std_fano_factor_all': float(np.std(fano_factor)),
+        'avg_spike_rate_excit': float(np.mean(spike_rates[:num_excite])),
+        'std_spike_rate_excit': float(np.std(spike_rates[:num_excite])),
+        'avg_fano_factor_excit': float(np.mean(fano_factor[:num_excite])),
+        'std_fano_factor_excit': float(np.std(fano_factor[:num_excite])),
+        'conc_rate_per_neuron': float(conc_rate_per_neuron),
+    }
+    
+    
+    stats_dict.update({
+            'avg_spike_rate_inhib': np.mean(spike_rates[num_excite:]),
+            'std_spike_rate_inhib': np.std(spike_rates[num_excite:]),
+            'avg_fano_factor_inhib': np.mean(fano_factor[num_excite:]),
+            'std_fano_factor_inhib': np.std(fano_factor[num_excite:])
+        })
+
+    # Printing part from eval_spikes_stats
+    mxE = min(mxNn, num_excite)
+    mxI = min(mxNn, num_inhib)
+
+    print('\n--- Stats for first %d Excitatory Neurons ---' % mxE)
+    np.set_printoptions(precision=2)
+    print('Total Spike Counts:                   %s' % spike_counts[:mxE])
+    print('Mean Firing Rate (Hz):                %s' % spike_rates[:mxE])
+    print('Mean Spike Count per bin (dt=%.3fs): %s' % (dt, mean_counts_per_bin[:mxE]))
+    print('Spike Count Variance per bin:         %s' % spike_variance[:mxE])
+    print('Fano Factor (Var/Mean):               %s' % fano_factor[:mxE])
+
+   
+    print('\n--- Stats for first %d Inhibitory Neurons ---' % mxI)
+    np.set_printoptions(precision=2)
+    inhib_slice = slice(num_excite, num_excite + mxI)
+    print('Total Spike Counts:                   %s' % spike_counts[inhib_slice])
+    print('Mean Firing Rate (Hz):                %s' % spike_rates[inhib_slice])
+    print('Mean Spike Count per bin (dt=%.3fs): %s' % (dt, mean_counts_per_bin[inhib_slice]))
+    print('Spike Count Variance per bin:         %s' % spike_variance[inhib_slice])
+    print('Fano Factor (Var/Mean):               %s' % fano_factor[inhib_slice])
+
+    print('\n--- Population Summary Statistics ---')
+    avg_rate_all = np.mean(spike_rates)
+    std_rate_all = np.std(spike_rates)
+    avg_fano_all = np.mean(fano_factor)
+    std_fano_all = np.std(fano_factor)
+    print('All   (%d neurons): Avg Rate=%.2f±%.2f Hz, Avg Fano=%.2f±%.2f' % (Nn_sim, avg_rate_all, std_rate_all, avg_fano_all, std_fano_all))
+
+    avg_rate_e = np.mean(spike_rates[:num_excite])
+    std_rate_e = np.std(spike_rates[:num_excite])
+    avg_fano_e = np.mean(fano_factor[:num_excite])
+    std_fano_e = np.std(fano_factor[:num_excite])
+    print('Excit (%d neurons): Avg Rate=%.2f±%.2f Hz, Avg Fano=%.2f±%.2f' % (num_excite, avg_rate_e, std_rate_e, avg_fano_e, std_fano_e))
+
+    if num_inhib > 0:
+        avg_rate_i = np.mean(spike_rates[num_excite:])
+        std_rate_i = np.std(spike_rates[num_excite:])
+        avg_fano_i = np.mean(fano_factor[num_excite:])
+        std_fano_i = np.std(fano_factor[num_excite:])
+        print('Inhib (%d neurons): Avg Rate=%.2f±%.2f Hz, Avg Fano=%.2f±%.2f' % (num_inhib, avg_rate_i, std_rate_i, avg_fano_i, std_fano_i))
+    print('Coincidence rate per neuron %.2g Hz\n' % (conc_rate_per_neuron))         
+
+    # Part 2: from estimate_rates_with_errors (computes rates, no errors)
+    n_time_steps, n_neurons = Y.shape
+    total_time = n_time_steps * dt
+
+    
+    # Compute index of neurons sorted by frequency (from highest to lowest)
+    neur_freq_index = np.argsort(spike_rates)[::-1]
+
+    rates_dict = {
+        'single_rates': spike_rates,
+        'neur_freqIdx':neur_freq_index
+    }
+
+    return stats_dict, rates_dict, neur_freq_index
+
+
+def geom_edges_mask(md,exc_1d,inh_1d):
+    dale_conf=md['dale_conf']
+    Nn=dale_conf['num_neurons']
+    
+    # Create diagonal mask
+    diag_mask = np.eye(Nn, dtype=bool)
+    
+    # exc_mask: excitatory neuron rows, all columns, except diagonal
+    exc_mask = np.zeros((Nn, Nn), dtype=bool)
+    exc_mask[exc_1d, :] = True
+    exc_mask = exc_mask & (~diag_mask)  # remove diagonal
+
+    # inh_mask: inhibitory neuron rows, all columns, except diagonal
+    inh_mask = np.zeros((Nn, Nn), dtype=bool)
+    inh_mask[inh_1d, :] = True
+    inh_mask = inh_mask & (~diag_mask)  # remove diagonal
+
+    maskG={'diagA':diag_mask, 'excA':exc_mask,'inhA':inh_mask,'exc_idx':exc_1d,'inh_idx':inh_1d}
+    maskD={'geom':maskG}
+    return maskD
+
+
+def true_edges_mask(maskD, trueD):
+    A_true=trueD['A_true']
+    #print('\ntrue_edge_mask')
+    maskD['true']=maskT={}
+    maskG=maskD['geom']
+    A_abs = np.abs(A_true)
+    for ntype in ['excA','inhA']:
+        gmask=maskG[ntype]
+        tmask = gmask & (A_abs>1e-8)
+        nGeom=np.sum(gmask)
+        nTrue=np.sum(tmask)
+        maskT[ntype]=tmask
+    tmp=maskT['excA']  | maskT['inhA']
+    trueD['edge_cnt_true']=np.sum(tmp,axis=1)  # sum edges alog neuron
+    
+def select_edges_from_fitLasso( bigD, amplThres):
+    print('\nselect_eges_from_fitLasso amplThres=%s' % amplThres)
+    maskF = {}
+    maskMD={'ampl_thres':amplThres}
+    A_fit = bigD['A_lasso']
+
+    nN = A_fit.shape[0] # number of neurons
+    offdiag = ~np.eye(nN, dtype=bool)  # mask for off-diagonal elements
+
+    # Select elements where abs(A_fit) > amplThres, only off-diagonal
+    fmask = ((A_fit < amplThres[0]) | (A_fit > amplThres[1])) & offdiag
+
+    #.... neuronType is extended characterization of edges of each row of A-array
+    KT=8
+    '''  features : [ itype, nPos, nNeg,nRej, sumPos, sumNeg, avrRej, stdRej ]
+        sumNeg - is positive, it is sum of abs values
+        itype:  0: no connection, +2: nNeg==0 +1 : sumPos>sumNeg, -2: nPos==0, -1: sumNeg>sumPos
+        TMP:  avrRej, stdRej are not computed 
+    '''
+    neurType=np.zeros((nN,KT))
+    for i in range(nN):
+        selM = fmask[i, :]
+        if np.any(selM):  # some non-diagonal edges
+            Asel=A_fit[i, selM]
+            #  Compute the number of positive and negative elements
+            nPos = (Asel > 0).sum()
+            nNeg = (Asel < 0).sum()
+            nRej=nN - nPos -nNeg
+            # Compute the sum of positive and negative elements
+            sumPos = Asel[Asel > 0].sum()
+            sumNeg = -Asel[Asel < 0].sum()
+            # classify neuron as excitatory/inhibitory or inbetween
+            if nNeg==0 and nPos>0: itype=2
+            elif nNeg>0 and nPos==0: itype=-2
+            else:
+                delSum=sumPos -sumNeg            
+                if delSum>0 : itype=1
+                else: itype=-1
+            avrRej=0; stdRej=0 # tmp
+            neurType[i]=[itype, nPos, nNeg,nRej, sumPos, sumNeg, avrRej, stdRej ]
+
+    #1print('neurType[::10]:\n',neurType[::10])
+
+    #... collect masks ....
+    maskF['exist'] = fmask
+
+    # Initialize 1D masks classyfing neurons using majority votting
+    exc_1d = np.zeros(nN, dtype=bool)
+    inh_1d = np.zeros(nN, dtype=bool)
+    iso_1d = np.zeros(nN, dtype=bool)
+    for i in range(nN):
+        selM = fmask[i, :]
+        if np.any(selM):
+            avg = np.mean(A_fit[i, selM])
+            if avg > 0:
+                exc_1d[i] = True
+            else:
+                inh_1d[i] = True
+        else:
+            iso_1d[i] = True
+   
+    # Convert 1D masks to 2D masks by broadcasting over columns
+    inh_mask = (inh_1d[:, None]) & (A_fit < amplThres[0]) & offdiag
+    exc_mask = (exc_1d[:, None]) & (A_fit > amplThres[1]) & offdiag
+
+    maskF['excA'] = exc_mask
+    maskF['inhA'] = inh_mask
+
+    maskF['exc_idx'] = exc_1d
+    maskF['inh_idx'] = inh_1d
+    maskF['iso_idx'] = iso_1d
+
+    #  prep seed for the 2nd fitter
+    maskD={}  
+    maskF['pass'] = fmask | ~offdiag
+    maskD['A_init'] = np.where(maskF['pass'], A_fit, 0)
+    maskD['B_init']=bigD['B_lasso']
+
+    nGeom = np.sum(offdiag)
+    nFit = np.sum( exc_mask | inh_mask  )
+    print('fit mask', nGeom, nFit, 'amplThres=%s' % amplThres)
+    
+    for xx in maskF:
+            maskD['mask.lasso.'+xx]=maskF[xx]
+    
+    return maskD,maskMD
+ 
+
