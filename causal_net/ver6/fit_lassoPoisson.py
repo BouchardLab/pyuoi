@@ -36,16 +36,17 @@ def main():
     parser.add_argument("--dataPath", type=str, default="/pscratch/sd/b/balewski/2025_causalNet_tmp/")
     parser.add_argument("--num_samples", type=int, default=None)
     parser.add_argument("--n_epochs", type=int, default=7)
-    parser.add_argument("--batch_size", type=int, default=2048*8)
+    parser.add_argument("--batch_size", type=int, default=2048)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--L1_alpha", type=float, default=1e-3)
     parser.add_argument("--fitName", type=str, default=None)
-    parser.add_argument("--desync_time", type=int, default=0, help="Time shift for decorrelation (0=disabled, >0=shift consecutive neurons by this many time bins)")
+    parser.add_argument("--desync_time_bin", type=int, default=0, help="Time shift for decorrelation (0=disabled, >0=shift consecutive neurons by this many time bins)")
     parser.add_argument("--Tmask", action='store_true', help="Use time mask to remove time bins from data")
+    parser.add_argument("--shuffleTime", action='store_true', help="If true completely shuffle time axis for input data, independently for all channels")
     parser.add_argument("--dropDataFrac", type=float, default=0.0, help="Fraction of training samples to randomly drop per rank (0.0=use all data, 0.3=drop 30%%)")
 
     args = parser.parse_args()
-
+    
     # DDP init
     is_dist = (int(os.environ.get('WORLD_SIZE', '1')) > 1) or ('LOCAL_RANK' in os.environ) or ('RANK' in os.environ)
     if is_dist:
@@ -151,7 +152,7 @@ def main():
         mdl = model.module if hasattr(model,'module') else model
         lassoD = { 'A_lasso': mdl.A.detach().cpu().numpy(), 'B_lasso': mdl.B.detach().cpu().numpy(), 'losses_total': np.array(losses_total), 'losses_wo_L1': np.array(losses_wo_L1), 'losses_epochs': np.array(train_epochs, dtype=np.int32), 'learning_rates': np.array(learning_rates), 'single_rates': dataRates }
         lassoMD = { 'lassoFit_output_name': fit_core, 'lassoFit_input_name': args.dataName, 'batch_size': args.batch_size, 'num_samples_used': n_pairs, 'n_epochs': args.n_epochs, 'num_train_samples': n_pairs, 'learning_rate': args.lr, 'L1_alpha': args.L1_alpha, 'step_size': step_size, 'training_time_sec': total_time, 'num_neurons': M, 'dropDataFrac': args.dropDataFrac }
-        spikeMD['fit_type']='lasso'       
+        spikeMD['fit_type']='lasso'        
         spikeMD['fit_lasso']=lassoMD
           
     if rank==0:
@@ -159,7 +160,7 @@ def main():
         write_data_npz(lassoD, fitFF, metaD=spikeMD)
 
     if rank==0:
-        if spikeMD=='simDale':         flags=' -p  a   --ampl_thres -0.10  0.08 '
+        if spikeMD['data_type']=='simDale':         flags=' -p  a    '
         else:         flags=' -p  f  e  b  '
         print('\n  ./eval_fitLasso.py --dataPath $dataPath  --dataName %s  %s  ' % (fit_core,flags))
         print('\n  ./fit_regressPoisson.py  --dataName %s  ' % (fit_core))

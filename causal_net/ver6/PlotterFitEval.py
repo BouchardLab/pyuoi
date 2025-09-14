@@ -78,6 +78,7 @@ class Plotter(PlotterBackbone):
         tit="Fit %s,  amplTh:%s"%(fitType,amplThres)
         ax.set_title(tit)
         ax.grid(True)
+        ax.set_yscale('log')
         if not isExp:  # Only set amplitude threshold lines if not experimental data
             ax.axvline(amplThres[0], linestyle='--', color='m', linewidth=1)
             ax.axvline(amplThres[1], linestyle='--', color='m', linewidth=1)
@@ -206,6 +207,7 @@ class Plotter(PlotterBackbone):
         ax.grid()
         method_name = md.get('edge_selection_method', 'unknown')
         ax.set(xlabel='non-diag weights ',ylabel='count',title=f'All weights, Fit {fitType}, Method: {method_name}')
+        ax.set_yscale('log')
 
         
         # Left column: 2D histogram of A-matrix (mutiple rows)
@@ -444,7 +446,7 @@ def plot_trainingCurves(ax,fitD,md,title='aa3'):
     # Color the y-axis labels to match the lines
     ax.tick_params(axis='y', labelcolor='blue')
     ax.grid(True, alpha=0.3)
-  
+      
 def plot_A2D(fig,ax,A,mask,title='aa',byFreq=True,trueD=None):
     Am=A.copy()
     Am[~mask]=0

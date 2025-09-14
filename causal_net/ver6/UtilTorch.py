@@ -20,20 +20,32 @@ def preprocess_data(Y, args, time_mask=None):
     T, M = Y.shape
     
     # Apply decorrelation if requested
-    if hasattr(args, 'desync_time') and args.desync_time > 0:
+    if hasattr(args, 'desync_time_bin') and args.desync_time_bin > 0:
         print("\n=== Applying Time Decorrelation ===")
-        print(f"Shifting consecutive neurons by {args.desync_time} time bins")
-
+  
         Y_decorr = Y.copy()
         for neuron_idx in range(M):
-            shift_amount = neuron_idx * args.desync_time
+            shift_amount = neuron_idx * args.desync_time_bin
             if shift_amount > 0:
                 # Circular shift: move data to the right, wrap around
                 Y_decorr[:, neuron_idx] = np.roll(Y[:, neuron_idx], shift_amount)
 
-        print(f"Applied time shifts from 0 to {(M-1) * args.desync_time} bins")
+        print(f"Applied time shifts from 0 to {(M-1) * args.desync_time_bin} bins")
         print(f"This destroys temporal correlations between neurons")
         Y = Y_decorr
+    
+    # Apply time shuffling if requested
+    if hasattr(args, 'shuffleTime') and args.shuffleTime:
+        print("\n=== Applying Time Shuffling ===")
+        Y_shuffled = Y.copy()
+        for neuron_idx in range(M):
+            # Create shuffled time indices for this neuron
+            time_indices = np.arange(T)
+            np.random.shuffle(time_indices)
+            Y_shuffled[:, neuron_idx] = Y[time_indices, neuron_idx]
+        print(f"Applied independent time shuffling to all {M} channels")
+        print(f"This completely destroys temporal structure in each channel")
+        Y = Y_shuffled
     
     # Handle time masking to preserve causal structure
     if time_mask is not None:

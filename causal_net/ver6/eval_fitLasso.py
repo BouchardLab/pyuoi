@@ -35,10 +35,8 @@ def main():
     
     if args.outPath is None:   args.outPath = args.dataPath
     args.showPlots=''.join(args.showPlots)
-    print(vars(args))   if 'f' in args.showPlots:
-        plot.freqSortA_histos(fitD, MD, spikeD, figId=2)
-
-   
+    print(vars(args))
+    
     # Load fit results
     fitFF = os.path.join(args.dataPath, f"{args.dataName}.lassoFit.npz")
     fitD, fitMD = read_data_npz(fitFF)
