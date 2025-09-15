@@ -10,6 +10,8 @@ import matplotlib.gridspec as gridspec
 import matplotlib.colors as colors
 from matplotlib.colors import TwoSlopeNorm
 from scipy.stats import gennorm
+from matplotlib.colors import LogNorm
+
 
 #............................
 #............................
@@ -19,163 +21,152 @@ class Plotter(PlotterBackbone):
         PlotterBackbone.__init__(self,args)         
 
 #...!...!..................
-    def correl_after_thresh(self, trueD,fitD, maskD,md,byFreq=False, figId=1):  
+    def summary_fitLasso(self,fitD, md,byFreq=False, figId=1):  
+        #pprint(md)
+        fmd=md['fit_lasso']
+        esmd=md['edge_selector']
+        Nn=fmd['num_neurons']
+
+        # Create diagonal mask
+        diagM = np.eye(Nn, dtype=bool)
+        #!off_diagM = ~diagM
         
-        amplThres=md['ampl_thres']
         fitType=md['fit_type']
+        eselType=esmd['selector_type']
         isExp = md.get('data_type') == 'bioExp'  # Automatically detect experimental data
+        # Unpack arrays from bigD
+        A_fit = fitD['A_'+fitType]
+        B = fitD['B_'+fitType]
+        Freq=fitD['single_rates']
+        
         figId=self.smart_append(figId)        
         nrow,ncol=2,4
-        fig=self.plt.figure(figId,facecolor='white', figsize=(15,6))
-
-        # Unpack arrays from bigD
-        A_true = trueD['A_true']
-        B_true = trueD['B_true']
-        A_fit = fitD['A_'+fitType]
-        B_fit = fitD['B_'+fitType]
+        fig=self.plt.figure(figId,facecolor='white', figsize=(19,6))
         
-        for j,ntype in enumerate(['inh','exc']):
-            gmask=trueD['mask.geom.%sA'%ntype]
-            tmask=trueD['mask.true.%sA'%ntype]
-            fmask=maskD['mask.lasso.%sA'%(ntype)]
-                        
-            ax = self.plt.subplot(nrow,ncol,1+j)
-            title = 'fit (%s)' % ntype
-            plot_A2D(fig,ax,A_fit,fmask,title=title,byFreq=byFreq,trueD=trueD)
-
-            ax = self.plt.subplot(nrow,ncol,1+ncol+j)
-            plot_correl_offdiag(fig,ax,A_true,A_fit,tmask,fmask)
-            if ntype=='exc':
-                ax.axhline(amplThres[1], linestyle='--', color='m', linewidth=1)
-                title = 'fit (%s)  thr>%.2f' %( ntype,amplThres[1])
-            else:
-                ax.axhline(amplThres[0], linestyle='--', color='m', linewidth=1)
-                title = 'fit (%s)  thr< %.2f' %( ntype,amplThres[0])
-            ax.set_title(title)
-
-        # ... diagonal
-        gexc_1d= trueD['mask.geom.exc_idx']
-        mask_diag= trueD['mask.geom.diagA']
-        title = 'fit (diagonal)'
-        ax = self.plt.subplot(nrow,ncol,3+ncol) 
-        plot_correl_diag(fig,ax,A_true[mask_diag],A_fit[mask_diag],gexc_1d,title=title)
-       
-        # ...  B-term
-        title = 'fit (B-term)'
-        ax = self.plt.subplot(nrow,ncol,4+ncol)        
-        plot_correl_diag(fig,ax,B_true,B_fit,gexc_1d,title=title)
-            
         #...... Training curves
-        ax = self.plt.subplot(nrow,ncol,3)
+        ax = self.plt.subplot(nrow,ncol,1)
         plot_trainingCurves(ax,fitD,md)
-                            
-        #..... all values of A
-        ax = self.plt.subplot(nrow,ncol,4)
-        ax.hist(A_fit[~mask_diag], bins=100, alpha=0.7)
-        ax.axvline(0, linestyle='--', color='lime', linewidth=1)
-        ax.set_xlabel("Off-Diagonal Weights")
-        ax.set_ylabel("edge count")
-        tit="Fit %s,  amplTh:%s"%(fitType,amplThres)
-        ax.set_title(tit)
-        ax.grid(True)
+
+        #.... : histogram of rates
+        ax = self.plt.subplot(nrow,ncol,1+ncol)  
+        ax.hist(Freq, bins=20) 
+        x_vals = np.arange(Nn)
+        frLab='Firing rate (Hz)'
+        ax.set(ylabel='num neurons',xlabel=frLab,title='Single rates, %d neurons'%Nn)
+        ax.grid(True, alpha=0.4)
+        ax.set_xlim(0,)
+
+        # ... A off-diagonal
+        xLab='edge value'
+        Aedg=A_fit[~diagM]
+        i_indices, j_indices = np.where(~diagM)
+        Freq_expanded = Freq[i_indices]
+        # Filter out 0 values
+        valid_mask =np.abs(Aedg)>1e-10
+        Aedg_clean = Aedg[valid_mask]
+        Freq_expanded_clean = Freq_expanded[valid_mask]
+        # Count non-zero edges (non-NaN values)
+        n_edges = len(Aedg_clean)
+
+        ax = self.plt.subplot(nrow,ncol,2)
+        ax.hist(Aedg_clean, bins=100,color='g')
         ax.set_yscale('log')
-        if not isExp:  # Only set amplitude threshold lines if not experimental data
-            ax.axvline(amplThres[0], linestyle='--', color='m', linewidth=1)
-            ax.axvline(amplThres[1], linestyle='--', color='m', linewidth=1)
+        ax.grid(True, alpha=0.4)
+        ax.set(ylabel='edges',xlabel=xLab,title='A off-diagonal')
+        txt='edge sel: %s \n acc frac=%.2f' %(  eselType,n_edges/Nn/(Nn-1))
+        if eselType=='FDR': txt+='\n alpha=%.3f '%(esmd['alpha'])
+        ax.text(0.05, 0.7,   txt, transform=ax.transAxes, fontsize=10)
+        # Plot 2D histogram
+        ax = self.plt.subplot(nrow,ncol,2+ncol)
+        h = ax.hist2d(Aedg_clean, Freq_expanded_clean, bins=30, cmap='viridis', norm=LogNorm())
+        cbar = fig.colorbar(h[3],ax=ax)
+        ax.set(ylabel=frLab,xlabel=xLab,title='accept %d of %d edges '%(n_edges,Nn*(Nn-1)))
+        ax.grid(True, alpha=0.4)
+        
 
+        # ... A diagonal .....
+        xLab='A-diag value'
+        Adia=A_fit[diagM]
+        i_indices, j_indices = np.where(diagM)
+        Freq_expanded = Freq[i_indices]
 
-#...!...!..................
-    def slicedA_histos(self, fitD, md, spikeD, figId=1, k=5):
-        #pprint(md); aa67
+        ax = self.plt.subplot(nrow,ncol,3)
+        ax.hist(Adia, bins=30,color='salmon')
+        ax.grid(True, alpha=0.4)
+        ax.set(ylabel='neurons',xlabel=xLab,title='A diagonal')
+        # Plot 2D histogram
+        ax = self.plt.subplot(nrow,ncol,3+ncol)
+        h = ax.hist2d(Adia,Freq_expanded,  bins=30, cmap='Greys',vmax=2.1)
+        cbar = fig.colorbar(h[3],ax=ax, label='neurons')
+        ax.set(ylabel=frLab,xlabel=xLab)
+        ax.grid(True, alpha=0.4)
+
+        # ... B-term .....
+        xLab='B-term value'
+        ax = self.plt.subplot(nrow,ncol,4)
+        ax.hist(B, bins=30,color='darkviolet')
+        ax.grid(True, alpha=0.4)
+        ax.set(ylabel='neurons',xlabel=xLab,title='B-term')
+        # Plot 2D histogram
+        ax = self.plt.subplot(nrow,ncol,4+ncol)
+        h = ax.hist2d(B,Freq,  bins=30, cmap='Grays',vmax=2.1)
+        cbar = fig.colorbar(h[3],ax=ax)
+        ax.set(ylabel=frLab,xlabel=xLab)
+        ax.grid(True, alpha=0.4)
+ 
+ #...!...!..................
+    def residuals(self, evalD,md, figId=1):
+        #pprint(md)
         fitType=md['fit_type']
-
         fmd=md['fit_'+fitType]
-        amplThres=md['ampl_thres']
-        isExp = md.get('data_type') == 'bioExp'  # Automatically detect experimental data
         
         figId=self.smart_append(figId)        
-        nrow,ncol=k,2  # Add 1 extra row for the neuron stats plot
-        fig=self.plt.figure(figId,facecolor='white', figsize=(16,10))
-        
-        # Unpack arrays from bigD
-        A_fit = fitD['A_'+fitType]
+        nrow,ncol=2,4
+        fig=self.plt.figure(figId,facecolor='white', figsize=(12,6))
 
-        num_neurons = A_fit.shape[0]
-        wzoomMx=0.05        
-        # Remove diagonal elements by setting them to NaN
-        A_fit_no_diag = A_fit.copy()
-        np.fill_diagonal(A_fit_no_diag, np.nan)
-        
-        # Left column: 2D histogram of A-matrix (top 2 rows)
-        ax = self.plt.subplot2grid((nrow, ncol), (0, 0), rowspan=2)
-        ax.axvline(0, linestyle='--', color='lime', linewidth=1)
-        if not isExp:  # Only draw amplitude threshold lines if not experimental data
-            ax.axvline(amplThres[0], linestyle='--', color='m', linewidth=1)
-            ax.axvline(amplThres[1], linestyle='--', color='m', linewidth=1)
-        
-        # Create 2D histogram: x-axis is value, y-axis is row index
-        A_flat = A_fit_no_diag.flatten()
-        row_indices = np.repeat(np.arange(num_neurons), num_neurons)
-        
-        # Remove NaN values (diagonal elements)
-        valid_mask = ~np.isnan(A_flat)
-        A_flat = A_flat[valid_mask]
-        row_indices = row_indices[valid_mask]
-        
-        H, xedges, yedges, im = ax.hist2d(A_flat, row_indices, bins=[50, num_neurons], cmap='Greys', vmax=6)
-        ax.set_xlabel('non-diag weigts')
-        ax.set_ylabel('freq-sorted neuron index')
-        ax.set_title(f'Fit {fitType}, epochs={fmd["n_epochs"]}, sampl/k={fmd["num_samples_used"]/1000}')
-        fig.colorbar(im, ax=ax)
-        
-        # Add horizontal lines to mark K block boundaries
-        add_k_block_lines(ax, num_neurons, k) 
-        
-        # Second 2D histogram (zoomed) in the left column, bottom 2 rows
-        ax = self.plt.subplot2grid((nrow, ncol), (2, 0), rowspan=2)
-        ax.axvline(0, linestyle='--', color='r', linewidth=1)
-        # Filter data to narrow x-range (A_flat already has diagonal removed)
-        mask = (A_flat >= -wzoomMx) & (A_flat <= wzoomMx)
-        A_flat_narrow = A_flat[mask]
-        row_indices_narrow = row_indices[mask]
-        
-        # Use ax.hist2d() directly with log scale and narrowed range
-        H2, xedges2, yedges2, im2 = ax.hist2d(A_flat_narrow, row_indices_narrow, bins=[51, num_neurons], cmap='Purples', norm=colors.LogNorm())
-        ax.set_xlabel('non-diagonal weights')
-        ax.set_ylabel('Freq-sorted neuron index')
-        ax.set_title(f'Input: {md["short_name"]},  zoom-in')
-        ax.set_xlim(-wzoomMx,wzoomMx)
-        fig.colorbar(im2, ax=ax)
-        
-        # Add horizontal lines to mark K block boundaries
-        add_k_block_lines(ax, num_neurons, k)
-        
-        # Right column: K 1D histograms in separate rows
-        rows_per_group = num_neurons // k
-        color_list = [ 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive','red',]
-        
-        for i in range(k):
-            # Reverse the order by using (k-1-i) for positioning
-            ax = self.plt.subplot(nrow,ncol,2+(k-1-i)*ncol)
+        # Unpack arrays from bigD
+        for j,etype in enumerate(['neg','pos']):
+            ax = self.plt.subplot(nrow,ncol,1+j)
             
-            start_row = i * rows_per_group
-            end_row = (i + 1) * rows_per_group if i < k - 1 else num_neurons
-            
-            # Extract values from rows in this group (excluding diagonal)
-            group_values = A_fit_no_diag[start_row:end_row, :].flatten()
-            # Remove NaN values (diagonal elements)
-            group_values = group_values[~np.isnan(group_values)]
-            
-            # Plot 1D histogram with statistics
-            plot_1d_weight_histo_with_stats(ax, group_values, start_row, end_row, i, 
-                                            color_list[i % len(color_list)], amplThres, isExp)
-            if not isExp:  # Only draw amplitude threshold lines if not experimental data
-                ax.axvline(amplThres[0], linestyle='--', color='m', linewidth=1)
-                ax.axvline(amplThres[1], linestyle='--', color='m', linewidth=1)
-  
-        # Neuron statistics plot at bottom right
-        ax = self.plt.subplot(nrow,ncol,1+(k-1)*ncol)
-        plot_neuron_stats(ax, A_flat_narrow, row_indices_narrow, num_neurons)
+            title = 'edges: %s' % etype
+            valT,valF=plot_correl_offdiag(fig,ax,evalD[etype])
+            ax.set_title(title)
+
+            ax = self.plt.subplot(nrow,ncol,1+j+ncol)
+            plot_1D_residuals(ax, valT,valF,lab='TP off-diag '+etype,col='green')
+
+            if etype=='pos':
+                txt=md["short_name"]
+            else:
+                txt='fit: '+fitType
+            ax.text(0.05, 0.2, txt, transform=ax.transAxes, fontsize=8)
+
+        # ... diagonal
+        title = 'fit (diagonal)'
+        ax = self.plt.subplot(nrow,ncol,3)
+        V=evalD['diag']
+        ax.scatter(V[:,1], V[:,0], alpha=0.6, color='blue',marker='.',s=5)
+        ax.set_title(title)
+        add_x45_lins(ax, only45=True)
+        ax.grid(True, alpha=0.5)
+        
+        ax = self.plt.subplot(nrow,ncol,3+ncol)        
+        plot_1D_residuals(ax,V[:,1],V[:,0],lab='diag',col='blue')
+
+
+        # ...  B-term
+        title = 'fit (B-term)'
+        ax = self.plt.subplot(nrow,ncol,4)
+        dCol='tomato'
+        V=evalD['bterm']
+        ax.scatter(V[:,1], V[:,0], alpha=0.6, color=dCol,marker='.',s=5)
+        ax.set_title(title)
+        add_x45_lins(ax, only45=True)
+        ax.grid(True, alpha=0.5)
+        
+        ax = self.plt.subplot(nrow,ncol,4+ncol)        
+        plot_1D_residuals(ax,V[:,1],V[:,0],lab='diag',col=dCol)
+ 
 
 #...!...!..................
     def freqSortA_histos(self, fitD, md, spikeD, figId=1, k=6):
@@ -183,15 +174,16 @@ class Plotter(PlotterBackbone):
         fitType=md['fit_type']
 
         fmd=md['fit_'+fitType]
-        amplThres=md['ampl_thres']
         isExp = md.get('data_type') == 'bioExp'  # Automatically detect experimental data
-        
         figId=self.smart_append(figId)        
         nrow,ncol=k,2  # Add 1 extra row for the neuron stats plot
         fig=self.plt.figure(figId,facecolor='white', figsize=(16,12))
 
         # Unpack arrays from bigD
-        A_fit = fitD['A_'+fitType]
+        A_fit = fitD['A_'+fitType].copy()
+
+        # convert 0's to Nan
+        A_fit[ A_fit==0.]=np.nan
 
         num_neurons = A_fit.shape[0]
         wzoomMx=0.05        
@@ -213,9 +205,6 @@ class Plotter(PlotterBackbone):
         # Left column: 2D histogram of A-matrix (mutiple rows)
         ax = self.plt.subplot2grid((nrow, ncol), (1, 0), rowspan=5)
         ax.axvline(0, linestyle='--', color='lime', linewidth=1)
-        if not isExp:  # Only draw amplitude threshold lines if not experimental data
-            ax.axvline(amplThres[0], linestyle='--', color='m', linewidth=1)
-            ax.axvline(amplThres[1], linestyle='--', color='m', linewidth=1)
         
         # Create 2D histogram: x-axis is value, y-axis is row index
         row_indices = np.repeat(np.arange(num_neurons), num_neurons)
@@ -287,92 +276,6 @@ class Plotter(PlotterBackbone):
         
         # Minimize whitespace between 1D plots
         self.plt.subplots_adjust(hspace=0.05, wspace=0.1)
- 
-#...!...!..................
-    def residuals(self, trueD,fitD, maskD,md, figId=1):
-        #pprint(md)
-        fitType=md['fit_type']
-        fmd=md['fit_'+fitType]
-        
-        figId=self.smart_append(figId)        
-        nrow,ncol=2,4
-        fig=self.plt.figure(figId,facecolor='white', figsize=(12,6))
-
-        # Unpack arrays from bigD
-        A_true = trueD['A_true']
-        B_true = trueD['B_true']
-        A_fit = fitD['A_'+fitType]
-        B_fit = fitD['B_'+fitType]
-        
-        for j,ntype in enumerate(['inh','exc']):
-            gmask=trueD['mask.geom.%sA'%ntype]
-            tmask=trueD['mask.true.%sA'%ntype]
-            fmask=maskD['mask.lasso.%sA'%(ntype)]
-        
-            ax = self.plt.subplot(nrow,ncol,1+j)
-            title = 'fit (%s)' % ntype
-            valT,valF=plot_correl_offdiag(fig,ax,A_true,A_fit,tmask,fmask)
-            ax.set_title(title)
-
-            ax = self.plt.subplot(nrow,ncol,1+j+ncol)
-            plot_1D_residuals(ax, valT,valF,lab='TP off-diag '+ntype,col='green')
-
-            if ntype=='exc':
-                txt=md["short_name"]
-            else:
-                txt='fit: '+fitType
-            ax.text(0.05, 0.2, txt, transform=ax.transAxes, fontsize=8)
-
-        # ... diagonal
-        gexc_1d= trueD['mask.geom.exc_idx']
-        mask_diag= trueD['mask.geom.diagA']
-        title = 'fit (diagonal)'
-        ax = self.plt.subplot(nrow,ncol,3)
-        vecT=A_true[mask_diag].flatten()
-        vecF=A_fit[mask_diag].flatten()
-        plot_correl_diag(fig,ax,vecT,vecF,gexc_1d,title=title)
-        
-        ax = self.plt.subplot(nrow,ncol,3+ncol)        
-        plot_1D_residuals(ax, vecT[~gexc_1d],vecF[~gexc_1d],lab='inh diag',col='blue')
-        plot_1D_residuals(ax, vecT[gexc_1d],vecF[gexc_1d],lab='exc diag',col='tomato',first=False)
-
-        # ...  B-term
-        title = 'fit (B-term)'
-        ax = self.plt.subplot(nrow,ncol,4)
-        vecT=B_true
-        vecF=B_fit
-        plot_correl_diag(fig,ax,vecT,vecF,gexc_1d,title=title)
-        
-        ax = self.plt.subplot(nrow,ncol,4+ncol)        
-        plot_1D_residuals(ax, vecT[~gexc_1d],vecF[~gexc_1d],lab='inh B-term',col='blue')
-        plot_1D_residuals(ax, vecT[gexc_1d],vecF[gexc_1d],lab='exc B-term',col='tomato',first=False)
-
-#...!...!..................
-    def compare_eigen(self, trueD,fitD, md,figId=4):
-        fitType=md['fit_type']
-        # Unpack arrays from bigD
-        A_true = trueD['A_true']
-        B_true = trueD['B_true']
-        A_fit = fitD['A_'+fitType]
-        B_fit = fitD['B_'+fitType]
-        gexc_1d= trueD['mask.geom.exc_idx']
-         
-        figId=self.smart_append(figId)        
-        nrow,ncol=2,1
-        fig=self.plt.figure(figId,facecolor='white', figsize=(5,10))
-
-        ax = self.plt.subplot(nrow,ncol,1)
-        ax.set_title(f'{fitType}: {md["short_name"]}')
-        eigT=np.linalg.eigvals(A_true)
-        eigF=np.linalg.eigvals(A_fit)
-        plot_both_eigen(ax,eigT,eigF)
-
-        ax = self.plt.subplot(nrow,ncol,2)
-        title = 'fit (B-term)'
-        
-        vecT=B_true
-        vecF=B_fit
-        plot_correl_diag(fig,ax,vecT,vecF,gexc_1d,title=title)
         
 #...!...!..................
     def experiment_eigen(self, fitD, md,figId=5):
@@ -429,6 +332,10 @@ def plot_trainingCurves(ax,fitD,md,title='aa3'):
         ax2.plot(epochsT, lossL1, label='L1 loss', color='red', linestyle='--')
         ax2.set_ylabel('L1 loss', color='red')
         ax2.tick_params(axis='y', labelcolor='red')
+        # Move y-axis ticks and labels inside
+        ax2.tick_params(axis='y', direction='in', pad=-60, labelsize=10)
+        ax2.yaxis.set_label_position('right')
+
         # Format second y-axis ticks in scientific notation
         from matplotlib.ticker import FuncFormatter
         ax2.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.1e}'))
@@ -439,7 +346,8 @@ def plot_trainingCurves(ax,fitD,md,title='aa3'):
     else:
         ax.legend( title=titl)
             
-    title = md["short_name"]
+    title = 'Loss: '+md["short_name"]
+    
     ax.set(xlabel='Epoch', title=title)
     ax.set_ylabel('Loss', color='blue')
     
@@ -497,29 +405,30 @@ def add_x45_lins(ax, only45=False):
     ax.axvline(0, linestyle='--', color='k', linewidth=1)
     ax.axhline(0, linestyle='--', color='k', linewidth=1)
 
+
+def plot_correl_offdiag(fig,ax,tripV):
+    TP,FP,FN=tripV
+    print('ss',TP.shape)
+    ax.scatter(TP[:,3], TP[:,2], alpha=0.6, color='green',label='TP: %d'%TP.shape[0],marker='.',s=5)
+    n=FN.shape[0]
+    ax.scatter(FN[:,2], [0]*n, alpha=0.6, color='red',s=5,label='FN: %d'%FN.shape[0])
+
+    n=FP.shape[0]
+    ax.scatter([0]*n,FP[:,2],  alpha=0.6, color='blue',s=5,label='FP: %d'%FP.shape[0])
     
-def plot_correl_offdiag(fig,ax,At,Af,tmask,fmask):    
-    FP = ~tmask &  fmask  # False Positive: predicted True, actually False
-    TP =  tmask &  fmask  # True Positive: predicted True, actually True
-    TN = ~tmask & ~fmask  # True Negative: predicted False, actually False
-    FN = tmask & ~fmask  # False Negative: predicted False, actually True
-
-    ax.scatter(At[TP], Af[TP], alpha=0.6, color='green',label='TP: %d'%np.sum(TP),marker='.',s=5) #, facecolors='none')
-    ax.scatter(At[FN], Af[FN], alpha=0.6, color='red',s=5,label='FN: %d'%np.sum(FN))
-    ax.scatter(At[FP], Af[FP], alpha=0.6, color='blue',s=5,label='FP: %d'%np.sum(FP))
-
     ax.set(aspect=1. ,xlabel='true weight',ylabel='fitted')
     ax.grid(True, alpha=0.5)
 
     add_x45_lins(ax)
     if np.any(TP):  # Only plot if there are TP points
-        x_cg = np.mean(At[TP])
-        y_cg = np.mean(Af[TP])
+        x_cg = np.mean(TP[:,3])
+        y_cg = np.mean(TP[:,2])
         ax.scatter(x_cg, y_cg, marker='+', s=200, color='k', linewidths=2) #, label='TP avr')
     ax.legend()
-    return At[TP], Af[TP]
 
-def plot_correl_diag(fig,ax,Bt,Bf,exc_mask,title='aa2'):
+    return TP[:,3], TP[:,2]
+  
+def XXplot_correl_diag(fig,ax,Bt,Bf,exc_mask,title='aa2'):
     BtFl=Bt.flatten()
     BfFl=Bf.flatten()
   

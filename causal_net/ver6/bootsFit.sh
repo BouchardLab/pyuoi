@@ -21,7 +21,7 @@ fi
 
 # Default/fixed arguments
 fixArgs="  --dropDataFrac 0.5"
-NUM_BOOTSTRAPS=5
+NUM_BOOTSTRAPS=6
 
 # Validation
 if [[ ! -f "./fitLasso4GPU.sh" ]]; then

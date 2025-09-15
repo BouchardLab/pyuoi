@@ -14,8 +14,110 @@ from statsmodels.stats.multitest import fdrcorrection
 import pprint
 from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
 from PlotterFitEval import Plotter
-from UtilDalePoisson import select_edges_from_fitLasso
 
+
+
+def compare_triplets(Rec, trueD):
+    """
+    Compares two triplet arrays and returns True Positives, False Positives, and False Negatives.
+    
+    Parameters:
+    Rec : array of shape (n, 3) with [i, j, value] triplets (Reconstructed/Predicted)
+    trueD : array of shape (m, 3) with [i, j, value] triplets (Measured/Ground Truth)
+    
+    Returns:
+    TP : array of shape (k, 4) with [i, j, rec_value, meas_value] for matching indices
+    FP : array of shape (p, 3) with [i, j, value] for indices only in Rec
+    FN : array of shape (q, 3) with [i, j, value] for indices only in Meas
+    """
+    # Convert to dictionaries for efficient lookup
+    rec_dict = {(int(row[0]), int(row[1])): row[2] for row in Rec}
+    true_dict = {(int(row[0]), int(row[1])): row[2] for row in trueD}
+    
+    # Get sets of indices
+    rec_indices = set(rec_dict.keys())
+    true_indices = set(true_dict.keys())
+    
+    # Find TP, FP, FN indices
+    tp_indices = rec_indices & true_indices  # Intersection
+    fp_indices = rec_indices - true_indices  # In Rec but not in Meas
+    fn_indices = true_indices - rec_indices  # In Meas but not in Rec
+    
+    # Build output arrays
+    TP = np.array([[i, j, rec_dict[(i,j)], true_dict[(i,j)]] 
+                   for i, j in sorted(tp_indices)])
+    FP = np.array([[i, j, rec_dict[(i,j)]] 
+                   for i, j in sorted(fp_indices)])
+    FN = np.array([[i, j, true_dict[(i,j)]] 
+                   for i, j in sorted(fn_indices)])
+    
+    # Handle empty arrays
+    if len(TP) == 0:
+        TP = np.empty((0, 4))  # i,j,vr,vt
+    if len(FP) == 0:
+        FP = np.empty((0, 3))  # i,j,vr
+    if len(FN) == 0:
+        FN = np.empty((0, 3))   # i,j,vr,vt
+
+    print('comp tripl  TP=%d, FP=%d, FN=%d'%(TP.shape[0],FP.shape[0],FN.shape[0]))
+    #print('shapes tripl  TP=%s, FP=%s, FN=%s'%(TP.shape,FP.shape,FN.shape))
+    return [TP, FP, FN]
+
+def eval_tagged_edges_4_simu(fitD, trueD):
+    #print(sorted(trueD))
+    At=trueD['A_true']
+    Bt=trueD['B_true']
+    EposT=get_offdiag_triplets(At,True)
+    EnegT=get_offdiag_triplets(At,False)
+    print('True num edges  pos=%d  neg=%d'%(EposT.shape[0],EnegT.shape[0]))
+
+    Ar=fitD['A_avr']  # reco
+    Br=fitD['B_avr']  # reco
+    EposR=get_offdiag_triplets(Ar,True)
+    EnegR=get_offdiag_triplets(Ar,False)
+    print('Reco num edges  pos=%d  neg=%d'%(EposR.shape[0],EnegR.shape[0]))
+
+    #... zip diagonal
+    diag_At = np.diag(At)
+    diag_Ar = np.diag(Ar)
+   
+    evalD={}
+    evalD['pos']=compare_triplets(EposR, EposT)
+    evalD['neg']=compare_triplets(EnegR, EnegT)
+    evalD['diag']=np.column_stack([diag_Ar, diag_At])
+    evalD['bterm']=np.column_stack([Br, Bt])
+
+    return  evalD
+    
+def get_offdiag_triplets(A, isPos=True):
+    """
+    Returns positive/negative, off-diagonal elements of 2D array A as array of [i, j, value] triplets.
+    
+    Parameters:
+    A : 2D numpy array
+    isPos : bool, if True only return positive values (>0), if False return all negative values
+    
+    Returns:
+    Array of shape (n, 3) where n is the number of valid off-diagonal elements
+    Each row is [row_index, col_index, value]
+    """
+    # Create mask for off-diagonal elements
+    offdiag_mask = ~np.eye(A.shape[0], A.shape[1], dtype=bool)
+    
+    # Add value condition based on isPos
+    if isPos:
+        value_mask = A > 0
+    else:
+        value_mask = A < 0
+    
+    # Combine masks
+    mask = value_mask & offdiag_mask
+    
+    i_indices, j_indices = np.where(mask)
+    values = A[i_indices, j_indices]
+    
+    return np.column_stack([i_indices, j_indices, values])
+    
 def edge_selector_fdr(A_edges_real_list, A_edges_shuf_list, alpha=0.01):
     """
     Apply row-wise FDR to select significant edges.
@@ -56,15 +158,12 @@ def edge_selector_fdr(A_edges_real_list, A_edges_shuf_list, alpha=0.01):
     W_edge_mask = np.zeros((N, N), dtype=bool)
     #W_edge_mask is a binary mask of significant edges after row‑wise FDR.
 
-    # Statistics tracking
-    
+    # Statistics tracking    
     edges_per_row = []
 
     for i in range(N):
         # Pool null values for row i from shuffled data
-        null_vals_row = np.abs(A_shuf[:, i, :]).ravel()
-        
-
+        null_vals_row = np.abs(A_shuf[:, i, :]).ravel()        
         # Compute p-values for all j in this row
         for j in range(N):
             if i == j:
@@ -175,6 +274,7 @@ def load_bootstrap_data(dataName, dataPath, K, verb=1):
         # Store metadata from first bootstrap for output
         if k == 0:
             output_meta = meta_real
+            output_big1=data_real
 
         # Shuffled data
         shuf_file = real_file.replace('boot','shuf')
@@ -188,7 +288,7 @@ def load_bootstrap_data(dataName, dataPath, K, verb=1):
     if verb >= 1:
         print(f"Loaded {K} bootstrap files with real and shuffled data")
         
-    return A_edges_real_list, A_edges_shuf_list, A_real_list, B_real_list, output_meta
+    return A_edges_real_list, A_edges_shuf_list, A_real_list, B_real_list, output_meta,output_big1
 
 
 def load_auxiliary_plotting_data(fitMD, maskMD, dataName, dataPath, alpha):
@@ -252,17 +352,13 @@ def main():
     parser.add_argument("--verb", "-v", type=int, default=1, help="Verbosity level")
     parser.add_argument("--num_bootstraps", type=int, required=True, help="Number of bootstraps (K)")
     parser.add_argument("--alpha", type=float, default=0.01, help="FDR significance level")
-    parser.add_argument('-A',"--ampl_thres", type=float, default=[0.10],nargs='+', help=" inh< tht0, exct>th1 of accepted off-diagonal edge")
+    
     parser.add_argument('-p',"--showPlots", type=str,nargs='+', default="f", help="Plot types to show: a=structure, e=experiment_eigen, f=freqSortA_histos")
     parser.add_argument("--outPath", type=str, default=None, help="Output path for plots (defaults to dataPath)")
     parser.add_argument('-X',"--noXterm", action="store_true", help="Disable X terminal for plotting")
     args = parser.parse_args()
     print(vars(args))
-    
-    # Process plotting arguments
-    if len(args.ampl_thres)==1:
-        args.ampl_thres=[-args.ampl_thres[0],args.ampl_thres[0]]
-    
+        
     if args.outPath is None:   
         args.outPath = args.dataPath
     args.showPlots=''.join(args.showPlots)
@@ -273,7 +369,7 @@ def main():
     alpha = args.alpha
 
     # Load all bootstrap data
-    A_edges_real_list, A_edges_shuf_list, A_real_list, B_real_list, output_meta = load_bootstrap_data(
+    A_edges_real_list, A_edges_shuf_list, A_real_list, B_real_list, output_meta,output_big1 = load_bootstrap_data(
         dataName, dataPath, K, args.verb
     )
 
@@ -297,6 +393,8 @@ def main():
     # Apply FDR mask to off-diagonal elements only
     off_diag_mask = ~np.eye(N, dtype=bool)
     W_mask_full[off_diag_mask] = W_mask[off_diag_mask]
+
+    A_avr[~W_mask_full]=0.  # now none-existing edges are 0
     
     print(f"Computed averages and std from {K} real bootstraps")
     print(f"A_avr shape: {A_avr.shape}, B_avr shape: {B_avr.shape}")
@@ -312,7 +410,11 @@ def main():
         'W_pval': W_pval,
         'summary': summary
     }
-    
+    for xx in [ 'losses_total', 'losses_epochs', 'losses_wo_L1']:
+        output_data[xx]=output_big1[xx]
+
+    output_meta['edge_selector']={'selector_type':'FDR', 'alpha':args.alpha}
+ 
     # Save results
     output_file = os.path.join(dataPath, f"{dataName}-selFdr.lassoFit.npz")
     write_data_npz(output_data, output_file, metaD=output_meta)
@@ -330,20 +432,16 @@ def main():
         fitD['A_lasso'] = A_avr.copy()
         fitD['B_lasso'] = B_avr.copy()
         
-        # Apply W_mask to A_lasso: set non-selected off-diagonal edges to 0
-        A_masked = A_avr.copy()
-        off_diag_mask = ~np.eye(N, dtype=bool)
-        A_masked[off_diag_mask] = A_masked[off_diag_mask] * W_mask_full[off_diag_mask]
-        
-        # Set exactly 0 values to NaN so they are not displayed in plots
-        A_masked[A_masked == 0.0] = np.nan
-        fitD['A_lasso'] = A_masked
-        
-        maskD, maskMD = select_edges_from_fitLasso(fitD, args.ampl_thres)
-        maskMD['fit_lasso'] = fitMD['fit_lasso']
-        
         # Load auxiliary data needed for plotting
+        maskMD={}
         spikeD, trueD, MD = load_auxiliary_plotting_data(fitMD, maskMD, dataName, dataPath, alpha)
+
+        if fitMD['data_type']=='simDale':
+            evalD=eval_tagged_edges_4_simu(fitD,trueD)            
+        
+        # adjustment for plotting
+
+        fitD['single_rates']=spikeD['single_rates']
         
         # Setup plotter
         args.prjName = dataName 
@@ -351,15 +449,17 @@ def main():
         
         # Generate plots based on showPlots argument
         if 'a' in args.showPlots:
-            # Plot correlation after threshold (requires simDale data type)
-            assert fitMD['data_type']=='simDale', "Plot 'a' requires simDale data type"
-            plot.correl_after_thresh(trueD, fitD, maskD, MD, figId=1)
-        
-        if 'e' in args.showPlots:
-            plot.experiment_eigen(fitD, MD, figId=5)
-        
-        if 'f' in args.showPlots:
-            plot.freqSortA_histos(fitD, MD, spikeD, figId=2)
+            plot.summary_fitLasso(fitD,MD,figId=1)
+
+        if 'b' in args.showPlots:
+            assert  fitMD['data_type']=='simDale'
+            plot.residuals(evalD,MD,figId=2)
+
+        if 'c' in args.showPlots:
+            plot.freqSortA_histos(fitD, MD, spikeD, figId=3)
+      
+        if 'd' in args.showPlots:            
+            plot.experiment_eigen(fitD, MD, figId=4)
         
         plot.display_all()
         print("Plotting completed.")
