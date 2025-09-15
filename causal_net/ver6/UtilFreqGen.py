@@ -1,3 +1,18 @@
+#!/usr/bin/env python3
+"""
+Utility functions for generating realistic neural firing frequency distributions.
+
+This module provides functions for generating biologically plausible frequency
+distributions that mimic real neural firing patterns. Main functionality includes:
+- Mixed exponential distribution generation with customizable parameters
+- Rejection sampling for frequency cutoffs and constraints
+- Statistical validation and plotting utilities for generated distributions
+- Command-line interface for interactive frequency generation
+
+Used for creating realistic baseline firing rates in neural network simulations
+and for statistical modeling of experimental neural data.
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse

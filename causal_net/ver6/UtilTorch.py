@@ -1,3 +1,20 @@
+#!/usr/bin/env python3
+"""
+PyTorch utilities for GPU setup, data preprocessing and model training.
+
+This module provides essential utilities for PyTorch-based neural network training,
+specifically optimized for Poisson GLM fitting with distributed GPU support.
+Main functionality includes:
+- GPU availability checking and device configuration
+- Data preprocessing with time decorrelation and shuffling options
+- Custom dataset classes for paired neural data (Y_prev, Y_curr)
+- Distributed training utilities with Poisson loss optimization
+- Learning rate scheduling and training loop management
+
+Designed to work with multi-GPU setups using DistributedDataParallel
+for efficient training of large-scale neural connectivity models.
+"""
+
 import torch
 import numpy as np
 import time

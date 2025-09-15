@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
+"""
+Visualization tool for biological experiment input features and data quality.
+
+This script provides comprehensive visualization and analysis of experimental
+neural data, focusing on data quality assessment and feature exploration.
+Main functionality includes:
+- Time series visualization of neural recordings with customizable time ranges
+- Data quality metrics and statistical summaries
+- Cluster detection and activity pattern analysis
+- Interactive plotting with configurable display options
+
+Used primarily for exploratory data analysis of biological neural recordings
+before further processing and connectivity analysis.
+"""
+
 __author__ = "Jan Balewski"
 __email__ = "janstar1122@gmail.com"
-
-'''
- plot input features
-
-'''
 
 import os
 

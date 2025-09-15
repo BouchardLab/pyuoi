@@ -1,3 +1,20 @@
+#!/usr/bin/env python3
+"""
+Plotting utilities for LASSO fit evaluation and visualization.
+
+This module provides comprehensive plotting capabilities for analyzing
+LASSO Poisson model fitting results. The Plotter class extends PlotterBackbone
+to create specialized visualizations including:
+- Connectivity matrix heatmaps with frequency-sorted neurons
+- Weight distribution histograms and statistical summaries
+- Network structure plots showing excitatory/inhibitory connections  
+- Reconstruction quality plots comparing fitted vs observed rates
+- Comparative analysis plots for simulation validation
+
+The plots support both simulated and experimental data with automatic
+adaptation based on available metadata.
+"""
+
 __author__ = "Jan Balewski"
 __email__ = "janstar1122@gmail.com"
 
@@ -21,7 +38,11 @@ class Plotter(PlotterBackbone):
         PlotterBackbone.__init__(self,args)         
 
 #...!...!..................
-    def summary_fitLasso(self,fitD, md,byFreq=False, figId=1):  
+    def summary_fitLasso(self,fitD, md,byFreq=False, figId=1):
+        figId=self.smart_append(figId)        
+        nrow,ncol=2,4
+        fig=self.plt.figure(figId,facecolor='white', figsize=(19,6))
+
         #pprint(md)
         fmd=md['fit_lasso']
         esmd=md['edge_selector']
@@ -39,10 +60,7 @@ class Plotter(PlotterBackbone):
         B = fitD['B_'+fitType]
         Freq=fitD['single_rates']
         
-        figId=self.smart_append(figId)        
-        nrow,ncol=2,4
-        fig=self.plt.figure(figId,facecolor='white', figsize=(19,6))
-        
+         
         #...... Training curves
         ax = self.plt.subplot(nrow,ncol,1)
         plot_trainingCurves(ax,fitD,md)
@@ -55,9 +73,16 @@ class Plotter(PlotterBackbone):
         ax.set(ylabel='num neurons',xlabel=frLab,title='Single rates, %d neurons'%Nn)
         ax.grid(True, alpha=0.4)
         ax.set_xlim(0,)
+        # Compute median
+        median_val = np.median(Freq)
+        txtM= f'median rate: {median_val:.2f} Hz'
+        ax.text( ax.get_xlim()[1]*0.1,median_val,txtM, 
+                 color='red', ha='center', va='bottom', fontsize=10)
+        ax.axhline(median_val, color='red', linestyle='--', linewidth=1)
 
         # ... A off-diagonal
         xLab='edge value'
+        frLab='log10( Firing rate/ Hz )'
         Aedg=A_fit[~diagM]
         i_indices, j_indices = np.where(~diagM)
         Freq_expanded = Freq[i_indices]
@@ -73,12 +98,12 @@ class Plotter(PlotterBackbone):
         ax.set_yscale('log')
         ax.grid(True, alpha=0.4)
         ax.set(ylabel='edges',xlabel=xLab,title='A off-diagonal')
-        txt='edge sel: %s \n acc frac=%.2f' %(  eselType,n_edges/Nn/(Nn-1))
+        txt='edge sel meth: %s \n acc frac=%.2f' %(  eselType,n_edges/Nn/(Nn-1))
         if eselType=='FDR': txt+='\n alpha=%.3f '%(esmd['alpha'])
-        ax.text(0.05, 0.7,   txt, transform=ax.transAxes, fontsize=10)
+        ax.text(0.05, 0.75,   txt, transform=ax.transAxes, fontsize=10)
         # Plot 2D histogram
         ax = self.plt.subplot(nrow,ncol,2+ncol)
-        h = ax.hist2d(Aedg_clean, Freq_expanded_clean, bins=30, cmap='viridis', norm=LogNorm())
+        h = ax.hist2d(Aedg_clean, np.log10(Freq_expanded_clean), bins=30, cmap='viridis', norm=LogNorm())
         cbar = fig.colorbar(h[3],ax=ax)
         ax.set(ylabel=frLab,xlabel=xLab,title='accept %d of %d edges '%(n_edges,Nn*(Nn-1)))
         ax.grid(True, alpha=0.4)
@@ -94,25 +119,29 @@ class Plotter(PlotterBackbone):
         ax.hist(Adia, bins=30,color='salmon')
         ax.grid(True, alpha=0.4)
         ax.set(ylabel='neurons',xlabel=xLab,title='A diagonal')
+        ax.axvline(0, linestyle='--', color='lime', linewidth=1)
         # Plot 2D histogram
         ax = self.plt.subplot(nrow,ncol,3+ncol)
-        h = ax.hist2d(Adia,Freq_expanded,  bins=30, cmap='Greys',vmax=2.1)
-        cbar = fig.colorbar(h[3],ax=ax, label='neurons')
-        ax.set(ylabel=frLab,xlabel=xLab)
+        h = ax.hist2d(Adia,np.log10(Freq_expanded),  bins=30, cmap='Greys',vmax=2.1)
+        cbar = fig.colorbar(h[3],ax=ax)
+        ax.set(ylabel=frLab,xlabel=xLab,title='num neurons')
         ax.grid(True, alpha=0.4)
-
+        ax.axvline(0, linestyle='--', color='lime', linewidth=1)
+        
         # ... B-term .....
         xLab='B-term value'
         ax = self.plt.subplot(nrow,ncol,4)
         ax.hist(B, bins=30,color='darkviolet')
         ax.grid(True, alpha=0.4)
         ax.set(ylabel='neurons',xlabel=xLab,title='B-term')
+        ax.axvline(0, linestyle='--', color='lime', linewidth=1)
         # Plot 2D histogram
         ax = self.plt.subplot(nrow,ncol,4+ncol)
-        h = ax.hist2d(B,Freq,  bins=30, cmap='Grays',vmax=2.1)
+        h = ax.hist2d(B,np.log10(Freq),  bins=30, cmap='Grays',vmax=2.1)
         cbar = fig.colorbar(h[3],ax=ax)
-        ax.set(ylabel=frLab,xlabel=xLab)
+        ax.set(ylabel=frLab,xlabel=xLab,title='num neurons')
         ax.grid(True, alpha=0.4)
+        ax.axvline(0, linestyle='--', color='lime', linewidth=1)
  
  #...!...!..................
     def residuals(self, evalD,md, figId=1):
@@ -278,20 +307,23 @@ class Plotter(PlotterBackbone):
         self.plt.subplots_adjust(hspace=0.05, wspace=0.1)
         
 #...!...!..................
-    def experiment_eigen(self, fitD, md,figId=5):
+    def summary_network(self, fitD, edgeD, md, procFrac=0.8,figId=5):
+        figId=self.smart_append(figId)        
+        nrow,ncol=1,4
+        fig=self.plt.figure(figId,facecolor='white', figsize=(16,3.5))
+
         fitType=md['fit_type']
 
         # Unpack arrays from bigD
         A_fit = fitD['A_'+fitType]
-        B_fit = fitD['B_'+fitType]
-         
-        figId=self.smart_append(figId)        
-        nrow,ncol=1,2
-        fig=self.plt.figure(figId,facecolor='white', figsize=(8,3.5))
-
+        Neu_sum=edgeD['edge_sum']
+        Neu_edg=edgeD['edge_vals']
+        
+        # .... A-matrix  ....
         ax = self.plt.subplot(nrow,ncol,1)
-        plot_trainingCurves(ax,fitD,md,fitType)
+        plot_A2D(fig,ax,A_fit)
 
+        # .... A-eigen  ....
         ax = self.plt.subplot(nrow,ncol,2)
         ax.set_title(f'{fitType}: {md["short_name"]}')
         eigF=np.linalg.eigvals(A_fit)
@@ -307,6 +339,64 @@ class Plotter(PlotterBackbone):
         ax.set_xlabel("Real Part")
         ax.set_ylabel("Imaginary Part")
         ax.legend()
+
+        # .... pos vs. neg count  ....
+        ax = self.plt.subplot(nrow,ncol,3)
+        # Extract positive and negative counts
+        n_pos = Neu_sum[:, 1]
+        n_neg = Neu_sum[:, 2]
+        # Create 2D histogram
+        h = ax.hist2d(n_pos, n_neg, bins=20, cmap='Greys', cmin=1)
+        # Add colorbar
+        self.plt.colorbar(h[3], ax=ax, label='Neurons')
+        ax.grid(True, alpha=0.3)
+        
+        # Add diagonal line (y=x)
+        lims = [
+            np.min([ax.get_xlim(), ax.get_ylim()]),
+            np.max([ax.get_xlim(), ax.get_ylim()]),
+        ]
+        ax.plot(lims, lims, 'b--', alpha=0.5, linewidth=1.5, label='y=x')
+        ax.set(title='Edge type correlation',xlabel='num pos',ylabel='num neg')
+        
+        # .... edge std vs. value ....
+        ax = self.plt.subplot(nrow,ncol,4)
+        ax.grid(True, alpha=0.3)
+        ax.set(title='Edge value accuracy',xlabel='edge val',ylabel='edge std')
+
+        # Extract average weights and standard deviations
+        avg_weights = Neu_edg[:, 2]
+        std_devs = Neu_edg[:, 3]
+
+        # Compute percentile range to contain procFrac of data by magnitude
+        abs_weights = np.abs(avg_weights)
+        percentile_cutoff = procFrac * 100
+        threshold = np.percentile(abs_weights, percentile_cutoff)
+         
+        # Filter data within range
+        mask = abs_weights <= threshold
+        avg_weights_accepted = avg_weights[mask]
+        std_devs_accepted = std_devs[mask]
+    
+        # Count accepted and rejected
+        n_total = len(avg_weights)
+        n_accepted = len(avg_weights_accepted)
+        n_rejected = n_total - n_accepted
+    
+        # Create 2D histogram
+        h = ax.hist2d(avg_weights_accepted, std_devs_accepted, bins=30, cmap='Greys', cmin=1)
+        ax.axvline(0, linestyle='--', color='lime', linewidth=1)
+        # Add colorbar
+        self.plt.colorbar(h[3], ax=ax, label='edges')
+        # Add text box with statistics
+        stats_text = (f'display fract = {procFrac:.2f}\n'
+                  f'Accepted: {n_accepted:,} ({n_accepted/n_total*100:.1f}%)\n'
+                  f'Rejected: {n_rejected:,} ({n_rejected/n_total*100:.1f}%)\n'
+                  f'abs(x) cutoff: ±{threshold:.3f}')
+    
+        ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, 
+            fontsize=10, verticalalignment='top')
+       
 
         
 #............................
@@ -355,9 +445,9 @@ def plot_trainingCurves(ax,fitD,md,title='aa3'):
     ax.tick_params(axis='y', labelcolor='blue')
     ax.grid(True, alpha=0.3)
       
-def plot_A2D(fig,ax,A,mask,title='aa',byFreq=True,trueD=None):
+def plot_A2D(fig,ax,A,title='aa',byFreq=True,trueD=None):
     Am=A.copy()
-    Am[~mask]=0
+   
     
     # If byFreq=False, reorder matrix to natural neuron indexing
     if not byFreq and trueD is not None and 'neur_revFreqIdx' in trueD:
@@ -373,11 +463,11 @@ def plot_A2D(fig,ax,A,mask,title='aa',byFreq=True,trueD=None):
     norm = TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
     im1=ax.imshow(Am, cmap='bwr', norm=norm, origin='lower')  # 'RdBu_r'
 
-    masked_values = Am[mask]
+    #masked_values = Am[mask]
     #vmin = masked_values.min()
     #vmax = masked_values.max()
     
-    nval=np.sum(mask)
+    nval=np.sum(Am!=0.)
     title='%s n=%d'%(title,nval)
     # Simplified axis labels based on display order
     if byFreq:
@@ -389,7 +479,7 @@ def plot_A2D(fig,ax,A,mask,title='aa',byFreq=True,trueD=None):
     ax.set(title=title, ylabel=ylabel_text, xlabel=xlabel_text)
     fig.colorbar(im1, ax=ax)
     ax.grid(True, alpha=0.5)
-    add_x45_lins(ax, only45=True)
+    #add_x45_lins(ax, only45=True)
 
   
 def add_x45_lins(ax, only45=False):
@@ -428,16 +518,6 @@ def plot_correl_offdiag(fig,ax,tripV):
 
     return TP[:,3], TP[:,2]
   
-def XXplot_correl_diag(fig,ax,Bt,Bf,exc_mask,title='aa2'):
-    BtFl=Bt.flatten()
-    BfFl=Bf.flatten()
-  
-    ax.scatter(BtFl[~exc_mask], BfFl[~exc_mask], alpha=0.6, color='blue',label='inh: %d'%np.sum(~exc_mask), marker='.',s=5) #facecolors='none')
-    ax.scatter(BtFl[exc_mask], BfFl[exc_mask], alpha=0.6, color='tomato',label='exc: %d'%np.sum(exc_mask), marker='.',s=5) #, facecolors='none')
-    add_x45_lins(ax, only45=True)
-    ax.set(aspect=1. ,xlabel='true value',ylabel='fitted',title=title)
-    ax.grid(True, alpha=0.5)
-    ax.legend()
 
 
 #...!...!..................

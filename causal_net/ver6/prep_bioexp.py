@@ -1,28 +1,36 @@
 #!/usr/bin/env python3
+"""
+Preprocessing pipeline for experimental neural data from Roy/Mandar laboratory.
+
+This script processes raw experimental neural recordings into standardized format
+for connectivity analysis. The preprocessing pipeline includes:
+- Raw data loading and format conversion
+- Temporal binning and spike count extraction  
+- Data quality assessment and filtering
+- Metadata extraction and session identification
+- Output formatting for downstream analysis tools
+
+Session naming convention:
+- B6J: cell line name
+- 250619: recording date (YYMMDD)
+- M08020: chip identifier  
+- 000093: run number
+- Well000: well number
+
+The script generates .spikes.npz files with standardized spike count matrices
+and associated metadata for further analysis.
+
+Usage:
+    ./prep_bioexp.py --sessionName B6J_250619_M08020_000093_Well000 --inputPath /path/to/raw/data/
+"""
+
 __author__ = "Jan Balewski"
 __email__ = "janstar1122@gmail.com"
-
-
-'''
-preprocess experimental data from Roy/Mandar
-
-Use case:
-
-sessionName  should encompas all below as short string
-
-B6J - cell line name
-250619 - recording date 
-M08020 - chip id
-000093 - run number
-Well000 -- well number
-
-'''
 import sys,os,hashlib
 import numpy as np
 import pickle
 from pprint import pprint
 from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
-from readExp_npy  import read_spike_npy
 
 import argparse
 #...!...!..................
@@ -36,7 +44,6 @@ def commandline_parser():
     parser.add_argument("--shortName",  default=None,help='(optional) output file name - Is it needed?')
 
     # .... activity speciffic speciffic, 
-    #parser.add_argument('--time_rebin', default=100, type=int, help='rebin of raw time axis')
     parser.add_argument('--samp_freq', default=100, type=int, help='sets binning of time axis')
 
     parser.add_argument('--freqRange', default=[1.,50], type=float, nargs=2,help='rebin of raw time axis')
@@ -133,7 +140,7 @@ def unroll_bioexp(rawD,md):
     MEA_idx=rawD['MEA_idx'][freqMask]
 
    # .... REMAP MATRICES TO FREQUENCY-SORTED ORDER (PRIMARY INDEX)
-    neur_freqIdx = np.argsort(chanFreq)[::-1]  # indices that sort chanFreq by value
+    neur_freqIdx = np.argsort(chanFreq)  # indices that sort chanFreq by value
     neur_revFreqIdx = np.empty(len(neur_freqIdx), dtype=int)  # natural_index → freq_sorted_position
     neur_revFreqIdx[neur_freqIdx] = np.arange(len(neur_freqIdx))
     
@@ -210,12 +217,15 @@ if __name__ == "__main__":
         print('\nspikeD:',sorted(spikeD))
         pprint(spikeMD)
 
-
     print("\nNext step command:")
-    print('   ./view_bioexp.py  --dataPath $dataPath  --dataName   %s  -p  a b  '%(bioMD['short_name'] ))
-    print("  ./fit_lassoPoisson.py  --dataPath $dataPath  --dataName %s  --n_epochs  50 " % bioMD['short_name'] )
+    print('   ./view_bioexp.py  --dataPath $dataPath  --dataName   %s  -p  a b   -T 0 3550  '%(bioMD['short_name'] ))
+    print("  ./fit_lassoPoisson.py  --dataPath $dataPath  --dataName %s  --num_epochs  10 " % bioMD['short_name'] )
+    print(" ./fitLasso4GPU.sh  --dataPath $dataPath  --dataName %s  --n_epochs  200 " % bioMD['short_name'] )
+    print("  ./bootsFit.sh --dataName  %s  --num_epochs  250 --dropDataFrac 0.5 --num_boots 7  " % bioMD['short_name'] )
+
+    print("   ./selectEdges_FDR.py  --dataName %s  --num_bootstraps 6 10 -p a c d  " % bioMD['short_name'] )
+    
     print('    --dataPath '+args.dataPath)
    
-
 
     

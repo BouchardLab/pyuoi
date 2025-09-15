@@ -1,3 +1,23 @@
+#!/usr/bin/env python3
+"""
+PyTorch implementation of Poisson Generalized Linear Model for neural spike data.
+
+This module defines the PoissonGLModel class, a neural network that models
+multivariate Poisson spike counts using the GLM framework:
+    rate_t = exp(A @ Y_prev + B) * dt
+
+The model supports two initialization modes:
+- Stage A: Standard parameterization with full A and B matrices
+- Stage B: Efficient parameterization using only trainable weights with masks
+
+Key features:
+- Recurrent connectivity matrix A (neuron-to-neuron weights)
+- Bias term B (baseline firing rates)
+- Forward pass computing Poisson rates from previous spike counts
+- Custom negative log-likelihood loss function for Poisson distributions
+- Support for sparse parameterization and noise injection
+"""
+
 # PoissonGML refers to a Poisson Generalized Linear Model (GLM)
 import torch
 import torch.nn as nn

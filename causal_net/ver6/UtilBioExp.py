@@ -1,3 +1,18 @@
+#!/usr/bin/env python3
+"""
+Utility functions for biological experiment data processing.
+
+This module provides specialized functions for analyzing biological neural data,
+particularly focused on identifying and processing clusters of neural activity.
+Main functionality includes:
+- Cluster detection in time series data using connectivity analysis
+- Threshold-based cluster validation and masking
+- Signal processing utilities for experimental neural recordings
+
+Used primarily in conjunction with experimental data preprocessing and
+analysis pipelines for biological neural network studies.
+"""
+
 import numpy as np
 from scipy.ndimage import label
 

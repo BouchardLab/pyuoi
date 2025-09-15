@@ -1,3 +1,19 @@
+#!/usr/bin/env python3
+"""
+Plotting utilities for simulated Poisson process visualization.
+
+This module provides specialized plotting capabilities for analyzing
+simulated Dale's principle neural networks. The Plotter class extends
+PlotterBackbone to create visualizations including:
+- Dale connectivity matrix plots with excitatory/inhibitory separation
+- Eigenvalue analysis and network stability visualization
+- Poisson process statistics and firing rate distributions
+- Network dynamics and temporal evolution plots
+
+Designed specifically for validating and analyzing simulated neural
+networks that follow Dale's principle with Poisson spiking dynamics.
+"""
+
 __author__ = "Jan Balewski"
 __email__ = "janstar1122@gmail.com"
 

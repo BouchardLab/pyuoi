@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+"""
+Evaluation and visualization tool for regression model fitting results.
+
+This script provides evaluation capabilities for regression-based connectivity
+analysis, focusing on edge selection and network reconstruction quality.
+Main functionality includes:
+- Loading regression fit results and applying edge selection thresholds
+- Statistical analysis of reconstructed network properties
+- Visualization of connectivity patterns and edge distributions
+- Performance metrics computation for network reconstruction
+
+Complements the LASSO-based analysis by providing alternative regression
+approaches for neural connectivity inference.
+"""
 
 import numpy as np
 import os

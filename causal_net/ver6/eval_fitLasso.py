@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+"""
+Evaluation and visualization tool for LASSO Poisson model fitting results.
+
+This script loads fitted LASSO connectivity matrices from Poisson GLM training
+and provides comprehensive evaluation through statistical analysis and plotting.
+Main functionality includes:
+- Loading fitted model parameters (A, B matrices) from .lassoFit.npz files
+- Computing network connectivity statistics and sparsity metrics
+- Generating various visualizations (structure plots, distributions, reconstructions)
+- Optionally comparing against ground truth for simulated data
+
+Usage:
+    ./eval_fitLasso.py --dataName mydata --dataPath /path/to/data/ -p ab
+"""
 
 import numpy as np
 import os

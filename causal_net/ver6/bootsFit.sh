@@ -4,24 +4,55 @@
 #
 # This script runs fitLasso.sh multiple times for bootstrap training
 
-# Capture variable arguments as text
-varArgs="$*"
+# Parse arguments with better handling
+DATANAME=""  # mandatory parameter
+NUM_BOOTSTRAPS=5  # default value
+SHUFFLE_TIME=false
+varArgs=()
 
-# Extract dataName from varArgs, fallback to default if not found
-DATANAME="daleM80x_285c84"  # default value
-if [[ $varArgs =~ --dataName[[:space:]]+([^[:space:]]+) ]]; then
-    DATANAME="${BASH_REMATCH[1]}"
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --data_name|--dataName)
+            DATANAME="$2"
+            varArgs+=("--dataName" "$2")
+            shift 2
+            ;;
+        --num_bootstraps)
+            NUM_BOOTSTRAPS="$2"
+            shift 2
+            ;;
+        --shuffleTime)
+            SHUFFLE_TIME=true
+            varArgs+=("--shuffleTime")
+            shift
+            ;;
+        *)
+            # Pass through all other arguments
+            varArgs+=("$1")
+            shift
+            ;;
+    esac
+done
+
+# Validate mandatory parameter
+if [[ -z "$DATANAME" ]]; then
+    echo "Error: --data_name (or --dataName) is mandatory"
+    echo "Usage: $0 --data_name <name> [--num_bootstraps <number>] [--shuffleTime] [other_args...]"
+    exit 1
 fi
 
-# Check if --shuffleTime flag is present and set naming pattern accordingly
+# Set naming pattern based on shuffleTime flag
 FIT_SUFFIX="boot"
-if [[ $varArgs =~ --shuffleTime ]]; then
+if [[ "$SHUFFLE_TIME" == true ]]; then
     FIT_SUFFIX="shuf"
 fi
 
-# Default/fixed arguments
-fixArgs="  --dropDataFrac 0.5"
-NUM_BOOTSTRAPS=6
+# Convert varArgs array back to string for compatibility
+varArgsStr="${varArgs[*]}"
+
+# Default/fixed arguments (removed --dropDataFrac since it can be passed via command line)
+fixArgs=""
 
 # Validation
 if [[ ! -f "./fitLasso4GPU.sh" ]]; then
@@ -33,7 +64,7 @@ fi
 echo "=== Bootstrap Lasso Poisson Training ==="
 echo "Extracted dataName: $DATANAME"
 echo "FitName pattern: ${DATANAME}-${FIT_SUFFIX}X (starting from 0)"
-echo "Variable args: $varArgs"
+echo "Variable args: $varArgsStr"
 echo "Fixed args: $fixArgs"
 echo "Bootstraps: $NUM_BOOTSTRAPS"
 echo "========================================="
@@ -56,7 +87,7 @@ for ((k=1; k<=NUM_BOOTSTRAPS; k++)); do
     RUN_START_TIME=$(date +%s)
     
     # Run fitLasso.sh with simplified approach
-    ./fitLasso4GPU.sh $fixArgs --fitName "$FITNAME" $varArgs
+    ./fitLasso4GPU.sh $fixArgs --fitName "$FITNAME" $varArgsStr
     
     # Check exit status
     EXIT_CODE=$?

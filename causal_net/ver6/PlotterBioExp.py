@@ -1,3 +1,19 @@
+#!/usr/bin/env python3
+"""
+Plotting utilities for biological experiment data visualization.
+
+This module provides specialized plotting capabilities for experimental
+neural data analysis. The Plotter class extends PlotterBackbone to create
+visualizations tailored for biological neural recordings including:
+- Time series plots of neural activity patterns
+- Statistical summaries and distribution analysis  
+- Data quality assessment plots
+- Comparative analysis between experimental conditions
+
+Designed specifically for processing and visualizing data from biological
+neural experiments, with automatic adaptation to experimental metadata.
+"""
+
 __author__ = "Jan Balewski"
 __email__ = "janstar1122@gmail.com"
 
@@ -12,27 +28,12 @@ from matplotlib.colors import LinearSegmentedColormap
 
 #...!...!....................
 def summary_column(md):
-    #pprint(md)
-    pmd=md['payload']
-    smd=md['submit']
-    tmd=md['transpile']
-    pom=md['postproc']
-    txt=md['short_name']
-    txt+='\nback: %s'%smd['backend']
-    txt+='\nshots/addr : %d'%(smd['num_shots']/pmd['num_addr'])
-    txt+='\nshots/img : %d k'%(smd['num_shots']/1000)
-    txt+='\nnum sample %d'%(pmd['num_sample'])
-    txt+='\nsample size: %d'%(pmd['seq_len'])
-    txt+='\nnum addr: %d'%pmd['num_addr']
-    txt+='\nqubits: %d'%pmd['num_qubit']
-    if 'ibm' in smd['backend']:  txt+='  RC: %r'%smd['random_compilation']
-    txt+='\nnum 2q gates: %d'%tmd['2q_gate_count']
-    txt+='\n2q gates depth: %d'%tmd['2q_gate_depth']
+    pprint(md)
+    txt='dataset: '+md['short_name']
+    txt+='\ndata type: %s, time_step=%.2f sec'%(md['data_type'],md['time_step_sec']) 
 
     return txt
-    if 'noise_model' in smd:
-        txt+='\nfake : %s'%(smd['noise_model'])       
- 
+  
    
   
 #............................
@@ -49,14 +50,14 @@ class Plotter(PlotterBackbone):
         tit='dataset '+md['short_name']
         
         figId=self.smart_append(figId)        
-        nrow,ncol=2,1
-        fig=self.plt.figure(figId,facecolor='white', figsize=(8,6))
+        nrow,ncol=1,2
+        fig=self.plt.figure(figId,facecolor='white', figsize=(16,4))
 
         dataYield, dataRates = spikeD['spikes'], spikeD['single_rates']
 
         # Compute median
         median_val = np.median(dataRates)
-        txtM= f'median: {median_val:.2f} Hz'
+        txtM= f'median rate: {median_val:.2f} Hz'
         
         #.... freq per channel
         ax = self.plt.subplot(nrow,ncol,1)
@@ -68,8 +69,11 @@ class Plotter(PlotterBackbone):
             ax.set_yscale('log')
         ax.grid()
         ax.set(xlabel='input channel', ylabel='avr frequency (Hz)',title=tit)
-        ax.text( ax.get_xlim()[1]*0.7,median_val,txtM, 
+        ax.text( ax.get_xlim()[1]*0.1,median_val,txtM, 
                  color='red', ha='center', va='bottom', fontsize=10)
+
+        txt=summary_column(md)
+        ax.text(0.05, 0.75,   txt, transform=ax.transAxes, fontsize=10,color='b')
         
         #........ freq histo .....
         ax = self.plt.subplot(nrow,ncol,2)
@@ -78,8 +82,8 @@ class Plotter(PlotterBackbone):
         ax.set(ylabel='num channels', xlabel='avr frequency (Hz)')
         ax.axvline(median_val, color='red', linestyle='--', linewidth=1)
         # Add median text annotation
-        ax.text(median_val, ax.get_ylim()[1]*0.4,txtM, 
-                color='red', ha='center', va='bottom', fontsize=10, fontweight='bold')
+        ax.text(median_val, ax.get_ylim()[1]*0.7,txtM, 
+                color='red', ha='center', va='bottom', fontsize=10)
 
         ax.grid()
       

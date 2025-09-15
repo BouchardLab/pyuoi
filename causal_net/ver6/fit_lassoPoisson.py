@@ -1,10 +1,25 @@
 #!/usr/bin/env python3
-''' mutli GPU & 1 node execution
-salloc -q interactive -C gpu  -t 4:00:00 -A m2043 -N 1
-module load pytorch
+"""
+Multi-GPU distributed training of Poisson GLM with LASSO regularization.
 
- OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --standalone --nproc_per_node=4 ./fit_lassoPoisson.py --dataName daleM600_443813 --n_epochs 5 --dataPath $dataPath 
-'''
+This script implements distributed training of a Poisson Generalized Linear Model
+for neural connectivity inference with L1 (LASSO) regularization. Key features:
+- Multi-GPU support using PyTorch DistributedDataParallel 
+- LASSO regularization for sparse connectivity estimation
+- Poisson negative log-likelihood loss optimized for spike count data
+- Support for time decorrelation and data shuffling
+- Efficient data loading with distributed sampling
+- Automatic model checkpointing and metadata saving
+
+Usage:
+    Multi-GPU: OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --standalone --nproc_per_node=4 ./fit_lassoPoisson.py --dataName mydata --num_epochs 100
+    Single GPU: ./fit_lassoPoisson.py --dataName mydata --num_epochs 100
+
+Example SLURM execution:
+    salloc -q interactive -C gpu -t 4:00:00 -A m2043 -N 1
+    module load pytorch
+    OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --standalone --nproc_per_node=4 ./fit_lassoPoisson.py --dataName daleM600_443813 --num_epochs 5 --dataPath $dataPath
+"""
 
 import os
 import time
@@ -35,7 +50,7 @@ def main():
     parser.add_argument("--dataName", type=str, default="dale_2aee70")
     parser.add_argument("--dataPath", type=str, default="/pscratch/sd/b/balewski/2025_causalNet_tmp/")
     parser.add_argument("--num_samples", type=int, default=None)
-    parser.add_argument("--n_epochs", type=int, default=7)
+    parser.add_argument("--num_epochs", type=int, default=7)
     parser.add_argument("--batch_size", type=int, default=2048)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--L1_alpha", type=float, default=1e-3)
@@ -140,7 +155,7 @@ def main():
     model = DDP(base_model, device_ids=[local_rank]) if is_dist else base_model
     start_time = time.time()
     losses_total, losses_wo_L1, learning_rates, train_epochs = train_Poisson_model(
-        model, device, train_loader, args.n_epochs, lr=args.lr, L1_alpha=args.L1_alpha, firing_rates=dataRates, use_scheduler=True,
+        model, device, train_loader, args.num_epochs, lr=args.lr, L1_alpha=args.L1_alpha, firing_rates=dataRates, use_scheduler=True,
         train_sampler=train_loader.sampler if isinstance(train_loader.sampler, DistributedSampler) else None
     )
     total_time = time.time() - start_time
@@ -151,7 +166,7 @@ def main():
     if rank==0:
         mdl = model.module if hasattr(model,'module') else model
         lassoD = { 'A_lasso': mdl.A.detach().cpu().numpy(), 'B_lasso': mdl.B.detach().cpu().numpy(), 'losses_total': np.array(losses_total), 'losses_wo_L1': np.array(losses_wo_L1), 'losses_epochs': np.array(train_epochs, dtype=np.int32), 'learning_rates': np.array(learning_rates), 'single_rates': dataRates }
-        lassoMD = { 'lassoFit_output_name': fit_core, 'lassoFit_input_name': args.dataName, 'batch_size': args.batch_size, 'num_samples_used': n_pairs, 'n_epochs': args.n_epochs, 'num_train_samples': n_pairs, 'learning_rate': args.lr, 'L1_alpha': args.L1_alpha, 'step_size': step_size, 'training_time_sec': total_time, 'num_neurons': M, 'dropDataFrac': args.dropDataFrac }
+        lassoMD = { 'lassoFit_output_name': fit_core, 'lassoFit_input_name': args.dataName, 'batch_size': args.batch_size, 'num_samples_used': n_pairs, 'n_epochs': args.num_epochs, 'num_train_samples': n_pairs, 'learning_rate': args.lr, 'L1_alpha': args.L1_alpha, 'step_size': step_size, 'training_time_sec': total_time, 'num_neurons': M, 'dropDataFrac': args.dropDataFrac }
         spikeMD['fit_type']='lasso'        
         spikeMD['fit_lasso']=lassoMD
         spikeMD['edge_selector']={'selector_type':'None'}
@@ -162,7 +177,7 @@ def main():
 
     if rank==0:
         if spikeMD['data_type']=='simDale':         flags=' -p  a  c  '
-        else:         flags=' -p  f  e  b  '
+        else:         flags=' -p a c  '
         print('\n  ./eval_fitLasso.py --dataPath $dataPath  --dataName %s  %s  ' % (fit_core,flags))
         print('\n  ./fit_regressPoisson.py  --dataName %s  ' % (fit_core))
         print('    --dataPath '+args.dataPath)
