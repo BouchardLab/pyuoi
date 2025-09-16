@@ -179,10 +179,36 @@ def unroll_bioexp(rawD,md):
     bioD['MEA_idx']=MEA_idx
 
     
-   
-
+    #.... compute neural statistics for spikeMD
+    num_neurons = nchan
+    avg_rate = float(np.mean(chanFreq))
+    std_rate = float(np.std(chanFreq))
+    median_rate = float(np.median(chanFreq))
+    min_rate = float(np.min(chanFreq))
+    max_rate = float(np.max(chanFreq))
+    
+    # Compute Fano factor (variance/mean) for each neuron
+    mean_counts_per_bin = np.mean(spikes2D, axis=0)
+    spike_variance = np.var(spikes2D, axis=0)
+    fano_factor = np.divide(spike_variance, mean_counts_per_bin, out=np.zeros_like(spike_variance), where=mean_counts_per_bin != 0)
+    avg_fano = float(np.mean(fano_factor))
+    std_fano = float(np.std(fano_factor))
+    
+    # Print summary statistics
+    print('Neural Statistics Summary:')
+    print('num neurons: %d, Avg Rate= %.2f±%.2f Hz, Avg Fano=%.2f±%.2f' % (num_neurons, avg_rate, std_rate, avg_fano, std_fano))
+    print('Median rate  %.2f Hz' % median_rate)
+    
     #.... extract spikeMD for fitter
-    spikeMD={'time_step_sec': 1./pmd['sampling_freq'], 'short_name':md['short_name'], 'data_type':'bioExp'}
+    spikeMD={'time_step_sec': 1./pmd['sampling_freq'], 'short_name':md['short_name'], 'data_type':'bioExp',
+             'num_neurons': num_neurons,
+             'avg_spike_rate': avg_rate,
+             'std_spike_rate': std_rate,
+             'avg_fano_factor': avg_fano,
+             'std_fano_factor': std_fano,
+             'median_spike_rate': median_rate,
+             'min_spike_rate': min_rate,
+             'max_spike_rate': max_rate}
     return bioD,spikeD,spikeMD
     
 #=================================

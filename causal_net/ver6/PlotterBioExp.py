@@ -28,9 +28,14 @@ from matplotlib.colors import LinearSegmentedColormap
 
 #...!...!....................
 def summary_column(md):
-    pprint(md)
+    #pprint(md)
     txt='dataset: '+md['short_name']
-    txt+='\ndata type: %s, time_step=%.2f sec'%(md['data_type'],md['time_step_sec']) 
+    txt += '\nnum neurons: %d' % md['num_neurons']
+    txt+='\ndata type: %s\n time_step=%.2f sec'%(md['data_type'],md['time_step_sec']) 
+    txt += '\nAvg Rate: %.2f±%.2f Hz' % (md['avg_spike_rate'], md['std_spike_rate'])
+    txt += '\nAvg Fano: %.2f±%.2f' % (md['avg_fano_factor'], md['std_fano_factor'])
+    txt += '\nMedian rate: %.2f Hz' % md['median_spike_rate']
+    txt += '\nMin/Max rate: %.2f/%.2f Hz' % (md['min_spike_rate'], md['max_spike_rate'])
 
     return txt
   
@@ -50,8 +55,10 @@ class Plotter(PlotterBackbone):
         tit='dataset '+md['short_name']
         
         figId=self.smart_append(figId)        
-        nrow,ncol=1,2
         fig=self.plt.figure(figId,facecolor='white', figsize=(16,4))
+        
+        # Create gridspec with 7:3 width ratio
+        gs = gridspec.GridSpec(1, 2, width_ratios=[7, 3])
 
         dataYield, dataRates = spikeD['spikes'], spikeD['single_rates']
 
@@ -60,7 +67,7 @@ class Plotter(PlotterBackbone):
         txtM= f'median rate: {median_val:.2f} Hz'
         
         #.... freq per channel
-        ax = self.plt.subplot(nrow,ncol,1)
+        ax = self.plt.subplot(gs[0, 0])
         chanV=np.arange(dataRates.shape[0])
         ax.bar(chanV, dataRates , width=0.8, color='g', align='center', alpha=0.7)
          
@@ -73,17 +80,17 @@ class Plotter(PlotterBackbone):
                  color='red', ha='center', va='bottom', fontsize=10)
 
         txt=summary_column(md)
-        ax.text(0.05, 0.75,   txt, transform=ax.transAxes, fontsize=10,color='b')
+        ax.text(0.05, 0.5,   txt, transform=ax.transAxes, fontsize=10,color='b')
         
         #........ freq histo .....
-        ax = self.plt.subplot(nrow,ncol,2)
+        ax = self.plt.subplot(gs[0, 1])
         ax.hist(dataRates,bins=20)
         #ax.set_yscale('log')
         ax.set(ylabel='num channels', xlabel='avr frequency (Hz)')
         ax.axvline(median_val, color='red', linestyle='--', linewidth=1)
         # Add median text annotation
         ax.text(median_val, ax.get_ylim()[1]*0.7,txtM, 
-                color='red', ha='center', va='bottom', fontsize=10)
+                color='red', ha='left', va='bottom', fontsize=10)
 
         ax.grid()
       

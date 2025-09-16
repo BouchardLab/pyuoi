@@ -159,7 +159,7 @@ class Plotter(PlotterBackbone):
         #.... : histogram of rates
         ax = self.plt.subplot(nrow,ncol,2)
         yLog= md['evol_conf']['expRate'] 
-        ax.hist(single_rates, bins=20, log=yLog)
+        ax.hist(single_rates, bins=20)#, log=yLog)
         x_vals = np.arange(numNeur)
         ax.set_xlabel('num neurons')
         ax.set_xlabel('Firing rate (Hz)')

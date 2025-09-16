@@ -350,7 +350,7 @@ def main():
         'num_steps': args.num_steps,
         'step_size': args.step_size,
         'evol_time': args.num_steps*args.step_size,
-        'expRate': args.expRate
+        'expRate': args.expRate,
         'exc_rate_dump': args.exc_rate_dump
     }
 
@@ -364,16 +364,15 @@ def main():
             B_idle[:args.num_excite]-=args.exc_rate_dump  # reduce excite rate
         
     else:
-        from UtilFreqGen import gen_exponential_freq
+        from UtilGenExpFreqs import gen_realistic_freqs
         rateGen_conf = {
-            'scale1': 3.0,
-            'scale2': 0.4,
-            'mix_ratio': 0.7,
-            'min_freq': 1.0,
-            'max_freq': 15.0
+            'min_freq': 1,
+            'max_freq': 45,
+            'trapezoid_height': 0.10,
+            'sigma': 3
         }
         evol_conf['rate_gen_conf']=rateGen_conf
-        B_idle = np.log(gen_exponential_freq( num_samples=Nn,**rateGen_conf)    )
+        B_idle = np.log(gen_realistic_freqs(num_samples=Nn,**rateGen_conf))
         
     # Generate spike data using the Poisson  process
     probLo, probHi = args.edge_prob

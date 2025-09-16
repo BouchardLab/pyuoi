@@ -76,9 +76,9 @@ class Plotter(PlotterBackbone):
         # Compute median
         median_val = np.median(Freq)
         txtM= f'median rate: {median_val:.2f} Hz'
-        ax.text( ax.get_xlim()[1]*0.1,median_val,txtM, 
-                 color='red', ha='center', va='bottom', fontsize=10)
-        ax.axhline(median_val, color='red', linestyle='--', linewidth=1)
+        ax.text( median_val,ax.get_ylim()[1]*0.8,txtM, 
+                 color='red', ha='left', va='bottom', fontsize=10)
+        ax.axvline(median_val, color='red', linestyle='--', linewidth=1)
 
         # ... A off-diagonal
         xLab='edge value'
@@ -477,7 +477,7 @@ def plot_A2D(fig,ax,A,title='aa',byFreq=True,trueD=None):
         ylabel_text = 'From neuron (natural idx)'
         xlabel_text = 'To neuron (natural idx)'
     ax.set(title=title, ylabel=ylabel_text, xlabel=xlabel_text)
-    fig.colorbar(im1, ax=ax)
+    fig.colorbar(im1, ax=ax, shrink=0.7)
     ax.grid(True, alpha=0.5)
     #add_x45_lins(ax, only45=True)
 
