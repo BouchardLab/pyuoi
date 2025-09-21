@@ -28,14 +28,19 @@ from matplotlib.colors import LinearSegmentedColormap
 
 #...!...!....................
 def summary_column(md):
+    #print(sorted(md))
+    rs=md['rate_summary']
+    ds=md['data_selector']
     #pprint(md)
     txt='dataset: '+md['short_name']
-    txt += '\nnum neurons: %d' % md['num_neurons']
-    txt+='\ndata type: %s\n time_step=%.2f sec'%(md['data_type'],md['time_step_sec']) 
-    txt += '\nAvg Rate: %.2f±%.2f Hz' % (md['avg_spike_rate'], md['std_spike_rate'])
-    txt += '\nAvg Fano: %.2f±%.2f' % (md['avg_fano_factor'], md['std_fano_factor'])
-    txt += '\nMedian rate: %.2f Hz' % md['median_spike_rate']
-    txt += '\nMin/Max rate: %.2f/%.2f Hz' % (md['min_spike_rate'], md['max_spike_rate'])
+    txt += '\nnum acc neurons: %d' % md['num_neurons']
+    txt+='\ndata type: %s\ntime_step=%.2f sec'%(md['data_type'],md['time_step_sec']) 
+    txt += '\ndrop neur: %d <%.1f Hz,  %d >%.1f Hz' % (ds['drop_neur_by_freq_range'][0],ds['freq_range'][0],ds['drop_neur_by_freq_range'][1],ds['freq_range'][1])
+
+    txt += '\nMedian rate: %.1f Hz' % rs['median_spike_rate']
+    txt += '\nrate range [%.1f/, %.1f Hz]' % (rs['min_spike_rate'], rs['max_spike_rate'])
+    txt += '\nAvg Rate: %.1f±%.1f Hz' % (rs['avg_spike_rate'], rs['std_spike_rate'])
+    txt += '\nAvg Fano: %.2f±%.2f' % (rs['avg_fano_factor'], rs['std_fano_factor'])
 
     return txt
   
@@ -50,8 +55,7 @@ class Plotter(PlotterBackbone):
         
 #...!...!..................
     def freq_histo(self,spikeD,md,figId=1):
-        pprint(md)
- 
+        
         tit='dataset '+md['short_name']
         
         figId=self.smart_append(figId)        
@@ -75,12 +79,12 @@ class Plotter(PlotterBackbone):
         if md['data_type']=='simDale':
             ax.set_yscale('log')
         ax.grid()
-        ax.set(xlabel='input channel', ylabel='avr frequency (Hz)',title=tit)
+        ax.set(xlabel='input neuron index', ylabel='avr frequency (Hz)',title=tit)
         ax.text( ax.get_xlim()[1]*0.1,median_val,txtM, 
                  color='red', ha='center', va='bottom', fontsize=10)
 
         txt=summary_column(md)
-        ax.text(0.05, 0.5,   txt, transform=ax.transAxes, fontsize=10,color='b')
+        ax.text(0.05, 0.3,   txt, transform=ax.transAxes, fontsize=12,color='b')
         
         #........ freq histo .....
         ax = self.plt.subplot(gs[0, 1])
@@ -142,7 +146,7 @@ class Plotter(PlotterBackbone):
         ax.bar(timeV+Tbin*.5, highChanCnt, width=Tbin, color='forestgreen', align='center', alpha=0.7)
 
         ax.bar(timeV+Tbin*.5, highChanCnt*highChanMask , width=Tbin, color='red', align='center', alpha=0.7)
-        ax.set(xlabel='Time (s)', ylabel='num neurons', title=f'num neurons with instantanous rate  thres= {rateThr2:.0f} (Hz)')
+        ax.set(xlabel='Time (s)', ylabel='num neurons', title=f'num neurons with instantanous rate >  thres= {rateThr2:.0f} (Hz)')
         ax.set_xlim(tL,tR)
         ax.grid()
         

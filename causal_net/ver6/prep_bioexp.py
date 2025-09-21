@@ -69,7 +69,7 @@ def buildBioMeta(args):
     pd['well_num']=txtL[5]
 
     sel={'freq_range':args.freqRange}
-    md={ 'bioexp':pd,'selector':sel}
+    md={ 'bioexp':pd,'data_selector':sel}
     myHN=hashlib.md5(os.urandom(32)).hexdigest()[:6]
     md['hash']=myHN
     if args.shortName==None:
@@ -90,7 +90,7 @@ def read_spike_npy(md,args):
     spike_dict = np.load(inpF, allow_pickle=True).item()
 
     #print('spike_dict',spike_dict);ok
-    print('spike_dict',sorted(spike_dict))
+    if args.verb>1:  print('input spike_dict',sorted(spike_dict))
     pmd['sampling_freq'] =args.samp_freq
     
     # neuron ID  MEA chip
@@ -124,17 +124,18 @@ def read_spike_npy(md,args):
 
 
 #...!...!....................
-def unroll_bioexp(rawD,md): 
-    pmd=md['bioexp']
-    sel=md['selector']
+def unroll_bioexp(rawD,bioMD): 
+    pmd=bioMD['bioexp']
+    sel=bioMD['data_selector']
     frLo, frHi = sel['freq_range']
     print('frLo, frHi',frLo, frHi)
     assert frLo < frHi
     chanFreq = np.asarray(rawD['chanFreq'], dtype=float)    
     # vectorized boolean mask for channels within (frLo, frHi) range
-    freqMask = (chanFreq > frLo) & (chanFreq < frHi)
+    freqMask = (chanFreq >= frLo) & (chanFreq <= frHi)
+    sel['drop_neur_by_freq_range']=[ int(np.sum(chanFreq < frLo)),  int(np.sum(chanFreq > frHi)) ] 
     print('freqMask all=%d , passed=%d'%(freqMask.shape[0],np.sum(freqMask)))
-   
+    #print(sel);aaa
     # --- drop channles out of freq range
     chanFreq=rawD['chanFreq'][freqMask]
     MEA_idx=rawD['MEA_idx'][freqMask]
@@ -178,7 +179,6 @@ def unroll_bioexp(rawD,md):
     bioD['neur_revFreqIdx']=neur_revFreqIdx
     bioD['MEA_idx']=MEA_idx
 
-    
     #.... compute neural statistics for spikeMD
     num_neurons = nchan
     avg_rate = float(np.mean(chanFreq))
@@ -200,15 +200,17 @@ def unroll_bioexp(rawD,md):
     print('Median rate  %.2f Hz' % median_rate)
     
     #.... extract spikeMD for fitter
-    spikeMD={'time_step_sec': 1./pmd['sampling_freq'], 'short_name':md['short_name'], 'data_type':'bioExp',
-             'num_neurons': num_neurons,
-             'avg_spike_rate': avg_rate,
-             'std_spike_rate': std_rate,
-             'avg_fano_factor': avg_fano,
-             'std_fano_factor': std_fano,
-             'median_spike_rate': median_rate,
-             'min_spike_rate': min_rate,
-             'max_spike_rate': max_rate}
+    spikeMD={'time_step_sec': 1./pmd['sampling_freq'], 'short_name':bioMD['short_name'], 'data_type':'bioExp', 'num_neurons': num_neurons }
+
+    bioMD['rate_summary']={
+        'avg_spike_rate': avg_rate,
+        'std_spike_rate': std_rate,
+        'avg_fano_factor': avg_fano,
+        'std_fano_factor': std_fano,
+        'median_spike_rate': median_rate,
+        'min_spike_rate': min_rate,
+        'max_spike_rate': max_rate
+    }
     return bioD,spikeD,spikeMD
     
 #=================================
@@ -228,16 +230,15 @@ if __name__ == "__main__":
 
     #.... filter & unroll data
     bioD,spikeD,spikeMD=unroll_bioexp(rawD,bioMD)
-    
 
     #...... WRITE   OUTPUT .........
-    outFt = os.path.join(args.dataPath, bioMD['short_name'] + '.bioexp.npz')
+    outFt = os.path.join(args.dataPath, bioMD['short_name'] + '.bioExp.npz')
     write_data_npz(bioD, outFt, metaD=bioMD)
     if args.verb>2:
         print('\n bioD:',sorted(bioD))
         pprint(bioMD)
   
-    outFs = outFt.replace('.bioexp.','.spikes.')
+    outFs = outFt.replace('.bioExp.','.spikes.')
     write_data_npz(spikeD, outFs, metaD=spikeMD)
     if args.verb>2:  
         print('\nspikeD:',sorted(spikeD))
@@ -246,8 +247,8 @@ if __name__ == "__main__":
     print("\nNext step command:")
     print('   ./view_bioexp.py  --dataPath $dataPath  --dataName   %s  -p  a b   -T 0 3550  '%(bioMD['short_name'] ))
     print("  ./fit_lassoPoisson.py  --dataPath $dataPath  --dataName %s  --num_epochs  10 " % bioMD['short_name'] )
-    print(" ./fitLasso4GPU.sh  --dataPath $dataPath  --dataName %s  --n_epochs  200 " % bioMD['short_name'] )
-    print("  ./bootsFit.sh --dataName  %s  --num_epochs  250 --dropDataFrac 0.5 --num_boots 7  " % bioMD['short_name'] )
+    print(" ./fitLasso4GPU.sh  --dataPath $dataPath  --dataName %s  --num_epochs  200 " % bioMD['short_name'] )
+    print("  ./bootsFit.sh --dataName  %s  --num_epochs  250 --dropDataFrac 0.5 --num_bootstraps 7  " % bioMD['short_name'] )
 
     print("   ./selectEdges_FDR.py  --dataName %s  --num_bootstraps 6 10 -p a c d  " % bioMD['short_name'] )
     

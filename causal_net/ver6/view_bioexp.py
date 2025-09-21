@@ -127,22 +127,24 @@ if __name__=="__main__":
     spikesFF = os.path.join(args.dataPath, f"{args.dataName}.spikes.npz")
     spikeD, spikeMD = read_data_npz(spikesFF)
     if args.verb>1: pprint(spikeMD)
-    
     rebD,timeMask=detect_spike_bursts(spikeD, spikeMD)
 
+    # ... for plotting
+    bioFF=spikesFF.replace('spikes','bioExp')
+    bioD, bioMD = read_data_npz(bioFF)
+    
      #...... WRITE   OUTPUT .........
     maskFF=spikesFF.replace('spikes','timeMask')
     write_data_npz({'time_mask':timeMask}, maskFF, metaD=None)
-
     filter_bursts(spikeD, spikeMD,timeMask)
-          
+    
     #--------------------------------
     # ....  plotting ........
     args.prjName=spikeMD['short_name']
-    spikeMD['plot']={}
-    
+    spikeMD['plot']={}    
     spikeMD['plot']['time_rangeLR']=np.array(args.time_range)
-
+    spikeMD.update(**bioMD)
+    
     plot=Plotter(args)
    
     if 'a' in args.showPlots:
