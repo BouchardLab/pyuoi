@@ -94,7 +94,7 @@ class Plotter(PlotterBackbone):
         n_edges = len(Aedg_clean)
 
         ax = self.plt.subplot(nrow,ncol,2)
-        ax.hist(Aedg_clean, bins=100,color='g')
+        ax.hist(Aedg_clean, bins=100,color='g',alpha=0.8)
         ax.set_yscale('log')
         ax.grid(True, alpha=0.4)
         ax.set(ylabel='edges',xlabel=xLab,title='A off-diagonal')
@@ -148,6 +148,7 @@ class Plotter(PlotterBackbone):
         #pprint(md)
         fitType=md['fit_type']
         fmd=md['fit_'+fitType]
+        esmd=md['edge_selector']
         
         figId=self.smart_append(figId)        
         nrow,ncol=2,4
@@ -161,6 +162,9 @@ class Plotter(PlotterBackbone):
             valT,valF=plot_correl_offdiag(fig,ax,evalD[etype])
             ax.set_title(title)
 
+            txt='alpha=%.3f '%(esmd['alpha'])
+            ax.text(0.40, 0.15,   txt, transform=ax.transAxes, fontsize=10)
+        
             ax = self.plt.subplot(nrow,ncol,1+j+ncol)
             plot_1D_residuals(ax, valT,valF,lab='TP off-diag '+etype,col='green')
 
@@ -174,19 +178,20 @@ class Plotter(PlotterBackbone):
         title = 'fit (diagonal)'
         ax = self.plt.subplot(nrow,ncol,3)
         V=evalD['diag']
-        ax.scatter(V[:,1], V[:,0], alpha=0.6, color='blue',marker='.',s=5)
+        dCol='salmon'
+        ax.scatter(V[:,1], V[:,0], alpha=0.6, color=dCol,marker='.',s=5)
         ax.set_title(title)
         add_x45_lins(ax, only45=True)
         ax.grid(True, alpha=0.5)
         
         ax = self.plt.subplot(nrow,ncol,3+ncol)        
-        plot_1D_residuals(ax,V[:,1],V[:,0],lab='diag',col='blue')
+        plot_1D_residuals(ax,V[:,1],V[:,0],lab='diag',col=dCol)
 
 
         # ...  B-term
         title = 'fit (B-term)'
         ax = self.plt.subplot(nrow,ncol,4)
-        dCol='tomato'
+        dCol='darkviolet'
         V=evalD['bterm']
         ax.scatter(V[:,1], V[:,0], alpha=0.6, color=dCol,marker='.',s=5)
         ax.set_title(title)
@@ -498,7 +503,7 @@ def add_x45_lins(ax, only45=False):
 
 def plot_correl_offdiag(fig,ax,tripV):
     TP,FP,FN=tripV
-    print('ss',TP.shape)
+    #print('ss',TP.shape)
     ax.scatter(TP[:,3], TP[:,2], alpha=0.6, color='green',label='TP: %d'%TP.shape[0],marker='.',s=5)
     n=FN.shape[0]
     ax.scatter(FN[:,2], [0]*n, alpha=0.6, color='red',s=5,label='FN: %d'%FN.shape[0])

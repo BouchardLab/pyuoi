@@ -118,7 +118,8 @@ def eval_tagged_edges_4_simu(fitD, trueD):
     evalD['bterm']=np.column_stack([Br, Bt])
 
     return  evalD
-    
+
+
 def get_offdiag_triplets(A, isPos=True):
     """
     Returns positive/negative, off-diagonal elements of 2D array A as array of [i, j, value] triplets.
@@ -290,7 +291,7 @@ def load_bootstrap_data(dataName, dataPath, K, verb=1):
     
     # Load real data
     for k in range(Kreal):
-        real_file = os.path.join(dataPath, f"{dataName}-boot{k}.lassoFit.npz")
+        real_file = os.path.join(dataPath, f"{dataName}-boots{k}.lassoFit.npz")
         data_real, meta_real = read_data_npz(real_file, verb=(k==0 and verb>=2))
         A_real = data_real['A_lasso']
         B_real = data_real['B_lasso']
@@ -311,7 +312,7 @@ def load_bootstrap_data(dataName, dataPath, K, verb=1):
 
     # Load shuffled data
     for k in range(Kshuf):
-        shuf_file = os.path.join(dataPath, f"{dataName}-shuf{k}.lassoFit.npz")
+        shuf_file = os.path.join(dataPath, f"{dataName}-desync{k}.lassoFit.npz")
         data_shuf, _ = read_data_npz(shuf_file, verb=(k==0 and verb>=2))
         A_shuf = data_shuf['A_lasso']
         edges_shuf = A_shuf.copy()

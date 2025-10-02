@@ -32,4 +32,5 @@ export CUDA_VISIBLE_DEVICES=$CUDA_DEVICES
 echo "Running: ./fit_lassoPoisson.py  $fixArgs $varArgs"
 echo ""
 
-time ./fit_lassoPoisson.py $fixArgs $varArgs 
+time torchrun --standalone --nproc_per_node=4  ./fit_lassoPoisson.py $fixArgs $varArgs 
+# ./fit_lassoPoisson.py $fixArgs $varArgs   # 1 GPU job, for testing

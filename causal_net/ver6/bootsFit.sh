@@ -6,8 +6,9 @@
 
 # Parse arguments with better handling
 DATANAME=""  # mandatory parameter
-NUM_BOOTSTRAPS=5  # default value
+NUM_BOOTSTRAPS=6  # default value
 SHUFFLE_TIME=false
+BOOTS_TAG='s1'
 varArgs=()
 
 # Parse command line arguments
@@ -22,9 +23,13 @@ while [[ $# -gt 0 ]]; do
             NUM_BOOTSTRAPS="$2"
             shift 2
             ;;
-        --shuffleTime)
-            SHUFFLE_TIME=true
-            varArgs+=("--shuffleTime")
+        --bootsTag)
+            BOOTS_TAG="$2"
+            shift 2
+            ;;
+        --desyncTime)
+            DESYNC_TIME=true
+            varArgs+=("--desyncTime")
             shift
             ;;
         *)
@@ -41,11 +46,12 @@ if [[ -z "$DATANAME" ]]; then
     echo "Usage: $0 --data_name <name> [--num_bootstraps <number>] [--shuffleTime] [other_args...]"
     exit 1
 fi
+echo ${BOOTS_TAG}
 
 # Set naming pattern based on shuffleTime flag
-FIT_SUFFIX="boot"
-if [[ "$SHUFFLE_TIME" == true ]]; then
-    FIT_SUFFIX="shuf"
+FIT_SUFFIX="boots"
+if [[ "$DESYNC_TIME" == true ]]; then
+    FIT_SUFFIX="desync"
 fi
 
 # Convert varArgs array back to string for compatibility
@@ -63,7 +69,7 @@ fi
 # Print configuration
 echo "=== Bootstrap Lasso Poisson Training ==="
 echo "Extracted dataName: $DATANAME"
-echo "FitName pattern: ${DATANAME}-${FIT_SUFFIX}X (starting from 0)"
+echo "FitName pattern: ${DATANAME}${BOOTS_TAG}-${FIT_SUFFIX}X (starting from 0)"
 echo "Variable args: $varArgsStr"
 echo "Fixed args: $fixArgs"
 echo "Bootstraps: $NUM_BOOTSTRAPS"
@@ -76,7 +82,7 @@ TOTAL_START_TIME=$(date +%s)
 # Bootstrap loop
 for ((k=1; k<=NUM_BOOTSTRAPS; k++)); do
     # Construct fitName using extracted dataName and suffix (count from 0)
-    FITNAME="${DATANAME}-${FIT_SUFFIX}$((k-1))"
+    FITNAME="${DATANAME}${BOOTS_TAG}-${FIT_SUFFIX}$((k-1))"
     
     echo "=== Bootstrap $k/$NUM_BOOTSTRAPS ==="
     echo "fitName: $FITNAME"
@@ -88,7 +94,7 @@ for ((k=1; k<=NUM_BOOTSTRAPS; k++)); do
     
     # Run fitLasso.sh with simplified approach
     ./fitLasso4GPU.sh $fixArgs --fitName "$FITNAME" $varArgsStr
-    
+   
     # Check exit status
     EXIT_CODE=$?
     
@@ -146,7 +152,3 @@ echo "Bootstrap results saved with fitNames:"
 for ((k=1; k<=NUM_BOOTSTRAPS; k++)); do
     echo "  ${DATANAME}-${FIT_SUFFIX}$((k-1))"
 done
-
-echo ""
-echo "To evaluate the first bootstrap result, run:"
-echo "./eval_fitLasso.py --dataPath /pscratch/sd/b/balewski/2025_causalNet_tmp/ --dataName ${DATANAME}-${FIT_SUFFIX}0 -p a"

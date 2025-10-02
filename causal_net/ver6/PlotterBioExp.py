@@ -34,9 +34,8 @@ def summary_column(md):
     #pprint(md)
     txt='dataset: '+md['short_name']
     txt += '\nnum acc neurons: %d' % md['num_neurons']
-    txt+='\ndata type: %s\ntime_step=%.2f sec'%(md['data_type'],md['time_step_sec']) 
     txt += '\ndrop neur: %d <%.1f Hz,  %d >%.1f Hz' % (ds['drop_neur_by_freq_range'][0],ds['freq_range'][0],ds['drop_neur_by_freq_range'][1],ds['freq_range'][1])
-
+    txt+='\ndata type: %s\ntime_step=%.2f sec'%(md['data_type'],md['time_step_sec']) 
     txt += '\nMedian rate: %.1f Hz' % rs['median_spike_rate']
     txt += '\nrate range [%.1f/, %.1f Hz]' % (rs['min_spike_rate'], rs['max_spike_rate'])
     txt += '\nAvg Rate: %.1f±%.1f Hz' % (rs['avg_spike_rate'], rs['std_spike_rate'])

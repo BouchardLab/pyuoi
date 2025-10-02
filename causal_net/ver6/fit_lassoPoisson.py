@@ -55,15 +55,17 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--L1_alpha", type=float, default=1e-3)
     parser.add_argument("--fitName", type=str, default=None)
-    parser.add_argument("--desync_time_bin", type=int, default=0, help="Time shift for decorrelation (0=disabled, >0=shift consecutive neurons by this many time bins)")
     parser.add_argument("--Tmask", action='store_true', help="Use time mask to remove time bins from data")
     parser.add_argument("--shuffleTime", action='store_true', help="If true completely shuffle time axis for input data, independently for all channels")
+    parser.add_argument("--desyncTime", action='store_true', help="If true completely shuffle time axis for input data, independently for all channels")
     parser.add_argument("--dropDataFrac", type=float, default=0.0, help="Fraction of training samples to randomly drop per rank (0.0=use all data, 0.3=drop 30%%)")
  
     args = parser.parse_args()
     
     # DDP init
     is_dist = (int(os.environ.get('WORLD_SIZE', '1')) > 1) or ('LOCAL_RANK' in os.environ) or ('RANK' in os.environ)
+    #print('is_dist;',is_dist,os.environ.get('WORLD_SIZE', '1'),'RANK' in os.environ)
+    
     if is_dist:
         dist.init_process_group(backend='nccl')
         local_rank = int(os.environ['LOCAL_RANK'])
@@ -74,6 +76,7 @@ def main():
     else:
         local_rank = 0; rank = 0; world_size = 1
         device = check_gpu_availability()
+    args.rank=rank
     if rank==0:
         print("Configuration:", vars(args))
         print("world_size=%d" % (world_size))
@@ -110,14 +113,40 @@ def main():
             if rank==0:
                 print(f"Time mask length ({len(time_mask)}) < data length ({T}), using available mask")
             # Keep the mask as is, preprocess_data will handle the shorter length
-   
-    if args.fitName is None:
-        import string
-        hash_str =  ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
-        fit_core = f"{args.dataName}-{hash_str}"
-    else:
-        fit_core = args.fitName
-    
+ 
+    # Apply decorrelation if requested
+    if args.desyncTime > 0:
+        if rank==0: print("\n=== Applying Time Decorrelation, it shifts time for each neuron ===")
+        
+        # Rank 0 generates random shift amounts for all neurons
+        if rank == 0:
+            # Use current time + process info to create different shifts each run
+            seed = int(time.time() * 1000) % 1000000  # Use millisecond timestamp as seed
+            np.random.seed(seed)
+            shift_amounts = np.random.randint(1, T//4, size=M, dtype=np.int32)  # Random shifts between 1 and T/4
+            if rank == 0:
+                print('Generated random shifts with seed=%d'%(seed),shift_amounts[:10],'...',flush=True)
+        else:
+            shift_amounts = np.zeros(M, dtype=np.int32)
+        
+        # Broadcast shift amounts from rank 0 to all other ranks
+        if is_dist:
+            # Ensure all ranks have the tensor on the same device and dtype
+            shift_amounts_tensor = torch.tensor(shift_amounts, dtype=torch.int32, device='cuda')
+            dist.broadcast(shift_amounts_tensor, src=0)
+            shift_amounts = shift_amounts_tensor.cpu().numpy()
+        
+        # Apply the same shifts on all ranks
+        #print('myrank=',rank,'shift_amounts=',shift_amounts[:10],flush=True)
+        Y = np.zeros_like(dataYield)        
+        for neuron_idx in range(M):
+            shift_amount = int(shift_amounts[neuron_idx])
+            # Circular shift: move data to the right, wrap around
+            Y[:, neuron_idx] = np.roll(dataYield[:, neuron_idx], shift_amount)
+        
+        if rank==0: print(f"Applied synchronized time shifts across all ranks, destroys temporal correlations between neurons")
+        dataYield = Y 
+        
     X_np, Yt_np = preprocess_data(dataYield, args, time_mask=time_mask)
     n_pairs = X_np.shape[0]
     
@@ -148,7 +177,7 @@ def main():
     train_loader = make_loader(X_np, Yt_np, args, is_dist=is_dist)
     
     if rank==0:
-        print(f"Loaded nT={T/1000}k, M={M}, using {n_pairs/1000}k pairs (all for training), world_size={world_size}, per_gpu_bs={args.batch_size//max(1,world_size)}")
+        print(f"Loaded pairs={n_pairs/1000}k, M={M}, using {n_pairs/1000}k pairs (all for training), world_size={world_size}, per_gpu_bs={args.batch_size//max(1,world_size)}")
 
     # --- Original training logic from fit_poissonV4.py ---
     base_model = PoissonGLModel(M).to(device)
@@ -161,9 +190,15 @@ def main():
     total_time = time.time() - start_time
     if rank==0:
         print(f"Training completed in {total_time:.1f} seconds")
+  
+        if args.fitName is None:
+            import string
+            hash_str =  ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+            fit_core = f"{args.dataName}-{hash_str}"
+        else:
+            fit_core = args.fitName
 
-    # --- Modern output saving from fit_Lasso ---
-    if rank==0:
+        # saving from fit_Lasso ---
         mdl = model.module if hasattr(model,'module') else model
         lassoD = { 'A_lasso': mdl.A.detach().cpu().numpy(), 'B_lasso': mdl.B.detach().cpu().numpy(), 'losses_total': np.array(losses_total), 'losses_wo_L1': np.array(losses_wo_L1), 'losses_epochs': np.array(train_epochs, dtype=np.int32), 'learning_rates': np.array(learning_rates), 'single_rates': dataRates }
         lassoMD = { 'lassoFit_output_name': fit_core, 'lassoFit_input_name': args.dataName, 'batch_size': args.batch_size, 'num_samples_used': n_pairs, 'n_epochs': args.num_epochs, 'num_train_samples': n_pairs, 'learning_rate': args.lr, 'L1_alpha': args.L1_alpha, 'step_size': step_size, 'training_time_sec': total_time, 'num_neurons': M, 'dropDataFrac': args.dropDataFrac }
@@ -171,7 +206,6 @@ def main():
         spikeMD['fit_lasso']=lassoMD
         spikeMD['edge_selector']={'selector_type':'None'}
           
-    if rank==0:
         fitFF = os.path.join(args.dataPath, f"{fit_core}.lassoFit.npz")
         write_data_npz(lassoD, fitFF, metaD=spikeMD)
 
