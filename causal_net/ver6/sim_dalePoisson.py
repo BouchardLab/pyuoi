@@ -42,8 +42,7 @@ import sys
 
 import argparse
 from pprint import pprint
-from PlotterSimPoisson import Plotter
-from UtilDalePoisson import estimate_rates, geom_edges_mask, true_edges_mask
+from UtilDalePoisson import estimate_rates
 from toolbox.Util_NumpyIO import write_data_npz
 
 ###### Matrix generation ##################
@@ -272,13 +271,10 @@ def main():
     parser.add_argument('-v',"--verb", type=int, default=1, help="Verbosity level (0=quiet, 1=normal).")
     parser.add_argument("--dataName", type=str, default=None, help="Base name for output files (default: dale_spikes_xx).")
     parser.add_argument("--outPath", type=str, default='/pscratch/sd/b/balewski/2025_causalNet_tmp/', help="Output directory for all files.")
-    parser.add_argument('-X',"--noXterm", action="store_true", help="Disable X terminal for plotting") 
-    parser.add_argument("-p", "--showPlots",  default='a b', nargs='+',help="abc-string listing shown plots: a=Dale_matrix_and_eigen, b=histo_true_weights, c=rate_analysis")
 
     np.set_printoptions(precision=3, suppress=True)
 
     args = parser.parse_args()
-    args.showPlots=''.join(args.showPlots)
     # Determine output file prefix
     if args.dataName is None:
         args.dataName='daleM%d_'%args.num_neurons+hashlib.md5(os.urandom(32)).hexdigest()[:6]
@@ -360,7 +356,7 @@ def main():
         Ri_arg = np.array(args.idleRate)
         Bi = np.log(Ri_arg)
         B_idle = np.random.uniform(Bi[0],Bi[1], size=(Nn,))
-        if args.exc_rate_dumpl!=None:
+        if args.exc_rate_dump!=None:
             B_idle[:args.num_excite]-=args.exc_rate_dump  # reduce excite rate
         
     else:
@@ -368,8 +364,9 @@ def main():
         rateGen_conf = {
             'min_freq': 1,
             'max_freq': 45,
-            'trapezoid_height': 0.10,
-            'sigma': 3
+            'trapezoid_height': 0.15,
+            'trapezoid_rmin':0.3,
+            'sigma': 4
         }
         evol_conf['rate_gen_conf']=rateGen_conf
         B_idle = np.log(gen_realistic_freqs(num_samples=Nn,**rateGen_conf))
@@ -415,10 +412,7 @@ def main():
     
     # Create metadata for freq-sorted data (this is now primary)
     trueMD = {'dale_conf': dale_conf, 'evol_conf': evol_conf,'short_name':args.dataName,'dale_simu_stats':stats_dict}  
-    
-    # Create masks for frequency-sorted data (primary index)
-    maskD=geom_edges_mask(trueMD,freq_sorted_exc_mask,freq_sorted_inh_mask)
-    
+        
     # Prepare spike data for saving - reorder by frequency
     Y_uchar = np.clip(Y, 0, 255).astype(np.uint8)
     Y_freq_sorted = Y_uchar[:, neur_revFreqIdx]  # Reorder neurons by frequency
@@ -429,14 +423,6 @@ def main():
         'single_rates': rates_freq_sorted
     }
     spikeMD={ 'short_name':args.dataName,'time_step_sec':args.step_size,'data_type':'simDale' }
-    
-    true_edges_mask(maskD,trueD)
-
-    for xx in maskD:
-        recD=maskD[xx]
-        for yy in recD:
-            name='mask.%s.%s'%(xx,yy)
-            trueD[name]=recD[yy]
 
     outFt = os.path.join(args.outPath, args.dataName + '.simTruth.npz')
     write_data_npz(trueD, outFt, metaD=trueMD)
@@ -445,24 +431,11 @@ def main():
     write_data_npz(spikeD, outFs, metaD=spikeMD)
     if args.verb>2:  pprint(spikeMD)
         
-    print("\nNext step command:")
-    print("  ./fit_lassoPoisson.py  --dataName %s  --n_epochs  50 " % args.dataName)
-    
-    #--------------------------------
-    # ....  plotting ........
-    args.prjName=args.dataName+'_sim'
-    plot=Plotter(args)
-    
-    if 'a' in args.showPlots:
-        plot.Dale_matrix_and_eigen(trueD['A_true'],trueMD,trueD,figId=1)
-    if 'b' in args.showPlots:
-        plot.histo_weights_rates(trueD,spikeD,trueMD,figId=2)
- 
-    if 'c' in args.showPlots:
-        plot.histo_weights_rates(trueD,spikeD,trueMD,byFreq=True,figId=2)
-  
-    plot.display_all()
-    print('Simulation completed successfully!')
+    print("\nSimulation completed successfully!")
+    print("\nNext step commands:")
+    print("  ./view_dalePoisson.py  --dataPath $dataPath   --dataName %s  -p c a b " % args.dataName)
+    print("  ./fit_lassoPoisson.py  --dataPath $dataPath   --dataName %s  --num_epochs 50 " % args.dataName)
+    print("    --dataPath "+args.outPath)
 
 if __name__ == '__main__':
     main() 

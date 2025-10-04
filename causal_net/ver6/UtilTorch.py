@@ -33,59 +33,44 @@ def check_gpu_availability():
     print(f"Using device: {torch.cuda.get_device_name(0)}")
     return device
 
-def preprocess_data(Y, args, time_mask=None):
-    T, M = Y.shape
-        
-    # Apply time shuffling if requested
-    if  args.shuffleTime:
-        move_it_to_main1
-        if args.rank==0: print("\n=== Applying Time Shuffling ===")
-        Y_shuffled = Y.copy()
-        for neuron_idx in range(M):
-            # Create shuffled time indices for this neuron
-            time_indices = np.arange(T)
-            np.random.shuffle(time_indices)
-            Y_shuffled[:, neuron_idx] = Y[time_indices, neuron_idx]
-        if args.rank==0:
-            print(f"Applied independent time shuffling to all {M} channels")
-            print(f"This completely destroys temporal structure in each channel")
-        Y = Y_shuffled
+def preprocess_data(Y, args):
+    import random
+    Nt, Nn = Y.shape
     
-    # Handle time masking to preserve causal structure
-    if time_mask is not None:
-        move_to_main2
-        assert not args.shuffleTime
-        assert not args.desyncTime
-        # Ensure mask doesn't exceed data length
-        mask_len = min(len(time_mask), T)
-        valid_pairs = []
-        
-        # Create pairs (t, t+1) only where both t and t+1 are not masked
-        for t in range(mask_len - 1):
-            if not time_mask[t] and not time_mask[t + 1]:
-                valid_pairs.append(t)
-        
-        # Add remaining pairs if mask is shorter than data
-        for t in range(mask_len, T - 1):
-            valid_pairs.append(t)
-        
-        valid_pairs = np.array(valid_pairs)
-        print(f"Time masking: keeping {len(valid_pairs)} valid consecutive pairs out of {T-1} possible pairs")
-        
-        max_pairs = len(valid_pairs)
-        num_samples = args.num_samples
-        if num_samples is None or num_samples > max_pairs:
-            num_samples = max_pairs
-        
-        selected_pairs = valid_pairs[:num_samples]
-        return Y[selected_pairs], Y[selected_pairs + 1]
-    else:
-        # Original logic when no masking
-        max_pairs = T - 1
-        num_samples = args.num_samples
-        if num_samples is None or num_samples > max_pairs:
-            num_samples = max_pairs
-        return Y[:num_samples], Y[1:num_samples + 1]
+    # Apply time decorrelation if requested
+    if args.desyncTime:
+        if args.rank==0: print("\n=== Applying Time Decorrelation, it shifts time for each neuron ===")
+        seed = int(time.time() * 1000) % 1000000
+        np.random.seed(seed)
+        shift_amounts = np.random.randint(1, Nt//4, size=Nn, dtype=np.int32)
+        if args.rank==0: print('Generated random shifts with seed=%d'%(seed),shift_amounts[:10],'...',flush=True)
+        Y_shifted = np.zeros_like(Y)
+        for neuron_idx in range(Nn):
+            shift_amount = int(shift_amounts[neuron_idx])
+            Y_shifted[:, neuron_idx] = np.roll(Y[:, neuron_idx], shift_amount)
+        if args.rank==0: print(f"Applied time shifts, destroys temporal correlations between neurons")
+        Y = Y_shifted
+    
+    # Create consecutive pairs
+    max_pairs = Nt - 1
+    num_samples = args.num_samples
+    if num_samples is None or num_samples > max_pairs:
+        num_samples = max_pairs
+    XY = np.stack([Y[:num_samples], Y[1:num_samples + 1]], axis=1)
+    
+    # Apply random data dropping if requested
+    if args.dropDataFrac > 0:
+        n_pairs = XY.shape[0]
+        drop_seed = (int(time.time() * 1000) + np.random.randint(0, 1000)) % (2**32)
+        np.random.seed(drop_seed)
+        random.seed(drop_seed)
+        n_keep = int(n_pairs * (1.0 - args.dropDataFrac))
+        keep_indices = np.random.choice(n_pairs, size=n_keep, replace=False)
+        keep_indices = np.sort(keep_indices)
+        XY = XY[keep_indices]
+        if args.rank==0: print(f"Dropped {args.dropDataFrac:.1%} of data, keeping {XY.shape[0]} samples (seed={drop_seed})")
+    
+    return XY
 
 
 def train_Poisson_model(model, device, train_loader, n_epochs, lr, L1_alpha=0.0, use_scheduler=False, firing_rates=None, train_sampler=None, print_every=10):

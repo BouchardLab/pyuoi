@@ -148,7 +148,7 @@ def get_offdiag_triplets(A, isPos=True):
     values = A[i_indices, j_indices]
     
     return np.column_stack([i_indices, j_indices, values])
-    
+
 def edge_selector_fdr(A_edges_real_list, A_edges_shuf_list, alpha=0.01):
     """
     Apply row-wise FDR to select significant edges.

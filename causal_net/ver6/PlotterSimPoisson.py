@@ -111,50 +111,36 @@ class Plotter(PlotterBackbone):
 
         # Data is now stored in frequency-sorted order by default
         single_rates = spikeD['single_rates']  # Already in freq-sorted order
-        edgeTV = trueD['edge_cnt_true']        # Already in freq-sorted order
-        m_diagA = trueD['mask.geom.diagA']     # Already in freq-sorted order
-        m_excA = trueD['mask.true.excA']       # Already in freq-sorted order
-        m_inhA = trueD['mask.true.inhA']       # Already in freq-sorted order
-        m_inh1d = trueD['mask.geom.inh_idx']   # Already in freq-sorted order
+  
+        from UtilSelectFDR import get_offdiag_triplets
+        # output:  np.column_stack([i_indices, j_indices, values])
+        EposT=get_offdiag_triplets(A,isPos=True)
+        EnegT=get_offdiag_triplets(A,isPos=False)
+        print('True0 num edges  pos=%d  neg=%d'%(EposT.shape[0],EnegT.shape[0]))
+
+        wMin=np.min(EnegT[:,2])
+        wMax=np.max(EposT[:,2])
+                
+        def count_elements(E, Nn=numNeur):
+            i_indices = E[:, 0].astype(int)
+            counts = np.bincount(i_indices, minlength=Nn)
+            return counts
         
-        #....   weights histogram (always use freq-sorted data)
+        edgeCount=count_elements(EnegT)  + count_elements(EposT)
+        m_inh1d=count_elements(EnegT)>0
+        #print('num inh neur=',np.sum(m_inh1d), ' num inh edges:',np.sum(edgeCount))
+        
+        #....   weights histogram 
         ax = self.plt.subplot(nrow,ncol,1)
-        binX=30
-        ax.hist(A[m_excA], bins=binX, color='red', alpha=0.7, edgecolor=None,label='exc:%d'%np.sum(m_excA))
-        ax.hist(A[m_inhA], bins=binX, color='blue', alpha=0.7, edgecolor=None,label='inh:%d'%np.sum(m_inhA))
+        binX= np.linspace(wMin, wMax, 100)
+        ax.hist(EnegT[:,2], bins=binX, color='blue', alpha=0.7, edgecolor=None,label='neg:%d'%EnegT.shape[0])
+        ax.hist(EposT[:,2], bins=binX, color='red', alpha=0.7, edgecolor=None,label='pos:%d'%EposT.shape[0])
 
         ax.legend(loc='upper left')
         tit='True Dale, M%d, %s'%(A.shape[0],md['short_name'])
         ax.set(title=tit, xlabel='Weight value',ylabel='num edges')
         ax.axvline(0,color='k',ls='--')
         ax.grid(True, alpha=0.3)
-        
-        # Prepare data for neuron-indexed plots based on display order
-        if byFreq:
-            # Display data in frequency-sorted order (as stored)
-            display_single_rates = single_rates
-            display_edgeTV = edgeTV
-            display_inh_mask = m_inh1d
-            neurXlab = 'freq sorted neurons index'
-        else:
-            # Convert to natural neuron order for display
-            neur_revFreqIdx = trueD['neur_revFreqIdx']  # freq_sorted_position → natural_index
-            
-            # Create arrays in natural order
-            display_single_rates = np.zeros_like(single_rates)
-            display_edgeTV = np.zeros_like(edgeTV)
-            
-            # Map firing rates and edge counts from freq-sorted back to natural order
-            display_single_rates[neur_revFreqIdx] = single_rates
-            display_edgeTV[neur_revFreqIdx] = edgeTV
-            
-            # For natural order, create inhibitory mask based on original neuron types
-            # First num_excite neurons are excitatory, rest are inhibitory
-            display_inh_mask = np.zeros(numNeur, dtype=bool)
-            display_inh_mask[numExc:] = True  # Inhibitory neurons start at index numExc
-            neurXlab = 'natural indexed neurons'
-        
-        x_vals = np.arange(numNeur)
 
         #.... : histogram of rates
         ax = self.plt.subplot(nrow,ncol,2)
@@ -173,8 +159,33 @@ class Plotter(PlotterBackbone):
         median_text = f"median: {median_val:.2f} (Hz)\n N={single_rates.shape[0]}"
         ax.text( x=median_val * 1.1,  y=y_max * 0.7, s=median_text,  color='red')
 
+        # Prepare data for neuron-indexed plots based on display order
+        if byFreq:
+            # Display data in frequency-sorted order (as stored)
+            display_single_rates = single_rates
+            display_edgeTV = edgeCount
+            display_inh_mask = m_inh1d
+            neurXlab = 'freq sorted neurons index'
+        else:
+            # Convert to natural neuron order for display
+            neur_revFreqIdx = trueD['neur_revFreqIdx']  # freq_sorted_position → natural_index
+            
+            # Create arrays in natural order
+            display_single_rates = np.zeros_like(single_rates)
+            display_edgeTV = np.zeros_like(edgeCount)
+            
+            # Map firing rates and edge counts from freq-sorted back to natural order
+            display_single_rates[neur_revFreqIdx] = single_rates
+            display_edgeTV[neur_revFreqIdx] = edgeCount
+            
+            # For natural order, create inhibitory mask based on original neuron types
+            # First num_excite neurons are excitatory, rest are inhibitory
+            display_inh_mask = np.zeros(numNeur, dtype=bool)
+            display_inh_mask[numExc:] = True  # Inhibitory neurons start at index numExc
+            neurXlab = 'natural indexed neurons'
         
-        #.... : rho_true vs neuron index
+        x_vals = np.arange(numNeur)         
+        #....  edge count
         ax = self.plt.subplot(nrow,ncol,3)
         ax.fill_between(x_vals, display_edgeTV, step='mid', color='salmon', alpha=0.7)
         ax.set_xlabel(neurXlab)
@@ -184,18 +195,18 @@ class Plotter(PlotterBackbone):
         probLo, probHi = dmd['edge_prob']
         rho_title = f'outgoing edges, true, prob=[{probLo:.2f}, {probHi:.2f}]'
         ax.set_title(rho_title)
-
+        
+            
         #....  firing rates ..... 
         ax = self.plt.subplot(nrow,ncol,4)
         chanW=0.9        
         # Create masks for inhibitory and excitatory neurons
         inh_mask_display = display_inh_mask
         exc_mask_display = ~display_inh_mask
-        
-        ax.bar(x_vals[inh_mask_display], display_single_rates[inh_mask_display], width=chanW, color='blue', align='center', alpha=0.7, label='Inhibitory')
-                
+               
         ax.bar(x_vals[exc_mask_display], display_single_rates[exc_mask_display], width=chanW, color='red', align='center', alpha=0.7, label='Excitatory')
-        
+        ax.bar(x_vals[inh_mask_display], display_single_rates[inh_mask_display], width=chanW, color='blue', align='center', alpha=0.7, label='Inhibitory')
+
         ax.set_xlabel(neurXlab)
         ax.set_ylabel('Firing rate (Hz)')
         ax.set_ylim(0,)

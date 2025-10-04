@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Utility functions for Dale Poisson simulation data processing 
 
@@ -180,41 +179,21 @@ def estimate_rates(Y, dt, num_excite, max_samples, mxNn=5):
     return stats_dict, rates_dict, neur_freq_index
 
 
-def geom_edges_mask(md,exc_1d,inh_1d):
-    dale_conf=md['dale_conf']
-    Nn=dale_conf['num_neurons']
-    
-    # Create diagonal mask
-    diag_mask = np.eye(Nn, dtype=bool)
-    
-    # exc_mask: excitatory neuron rows, all columns, except diagonal
-    exc_mask = np.zeros((Nn, Nn), dtype=bool)
-    exc_mask[exc_1d, :] = True
-    exc_mask = exc_mask & (~diag_mask)  # remove diagonal
 
-    # inh_mask: inhibitory neuron rows, all columns, except diagonal
-    inh_mask = np.zeros((Nn, Nn), dtype=bool)
-    inh_mask[inh_1d, :] = True
-    inh_mask = inh_mask & (~diag_mask)  # remove diagonal
+def  do_neuron_classifier(A):  # ???
+    #  
+    thrMaj=0.9  # edge count for:  pure | majority
+    thrMix=0.5  # edge count for:   majority  | mix
 
-    maskG={'diagA':diag_mask, 'excA':exc_mask,'inhA':inh_mask,'exc_idx':exc_1d,'inh_idx':inh_1d}
-    maskD={'geom':maskG}
-    return maskD
+    # Create mask for off-diagonal elements
+    offdiag_mask = ~np.eye(A.shape[0], A.shape[1], dtype=bool)
+    posEdge_mask= A>0
+    negEdge_mask= A<0
 
+    # combine masks
 
-def true_edges_mask(maskD, trueD):
-    A_true=trueD['A_true']
-    #print('\ntrue_edge_mask')
-    maskD['true']=maskT={}
-    maskG=maskD['geom']
-    A_abs = np.abs(A_true)
-    for ntype in ['excA','inhA']:
-        gmask=maskG[ntype]
-        tmask = gmask & (A_abs>1e-8)
-        nGeom=np.sum(gmask)
-        nTrue=np.sum(tmask)
-        maskT[ntype]=tmask
-    tmp=maskT['excA']  | maskT['inhA']
-    trueD['edge_cnt_true']=np.sum(tmp,axis=1)  # sum edges alog neuron
-    
-
+    mask = posEdge_mask & offdiag_mask
+    i_indices, j_indices = np.where(mask)
+    values = A[i_indices, j_indices]
+    not_used_yet
+    return np.column_stack([i_indices, j_indices, values])

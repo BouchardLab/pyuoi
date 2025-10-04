@@ -1,7 +1,9 @@
+#!/usr/bin/env python3
+
 import numpy as np
 import matplotlib.pyplot as plt
 
-def gen_realistic_freqs(min_freq, max_freq, trapezoid_height, num_samples, sigma):
+def gen_realistic_freqs(min_freq, max_freq, trapezoid_height, trapezoid_rmin, num_samples, sigma):
     """
     Generate samples using a combination of Gaussian and trapezoidal distributions.
     
@@ -22,7 +24,7 @@ def gen_realistic_freqs(min_freq, max_freq, trapezoid_height, num_samples, sigma
     # Define the trapezoidal PDF using vectorized operations
     trapezoidal_pdf = lambda f: np.where(
         (f >= min_freq) & (f <= max_freq),
-        trapezoid_height * (1 - (f - min_freq) / (max_freq - min_freq) * 0.9),
+        trapezoid_height * (1 - (f - min_freq) / (max_freq - min_freq) *  trapezoid_rmin),
         0
     )
 
@@ -44,13 +46,15 @@ if __name__ == '__main__':
 
     # Parameters
     min_freq = 1  # Set minimum frequency to 1
-    max_freq = 50
+    max_freq = 45 #(Hz)
     trapezoid_height = 0.15  # Height of the trapezoidal distribution
+    trapezoid_rmin=0.3 # fraction of trapzoid at the max freq
+    sigma = 4  # (Hz) Standard deviation of the Gaussian
+
     num_samples = 150
-    sigma = 3  # Standard deviation of the Gaussian
 
     # Generate samples
-    samples = gen_realistic_freqs(min_freq, max_freq, trapezoid_height, num_samples, sigma)
+    samples = gen_realistic_freqs(min_freq, max_freq, trapezoid_height, trapezoid_rmin,num_samples, sigma)
 
     # Calculate the median of the samples
     median_value = np.median(samples)

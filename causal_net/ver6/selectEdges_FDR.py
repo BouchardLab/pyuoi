@@ -197,10 +197,10 @@ def main():
             plot.residuals(evalD,MD,figId=2)
 
         if 'c' in args.showPlots:            
-            plot.summary_network(fitD, edgeD,MD, figId=4)
+            plot.summary_network(fitD, edgeD,MD, figId=3)
 
         if 'd' in args.showPlots:
-            plot.freqSortA_histos(fitD, MD, spikeD, figId=3)
+            plot.freqSortA_histos(fitD, MD, spikeD, figId=4)
       
 
         plot.display_all()
