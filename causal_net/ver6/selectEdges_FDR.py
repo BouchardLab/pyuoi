@@ -17,11 +17,8 @@ from UtilSelectFDR import (summary_reco_neuronNet, compare_triplets, eval_tagged
                            get_offdiag_triplets, edge_selector_fdr, load_bootstrap_data, 
                            load_auxiliary_plotting_data)
 
-def table_4_Yao(evalD,fitMD):
-    #print('all1:',sorted(evalD)) #  ['bterm', 'diag', 'neg', 'pos']
-    #print('all2:',sorted(fitMD)) # ['data_type', 'edge_selector', 'fit_lasso', 'fit_type', 'short_name', 'time_step_sec']
-    #pprint(fitMD)
-   
+def print_table_4_Yao(evalD,fitMD):
+    
     Nn=fitMD['fit_lasso'] ['num_neurons']
     Nedg=Nn*(Nn-1)
     recL='#L,Nn,Nedg,'
@@ -153,10 +150,13 @@ def main():
     output_meta['edge_selector']={'selector_type':'FDR', 'alpha':args.alphaFDR}
  
     # Save results
-    output_file = os.path.join(dataPath, f"{dataName}-selFdr.lassoFit.npz")
+    output_file = os.path.join(dataPath, f"{dataName}.FDRselected.npz")
     write_data_npz(output_data, output_file, metaD=output_meta)
     print(f"FDR results saved to: {output_file}")
-    
+
+    print("\nNext step commands:")
+    print(f"  ./fit_regressPoisson.py  --dataName {outName}  --num_epochs 50")
+ 
     
     # Generate plots if requested
     if args.showPlots:
@@ -165,18 +165,26 @@ def main():
         # Prepare plotting data (compatible with eval_fitLasso.py structure)
         fitD = output_data.copy()  # Use our processed output data as fitD
         fitMD = output_meta
-        
+   
         # Rename records so select_edges_from_fitLasso() has the expected names
-        fitD['A_lasso'] = A_avr.copy()
+        fitD['A_lasso'] = A_avr.copy()  # tmp
         fitD['B_lasso'] = B_avr.copy()
-        
+        #fitD['A_lasso'] = fitD.pop('A_avr')
+        #fitD['B_lasso'] = fitD.pop('B_avr')
+                
         # Load auxiliary data needed for plotting
-        maskMD={}
-        spikeD, trueD, MD = load_auxiliary_plotting_data(fitMD, maskMD, dataName, dataPath, alpha)
-
+        #maskMD={}
+        #XspikeD, trueD, MD = load_auxiliary_plotting_data(fitMD, maskMD, dataName, dataPath, alpha)
+        spikeD, trueD, MD = load_auxiliary_plotting_data(fitMD,  dataName, dataPath)
+        # Add mask metadata and FDR method info
+        
+        MD['edge_selection_method'] = 'fdr'
+        MD['fdr_alpha'] = alpha
+    
         if fitMD['data_type']=='simDale':
             evalD=eval_tagged_edges_4_simu(fitD,trueD)            
-            table_4_Yao(evalD,fitMD)
+            print_table_4_Yao(evalD,fitMD)
+        
              
         edgeD=summary_reco_neuronNet(A_avr, A_std)
         

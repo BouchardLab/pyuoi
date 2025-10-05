@@ -396,17 +396,7 @@ def main():
     # Reorder connectivity matrix and bias vector immediately
     A_freq_sorted = A_dale[np.ix_(neur_revFreqIdx, neur_revFreqIdx)]  # Reorder both rows and columns
     B_freq_sorted = B_idle[neur_revFreqIdx]  # Reorder bias vector
-    
-    # Create explicit neuron type masks for frequency-sorted order
-    natural_exc_mask = np.zeros(args.num_neurons, dtype=bool)
-    natural_exc_mask[:args.num_excite] = True
-    natural_inh_mask = np.zeros(args.num_neurons, dtype=bool)
-    natural_inh_mask[args.num_excite:] = True
-    
-    # Map neuron types to frequency-sorted positions
-    freq_sorted_exc_mask = natural_exc_mask[neur_revFreqIdx]
-    freq_sorted_inh_mask = natural_inh_mask[neur_revFreqIdx]
-    
+
     # Store remapped matrices in trueD (primary data structure)
     trueD = { 'A_true': A_freq_sorted, 'B_true': B_freq_sorted, 'neur_freqIdx': neur_freqIdx, 'neur_revFreqIdx': neur_revFreqIdx}
     
@@ -426,10 +416,10 @@ def main():
 
     outFt = os.path.join(args.outPath, args.dataName + '.simTruth.npz')
     write_data_npz(trueD, outFt, metaD=trueMD)
-    if args.verb>2:  pprint(trueMD)
+    if args.verb>1:  pprint(trueMD)
     outFs = os.path.join(args.outPath, args.dataName + '.spikes.npz')
     write_data_npz(spikeD, outFs, metaD=spikeMD)
-    if args.verb>2:  pprint(spikeMD)
+    if args.verb>1:  pprint(spikeMD)
         
     print("\nSimulation completed successfully!")
     print("\nNext step commands:")

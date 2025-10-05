@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""
-Evaluation and visualization tool for regression model fitting results.
-
-This script provides evaluation capabilities for regression-based connectivity
-analysis, focusing on edge selection and network reconstruction quality.
-Main functionality includes:
-- Loading regression fit results and applying edge selection thresholds
-- Statistical analysis of reconstructed network properties
-- Visualization of connectivity patterns and edge distributions
-- Performance metrics computation for network reconstruction
-
-Complements the LASSO-based analysis by providing alternative regression
-approaches for neural connectivity inference.
-"""
 
 import numpy as np
 import os
@@ -20,8 +6,10 @@ import argparse
 import sys
 from toolbox.Util_NumpyIO import read_data_npz
 from PlotterFitEval import Plotter
-from UtilDalePoisson import select_edges_from_fitLasso
+#from UtilDalePoisson import select_edges_from_fitLasso
 from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
+from selectEdges_FDR import  print_table_4_Yao
+from UtilSelectFDR import eval_tagged_edges_4_simu, load_auxiliary_plotting_data
 
 from pprint import pprint
 
@@ -57,10 +45,11 @@ def main():
     if args.verb>1: 
         pprint(fitMD); exit(1)
 
-    maskF=fitMD['fit_regress']['regressFit_input_name']
-    maskFF = os.path.join(args.dataPath, maskF+".edgeMask.npz")
-    maskD, maskMD = read_data_npz(maskFF)
-       
+    
+    #maskF=fitMD['fit_regress']['regressFit_input_name']
+    # maskFF = os.path.join(args.dataPath, maskF+".edgeMask.npz")
+    # maskD, maskMD = read_data_npz(maskFF)
+    '''
     if fitMD['data_type']=='simDale':
         truthF = fitMD['fit_lasso']['lassoFit_input_name']    
         truthFF = os.path.join(args.dataPath, f"{truthF}.simTruth.npz")
@@ -77,17 +66,35 @@ def main():
         # For non-simDale data, we don't have spike data, so create a minimal spikeD
         spikeD = None
 
-    MD.update(maskMD)
+    #MD.update(maskMD)
+    '''
+    
+    # Load auxiliary data needed for plotting
+    #dataName = args.dataName
+    #maskMD={}
+    spikeD, trueD, MD = load_auxiliary_plotting_data(fitMD,  args.dataName, args.dataPath)
+
+    if fitMD['data_type']=='simDale':
+        # tmp
+        fitD['A_avr']=fitD['A_regress']
+        fitD['B_avr']=fitD['B_regress']
+        evalD=eval_tagged_edges_4_simu(fitD,trueD)            
+        print_table_4_Yao(evalD,fitMD)
+    
     
     # Setup plotter
     args.prjName = args.dataName 
     plot = Plotter(args)
     fitType='lasso'
     if 'a' in args.showPlots:
+        xx1
         plot.correl_after_thresh(trueD,fitD,maskD,MD,figId=1)
                 
     if 'b' in args.showPlots:
-        plot.slicedA_histos(fitD, MD, spikeD, figId=2)
+        assert  fitMD['data_type']=='simDale'
+        plot.residuals(evalD,MD,figId=2)
+
+        #plot.slicedA_histos(fitD, MD, spikeD, figId=2)
 
     if 'c' in args.showPlots:
         plot.residuals(trueD,fitD,maskD,MD,figId=3)

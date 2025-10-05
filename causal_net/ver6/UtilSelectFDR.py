@@ -326,7 +326,7 @@ def load_bootstrap_data(dataName, dataPath, K, verb=1):
     return A_edges_real_list, A_edges_shuf_list, A_real_list, B_real_list, output_meta,output_big1
 
 
-def load_auxiliary_plotting_data(fitMD, maskMD, dataName, dataPath, alpha):
+def load_auxiliary_plotting_data(fitMD,  dataName, dataPath):
     """
     Load auxiliary data needed for plotting (spike data, ground truth, metadata).
     
@@ -368,9 +368,6 @@ def load_auxiliary_plotting_data(fitMD, maskMD, dataName, dataPath, alpha):
     else:
         MD = {**fitMD, 'short_name': dataName}
     
-    # Add mask metadata and FDR method info
-    MD.update(maskMD)
-    MD['edge_selection_method'] = 'fdr'
-    MD['fdr_alpha'] = alpha
+    #XMD.update(maskMD)
     
     return spikeD, trueD, MD
