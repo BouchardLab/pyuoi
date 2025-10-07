@@ -155,7 +155,7 @@ def main():
     print(f"FDR results saved to: {output_file}")
 
     print("\nNext step commands:")
-    print(f"  ./fit_regressPoisson.py  --dataName {outName}  --num_epochs 50")
+    print(f"  ./fit_regressPoisson.py  --dataPath $dataPath  --dataName {dataName}  ")
  
     
     # Generate plots if requested
@@ -165,7 +165,10 @@ def main():
         # Prepare plotting data (compatible with eval_fitLasso.py structure)
         fitD = output_data.copy()  # Use our processed output data as fitD
         fitMD = output_meta
-   
+
+        if 0:  # patch old data
+                fitMD['fit_lasso']['num_epochs']=fitMD['fit_lasso']['n_epochs']
+        
         # Rename records so select_edges_from_fitLasso() has the expected names
         fitD['A_lasso'] = A_avr.copy()  # tmp
         fitD['B_lasso'] = B_avr.copy()

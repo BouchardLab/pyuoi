@@ -73,7 +73,7 @@ def preprocess_data(Y, args):
     return XY
 
 
-def train_Poisson_model(model, device, train_loader, n_epochs, lr, L1_alpha=0.0, use_scheduler=False, firing_rates=None, train_sampler=None, print_every=10):
+def train_Poisson_model(model, device, train_loader, n_epochs, lr, L1_alpha=0.0, use_scheduler=False, firing_rates=None, train_sampler=None, print_every=20):
     use_fused = (isinstance(device, torch.device) and device.type=='cuda' and torch.cuda.is_available())
     assert use_fused
     optimizer = optim.Adam(model.parameters(), lr=lr, fused=True)

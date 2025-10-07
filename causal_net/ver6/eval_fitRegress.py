@@ -38,56 +38,34 @@ def main():
     fitFF = os.path.join(args.dataPath, f"{args.dataName}.regressFit.npz")
     fitD, fitMD = read_data_npz(fitFF)
 
-    if 0:  # patch old data
-        fitMD['data_type']='simDale'
-        fitMD['fit_type']='regress'
+    if 1:  # patch old data
+        #fitMD['data_type']='simDale'
+        #fitMD['fit_type']='regress'
+        fitD['single_rates']=fitD.pop('firing_rates')
 
-    if args.verb>1: 
-        pprint(fitMD); exit(1)
-
-    
-    #maskF=fitMD['fit_regress']['regressFit_input_name']
-    # maskFF = os.path.join(args.dataPath, maskF+".edgeMask.npz")
-    # maskD, maskMD = read_data_npz(maskFF)
-    '''
-    if fitMD['data_type']=='simDale':
-        truthF = fitMD['fit_lasso']['lassoFit_input_name']    
-        truthFF = os.path.join(args.dataPath, f"{truthF}.simTruth.npz")
-        trueD,trueMD = read_data_npz(truthFF)
-        
-        # Load spike data for frequency sorting
-        spikesFF = os.path.join(args.dataPath, f"{truthF}.spikes.npz")
-        spikeD, spikeMD = read_data_npz(spikesFF)
-        
-        # Combine metadata   just for plotter
-        MD = {**fitMD, **trueMD, 'short_name': args.dataName} #, 'post': vars(args)}
-    else:
-        MD = {**fitMD,  'short_name': args.dataName} #, 'post': vars(args)}
-        # For non-simDale data, we don't have spike data, so create a minimal spikeD
-        spikeD = None
-
-    #MD.update(maskMD)
-    '''
-    
     # Load auxiliary data needed for plotting
-    #dataName = args.dataName
-    #maskMD={}
     spikeD, trueD, MD = load_auxiliary_plotting_data(fitMD,  args.dataName, args.dataPath)
 
+    if args.verb>1:
+        pprint(fitMD); exit(1)
+    
     if fitMD['data_type']=='simDale':
         # tmp
         fitD['A_avr']=fitD['A_regress']
         fitD['B_avr']=fitD['B_regress']
         evalD=eval_tagged_edges_4_simu(fitD,trueD)            
         print_table_4_Yao(evalD,fitMD)
-    
-    
+        
     # Setup plotter
     args.prjName = args.dataName 
     plot = Plotter(args)
-    fitType='lasso'
+    fitType='regress'
+
     if 'a' in args.showPlots:
-        xx1
+        plot.summary_fitLasso(fitD,MD,figId=1)
+ 
+    if 'xa' in args.showPlots:
+        xx1_fix_fig_a
         plot.correl_after_thresh(trueD,fitD,maskD,MD,figId=1)
                 
     if 'b' in args.showPlots:
@@ -95,14 +73,17 @@ def main():
         plot.residuals(evalD,MD,figId=2)
 
         #plot.slicedA_histos(fitD, MD, spikeD, figId=2)
-
+        
     if 'c' in args.showPlots:
+        plot.freqSortA_histos(fitD, MD, spikeD, figId=2)
+
+    if 'xc' in args.showPlots:
         plot.residuals(trueD,fitD,maskD,MD,figId=3)
 
-    if 'd' in args.showPlots:
+    if 'xd' in args.showPlots:
         plot.compare_eigen(trueD,fitD,MD, figId=4)
 
-    if 'e' in args.showPlots:
+    if 'xe' in args.showPlots:
         plot.experiment_eigen(fitD,MD, figId=5)
 
     plot.display_all()

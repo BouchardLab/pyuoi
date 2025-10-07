@@ -168,7 +168,7 @@ def main():
         # saving from fit_Lasso ---
         mdl = model.module if hasattr(model,'module') else model
         lassoD = { 'A_lasso': mdl.A.detach().cpu().numpy(), 'B_lasso': mdl.B.detach().cpu().numpy(), 'losses_total': np.array(losses_total), 'losses_wo_L1': np.array(losses_wo_L1), 'losses_epochs': np.array(train_epochs, dtype=np.int32), 'learning_rates': np.array(learning_rates), 'single_rates': dataRates }
-        lassoMD = { 'lassoFit_output_name': fit_core, 'lassoFit_input_name': args.dataName, 'batch_size': args.batch_size, 'num_samples_used': n_pairs, 'n_epochs': args.num_epochs, 'num_train_samples': n_pairs, 'learning_rate': args.lr, 'L1_alpha': args.L1_alpha, 'step_size': step_size, 'training_time_sec': total_time, 'num_neurons': Nn, 'dropDataFrac': args.dropDataFrac }
+        lassoMD = { 'lassoFit_output_name': fit_core, 'lassoFit_input_name': args.dataName, 'batch_size': args.batch_size, 'num_samples_used': n_pairs, 'num_epochs': args.num_epochs, 'num_train_samples': n_pairs, 'learning_rate': args.lr, 'L1_alpha': args.L1_alpha, 'step_size': step_size, 'training_time_sec': total_time, 'num_neurons': Nn, 'dropDataFrac': args.dropDataFrac }
         spikeMD['fit_type']='lasso'        
         spikeMD['fit_lasso']=lassoMD
         spikeMD['edge_selector']={'selector_type':'None'}

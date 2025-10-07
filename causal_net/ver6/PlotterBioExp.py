@@ -37,13 +37,11 @@ def summary_column(md):
     txt += '\ndrop neur: %d <%.1f Hz,  %d >%.1f Hz' % (ds['drop_neur_by_freq_range'][0],ds['freq_range'][0],ds['drop_neur_by_freq_range'][1],ds['freq_range'][1])
     txt+='\ndata type: %s\ntime_step=%.2f sec'%(md['data_type'],md['time_step_sec']) 
     txt += '\nMedian rate: %.1f Hz' % rs['median_spike_rate']
-    txt += '\nrate range [%.1f/, %.1f Hz]' % (rs['min_spike_rate'], rs['max_spike_rate'])
+    txt += '\nrate range [%.1f, %.1f Hz]' % (rs['min_spike_rate'], rs['max_spike_rate'])
     txt += '\nAvg Rate: %.1f±%.1f Hz' % (rs['avg_spike_rate'], rs['std_spike_rate'])
     txt += '\nAvg Fano: %.2f±%.2f' % (rs['avg_fano_factor'], rs['std_fano_factor'])
 
     return txt
-  
-   
   
 #............................
 #............................
@@ -67,7 +65,7 @@ class Plotter(PlotterBackbone):
 
         # Compute median
         median_val = np.median(dataRates)
-        txtM= f'median rate: {median_val:.2f} Hz'
+        txtM= f'median : {median_val:.2f} Hz'
         
         #.... freq per channel
         ax = self.plt.subplot(gs[0, 0])
@@ -89,12 +87,13 @@ class Plotter(PlotterBackbone):
         ax = self.plt.subplot(gs[0, 1])
         ax.hist(dataRates,bins=20)
         #ax.set_yscale('log')
-        ax.set(ylabel='num channels', xlabel='avr frequency (Hz)')
+        ax.set(ylabel='num channels', xlabel='avr frequency (Hz)',title=tit)
         ax.axvline(median_val, color='red', linestyle='--', linewidth=1)
         # Add median text annotation
-        ax.text(median_val, ax.get_ylim()[1]*0.7,txtM, 
-                color='red', ha='left', va='bottom', fontsize=10)
-
+        ax.text(median_val+1, ax.get_ylim()[1]*0.5,txtM, 
+                color='red', ha='left', va='bottom', fontsize=10,rotation=90)
+        ax.text(0.25, 0.3,   txt, transform=ax.transAxes, fontsize=11,color='m')
+      
         ax.grid()
       
 #...!...!..................

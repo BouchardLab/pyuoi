@@ -145,6 +145,7 @@ echo "Total bootstraps: $NUM_BOOTSTRAPS"
 echo "Total time: ${TOTAL_DURATION}s (${HOURS}h ${MINUTES}m ${SECONDS}s)"
 echo "Average per bootstrap: $((TOTAL_DURATION / NUM_BOOTSTRAPS))s"
 echo "Finished at: $(date)"
+echo " ./selectEdges_FDR.py  --dataPath \$dataPath --dataName  ${DATANAME}${BOOTS_TAG}   --num_bootstraps  $NUM_BOOTSTRAPS --alphaFDR 1e-3 -p ab  "
 echo "################################################################"
 
 echo ""

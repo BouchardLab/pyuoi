@@ -15,6 +15,10 @@ each neuron is either excitatory (producing only positive outgoing weights) or i
 Key Features:
 
 Connectivity Matrix Generation:
+A spectral radius–based stabilization procedure ensuring $\max \Re(\lambda(A)) < 0$, so the single-lag network decays in the absence of input noise.
+
+your script stabilizes using continuous Lyapunov equations (solve_continuous_lyapunov) which assumes continuous-time dynamics and only one lag.
+
 
 The recurrent connectivity matrix A is generated with random weights that respect Dale's principle.
 The parameter R scales the baseline synaptic strength and influences the initial spectral radius of A.
@@ -194,7 +198,7 @@ def gen_dale_matrics(conf, rho_target):
 
 #################### Simulation ##################
 
-def generate_poissonV5(num_steps, dt, A, B_intercept, num_excite, verb=0):
+def generate_lag1_poisson(num_steps, dt, A, B_intercept, num_excite, verb=0):
     """
     Generates a multivariate Poisson VAR(1) process:
         Y_t ~ Poisson(exp(A @ Y_{t-1} + B_intercept))
@@ -255,7 +259,7 @@ def generate_poissonV5(num_steps, dt, A, B_intercept, num_excite, verb=0):
 
 def main():
     print("=" * 60)
-    print("DALE POISSON SIMULATION V5")
+    print("DALE POISSON SIMULATION Lag=1")
     print("=" * 60)
     
     parser = argparse.ArgumentParser(description="Simulate a recurrent neural network with Dale's principle.")
@@ -270,7 +274,7 @@ def main():
     parser.add_argument("--spectralR", type=float, default=2.0, help="Initial spectral radius (R).")
     parser.add_argument('-v',"--verb", type=int, default=1, help="Verbosity level (0=quiet, 1=normal).")
     parser.add_argument("--dataName", type=str, default=None, help="Base name for output files (default: dale_spikes_xx).")
-    parser.add_argument("--outPath", type=str, default='/pscratch/sd/b/balewski/2025_causalNet_tmp/', help="Output directory for all files.")
+    parser.add_argument("--dataPath", type=str, default='/pscratch/sd/b/balewski/2025_causalNet_tmp/', help="Output directory for all files.")
 
     np.set_printoptions(precision=3, suppress=True)
 
@@ -288,8 +292,8 @@ def main():
     if args.num_excite >= args.num_neurons:
         raise ValueError("Number of excitatory neurons must be less than the total number of neurons.")
 
-    assert os.path.exists(args.outPath)
-    print("Output directory exists: %s" % args.outPath)
+    assert os.path.exists(args.dataPath)
+    print("Output directory exists: %s" % args.dataPath)
 
     Nn = args.num_neurons
     # Generate rho_target Vector
@@ -366,7 +370,7 @@ def main():
             'max_freq': 45,
             'trapezoid_height': 0.15,
             'trapezoid_rmin':0.3,
-            'sigma': 4
+            'sigma': 2
         }
         evol_conf['rate_gen_conf']=rateGen_conf
         B_idle = np.log(gen_realistic_freqs(num_samples=Nn,**rateGen_conf))
@@ -381,7 +385,7 @@ def main():
     print("rho_target stats: min=%d, max=%d, mean=%.2f" % (np.min(rho_target), np.max(rho_target), np.mean(rho_target)))
     
     start_time = time.time()
-    Y = generate_poissonV5(num_steps=args.num_steps, dt=args.step_size, A=A_dale, B_intercept=B_idle, num_excite=args.num_excite, verb=args.verb)
+    Y = generate_lag1_poisson(num_steps=args.num_steps, dt=args.step_size, A=A_dale, B_intercept=B_idle, num_excite=args.num_excite, verb=args.verb)
     sim_time = time.time() - start_time
     print("Spike generation completed in %.1f seconds" % sim_time)
 
@@ -414,10 +418,10 @@ def main():
     }
     spikeMD={ 'short_name':args.dataName,'time_step_sec':args.step_size,'data_type':'simDale' }
 
-    outFt = os.path.join(args.outPath, args.dataName + '.simTruth.npz')
+    outFt = os.path.join(args.dataPath, args.dataName + '.simTruth.npz')
     write_data_npz(trueD, outFt, metaD=trueMD)
     if args.verb>1:  pprint(trueMD)
-    outFs = os.path.join(args.outPath, args.dataName + '.spikes.npz')
+    outFs = os.path.join(args.dataPath, args.dataName + '.spikes.npz')
     write_data_npz(spikeD, outFs, metaD=spikeMD)
     if args.verb>1:  pprint(spikeMD)
         
@@ -425,7 +429,7 @@ def main():
     print("\nNext step commands:")
     print("  ./view_dalePoisson.py  --dataPath $dataPath   --dataName %s  -p c a b " % args.dataName)
     print("  ./fit_lassoPoisson.py  --dataPath $dataPath   --dataName %s  --num_epochs 50 " % args.dataName)
-    print("    --dataPath "+args.outPath)
+    print("    --dataPath "+args.dataPath)
 
 if __name__ == '__main__':
     main() 

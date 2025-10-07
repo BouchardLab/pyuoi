@@ -33,7 +33,6 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate and plot results from fit_poisson.py")
     parser.add_argument("--dataName", type=str, default='dale_M120_3M', help="Base name for the dataset")
     parser.add_argument("--dataPath", type=str, default="/pscratch/sd/b/balewski/2025_causalNet_tmp/", help="Path to the data directory")
-    #parser.add_argument('-A',"--ampl_thres", type=float, default=[0.10],nargs='+', help=" inh< tht0, exct>th1 of accepted off-diagonal edge")
     parser.add_argument('-p',"--showPlots", type=str,nargs='+', default="f", help="Plot types to show: a=structure, b=distributions, c=reconstruction, d=category, d=A-matrix histograms")
     parser.add_argument("--outPath", type=str, default=None, help="Output path for plots (defaults to dataPath)")
     parser.add_argument('-X',"--noXterm", action="store_true", help="Disable X terminal for plotting")
@@ -51,9 +50,9 @@ def main():
     fitD, fitMD = read_data_npz(fitFF)
       
     if 0:  # patch old data
-        fitMD['edge_selector']={'selector_type':'None'}
-        #fitMD['data_type']='simDale'
+        #pprint(fitMD)
         #fitMD['fit_type']='lasso'
+        fitMD['fit_lasso']['num_epochs']=fitMD['fit_lasso']['n_epochs']
     #pprint(fitMD)
    
     if args.verb>1: 
@@ -68,8 +67,7 @@ def main():
     spikeD, spikeMD = read_data_npz(spikesFF)
     #pprint(spikeMD)
     
-    if fitMD['data_type']=='simDale':
-        #truthF = fitMD['fit_lasso']['lassoFit_input_name']    
+    if fitMD['data_type']=='simDale': 
         truthFF = os.path.join(args.dataPath, f"{spikeF}.simTruth.npz")
         trueD,trueMD = read_data_npz(truthFF)    
         # Combine metadata   just for plotter
@@ -77,19 +75,13 @@ def main():
     else:
         MD = {**fitMD,  'short_name': args.dataName} #, 'post': vars(args)}
     
-    #1MD.update(maskMD)
-        
-    #1outFt = os.path.join(args.outPath, args.dataName + '.edgeMask.npz')
-    #1write_data_npz(maskD, outFt, metaD=maskMD)
-
     # Setup plotter
     args.prjName = args.dataName 
     plot = Plotter(args)
 
     if 'a' in args.showPlots:
         plot.summary_fitLasso(fitD,MD,figId=1)
-                   
-      
+                         
     if 'c' in args.showPlots:
         plot.freqSortA_histos(fitD, MD, spikeD, figId=2)
 

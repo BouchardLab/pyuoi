@@ -8,7 +8,8 @@
 varArgs="$*"
 
 # Default/fixed arguments
-fixArgs=" --dataPath /pscratch/sd/b/balewski/2025_causalNet_tmp/  --batch_size 2048 --lr 1e-3 --L1_alpha 1e-3 "
+fixArgs="  --batch_size 2048 --lr 1e-3 --L1_alpha 1e-3 "
+# --dataPath /pscratch/sd/b/balewski/2025_causalNet_tmp/
 
 # GPU configuration
 NUM_GPUS=4

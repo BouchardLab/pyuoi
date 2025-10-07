@@ -63,7 +63,9 @@ def main():
     fmd=fitMD['fit_lasso']
     # Inherit hyperparams from stageA if not provided
     if args.num_epochs is None:
-        args.num_epochs = fmd['n_epochs']
+        args.num_epochs = fmd['num_epochs']
+    if args.num_samples is None:
+        args.num_samples = fmd['num_samples_used']
     if args.batch_size is None:
         args.batch_size = fmd['batch_size']
          
@@ -170,7 +172,7 @@ def main():
 
     if rank==0:
         mdl = model.module if hasattr(model,'module') else model
-        bigD = { 'A_regress': mdl.A.detach().cpu().numpy(), 'B_regress': mdl.B.detach().cpu().numpy(), 'losses_total': np.array(losses_total), 'losses_epochs': np.array(losses_epochs, dtype=np.int32), 'learning_rates': np.array(learning_rates), 'firing_rates': dataRates }
+        bigD = { 'A_regress': mdl.A.detach().cpu().numpy(), 'B_regress': mdl.B.detach().cpu().numpy(), 'losses_total': np.array(losses_total), 'losses_epochs': np.array(losses_epochs, dtype=np.int32), 'learning_rates': np.array(learning_rates), 'single_rates': dataRates }
         metaD = { 'regressFit_output_name': args.fitName, 'regressFit_input_name': args.dataName,
                   'regressFit_input_name': args.dataName,
                   'regressFit_output_name': args.fitName,
@@ -181,7 +183,7 @@ def main():
         fitMD['short_name']=args.fitName
         fit2FF = os.path.join(args.dataPath, f"{args.fitName}.regressFit.npz")
         write_data_npz(bigD, fit2FF, metaD=fitMD)
-        print('\n  ./eval_fitRegress.py    --dataPath $dataPath  --dataName %s -p b a ' % (args.fitName))
+        print('\n  ./eval_fitRegress.py    --dataPath $dataPath  --dataName %s -p b c ' % (args.fitName))
 
     # ensure distributed shutdown to avoid resource leak warning
     if is_dist and dist.is_initialized():

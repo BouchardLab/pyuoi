@@ -180,7 +180,7 @@ class Plotter(PlotterBackbone):
         V=evalD['diag']
         dCol='salmon'
         ax.scatter(V[:,1], V[:,0], alpha=0.6, color=dCol,marker='.',s=5)
-        ax.set_title(title)
+        ax.set(title=title,xlabel='truth',ylabel='fitted')
         add_x45_lins(ax, only45=True)
         ax.grid(True, alpha=0.5)
         
@@ -194,7 +194,7 @@ class Plotter(PlotterBackbone):
         dCol='darkviolet'
         V=evalD['bterm']
         ax.scatter(V[:,1], V[:,0], alpha=0.6, color=dCol,marker='.',s=5)
-        ax.set_title(title)
+        ax.set(title=title,xlabel='truth',ylabel='fitted')
         add_x45_lins(ax, only45=True)
         ax.grid(True, alpha=0.5)
         
@@ -208,6 +208,7 @@ class Plotter(PlotterBackbone):
         fitType=md['fit_type']
 
         fmd=md['fit_'+fitType]
+        
         #1isExp = md.get('data_type') == 'bioExp'  # Automatically detect experimental data
         figId=self.smart_append(figId)        
         nrow,ncol=k,2  # Add 1 extra row for the neuron stats plot
@@ -267,7 +268,7 @@ class Plotter(PlotterBackbone):
         ax.set_ylabel('freq-sorted neuron index')
   
         lasso_name = md['fit_lasso']['lassoFit_output_name']
-        title_text = f'{lasso_name},  Fit {fitType}, epochs={fmd["n_epochs"]}, sampl/k={fmd["num_samples_used"]/1000}'
+        title_text = f'{lasso_name},  Fit {fitType}, epochs={fmd["num_epochs"]}, sampl/k={fmd["num_samples_used"]/1000}'
         
         ax.set_title(title_text)
                  
@@ -287,8 +288,8 @@ class Plotter(PlotterBackbone):
             ax.text(ax.get_xlim()[0] + xlim_offset, rowIdx, f'{single_rates[rowIdx]:.1f} Hz', verticalalignment='center', horizontalalignment='left', fontsize=12)
             ax_hist = self.plt.subplot(nrow, ncol, 2 + i * ncol)
             reversed_rowIdx = row_indices[k - 1 - i]
-            xLab1 = xLab if (i == k - 1) else None
-            plot_row_histogram(ax_hist, A_fit_no_diag, reversed_rowIdx, single_rates, global_bin_edges, xLab1, isExp=True)
+            #xLab1 = xLab if (i == k - 1) else None
+            plot_row_histogram(ax_hist, A_fit_no_diag, reversed_rowIdx, single_rates, global_bin_edges, xLab, isExp=True)
         
         # Minimize whitespace between 1D plots
         self.plt.subplots_adjust(hspace=0.05, wspace=0.1)
@@ -333,9 +334,11 @@ class Plotter(PlotterBackbone):
         n_pos = Neu_sum[:, 1]
         n_neg = Neu_sum[:, 2]
         # Create 2D histogram
-        h = ax.hist2d(n_pos, n_neg, bins=20, cmap='Greys', cmin=1)
+        h = ax.hist2d(n_pos, n_neg, bins=20, cmap='Greys', cmin=1,cmax=5)
         # Add colorbar
         self.plt.colorbar(h[3], ax=ax, label='Neurons')
+        ax.set_xlim(0,)
+        ax.set_ylim(0,)
         ax.grid(True, alpha=0.3)
         
         # Add diagonal line (y=x)
@@ -344,7 +347,7 @@ class Plotter(PlotterBackbone):
             np.max([ax.get_xlim(), ax.get_ylim()]),
         ]
         ax.plot(lims, lims, 'b--', alpha=0.5, linewidth=1.5, label='y=x')
-        ax.set(title='Edge type correlation',xlabel='num pos',ylabel='num neg')
+        ax.set(title='Edge type correlation, %d neurons'%(A_fit.shape[0]),xlabel='num pos',ylabel='num neg')
         
         # .... edge std vs. value ....
         ax = self.plt.subplot(nrow,ncol,4)
@@ -372,9 +375,11 @@ class Plotter(PlotterBackbone):
     
         # Create 2D histogram
         h = ax.hist2d(avg_weights_accepted, std_devs_accepted, bins=30, cmap='Greys', cmin=1)
-        ax.axvline(0, linestyle='--', color='lime', linewidth=1)
+        
         # Add colorbar
         self.plt.colorbar(h[3], ax=ax, label='edges')
+        ax.axvline(0, linestyle='--', color='lime', linewidth=1)
+        
         # Add text box with statistics
         stats_text = (f'display fract = {procFrac:.2f}\n'
                   f'Accepted: {n_accepted:,} ({n_accepted/n_total*100:.1f}%)\n'
