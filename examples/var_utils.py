@@ -21,8 +21,6 @@ import numpy as np
 
 from sklearn.linear_model import LinearRegression, LassoCV
 
-from pyuoi.linear_model import UoI_Lasso
-from pyuoi.datasets import make_linear_regression
 #import pandas as pd
 from scipy.linalg import solve_discrete_lyapunov
 from scipy.special import expit  # logistic function
@@ -125,12 +123,12 @@ def mbbs_np(data, n_blocks=10, block_length=None):
 
 
 
-
-def generate_sparse_stationary_var_process(n_features, n_samples, lag=1, sparsity=0.9, spectral_radius=0.8, quench_factor = 1, 
+def generate_sparse_stationary_var_process(n_features, n_samples, lag=1, sparsity=0.9, spectral_radius=0.8, quench_factor=1, 
                                          process_type='gaussian', random_state=None, 
-                                         base_intensity=None, base_probability=None):
+                                         base_intensity=None, base_probability=None,
+                                         include_bias=True, bias_scale=1.0):
     """
-    Generate data from a stationary Vector Autoregressive (VAR) process with sparse transition matrices.
+    Generate data from a stationary Vector Autoregressive (VAR) process with sparse transition matrices and bias terms.
     
     Parameters:
     -----------
@@ -144,6 +142,8 @@ def generate_sparse_stationary_var_process(n_features, n_samples, lag=1, sparsit
         Desired sparsity level (proportion of zero elements) in transition matrices
     spectral_radius : float, default=0.8
         Desired spectral radius of the VAR process (must be < 1 for stationarity)
+    quench_factor : float, default=1
+        Additional scaling factor for spectral radius control
     process_type : str, default='gaussian'
         Type of VAR process. Either 'gaussian', 'poisson', or 'bernoulli'
     random_state : int or None, default=None
@@ -152,12 +152,17 @@ def generate_sparse_stationary_var_process(n_features, n_samples, lag=1, sparsit
         Base intensity for Poisson process. Required if process_type='poisson'
     base_probability : ndarray or None, default=None
         Base probability for Bernoulli process. Required if process_type='bernoulli'
+    include_bias : bool, default=True
+        Whether to include bias terms for each node
+    bias_scale : float, default=1.0
+        Scale factor for bias term generation
     
     Returns:
     --------
     tuple:
         - data: ndarray of shape (n_samples, n_features)
         - transition_matrices: list of sparse matrices, each of shape (n_features, n_features)
+        - bias_terms: ndarray of shape (n_features,) - bias term for each node
         - covariance_matrix: ndarray of shape (n_features, n_features), only for Gaussian process
     """
     if random_state is not None:
@@ -208,6 +213,26 @@ def generate_sparse_stationary_var_process(n_features, n_samples, lag=1, sparsit
         
         return sparse.csr_matrix(values)
     
+    # Generate bias terms for each node
+    if include_bias:
+        if process_type == 'gaussian':
+            bias_terms = np.random.randn(n_features) * bias_scale
+        elif process_type == 'poisson':
+            # For Poisson, base_intensity already serves as the bias term
+            bias_terms = base_intensity.copy() if base_intensity is not None else np.ones(n_features)
+        else:  # Bernoulli
+            # For Bernoulli, logit(base_probability) already serves as the bias term
+            bias_terms = np.log(base_probability / (1 - base_probability)) if base_probability is not None else np.zeros(n_features)
+    else:
+        if process_type == 'gaussian':
+            bias_terms = np.zeros(n_features)
+        elif process_type == 'poisson':
+            # Even without explicit bias, base_intensity serves as bias
+            bias_terms = base_intensity.copy() if base_intensity is not None else np.ones(n_features)
+        else:  # Bernoulli
+            # Even without explicit bias, logit(base_probability) serves as bias
+            bias_terms = np.log(base_probability / (1 - base_probability)) if base_probability is not None else np.zeros(n_features)
+    
     # Generate transition matrices with controlled spectral radius
     transition_matrices = []
     
@@ -220,12 +245,11 @@ def generate_sparse_stationary_var_process(n_features, n_samples, lag=1, sparsit
     current_radius = get_companion_spectral_radius(transition_matrices)
     
     # Scale matrices to achieve desired spectral radius
-    scaling_factor = spectral_radius / current_radius /quench_factor
+    scaling_factor = spectral_radius / current_radius / quench_factor
     transition_matrices = [matrix * scaling_factor for matrix in transition_matrices]
     
     # Verify stationarity
     final_radius = get_companion_spectral_radius(transition_matrices)
-    #print(final_radius)
     assert final_radius < 1, "Failed to achieve stationarity"
     
     # Process-specific scaling
@@ -243,30 +267,41 @@ def generate_sparse_stationary_var_process(n_features, n_samples, lag=1, sparsit
         A = np.random.randn(n_features, n_features)
         covariance_matrix = A @ A.T + np.eye(n_features)
         
-        # Calculate stationary covariance using dense matrices
+        # For stationary initialization with bias, we need to solve:
+        # mu = (I - A1 - A2 - ... - Ap)^(-1} * bias
         A_total = sum(M.toarray() for M in transition_matrices)
+        stationary_mean = np.linalg.solve(np.eye(n_features) - A_total, bias_terms)
+        
+        # Calculate stationary covariance
         stationary_cov = solve_discrete_lyapunov(A_total, covariance_matrix)
         
         # Initialize data with stationary distribution
         data = np.random.multivariate_normal(
-            mean=np.zeros(n_features),
+            mean=stationary_mean,
             cov=stationary_cov,
             size=lag
         )
     elif process_type == 'poisson':
         covariance_matrix = None
-        data = np.random.poisson(lam=base_intensity, size=(lag, n_features))
+        # base_intensity serves as the bias term for Poisson
+        data = np.random.poisson(lam=np.maximum(base_intensity, 0.1), size=(lag, n_features))
     else:  # Bernoulli
         covariance_matrix = None
-        data = np.random.binomial(n=1, p=base_probability, size=(lag, n_features))
+        # logit(base_probability) serves as the bias term
+        logit_prob = np.log(base_probability / (1 - base_probability))
+        initial_prob = expit(logit_prob)
+        data = np.random.binomial(n=1, p=initial_prob, size=(lag, n_features))
     
     # Generate the rest of the time series
     for t in range(lag, n_samples):
         if process_type == 'gaussian':
-            new_point = np.zeros(n_features)
+            # Start with bias term
+            new_point = bias_terms.copy()
         elif process_type == 'poisson':
+            # base_intensity serves as the bias term
             new_point = base_intensity.copy()
         else:  # Bernoulli
+            # logit(base_probability) serves as the bias term
             new_point = np.zeros(n_features)
         
         # Add contribution from each lag using sparse matrix multiplication
@@ -279,16 +314,19 @@ def generate_sparse_stationary_var_process(n_features, n_samples, lag=1, sparsit
                 cov=covariance_matrix
             )
         elif process_type == 'poisson':
-            new_point = np.maximum(new_point, 0)
+            # Ensure non-negative intensities
+            new_point = np.maximum(new_point, 0.1)
             new_point = np.random.poisson(lam=new_point)
         else:  # Bernoulli
+            # Add logit(base_probability) which serves as the bias term
             new_point += np.log(base_probability / (1 - base_probability))
             probabilities = expit(new_point)
             new_point = np.random.binomial(n=1, p=probabilities)
         
         data = np.vstack([data, new_point])
     
-    return data, transition_matrices, covariance_matrix
+    return data, transition_matrices, bias_terms, covariance_matrix
+
 
 def print_process_info(data, transition_matrices, covariance_matrix):
     """
@@ -459,4 +497,36 @@ def stability_check(dense_matrices):
             z = z/(np.linalg.norm(z)+10)
             mat-=A@z
         assert(np.linalg.det(mat)!=0)
+
+
+def matrix_comparison(true_matrix, estimated_matrix, threshold=1e-5):
+    """
+    Create visualization comparing true and estimated matrices.
+    Returns plotting data that can be used with your preferred visualization library.
+    """
+    # Convert to dense if sparse
+    true_dense = true_matrix.toarray() if sparse.issparse(true_matrix) else true_matrix
+    est_dense = estimated_matrix.toarray() if sparse.issparse(estimated_matrix) else estimated_matrix
+    
+    # Create masks for zero/nonzero elements
+    true_mask = np.abs(true_dense) > threshold
+    est_mask = np.abs(est_dense) > threshold
+
+    M = true_matrix.shape[0]**2
+    
+    # Categorize elements
+    comparison = {
+        'TP': np.logical_and(true_mask, est_mask),
+        'FP': np.logical_and(~true_mask, est_mask),
+        'FN': np.logical_and(true_mask, ~est_mask),
+        'TN': np.logical_and(~true_mask, ~est_mask),
+        'error_magnitude': np.abs(true_dense - est_dense)
+    }
+
+    TP = np.count_nonzero(comparison["TP"])/M
+    FP = np.count_nonzero(comparison["FP"])/M
+    TN = np.count_nonzero(comparison["TN"])/M
+    FN = np.count_nonzero(comparison["FN"])/M
+    
+    return TP, FP, TN, FN
 

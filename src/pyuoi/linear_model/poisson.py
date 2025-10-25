@@ -598,11 +598,12 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
     def __init__(self, fit_VAR = False, n_boots_sel=12, n_boots_est=12, n_lambdas=48,
                  alphas=np.array([1.]), selection_frac=0.8,
                  estimation_frac=0.8, stability_selection=0.75,
+                 manual_l1_range = None, 
                  estimation_score='log', estimation_target=None,
                  solver='lbfgs', estimation_solver = 'lbfgs', warm_start=True,
                  eps=1e-3, tol=1e-8,  fit_intercept=True,
-                 standardize=True, max_iter=1000,
-                 random_state=None, comm=None, global_comm = None, n_admm = None, rho_scaler = 2, imbalance_tolerance = 10, l1_suppression = None, weights = 1, dt = 1, logger=None):
+                 standardize=False, max_iter=1000,
+                 random_state=None, comm=None, global_comm = None, n_admm = None, rho_scaler = 2, imbalance_tolerance = 10, l1_suppression = 0, weights = 1, dt = 1, logger=None):
         super(UoI_Poisson, self).__init__(
             fit_VAR = fit_VAR, 
             n_boots_sel=n_boots_sel,
@@ -613,6 +614,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
             estimation_score=estimation_score,
             estimation_target=estimation_target,
             fit_intercept=fit_intercept,
+            standardize=False,     # hard code Z-score scaling to false b/c it's not neede for Poisson GLM
             random_state=random_state,
             comm=comm,
             logger=logger)
@@ -628,6 +630,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
         self.n_admm = n_admm
         self.l1_suppression = l1_suppression
         self.dt =dt
+        self.manual_l1_range = manual_l1_range
 
         if solver == "admm":
 
@@ -729,29 +732,37 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
             # a set of lambdas are generated for each alpha value (l1_ratio in
             # sci-kit learn parlance)
             for alpha_idx, alpha in enumerate(self.alphas):
-                # calculate upper bound for lambda sweep
-                ybar = y.mean()
-                lambda_max = np.max(np.abs(np.dot(X.T, y - ybar)))
-                lambda_max /= n_samples * alpha           
+                if self.manual_l1_range is None:
+                    # calculate upper bound for lambda sweep
+                    ybar = y.mean()
+                    lambda_max = np.max(np.abs(np.dot(X.T, y - ybar)))
+                    lambda_max /= n_samples * alpha           
+    
+                    # Estimate zero-inflation level
+                    observed_zeros = (X == 0).mean()  # ~0.9 in your case
+                    expected_poisson_zeros = np.exp(-X[X>0].mean())
+                    # Adjust λ_max based on excess zeros
+                    excess_zeros = max(0, observed_zeros - expected_poisson_zeros)
+                    lambda_adjustment = 1 + excess_zeros
+                    # lambda_max = lambda_max * lambda_adjustment
+    
+                
+                    
+                    self.lambdas[alpha_idx, :] = np.logspace(
+                        start=np.log10(lambda_max),
+                        stop=np.log10(self.eps * lambda_max),
+                        num=self.n_lambdas)[self.l1_suppression:]
 
-                # Estimate zero-inflation level
-                observed_zeros = (X == 0).mean()  # ~0.9 in your case
-                expected_poisson_zeros = np.exp(-X[X>0].mean())
-                # Adjust λ_max based on excess zeros
-                excess_zeros = max(0, observed_zeros - expected_poisson_zeros)
-                lambda_adjustment = 1 + excess_zeros
-                # lambda_max = lambda_max * lambda_adjustment
 
-            
+                else: 
+                    # Hard coded L1-path range
+                    self.lambdas[alpha_idx, :] = np.logspace(
+                        start=np.log10(self.manual_l1_range[1]),   #max
+                        stop=np.log10(self.manual_l1_range[0]),   #min
+                        num=self.n_lambdas)[self.l1_suppression:]                
+             
                 
-                self.lambdas[alpha_idx, :] = np.logspace(
-                    start=np.log10(lambda_max),
-                    stop=np.log10(self.eps * lambda_max),
-                    num=self.n_lambdas)[self.l1_suppression:]
-                
-                # self.lambdas[alpha_idx, :] = np.array([2e-5, 1e-4])
-                
-                self.lambdas[alpha_idx, :] /= X.shape[1]
+                # self.lambdas[alpha_idx, :] /= X.shape[1]**2
             # print(self.lambdas, flush = True)
 
         # place the regularization parameters into a list of dictionaries
@@ -908,6 +919,8 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
                 self._selection_lm.fit(X, y, param_mask = self.param_mask)
                 # store coefficients
                 coefs[reg_param_idx] = self._selection_lm.coef_.ravel()
+                loss = self._selection_lm.loss
+                # np.save("result/loss_"+str(reg_params), loss)
     
             return coefs
         

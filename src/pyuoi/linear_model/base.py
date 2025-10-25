@@ -15,7 +15,7 @@ from scipy.sparse import issparse, csr_matrix, csc_matrix, coo_matrix, kron, eye
 from pyuoi import utils
 from pyuoi.mpi_utils import (Gatherv_rows, Bcast_from_root)
 
-from .utils import stability_selection_to_threshold, intersection
+from .utils import *
 from ..utils import check_logger
 import gc
 from copy import deepcopy
@@ -95,7 +95,7 @@ def vectorization_bootstrap_test(X, sample_idx, lag, data_pois = None, feature_w
         return design_matrix, y, None
 
 
-def _unpack_coefficients(coefficients):
+def _unpack_coefficients(coefficients, n_feat):
     """
     Unpack coefficient vector into A matrix and b vector.
     
@@ -109,7 +109,7 @@ def _unpack_coefficients(coefficients):
     A : (p, p) array
     b : (p,) array
     """
-    p = 20
+    p = n_feat
     A = np.zeros((p, p))
     b = np.zeros(p)
     coefficients= coefficients.ravel()
@@ -144,21 +144,23 @@ def parameter_mask(lag, n_features, has_bias = True, exclude_diagonal = True):
     
 def recover_VAR_parameter_from_vectorized(coef, lag, n_features, has_bias=True):
     # reshape back to matrix form
+    # A: adjacency matrices
+    # b: intercept
     coef = coef.reshape(n_features, lag * n_features + has_bias).T
     
     if has_bias:
-        intercept = coef[0, :]           # shape (n_features,)
+        b = coef[0, :]           # shape (n_features,)
         adjacency_flat = coef[1:, :]     # shape (lag*n_features, n_features)
     else:
-        intercept = None
+        b = None
         adjacency_flat = coef            # shape (lag*n_features, n_features)
     
     # reshape into adjacency matrices per lag
     adjacency_matrices = adjacency_flat.reshape(lag, n_features, n_features)
 
-    adjacency_matrices = np.transpose(adjacency_matrices, (0, 2, 1)) 
+    A = np.transpose(adjacency_matrices, (0, 2, 1)) 
     
-    return adjacency_matrices, intercept
+    return A, b
     
 
 def vectorization_bootstrap(raw_data, sample_idx, lag, data_pois = None, feature_weights = None, has_bias = True, sparse_format = "csr"):
@@ -203,6 +205,55 @@ def vectorization_bootstrap(raw_data, sample_idx, lag, data_pois = None, feature
     X, Y = check_X_y(X, Y, accept_sparse=['csr', 'csc', 'coo'],
                  y_numeric=True, multi_output=True)
     return X, Y, weights
+
+
+def vectorization_bootstrap_shuffle(raw_data, lag, boot_frac = 0.5, feature_weights = None, has_bias = True, sparse_format = "csr"):
+    # vectorize the VAR bootstrap data for use with LASSO algorithm
+    # sample_idx: idx for sampling the response vectors of the VAR model
+    # data: raw time series data in np array with shape n_samples X n_features
+    # Construction strategy: first form X_boot, Y_boot, then vectorize both
+        
+    # flipup so the last time sample in data is now first row(no need anymore)    
+    data = deepcopy(raw_data)
+    for i in range(data.shape[1]):
+        np.random.shuffle(data[:, i])
+    
+    data = np.flipud(data)
+    n_samples = data.shape[0]
+    n_features = data.shape[1]
+
+    # sample_idx are in range: (0, n_samples-lag)
+    sample_idx = np.random.choice(data.shape[0]-lag, size = int(boot_frac*data.shape[0]), replace = False)
+
+    # shape of Y: (n_boot_sample) X (n_features) 
+    Y = data[sample_idx]  
+
+
+    if feature_weights is not None:
+        weights = np.tile(feature_weights, (Y.shape[0], 1))
+        weights = weights.T.flatten()
+    else:
+        weights = None
+    
+    Y = Y.T.flatten()    
+
+        
+    # X.shape: (n_boot_sample) X (lag * n_features); 
+    X_row = [np.hstack(data[i+1 : lag+(i+1)]) for i in sample_idx]
+    X = np.vstack(X_row)
+
+    if has_bias:
+        # adding internal bias term to fit
+        b = np.ones((X.shape[0],1))
+        X = np.hstack((b,X))
+    
+    # use kronecker product for vectorization of matrix multiplication 
+    # use sparse kron operation of limit memory expansion
+    X = kron(eye(n_features), X, format=sparse_format)
+
+    X, Y = check_X_y(X, Y, accept_sparse=['csr', 'csc', 'coo'],
+                 y_numeric=True, multi_output=True)
+    return X, Y, weights    
 
 
 def vectorization(raw_data, lag,  data_pois = None, feature_weights = None, has_bias = True):
@@ -404,9 +455,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
 
     def _pre_fit_VAR(self, X):
         """Perform z-score scaling for VAR raw data for fit()."""
-        #if self.standardize:
-        if False:
-            
+        if self.standardize:
             if self.fit_intercept and issparse(X):
                 msg = ("Cannot center sparse matrices: "
                        "pass `fit_intercept=False`")
@@ -423,9 +472,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         # A_model = np.array([self.coef_.reshape(n_features,n_features*lag).T[i*n_features:(i+1)*n_features].T for i in range(lag)])
         A_model, b_model = recover_VAR_parameter_from_vectorized(self.coef_, lag, n_features)
         
-        #if self.standardize:
-        if False:
-        
+        if self.standardize:
             sX = self._X_scaler
             Sigma = np.outer(sX.scale_, 1/sX.scale_)
             A_model *= Sigma
@@ -613,7 +660,6 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                 self._post_fit(X, y)
                 return self
 
-
         
         ####################
         # Selection Module #
@@ -629,6 +675,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             tasks = np.array_split(np.arange(self.n_boots_sel * 
                                              self.n_reg_params_), size)[rank]
             selection_coefs = np.empty((tasks.size, n_coef))
+            selection_coefs_shuffled = np.empty((tasks.size, n_coef))
             # but my_boots is still indexed by the boots, since the reg_param is picked separately when fitting is about to begin
             my_boots = dict((task_idx // (self.n_reg_params_), None)
                             for task_idx in tasks)
@@ -640,6 +687,9 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             tasks = np.array_split(np.arange(self.n_boots_sel),
                                    size)[rank]
             selection_coefs = np.empty((tasks.size, self.n_reg_params_,
+                                        n_coef))
+
+            selection_coefs_shuffled = np.empty((tasks.size, self.n_reg_params_,
                                         n_coef))
             my_boots = dict((task_idx, None) for task_idx in tasks)
 
@@ -714,6 +764,8 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                     start_time = time()
                     
                     X_rep, y_rep, feature_weights = vectorization_bootstrap(data, idxs_train, lag, data_pois = data_pois)
+
+                    # X_shuffled, y_shuffled, feature_weights_shuffled = vectorization_bootstrap_shuffle(data, lag)
                     
                     # if self.kron_time is not None:
                     #     self.kron_time += time()-start_time
@@ -734,12 +786,16 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
 
             else:
                 self._logger.info("selection bootstrap %d" % (boot_idx))
-
-            
+                
+            # not warm starting
+            self._selection_lm.coef_ *= 0
             selection_coefs[ii] = np.squeeze(
                 self.uoi_selection_sweep(X_rep, y_rep, my_reg_params))
 
-
+            # not warm starting
+            # self._selection_lm.coef_ *= 0
+            # selection_coefs_shuffled[ii] = np.squeeze(
+            #     self.uoi_selection_sweep(X_shuffled, y_shuffled, my_reg_params))
             
 
             #print(np.count_nonzero(selection_coefs[ii])/selection_coefs[ii].size,flush = True)
@@ -760,18 +816,36 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         # perform intersection, and broadcast results
         if size > 1:
             selection_coefs = Gatherv_rows(selection_coefs, self.comm, root=0)
+
+            # selection_coefs_shuffled = Gatherv_rows(selection_coefs_shuffled, self.comm, root=0)
             if rank == 0:
                 if size > self.n_boots_sel:
                     selection_coefs = selection_coefs.reshape(
                         self.n_boots_sel,
                         self.n_reg_params_,
                         n_coef)
+                    
+                    # selection_coefs_shuffled = selection_coefs_shuffled.reshape(
+                    #     self.n_boots_sel,
+                    #     self.n_reg_params_,
+                    #     n_coef)
+          
+                # np.save("/pscratch/sd/y/yxu2/packages/pyuoi/examples/result/L0_support_intersect.npy", selection_coefs)
+                # np.save("/pscratch/sd/y/yxu2/packages/pyuoi/examples/result/L0_support_shuf_intersect.npy", selection_coefs_shuffled)
 
                 # printing the total number of non-zero coef
                 # print(np.sum(selection_coefs > 0, axis=2)+np.sum(selection_coefs < 0, axis=2), flush = True)
-                supports = self.intersect(
-                    selection_coefs,
-                    self.selection_thresholds_).astype(int)
+
+                # Option 1: occurrence frequency based selection
+                # supports = self.intersect(
+                #     selection_coefs,
+                #     self.selection_thresholds_).astype(int)
+
+                # Option 2: FDR selection
+                supports = intersection_FDR(selection_coefs, selection_coefs_shuffled, lag = lag, n_features = data.shape[1], fdr_rate = 0.05).astype(int)
+
+
+                # np.save("/pscratch/sd/y/yxu2/packages/pyuoi/examples/result/L0_support_after_intersect.npy", supports)
 
           
             else:
@@ -1303,6 +1377,7 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
         This implementation will account for multi-class classification.
         """
         supports = intersection(coef, thresholds)
+        
         if self.output_dim > 1 and self.shared_support:
             n_features = supports.shape[-1] // self.output_dim
             supports = supports.reshape((-1, self.output_dim, n_features))
