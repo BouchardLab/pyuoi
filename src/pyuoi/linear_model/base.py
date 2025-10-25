@@ -765,7 +765,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                     
                     X_rep, y_rep, feature_weights = vectorization_bootstrap(data, idxs_train, lag, data_pois = data_pois)
 
-                    # X_shuffled, y_shuffled, feature_weights_shuffled = vectorization_bootstrap_shuffle(data, lag)
+                    X_shuffled, y_shuffled, feature_weights_shuffled = vectorization_bootstrap_shuffle(data, lag)
                     
                     # if self.kron_time is not None:
                     #     self.kron_time += time()-start_time
@@ -793,9 +793,9 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                 self.uoi_selection_sweep(X_rep, y_rep, my_reg_params))
 
             # not warm starting
-            # self._selection_lm.coef_ *= 0
-            # selection_coefs_shuffled[ii] = np.squeeze(
-            #     self.uoi_selection_sweep(X_shuffled, y_shuffled, my_reg_params))
+            self._selection_lm.coef_ *= 0
+            selection_coefs_shuffled[ii] = np.squeeze(
+                self.uoi_selection_sweep(X_shuffled, y_shuffled, my_reg_params))
             
 
             #print(np.count_nonzero(selection_coefs[ii])/selection_coefs[ii].size,flush = True)
@@ -817,7 +817,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         if size > 1:
             selection_coefs = Gatherv_rows(selection_coefs, self.comm, root=0)
 
-            # selection_coefs_shuffled = Gatherv_rows(selection_coefs_shuffled, self.comm, root=0)
+            selection_coefs_shuffled = Gatherv_rows(selection_coefs_shuffled, self.comm, root=0)
             if rank == 0:
                 if size > self.n_boots_sel:
                     selection_coefs = selection_coefs.reshape(
@@ -825,10 +825,10 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                         self.n_reg_params_,
                         n_coef)
                     
-                    # selection_coefs_shuffled = selection_coefs_shuffled.reshape(
-                    #     self.n_boots_sel,
-                    #     self.n_reg_params_,
-                    #     n_coef)
+                    selection_coefs_shuffled = selection_coefs_shuffled.reshape(
+                        self.n_boots_sel,
+                        self.n_reg_params_,
+                        n_coef)
           
                 # np.save("/pscratch/sd/y/yxu2/packages/pyuoi/examples/result/L0_support_intersect.npy", selection_coefs)
                 # np.save("/pscratch/sd/y/yxu2/packages/pyuoi/examples/result/L0_support_shuf_intersect.npy", selection_coefs_shuffled)
