@@ -26,7 +26,7 @@ n_lambdas = 4
 dt = 0.01  # sample time bin size for Poisson process
 manual_l1_range = [6e-7, 3e-6]  # Hardcoded L1 penalty range
 
-#eps = 1e-9 # Obsolete if using manual_l1_rage. alpha grid min scaler: default is 1e-3
+eps = 1e-9 # Obsolete if using manual_l1_rage. alpha grid min scaler: default is 1e-3
 stability_selection=0.75  #Obsolete, this was for the occurence based parameter support seleciton method
 
 
