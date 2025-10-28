@@ -919,7 +919,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
                 self._selection_lm.fit(X, y, param_mask = self.param_mask)
                 # store coefficients
                 coefs[reg_param_idx] = self._selection_lm.coef_.ravel()
-                loss = self._selection_lm.loss
+                #Jan loss = self._selection_lm.loss
                 # np.save("result/loss_"+str(reg_params), loss)
     
             return coefs
