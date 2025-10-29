@@ -137,7 +137,24 @@ def update_z(y, a, rho, w = 1, dt = 1, tol=1e-3, max_iter=10, eps = 1e-10):
 
     return z
 
+def poisson_loss(x, beta, y, lamb):
+    """
+        Parameters
+    ----------
+    x : array, n_sample X n_features
+        Design matrix/Predictor variable.
+        
+    beta : bool, default=True
+        Model parameter estimates
+        
+    y : 1D array
+        Predicted variable.
 
+    """
+    tse = np.sum(np.exp(x@beta)-y*(x@beta))
+    l1_term = lamb * np.sum(np.abs(beta))
+    
+    return tse, l1_term
 
 class ADMM_Poisson:
     """
@@ -232,6 +249,9 @@ class ADMM_Poisson:
         
     
         N = size
+
+        # X_full = deepcopy(X)
+        # y_full = deepcopy(y)
    
         '''
         Data
@@ -249,6 +269,10 @@ class ADMM_Poisson:
                 
             weights = np.tile(self.feature_weights, (int(len(y)/len(self.feature_weights)), 1))
             weights = weights.T.flatten()
+
+            loss = {}
+            loss["tse"] = []
+            loss["l1"] = []
 
 
         else:
@@ -341,6 +365,8 @@ class ADMM_Poisson:
          # this is for accomdating the definition of MSE term in ADMM-LASSO convention
         #alpha *= m
         # good heuristric is to start with rho = l1-penalty
+
+        # rho = lamb * alpha  / m 
         rho = lamb * alpha # admm parameter, modulating the constraint that aux variable equals the model variable
     
         # do the send-receive again for y?? or integrate back into the last send-receive operation?? or just Bcast it like right now
@@ -389,6 +415,11 @@ class ADMM_Poisson:
 
         rho_history = []
         for k in range(max_iter):  # xrange -> range for Python 3
+
+            if rank == 0 and k%10 == 0:
+                tse, l1_term = poisson_loss(X, w, y, lamb)
+                loss["tse"].append(tse)
+                loss["l1"].append(l1_term)
     
             # x-update 
             q = rho * (X.T.dot(z + u) + (w + v))  # (temporary value)
@@ -472,22 +503,24 @@ class ADMM_Poisson:
             
             # adaptive rho selection based on residual
             #rho, u = adaptive_rho_update_boyd(r_res, s_res, rho, u, self.rho_scaler, self.imbalance_tolerance)
-            rho, u, v = adaptive_rho_update(r_res, s_res, primal_eps, dual_eps, rho, u, v, self.rho_scaler, self.imbalance_tolerance)
+            if k%20 == 0:
+                rho, u, v = adaptive_rho_update(r_res, s_res, primal_eps, dual_eps, rho, u, v, self.rho_scaler, self.imbalance_tolerance)
 
             
 
             if rank == 0:
                 rho_history.append(rho)
         # if rank == 0:
-        #     np.save("rho_plot/rho_"+str(self.rho_scaler)+"_20k_160.npy", rho_history)
+        #     np.save("/global/homes/y/yxu2/packages/pyuoi/examples/rho_plot/rho_"+str(self.rho_scaler)+".npy", rho_history)
         
         # Set attributes after fitting
         self.coef_ = w   # we want w because it's a global variable, and converges to x in the limit
         self.intercept_ = 0
         self.n_iter_ = None
+        if rank == 0:
+            self.loss = loss
 
-        
-        
+            
         return self
 
     def set_params(self, alpha, l1_ratio):

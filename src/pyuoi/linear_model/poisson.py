@@ -603,7 +603,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
                  solver='lbfgs', estimation_solver = 'lbfgs', warm_start=True,
                  eps=1e-3, tol=1e-8,  fit_intercept=True,
                  standardize=False, max_iter=1000,
-                 random_state=None, comm=None, global_comm = None, n_admm = None, rho_scaler = 2, imbalance_tolerance = 10, l1_suppression = 0, weights = 1, dt = 1, logger=None):
+                 random_state=None, comm=None, global_comm = None, n_admm = None, rho_scaler = 2, imbalance_tolerance = 10, l1_suppression = 0, weights = 1, dt = 1, fdr_rate = 0.05, logger=None):
         super(UoI_Poisson, self).__init__(
             fit_VAR = fit_VAR, 
             n_boots_sel=n_boots_sel,
@@ -614,6 +614,7 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
             estimation_score=estimation_score,
             estimation_target=estimation_target,
             fit_intercept=fit_intercept,
+            fdr_rate = fdr_rate,
             standardize=False,     # hard code Z-score scaling to false b/c it's not neede for Poisson GLM
             random_state=random_state,
             comm=comm,
@@ -919,7 +920,8 @@ class UoI_Poisson(AbstractUoIGeneralizedLinearRegressor, Poisson):
                 self._selection_lm.fit(X, y, param_mask = self.param_mask)
                 # store coefficients
                 coefs[reg_param_idx] = self._selection_lm.coef_.ravel()
-                #Jan loss = self._selection_lm.loss
+
+                self.loss = self._selection_lm.loss
                 # np.save("result/loss_"+str(reg_params), loss)
     
             return coefs

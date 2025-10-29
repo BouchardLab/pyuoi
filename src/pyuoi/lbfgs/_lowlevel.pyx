@@ -384,7 +384,7 @@ cdef class LBFGS(object):
             raise TypeError("progress must be callable, got %s" % type(f))
 
         x0 = np.atleast_1d(x0)
-        n = np.product(x0.shape)
+        n = np.prod(x0.shape)
 
         cdef np.npy_intp tshape[1]
         tshape[0] = <np.npy_intp>n
