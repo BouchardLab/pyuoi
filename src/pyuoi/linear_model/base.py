@@ -391,7 +391,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
     """
 
     def __init__(self, fit_VAR = False, n_boots_sel=12, n_boots_est=12, selection_frac=0.9,
-                 estimation_frac=0.9, stability_selection=0.75,
+                 estimation_frac=0.9, stability_selection=0.75, fdr_rate = 0.05,
                  fit_intercept=True, standardize=True,
                  shared_support=True, max_iter=None, tol=None,
                  random_state=None, comm=None, admm_comm = None, logger=None):
@@ -415,6 +415,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
         self.admm_comm = admm_comm
         self.output_dim = 1  # for VAR model: by vectorization construction
         self.VAR_coef_ = None
+        self.fdr_rate = fdr_rate
         # preprocessing
         if isinstance(random_state, int):
             # make sure ranks use different seed
@@ -842,7 +843,7 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                 #     self.selection_thresholds_).astype(int)
 
                 # Option 2: FDR selection
-                supports = intersection_FDR(selection_coefs, selection_coefs_shuffled, lag = lag, n_features = data.shape[1], fdr_rate = 0.05).astype(int)
+                supports = intersection_FDR(selection_coefs, selection_coefs_shuffled, lag = lag, n_features = data.shape[1], fdr_rate = self.fdr_rate).astype(int)
 
 
                 # np.save("/pscratch/sd/y/yxu2/packages/pyuoi/examples/result/L0_support_after_intersect.npy", supports)
@@ -1145,7 +1146,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
     def __init__(self, fit_VAR = False, n_boots_sel=12, n_boots_est=12, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=0.75,
                  estimation_score='r2', estimation_target=None,
-                 copy_X=True, fit_intercept=True,
+                 fdr_rate = 0.05, copy_X=True, fit_intercept=True,
                  standardize=True, random_state=None, max_iter=None, tol=None,
                  comm=None, admm_comm = None, logger=None):
         super(AbstractUoILinearRegressor, self).__init__(
@@ -1159,6 +1160,7 @@ class AbstractUoILinearRegressor(AbstractUoILinearModel,
             standardize=standardize,
             max_iter=max_iter,
             tol=tol,
+            fdr_rate = fdr_rate,
             random_state=random_state,
             comm=comm,
             admm_comm = admm_comm,
@@ -1327,7 +1329,7 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
     def __init__(self, fit_VAR = False, n_boots_sel=12, n_boots_est=12, selection_frac=0.9,
                  estimation_frac=0.9, stability_selection=0.75,
                  estimation_score='acc', estimation_target=None,
-                 copy_X=True, fit_intercept=True, standardize=True,
+                 fdr_rate = 0.05, copy_X=True, fit_intercept=True, standardize=True,
                  random_state=None, max_iter=None, tol=None,
                  shared_support=True, comm=None, logger=None):
         super(AbstractUoIGeneralizedLinearRegressor, self).__init__(
@@ -1342,6 +1344,7 @@ class AbstractUoIGeneralizedLinearRegressor(AbstractUoILinearModel,
             standardize=standardize,
             shared_support=shared_support,
             max_iter=max_iter,
+            fdr_rate = fdr_rate,
             tol=tol,
             comm=comm,
             logger=logger)

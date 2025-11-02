@@ -25,6 +25,7 @@ n_admm = 32
 n_lambdas = 4  
 dt = 0.01  # sample time bin size for Poisson process
 manual_l1_range = [6e-7, 3e-6]  # Hardcoded L1 penalty range
+fdr_rate = 0.05
 
 eps = 1e-9 # Obsolete if using manual_l1_rage. alpha grid min scaler: default is 1e-3
 stability_selection=0.75  #Obsolete, this was for the occurence based parameter support seleciton method
@@ -110,7 +111,7 @@ if rank == 0:
     # M80_285c84
     # M150_448b86
 
-    data = np.load('/pscratch/sd/y/yxu2/data/daleM80_285c84.spikes.npz')['spikes'][:100000].astype(np.double)
+    data = np.load('/pscratch/sd/y/yxu2/data/daleM80_285c84.spikes.npz')['spikes'][:10000].astype(np.double)
     B_truth = np.load('/pscratch/sd/y/yxu2/data/daleM80_285c84.simTruth.npz')["A_true"]
     data_pois = None
 
@@ -133,7 +134,7 @@ for l1_suppression in np.arange(1):#(14,15):
     for rho_scaler in rho_list:
         if use_admm:        
             boot_comm = build_bootstrap_comm(comm, n_admm)
-            uoi_poisson = UoI_Poisson(fit_VAR = True, fit_intercept=False, standardize = False, manual_l1_range = manual_l1_range, n_boots_sel=n_boots_sel, n_boots_est=n_boots_est, selection_frac = selection_frac, stability_selection=stability_selection, n_lambdas = n_lambdas, max_iter = max_iter, eps = eps, random_state=seed, comm = boot_comm, global_comm = comm, n_admm = n_admm, rho_scaler = rho_scaler, imbalance_tolerance = imbalance_tolerance, l1_suppression= l1_suppression, solver='admm', estimation_solver = "lbfgs", weights = w, dt = dt)
+            uoi_poisson = UoI_Poisson(fit_VAR = True, fit_intercept=False, standardize = False, manual_l1_range = manual_l1_range, n_boots_sel=n_boots_sel, n_boots_est=n_boots_est, selection_frac = selection_frac, stability_selection=stability_selection, n_lambdas = n_lambdas, max_iter = max_iter, eps = eps, random_state=seed, comm = boot_comm, global_comm = comm, n_admm = n_admm, rho_scaler = rho_scaler, imbalance_tolerance = imbalance_tolerance, l1_suppression= l1_suppression, solver='admm', estimation_solver = "lbfgs", weights = w, dt = dt, fdr_rate = fdr_rate)
             
             start = time()
             if boot_comm is not None:  #if the global_rank is part of the boostrap distribution(not admm distribution)
@@ -147,7 +148,7 @@ for l1_suppression in np.arange(1):#(14,15):
                     uoi_poisson.admm_queue()
             end = time()
         else:
-            uoi_poisson = UoI_Poisson(fit_VAR = True, fit_intercept=False, standardize = False, manual_l1_range = manual_l1_range, n_boots_sel=n_boots_sel, n_boots_est=n_boots_est, selection_frac = selection_frac, stability_selection=stability_selection, n_lambdas = n_lambdas, max_iter = max_iter, eps = eps, random_state=seed, comm = comm, rho_scaler = rho_scaler, imbalance_tolerance = imbalance_tolerance, l1_suppression= l1_suppression, weights = w, dt = dt)
+            uoi_poisson = UoI_Poisson(fit_VAR = True, fit_intercept=False, standardize = False, manual_l1_range = manual_l1_range, n_boots_sel=n_boots_sel, n_boots_est=n_boots_est, selection_frac = selection_frac, stability_selection=stability_selection, n_lambdas = n_lambdas, max_iter = max_iter, eps = eps, random_state=seed, comm = comm, rho_scaler = rho_scaler, imbalance_tolerance = imbalance_tolerance, l1_suppression= l1_suppression, weights = w, dt = dt, fdr_rate = fdr_rate)
             
             start = time()
            
@@ -167,6 +168,8 @@ for l1_suppression in np.arange(1):#(14,15):
             if lag == 1:
                 B_model = uoi_poisson.VAR_coef_[0]
                 model_bias = uoi_poisson.VAR_bias_
+
+                # print("L1-loss: ", uoi_poisson.loss["l1"])
                 
                 np.save("result/poisson_M80_"+str(rho_scaler)+"_intersect.npy", B_model)
                 np.save("result/poisson_M80_bias_"+str(rho_scaler)+"_intersect.npy", model_bias)
