@@ -1,30 +1,28 @@
+#!/usr/bin/env python3
+
 '''
 
 IMG=nersc/causal-net:v4   # May 13
 export OMP_NUM_THREADS=2
 salloc -q interactive -C cpu --image=$IMG -t 4:00:00 -A m2043 -N 4
 
-time srun -n 128 --distribution=block:block shifter python  uoi_var_poisson_addm_test.py  --samples 10_000
+time srun -n 128 --distribution=block:block shifter python  uoi_var_poisson_fdr_test.py  --samples 10_000
 
-Existing samples:
- --dataName  daleM20_746c4b      4 min @ N=4
- --dataName  daleM40_e33e89      9 min
- --dataName  daleM80_285c84
- --dataName  daleM150_448b86
- --dataName  dale
+Existing samples @ /pscratch/sd/y/yxu2/data:
+ --dataName  daleM20_746c4b      4 min 100k samp @ N=4
+ --dataName  daleM40_e33e89      9 min  100k samp @ N=4
+ --dataName  daleM80_285c84      75 min  300k samp @ N=4
+ --dataName  daleM150_448b86    62 min  300k samp @ N=4
 
+Existing samples @ dataPath=/pscratch/sd/b/balewski/2025_causalNet_tmp/
+ --dataName  daleM300_aa61f5
+# hard case
+--dataName daleM130_6eb245  
 
 # Yao:  
 n_process should be multiple of n_admm, and at MOST n_admm*n_boot*n_reg_param
  Example run command on NERSC interactive compute node session:
  srun -n 768 --ntasks-per-node=192 --distribution=block:block python uoi_var_poisson_test.py
-
-Existing samples:
- --dataName  daleM20_746c4b
- --dataName  daleM40_e33e89
- --dataName  daleM80_285c84
- --dataName  daleM150_448b86
- --dataName  dale
 
 
 UoI_Poisson parameters:
@@ -50,6 +48,7 @@ import scipy.sparse as sparse
 from numpy.linalg import norm
 import importlib
 import argparse
+import secrets
 
 from mpi4py import MPI
 from time import time
@@ -71,7 +70,7 @@ def qa_Bfit(B_truth, B_fit):
     bterm_se_s = 0.
     if N > 1:
         bterm_se_s = bterm_std / np.sqrt(2 * (N - 1))
-    print('Bterm: mean=%.2f    std=%.3f +/- %.3f' % (bterm_mean, bterm_std, bterm_se_s))
+    print('B term: mean=%.2f    std=%.3f +/- %.3f' % (bterm_mean, bterm_std, bterm_se_s))
 
     out = {
         'tval': B_truth,
@@ -153,18 +152,19 @@ def qa_Afit(A_truth, A_fit):
     return out
 
 #...!...!..................
-def generate_plots(args, qaD):
+def generate_edge_plots(args, qaD, outName):
     #import matplotlib as mpl
     #mpl.use('TkAgg')   
     import matplotlib.pyplot as plt
-    fig, axes = plt.subplots(1, 4, figsize=(16, 4.5))
+    fig, axes = plt.subplots(1, 4, figsize=(14, 4.))
 
     colors = {'exc': 'red', 'inh': 'blue', 'diag': 'brown', 'bterm': 'green'}
 
-    for i, name in enumerate(['exc', 'inh', 'diag', 'bterm']):
+    for i, name in enumerate([ 'inh','exc', 'diag', 'bterm']):
         ax = axes[i]
         stats = qaD[name]
         color = colors[name]
+        
         if stats['tval'].size > 0:
             ax.scatter(stats['tval'], stats['fval'], alpha=0.5, s=8, c=color)
             # Add y=x line
@@ -182,6 +182,7 @@ def generate_plots(args, qaD):
             mean_f = np.mean(stats['fval'])
             ax.plot(mean_t, mean_f, '+', c='black', markersize=20, markeredgewidth=3)
 
+        ax.grid()
         ax.set_title(name.capitalize())
         ax.set_xlabel('True Value')
         if i == 0:
@@ -204,11 +205,42 @@ def generate_plots(args, qaD):
                     verticalalignment='top', horizontalalignment='left',
                     bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.5))
 
-    fig.suptitle(f'Fitted  {args.dataName}  %d samples'%(args.samples))
+    fig.suptitle(f'Fitted  {outName}  %d samples'%(args.samples))
     fig.tight_layout()
-    plotF = os.path.join(args.out, f'{args.dataName}_corr.png')
+    plotF = os.path.join(args.out, f'{outName}_corr.png')
     fig.savefig(plotF)
-    print(f'Saved correlation plot to {plotF}')
+    print(f'Saved   display  {plotF}')
+    plt.show()
+
+#...!...!..................
+def generate_eigen_plot(args, A_truth, A_fit,outName):
+    import matplotlib.pyplot as plt
+    eigT = np.linalg.eigvals(A_truth)
+    eigF = np.linalg.eigvals(A_fit)
+
+    fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+    
+    reT = np.real(eigT)
+    imT = np.imag(eigT)
+    ax.scatter(reT, imT, color='blue', marker='o',label='True',s=10)
+
+    reF = np.real(eigF)
+    imF = np.imag(eigF)
+    ax.scatter(reF, imF, color='red', marker='o', facecolors='none',label='fit',s=20)
+    
+    ax.set_ylim(-0.1,)
+    #ax.set_xlim(right=1)
+    ax.axhline(0, linestyle='--', color='k', linewidth=1)
+    ax.axvline(0, linestyle='--', color='k', linewidth=1)
+    ax.grid(True, alpha=0.3)
+    ax.set_xlabel("Real Part")
+    ax.set_ylabel("Imaginary Part")
+    ax.legend()
+    ax.set_title(f'Eigenvalues for {outName}')
+    
+    plotF = os.path.join(args.out, f'{outName}_eigen.png')
+    fig.savefig(plotF)
+    print(f'Saved   display  {plotF}')
     plt.show()
 
 #...!...!..................
@@ -218,11 +250,35 @@ def main():
     parser.add_argument('--dataName', default='daleM20_746c4b', help='dataset name (e.g., daleM20_746c4b)')
     parser.add_argument('--out', default='result', help='output directory')
     parser.add_argument('--samples', type=int, default=100000, help='number of data samples to use')
+    parser.add_argument('--outName', default=None, help='output file name core')
+    parser.add_argument('--freqWeight', action='store_true', help='use frequency dependent weights, default is False')
     args = parser.parse_args()
     
+    outName = args.outName
+    if outName is None:
+        hash_str = secrets.token_hex(3)
+        outName = f'{args.dataName}_uoi{hash_str}'
 
     # most important hyperparameters!
-    confUoI = {'fit_VAR':True, 'fit_intercept':False, 'standardize':False, 'manual_l1_range':[6e-7, 3e-6], 'n_boots_sel':6, 'n_boots_est':6, 'selection_frac':0.9, 'n_lambdas':4, 'max_iter':1000, 'random_state':22, 'rho_scaler':1.0, 'n_admm':32,'imbalance_tolerance':10, 'l1_suppression':0, 'solver':'admm', 'estimation_solver':"lbfgs", 'dt':0.01}
+    confUoI = {
+        'fit_VAR': True,
+        'fit_intercept': False,
+        'standardize': False,
+        'manual_l1_range': [6e-7, 3e-6],
+        'n_boots_sel': 6,
+        'n_boots_est': 6,
+        'selection_frac': 0.9,
+        'n_lambdas': 4,
+        'max_iter': 1000,
+        'random_state': 22,
+        'rho_scaler': 1.0,
+        'n_admm': 32,
+        'imbalance_tolerance': 10,
+        'l1_suppression': 0,
+        'solver': 'admm',
+        'estimation_solver': "lbfgs",
+        'dt': 0.01
+    }
 
     lag=1
     assert lag==1
@@ -235,16 +291,18 @@ def main():
 
     if rank == 0: 
         print('Start dataName=%s  samples=%d'%(args.dataName,args.samples))
-        spikeF='%s/%s.spikes.npz'%(args.dataPath,args.dataName)
+        spikeF=os.path.join(args.dataPath,f'{args.dataName}.spikes.npz')
         data = np.load(spikeF)['spikes'][:args.samples].astype(np.double)
         data_pois = None
-        truthF=spikeF.replace('.spikes','.simTruth')
-        A_truth = np.load(truthF)["A_true"]
-        B_truth = np.load(truthF)["B_true"]
 
-        if 0: # enable freq-weighings
-            w = 1/np.maximum(np.mean(data,axis = 0), 0.1*np.ones(data.shape[1]))
-            w = w/np.linalg.norm(w) * data.shape[1]
+        if args.freqWeight: # enable freq-weighings
+            rates=np.mean(data,axis = 0)/confUoI['dt']
+            rates = np.clip(rates, 0.1, 50)
+            w=1/rates
+            w/=np.sum(w)
+            w*=data.shape[1]
+            print('rates:',rates)
+            print('w',w)
         else:
             w = np.ones(data.shape[1])
     else:
@@ -275,10 +333,15 @@ def main():
     A_fit = uoi_poisson.VAR_coef_[0]
     B_fit = uoi_poisson.VAR_bias_
     
-    outF = '%s/%s_uoi.npz'%(args.out,args.dataName)
+    outF = os.path.join(args.out, f'{outName}.npz')
     np.savez(outF, A_uoi=A_fit, B_uoi=B_fit)
     print('saved output to:',outF)
-    
+
+    #....  evaluation of results
+    truthF=spikeF.replace('.spikes','.simTruth')
+    A_truth = np.load(truthF)["A_true"]
+    B_truth = np.load(truthF)["B_true"]
+
     TP, FP, TN, FN = matrix_comparison(A_truth, A_fit, threshold=0)
     # these two adds up == real sparsity in B_truth
     M=A_truth.shape[0]; M2=M*M
@@ -297,7 +360,8 @@ def main():
     qaD['bterm']=qa_Bfit(B_truth, B_fit)
 
 
-    generate_plots(args, qaD)
+    generate_edge_plots(args, qaD, outName)
+    generate_eigen_plot(args, A_truth, A_fit,outName)
     
  
 #...!...!..................
