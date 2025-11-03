@@ -11,19 +11,24 @@ set -u ;  # exit  if you try to use an uninitialized variable
 export OMP_NUM_THREADS=2
 
 #dataName=daleM20_746c4b
-dataName=daleM40_e33e89
+#dataName=daleM40_e33e89
 #dataName=daleM80_285c84
 #dataName=daleM150_448b86
 
-dataName=daleM300_aa61f5
-#dataName=daleM130_6eb245  # hard case
+#  only Jan owns those 2 datasets:
+#dataName=daleM300_aa61f5
+dataName=daleM130_6eb245  # hard case
 
 #samples=10_000
 samples=300_000
 
+maxIter=500
+
 N=${SLURM_NNODES}
 jobId=${SLURM_JOBID}
 ntask=$((32 * N))
-echo S: job dataName=$dataName samples=$samples ntask=$ntask
+echo S: job dataName=$dataName samples=$samples ntask=$ntask maxIter $maxIter 
 
-time srun -n $ntask --distribution=block:block shifter python  uoi_var_poisson_fdr_test.py --dataName  $dataName --samples $samples  --dataPath /pscratch/sd/b/balewski/2025_causalNet_tmp/  --freqWeight
+time srun -n $ntask --distribution=block:block shifter python  uoi_var_poisson_fdr_test.py --dataName  $dataName --samples $samples --maxIter $maxIter  --dataPath /pscratch/sd/b/balewski/2025_causalNet_tmp/   --verb 2
+
+# spare --freqWeight

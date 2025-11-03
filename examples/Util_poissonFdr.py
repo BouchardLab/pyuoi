@@ -47,7 +47,7 @@ def qa_Afit(A_truth, A_fit):
     }
 
     # --- Off-diagonal elements (Excitatory and Inhibitory)
-    for name in ['exc', 'inh']:
+    for name in ['inh','exc']:
         if name == 'exc':
             true_m = (A_truth > 0) & (~diag_m)
             pred_m = (A_fit > 0) & (~diag_m)
@@ -136,7 +136,7 @@ def plot_edges_correl(args, qaD, outName):
         # Add mean and std text
         mean_val = stats['res_mean']
         std_val = stats['res_std']
-        ax.text(0.95, 0.05, f'N={stats["tval"].shape[0]}  \nmean={mean_val:.3f}\nstd={std_val:.3f}',
+        ax.text(0.95, 0.05, f'TP N={stats["tval"].shape[0]}  \nmean={mean_val:.3f}\nstd={std_val:.3f}',
                 transform=ax.transAxes, fontsize=10,
                 verticalalignment='bottom', horizontalalignment='right',
                 bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.5))
@@ -213,26 +213,24 @@ def plot_loss(args, A_truth, A_fit, outName, l1_loss_sel, loss_skip=0):
     inh_mask = (A_truth < 0) & (~diag_mask)
 
     # Panel B: Excitatory distribution
-    exc_truth = A_truth[exc_mask]
-    exc_fit = A_fit[exc_mask]
-    if exc_truth.size > 0 or exc_fit.size > 0:
-        axes[1].hist(exc_truth, bins=40, alpha=0.6, label='truth')
-        axes[1].hist(exc_fit, bins=40, alpha=0.6, label='fit')
-    axes[1].set_title('Excitatory edge weights')
-    axes[1].set_xlabel('Weight')
-    axes[1].set_ylabel('Count')
-    axes[1].legend()
+    for idx, name in enumerate(['exc', 'inh']):
+        ax = axes[idx + 1]
+        if name == 'exc':
+            mask = exc_mask
+            title = 'Excitatory edge weights'
+        else:
+            mask = inh_mask
+            title = 'Inhibitory edge weights'
 
-    # Panel C: Inhibitory distribution
-    inh_truth = A_truth[inh_mask]
-    inh_fit = A_fit[inh_mask]
-    if inh_truth.size > 0 or inh_fit.size > 0:
-        axes[2].hist(inh_truth, bins=40, alpha=0.6, label='truth')
-        axes[2].hist(inh_fit, bins=40, alpha=0.6, label='fit')
-    axes[2].set_title('Inhibitory edge weights')
-    axes[2].set_xlabel('Weight')
-    axes[2].set_ylabel('Count')
-    axes[2].legend()
+        truth_vals = A_truth[mask]
+        fit_vals = A_fit[mask]
+        if truth_vals.size > 0 or fit_vals.size > 0:
+            ax.hist(truth_vals, bins=40, alpha=0.6, label='truth')
+            ax.hist(fit_vals, bins=40, alpha=0.6, label='fit')
+        ax.set_title(title)
+        ax.set_xlabel('Weight')
+        ax.set_ylabel('Count')
+        ax.legend()
 
     fig.suptitle(f'Fitted  {outName}  %d samples'%(args.samples))
     fig.tight_layout()

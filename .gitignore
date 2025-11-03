@@ -123,3 +123,4 @@ model/
 .cursor
 *.npz
 old/
+result/
