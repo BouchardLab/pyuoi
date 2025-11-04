@@ -1,0 +1,10 @@
+IMG=nersc/causal-net:v4   # May 13
+export OMP_NUM_THREADS=2
+salloc -q interactive -C cpu --image=$IMG -t 4:00:00 -A m2043 -N 4
+
+
+Upgrade build tools inside the venv:
+shifter python -m pip install -U pip setuptools wheel
+
+Do the editable install:
+shifter python -m pip install -e /global/cfs/cdirs/mpccc/balewski/2025_UoI-VAR

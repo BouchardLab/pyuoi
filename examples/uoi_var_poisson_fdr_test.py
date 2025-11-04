@@ -41,19 +41,17 @@ UoI_Poisson parameters:
   fdr_rate=0.05  - False Discovery Rate (FDR) , p-value for selection of existing edges
 '''
 
-#import pdb, h5py, os,sys
 import  os,sys
 import numpy as np
 import scipy.sparse as sparse
 from numpy.linalg import norm
-import importlib
+#import importlib
 import argparse
 import secrets
-from pprint import pprint
 
 from mpi4py import MPI
 from time import time
-
+from pprint import pprint
 sys.path.append("/global/homes/b/balewski/prjs/2025_UoI-VAR/")
 from examples.var_utils import *
 from src.pyuoi.linear_model import *
@@ -61,6 +59,7 @@ sys.path.append("/global/homes/b/balewski/prjs/2025_UoI-VAR/src/pyuoi/linear_mod
 from sparse_comm_util import build_bootstrap_comm
 from var_utils import *
 from Util_poissonFdr import qa_Bfit, qa_Afit, plot_edges_correl, plot_eigenvalues, plot_loss, extract_loss_traces
+
 from Util_NumpyIO import read_data_npz, write_data_npz
 
 #...!...!..................
@@ -74,8 +73,7 @@ def main():
     parser.add_argument('--freqWeight', action='store_true', help='use frequency dependent weights, default is False')
     parser.add_argument('--maxIter', type=int, default=1000, help='maximum number of iterations for ADMM')
     parser.add_argument('--fdrRate', type=float, default=0.01, help='False discovery rate level for support selection')
-    parser.add_argument("--verb", "-v", type=int, default=1, help="Verbosity level")
-
+    parser.add_argument('--verb', '-v', type=int, default=1, help='Verbosity level')
     args = parser.parse_args()
     
     hash_str = None
@@ -101,6 +99,8 @@ def main():
         'imbalance_tolerance': 10,
         'solver': 'admm',
         'estimation_solver': "lbfgs",
+        'dt': 0.01,  # must be hardcoded - or use broadcasting to all ranks
+        'loss_stride': 10,
         'fdr_rate': args.fdrRate,
     }
 
@@ -115,7 +115,10 @@ def main():
         'out_path': args.out,
     }
 
-    assert confMisc['model_lag']==1
+    loss_stride = confUoI.get('loss_stride', 10)
+
+    lag = confMisc['model_lag']
+    assert lag==1
 
     rank = 0
     comm = MPI.COMM_WORLD
@@ -126,18 +129,16 @@ def main():
     if rank == 0: 
         for arg in vars(args):
             print( 'myArgs:',arg, getattr(args, arg))
-        print('Start dataName=%s  samples=%d'%(confMisc['data_name'],confMisc['num_samples']))
-        spikesFF=os.path.join(confMisc['data_path'],f"{confMisc['data_name']}.spikes.npz")
-        spikeD, spikeMD = read_data_npz(spikesFF, verb=True)
-        data=spikeD['spikes'][:confMisc['num_samples']].astype(np.double)
-        data_pois = None  # needed for data breadcasting
-        step_size = spikeMD['time_step_sec']
-        confUoI['dt']=step_size
-        
-        if args.verb>1:
-            pprint(confMisc)
-            pprint(confUoI)
 
+        print('Start dataName=%s  samples=%d'%(confMisc['data_name'],confMisc['num_samples']))
+        spikeF=os.path.join(confMisc['data_path'],f"{confMisc['data_name']}.spikes.npz")
+        #data = np.load(spikeF)['spikes'][:confMisc['num_samples']].astype(np.double)
+        spikeD, spikeMD = read_data_npz(spikeF, verb=True)
+        data=spikeD['spikes'][:confMisc['num_samples']].astype(np.double)
+        data_pois = None    
+        pprint(spikeMD)
+        #confUoI['dt']=spikeMD['time_step_sec']  # can't do it now w/o broadcasting to all ranks
+        
         if confMisc['use_freq_weight']: # enable freq-weighings
             rates=np.mean(data,axis = 0)/confUoI['dt']
             rates = np.clip(rates, 0.1, 50)
@@ -157,6 +158,7 @@ def main():
     #fitting with multiple processes
     boot_comm = build_bootstrap_comm(comm, confUoI['n_admm'])
     confUoI_fit = confUoI.copy()
+    confUoI_fit.pop('loss_stride', None)
 
     uoi_poisson = UoI_Poisson(**confUoI_fit, comm=boot_comm, global_comm=comm, weights=w)
     assert uoi_poisson.solver == "admm"
@@ -164,9 +166,9 @@ def main():
     start = time()
     if boot_comm is not None:  #if the global_rank is part of the boostrap distribution(not admm distribution)                
         if boot_comm.rank == 0:
-            uoi_poisson.fit(confMisc['model_lag'], data = data, data_pois = data_pois)
+            uoi_poisson.fit(lag, data = data, data_pois = data_pois)
         else:
-            uoi_poisson.fit(confMisc['model_lag'])
+            uoi_poisson.fit(lag)
     else:                
         uoi_poisson.admm_queue()
     end = time()
@@ -177,28 +179,21 @@ def main():
 
     A_fit = uoi_poisson.VAR_coef_[0]
     B_fit = uoi_poisson.VAR_bias_
-    loss_stride=10
-    sel_loss_iter, sel_loss_l1 = extract_loss_traces(uoi_poisson._selection_lm, loss_stride)
-    #print('sel_loss_iter:',sel_loss_iter)
-    #print('sel_loss_l1:',sel_loss_l1)
-    est_loss_iter, est_loss_l1 = extract_loss_traces(uoi_poisson._estimation_lm, loss_stride)
-
-    # ....  save UoI fit results
     
+    sel_loss_iter, sel_loss_l1 = extract_loss_traces(getattr(uoi_poisson, '_selection_lm', None), loss_stride)
+    est_loss_iter, est_loss_l1 = extract_loss_traces(getattr(uoi_poisson, '_estimation_lm', None), loss_stride)
+
     l1_loss_sel = np.vstack((sel_loss_iter, sel_loss_l1)) if sel_loss_iter.size > 0 else np.empty((2, 0))
     l1_loss_est = np.vstack((est_loss_iter, est_loss_l1)) if est_loss_iter.size > 0 else np.empty((2, 0))
 
-    #print('l1_loss_sel shape:', l1_loss_sel.shape)
-    #print('l1_loss_est shape:', l1_loss_est.shape)
-
+    
     bigD={ 'A_fit':A_fit, 'B_fit':B_fit, 'l1_loss_sel':l1_loss_sel, 'l1_loss_est':l1_loss_est}
-    metaD={'conf_misc':confMisc, 'conf_uoi':confUoI}
     outF = os.path.join(confMisc['out_path'], f"{confMisc['short_name']}.uoiFdr.npz")
     write_data_npz(bigD, outF, metaD=spikeMD)
     print('saved output to:',outF)
 
     #....  evaluation of results
-    truthF=spikesFF.replace('.spikes','.simTruth')
+    truthF=spikeF.replace('.spikes','.simTruth')
     A_truth = np.load(truthF)["A_true"]
     B_truth = np.load(truthF)["B_true"]
 
