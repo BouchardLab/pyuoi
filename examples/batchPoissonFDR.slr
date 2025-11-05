@@ -4,7 +4,8 @@
 #SBATCH --time 10:28:00  -q regular 
 #SBATCH --output=result/%j.out
 #SBATCH  --licenses=scratch
-#SBATCH  --image nersc/causal-net:v4
+#SBATCH  --image nersc/causal-net:v5   # Nov 5 2025
+
 # - - - E N D    O F    SLURM    C O M M A N D S
 set -u ;  # exit  if you try to use an uninitialized variable
 
@@ -29,6 +30,6 @@ jobId=${SLURM_JOBID}
 ntask=$((32 * N))
 echo S: job dataName=$dataName samples=$samples ntask=$ntask maxIter $maxIter 
 
-time srun -n $ntask --distribution=block:block shifter python  uoi_var_poisson_fdr_test.py --dataName  $dataName --samples $samples --maxIter $maxIter  --dataPath /pscratch/sd/b/balewski/2025_causalNet_tmp/   --verb 2
+time srun -n $ntask --distribution=block:block shifter python  uoi_var_poisson_fdr_test.py --dataName  $dataName --samples $samples --maxIter $maxIter  --dataPath /pscratch/sd/b/balewski/2025_causalNet_tmp/   --verb 2 --selectonFrac 0.66  --freqWeight
 
 # spare --freqWeight

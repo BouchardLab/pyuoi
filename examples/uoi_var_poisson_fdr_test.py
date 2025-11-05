@@ -73,6 +73,7 @@ def main():
     parser.add_argument('--freqWeight', action='store_true', help='use frequency dependent weights, default is False')
     parser.add_argument('--maxIter', type=int, default=1000, help='maximum number of iterations for ADMM')
     parser.add_argument('--fdrRate', type=float, default=0.01, help='False discovery rate level for support selection')
+    parser.add_argument('--selectonFrac', type=float, default=0.9, help='fraction of data used per bootstrap selection')
     parser.add_argument('--verb', '-v', type=int, default=1, help='Verbosity level')
     args = parser.parse_args()
     
@@ -91,7 +92,7 @@ def main():
         'n_lambdas': 4,
         'n_boots_sel': 6,
         'n_boots_est': 6,
-        'selection_frac': 0.9,
+        'selection_frac': args.selectonFrac,
         'max_iter': args.maxIter,
         'random_state': 22,
         'rho_scaler': 1.0,
@@ -129,7 +130,10 @@ def main():
     if rank == 0: 
         for arg in vars(args):
             print( 'myArgs:',arg, getattr(args, arg))
-
+        if args.verb > 1:
+            print('confUoI:'); pprint(confUoI)
+            print('confMisc:'); pprint(confMisc)
+            
         print('Start dataName=%s  samples=%d'%(confMisc['data_name'],confMisc['num_samples']))
         spikeF=os.path.join(confMisc['data_path'],f"{confMisc['data_name']}.spikes.npz")
         #data = np.load(spikeF)['spikes'][:confMisc['num_samples']].astype(np.double)

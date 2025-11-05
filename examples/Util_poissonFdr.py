@@ -2,7 +2,10 @@
 import os
 import numpy as np
 
-
+if 0:  # pop-up canvas
+    import matplotlib as mpl
+    mpl.use('TkAgg')
+    
 #...!...!..................
 def qa_Bfit(B_truth, B_fit):
     assert B_truth.shape == B_fit.shape
