@@ -843,7 +843,12 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
                 #     self.selection_thresholds_).astype(int)
 
                 # Option 2: FDR selection
-                supports = intersection_FDR(selection_coefs, selection_coefs_shuffled, lag = lag, n_features = data.shape[1], fdr_rate = self.fdr_rate).astype(int)
+                supports, count_list = intersection_FDR(selection_coefs, selection_coefs_shuffled, lag = lag, n_features = data.shape[1], fdr_rate = self.fdr_rate)
+                supports = supports.astype(int)
+                
+                
+                self.l1_support_count = count_list
+                
 
 
                 # np.save("/pscratch/sd/y/yxu2/packages/pyuoi/examples/result/L0_support_after_intersect.npy", supports)
@@ -946,15 +951,13 @@ class AbstractUoILinearModel(SparseCoefMixin, metaclass=_abc.ABCMeta):
             
             
             if np.any(support):
-                
 
                 # compute the estimate and store the fitted coefficients
                 if self.shared_support:
-
                     self._estimation_lm.fit(X_rep[:, support], y_rep)
-
                     estimates[ii, np.tile(support, self.output_dim)] = \
                         self._estimation_lm.coef_.ravel()
+
                 else:
                     self._estimation_lm.fit(X_rep, y_rep, coef_mask=support)
                     estimates[ii] = self._estimation_lm.coef_.ravel()

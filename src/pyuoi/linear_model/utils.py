@@ -285,6 +285,10 @@ def ie_type(coef, lag, num_feat, scheme = 2):
 
 
 def _unpack_coef(coef, lag, n_features, has_bias=True):
+
+    # coef shape: (n_boot, n_reg, n_features * (lag * n_features + has_bias))
+    # so we need to flip the first two axis first to align with the FDR indexing scheme
+    coef = np.transpose(coef, (1, 0, 2))
     # coef shape: (n_reg, n_boot, n_features * (lag * n_features + has_bias))
     n_reg, n_boot = coef.shape[:2]
     
@@ -472,6 +476,7 @@ def intersection_FDR(coefs, coefs_shuf, lag, n_features, fdr_rate = 0.05):
     # also need to clear the digonals of the A_*
     supports = []
     #iterating through the L1-penalty list
+    count_list = []
     for i_reg in range(A_real.shape[0]):
         W_edge_mask, W_pval, summary = edge_selector_fdr(A_real[i_reg], A_shuf[i_reg], alpha = fdr_rate)
         
@@ -479,11 +484,18 @@ def intersection_FDR(coefs, coefs_shuf, lag, n_features, fdr_rate = 0.05):
         # W_edge_mask is n_feat X n_feat
         np.fill_diagonal(W_edge_mask, 1)  # add digonal back in
         W_edge_mask = W_edge_mask[np.newaxis]  # making the dimension for LAG
-        
+
+        # Count all nonzero - diagonal nonzero for each array
+        total_nonzero = np.count_nonzero(W_edge_mask, axis=(1, 2))
+        diag_nonzero = np.count_nonzero(W_edge_mask.diagonal(axis1=1, axis2=2), axis=1)
+        offdiag_counts = total_nonzero - diag_nonzero
+
+        count_list.append(offdiag_counts)  # Array of shape (lag,) with counts for each matrix
+
+        # the biase terms are always assumed to be fully dense, so there’s no selection on it
         support_i = _pack_coef(W_edge_mask, b=np.ones(A_real.shape[-1]))
         supports.append(support_i)
 
     
-    return np.array(supports)   #  n_reg_params X n_coef
-
+    return np.array(supports), count_list   #  supports SHOULD have shape n_reg_params X n_coef!!!
     
