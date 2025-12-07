@@ -34,7 +34,7 @@ import argparse
 def get_parser():
     parser = argparse.ArgumentParser(description="Visualize simulated Dale Poisson network data")
     parser.add_argument("-v","--verbosity",type=int,  help="increase output verbosity", default=1, dest='verb')
-    parser.add_argument("-p", "--showPlots",  default='a b', nargs='+',help="abc-string listing shown plots: a=Dale_matrix_and_eigen, b=histo_weights_rates, c=histo_weights_rates_byFreq")
+    parser.add_argument("-p", "--showPlots",  default='a b', nargs='+',help="abc-string listing shown plots: a=Dale_matrix_and_eigen, b=histo_weights_rates, c=histo_weights_rates_byFreq, d=rates_study")
     parser.add_argument('-X',"--noXterm", action="store_true", help="Disable X terminal for plotting")
     parser.add_argument("--dataPath",default='/pscratch/sd/b/balewski/2025_causalNet_tmp/',help="head dir for input data")
     parser.add_argument("--dataName",  default='daleM150_448b86',help='simulated Dale network base name')
@@ -92,6 +92,9 @@ if __name__=="__main__":
     if 'c' in args.showPlots:
         plot.histo_weights_rates(trueD,spikeD,trueMD,byFreq=True,figId=3)
   
+    if 'd' in args.showPlots:
+        plot.rates_study(trueD,spikeD,trueMD,figId=4)
+ 
     plot.display_all()
     print('M:done - view_dalePoisson completed successfully!')
 

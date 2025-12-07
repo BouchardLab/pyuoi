@@ -11,6 +11,7 @@ def gen_realistic_freqs(min_freq, max_freq, trapezoid_height, trapezoid_rmin, nu
     - min_freq: Minimum frequency value.
     - max_freq: Maximum frequency value.
     - trapezoid_height: Height of the trapezoidal distribution at min_freq.
+    - trapezoid_rmin: Relative reduction at max_freq (0..1).
     - num_samples: Total number of samples to generate.
     - sigma: Standard deviation of the Gaussian distribution.
     
@@ -18,44 +19,61 @@ def gen_realistic_freqs(min_freq, max_freq, trapezoid_height, trapezoid_rmin, nu
     - samples: Array of generated samples.
     """
     
-    # Define the Gaussian PDF
-    gaussian_pdf = lambda f: np.exp(- (f / sigma) ** 2 / 2)
+    # Define the Gaussian PDF (centered at 0, evaluated for f>=min_freq)
+    def gaussian_pdf(f):
+        return np.exp(- (f / sigma) ** 2 / 2)
 
     # Define the trapezoidal PDF using vectorized operations
-    trapezoidal_pdf = lambda f: np.where(
-        (f >= min_freq) & (f <= max_freq),
-        trapezoid_height * (1 - (f - min_freq) / (max_freq - min_freq) *  trapezoid_rmin),
-        0
-    )
+    def trapezoidal_pdf(f):
+        inside = (f >= min_freq) & (f <= max_freq)
+        val = np.zeros_like(f, dtype=float)
+        # Linearly decreasing from trapezoid_height at min_freq
+        val[inside] = trapezoid_height * (1 - (f[inside] - min_freq) / (max_freq - min_freq) * trapezoid_rmin)
+        return val
 
     # Create a combined PDF
-    combined_pdf = lambda f: gaussian_pdf(f) + trapezoidal_pdf(f)
+    def combined_pdf(f):
+        return gaussian_pdf(f) + trapezoidal_pdf(f)
 
-    # Normalize the combined PDF
-    x = np.linspace(min_freq, max_freq, 100)
-    pdf_values = combined_pdf(x)
-    normalization_factor = np.trapezoid(pdf_values, x)  # Calculate the area under the curve
-    normalized_pdf = pdf_values / normalization_factor  # Normalize the PDF
-
-    # Draw from the normalized PDF
-    samples = np.random.choice(x, size=num_samples, p=normalized_pdf/np.sum(normalized_pdf))
+    # Rejection sampling over continuous interval [min_freq, max_freq] to avoid quantization
+    x_dense = np.linspace(min_freq, max_freq, 5000)
+    pdf_dense = combined_pdf(x_dense)
+    M = float(np.max(pdf_dense)) if np.all(np.isfinite(pdf_dense)) else 1.0
+    if M <= 0:
+        # Fallback: uniform if pathological configuration
+        return np.random.uniform(min_freq, max_freq, size=num_samples)
+    
+    samples = np.empty(num_samples, dtype=float)
+    filled = 0
+    # Choose a reasonable batch size for efficiency
+    batch_size = max(1000, num_samples * 2)
+    while filled < num_samples:
+        f_try = np.random.uniform(min_freq, max_freq, size=batch_size)
+        u = np.random.uniform(0.0, M, size=batch_size)
+        accept_mask = u < combined_pdf(f_try)
+        accepted = f_try[accept_mask]
+        take = min(accepted.size, num_samples - filled)
+        if take > 0:
+            samples[filled:filled+take] = accepted[:take]
+            filled += take
 
     return samples
 
 if __name__ == '__main__':
 
     # Parameters
-    min_freq = 1  # Set minimum frequency to 1
-    max_freq = 45 #(Hz)
+    min_freq = 0.5  # Set minimum frequency 
+    max_freq = 90 #(Hz)
     trapezoid_height = 0.15  # Height of the trapezoidal distribution
     trapezoid_rmin=0.3 # fraction of trapzoid at the max freq
-    sigma = 4  # (Hz) Standard deviation of the Gaussian
+    sigma = 5  # (Hz) Standard deviation of the Gaussian
 
     num_samples = 150
 
     # Generate samples
     samples = gen_realistic_freqs(min_freq, max_freq, trapezoid_height, trapezoid_rmin,num_samples, sigma)
 
+    print('samples:',samples[samples<5])
     # Calculate the median of the samples
     median_value = np.median(samples)
 

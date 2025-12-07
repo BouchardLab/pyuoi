@@ -138,7 +138,7 @@ class Plotter(PlotterBackbone):
 
         ax.legend(loc='upper left')
         tit='True Dale, M%d, %s'%(A.shape[0],md['short_name'])
-        ax.set(title=tit, xlabel='Weight value',ylabel='num edges')
+        ax.set(title=tit, xlabel='True weight value',ylabel='num edges')
         ax.axvline(0,color='k',ls='--')
         ax.grid(True, alpha=0.3)
 
@@ -218,3 +218,83 @@ class Plotter(PlotterBackbone):
 #............................
 #............................
 #............................
+    def rates_study(self,trueD,spikeD,md,figId=4):
+        figId=self.smart_append(figId)
+        nrow,ncol=1,4
+        fig=self.plt.figure(figId,facecolor='white', figsize=(15,4))
+        data_name=md['short_name']
+        dmd=md['dale_conf']
+        numExc=dmd['num_excite']
+        numNeur=dmd['num_neurons']
+        
+        # Data are frequency-sorted in primary storage
+        B_idle = trueD['B_true']                 # freq-sorted bias
+        single_rates = spikeD['single_rates']    # freq-sorted rates (Hz)
+        single_rates_snr = spikeD['sigle_rates_snr']  # freq-sorted SNR (dimensionless)
+        neur_revFreqIdx = trueD['neur_revFreqIdx']    # freq_sorted_position → natural_index
+        
+        # Build excitatory/inhibitory masks in freq-sorted order using natural index split
+        nat_index = neur_revFreqIdx
+        exc_mask = nat_index < numExc
+        inh_mask = ~exc_mask
+        
+        # 1) Scatter: x=B_idle, y=log(single_rates)
+        ax = self.plt.subplot(nrow,ncol,1)
+        ax.scatter(B_idle[exc_mask], single_rates[exc_mask], s=14, alpha=0.6, marker='^', facecolors='none', edgecolors='red', label='Excitatory')
+        ax.scatter(B_idle[inh_mask], single_rates[inh_mask], s=14, alpha=0.6, marker='^', facecolors='none', edgecolors='blue', label='Inhibitory')
+        ax.set_xlabel('true B_idle ')
+        ax.set_ylabel('single_rates (Hz)')
+        ax.set_yscale('log')
+        ax.grid(True, alpha=0.3)
+        tit='True Dale, M%d, %s'%(numNeur, data_name)
+        ax.set_title(tit)
+       
+        # reference line: y = exp(B), clipped to central 80% of B range
+        bmin = float(np.min(B_idle))
+        bmax = float(np.max(B_idle))
+        bLo = bmin + 0.1 * (bmax - bmin)
+        bHi = bmax - 0.1 * (bmax - bmin)
+        bx = np.linspace(bLo, bHi, 100)
+        by = np.exp(bx)
+        ax.plot(bx, by, linestyle='--', color='black', linewidth=0.8, label='y=exp(x)')
+        ax.legend()
+
+        # 2) Scatter: x=B_idle, y=single SNR (from spikeD)
+        ax = self.plt.subplot(nrow,ncol,2)
+        ax.scatter(B_idle[exc_mask], single_rates_snr[exc_mask], s=14, alpha=0.6, facecolors='none', edgecolors='red', label='Excitatory')
+        ax.scatter(B_idle[inh_mask], single_rates_snr[inh_mask], s=14, alpha=0.6, facecolors='none', edgecolors='blue', label='Inhibitory')
+        ax.set_xlabel('true B_idle')
+        ax.set_ylabel('single SNR (rate^2/var)')
+        ax.grid(True, alpha=0.3)
+        ax.set_yscale('log')
+        ax.set_title('single SNR vs B_idle')
+        ax.legend()
+        
+        # 3) Histogram: single_rates for excitatory
+        ax3 = self.plt.subplot(nrow,ncol,3)
+        exc_vals = single_rates[exc_mask]
+        inh_vals = single_rates[inh_mask]
+        # compute common bins and range (start at 0)
+        exc_max = np.max(exc_vals) if exc_vals.size > 0 else 0.0
+        inh_max = np.max(inh_vals) if inh_vals.size > 0 else 0.0
+        x_max = max(exc_max, inh_max)
+        if x_max <= 0:  x_max = 1.0
+        #common_bins = np.linspace(0, x_max, 21)
+        common_bins = np.linspace(0, x_max, int(2*x_max))
+        ax3.hist(exc_vals, bins=common_bins, color='red', alpha=0.7, edgecolor=None)
+        ax3.set_xlabel('single_rates (Hz)')
+        ax3.set_ylabel('num neurons')
+        ax3.grid(True, alpha=0.3)
+        ax3.set_title('Rates: Excitatory (N=%d)' % (numExc))
+        
+        # 4) Histogram: single_rates for inhibitory
+        ax4 = self.plt.subplot(nrow,ncol,4)
+        ax4.hist(inh_vals, bins=common_bins, color='blue', alpha=0.7, edgecolor=None)
+        ax4.set_xlabel('single_rates (Hz)')
+        ax4.set_ylabel('num neurons')
+        ax4.grid(True, alpha=0.3)
+        ax4.set_title('Rates: Inhibitory (N=%d)' % (numNeur-numExc))
+        # unify x-range starting at 0 for both histograms
+        ax3.set_xlim(0, x_max)
+        ax4.set_xlim(0, x_max)
+

@@ -15,7 +15,7 @@ each neuron is either excitatory (producing only positive outgoing weights) or i
 Key Features:
 
 Connectivity Matrix Generation:
-A spectral radius–based stabilization procedure ensuring $\max \Re(\lambda(A)) < 0$, so the single-lag network decays in the absence of input noise.
+A spectral radius–based stabilization procedure ensuring max Re(lambda(A)) < 0,  so the single-lag network decays in the absence of input noise.
 
 your script stabilizes using continuous Lyapunov equations (solve_continuous_lyapunov) which assumes continuous-time dynamics and only one lag.
 
@@ -172,31 +172,49 @@ def gen_dale_matrics(conf, rho_target):
         print("Matrix already stable")
     
     assert(np.max(np.real(eig)) < 0)
-    
-    # Count non-zero excitatory and inhibitory weights (off-diagonal only)
-    num_inhib = num_neurons - num_excite
-    
-    # Create diagonal mask
-    diag_mask = np.eye(num_neurons, dtype=bool)
-    off_diag_mask = ~diag_mask
-    
-    # Excitatory weights (rows 0 to num_excite-1, off-diagonal only)
-    excit_weights = A[:num_excite, :]
-    excit_off_diag = excit_weights[off_diag_mask[:num_excite, :]]
-    excit_nonzero = np.sum(np.abs(excit_off_diag) > 1e-10)
-    excit_total = excit_off_diag.size
-    
-    # Inhibitory weights (rows num_excite to num_neurons-1, off-diagonal only)
-    inhib_weights = A[num_excite:, :]
-    inhib_off_diag = inhib_weights[off_diag_mask[num_excite:, :]]
-    inhib_nonzero = np.sum(np.abs(inhib_off_diag) > 1e-10)
-    inhib_total = inhib_off_diag.size
-    
-    print(f'Dale matrix weights (off-diagonal): Excitatory {excit_nonzero}/{excit_total} ({excit_nonzero/excit_total*100:.1f}%), Inhibitory {inhib_nonzero}/{inhib_total} ({inhib_nonzero/inhib_total*100:.1f}%)')
-    
     return A
 
 #################### Simulation ##################
+
+def set_flat_selfSpiking(args):
+    """Generate B_idle for flat (idleRate-based) self-spiking."""
+    Nn = args.num_neurons
+    Ri_arg = np.array(args.idleRate)
+    Bi = np.log(Ri_arg)
+    B_idle = np.random.uniform(Bi[0], Bi[1], size=(Nn,))
+    if args.exc_rate_dump != None:
+        B_idle[:args.num_excite] -= args.exc_rate_dump  # reduce excite rate
+    return B_idle
+
+def set_real_selfSpiking(args):
+    """Generate B_idle from realistic frequency distribution; return rateGen_conf."""
+    Nn = args.num_neurons
+    min_freq=args.idleRate[0]
+    assert min_freq>0.3
+    from UtilGenExpFreqs import gen_realistic_freqs
+    exc_rateConf = {
+        'min_freq': min_freq,
+        'max_freq': 17,
+        'trapezoid_height': 0.0,
+        'trapezoid_rmin': 0.20,
+        'sigma': 2
+    }
+    inh_rateConf = {
+        'min_freq': 2*min_freq,
+        'max_freq': 90,
+        'trapezoid_height': 0.15, 
+        'trapezoid_rmin': 0.3,
+        'sigma': 6
+    }
+    exc_freqs = gen_realistic_freqs(num_samples=args.num_excite, **exc_rateConf)
+    inh_freqs = gen_realistic_freqs(num_samples=Nn - args.num_excite, **inh_rateConf)
+    B_exc = np.log(exc_freqs)
+    B_inh = np.log(inh_freqs)
+    B_idle = np.concatenate([B_exc, B_inh], axis=0)
+    rateGen_conf = {'exc': exc_rateConf, 'inh': inh_rateConf}
+    if args.exc_rate_dump != None:
+        B_idle[:args.num_excite] -= args.exc_rate_dump  # reduce excite rate
+    return B_idle, rateGen_conf
 
 def generate_lag1_poisson(num_steps, dt, A, B_intercept, num_excite, verb=0):
     """
@@ -268,10 +286,10 @@ def main():
     parser.add_argument("--edge_prob", type=float, nargs=2, default=[0.05, 0.2], help="Range of edge probability [min, max] for rho_target generation.")
     parser.add_argument("--num_steps", type=int, default=10_000, help="Number of time steps for simulation.")
     parser.add_argument("--step_size", type=float, default=0.01, help="Integration time step size (dt) in seconds.")
-    parser.add_argument("--idleRate", type=float, nargs=2, default=[2, 10.], help="Range of idle firing rates [min, max] in Hz.")
+    parser.add_argument("--idleRate", type=float, nargs=2, default=[0.5, 10.], help="Range of idle firing rates [min, max] in Hz. Or min rate for 'expRate'")
     parser.add_argument("--expRate", action="store_true", help="Switch to exponentially decausing rate")
     parser.add_argument("--exc_rate_dump", type=float, default=None, help="boost B-value for inhibitory neurons")
-    parser.add_argument("--spectralR", type=float, default=2.0, help="Initial spectral radius (R).")
+    parser.add_argument("--spectralR", type=float, default=1.0, help="Initial spectral radius (R).")
     parser.add_argument('-v',"--verb", type=int, default=1, help="Verbosity level (0=quiet, 1=normal).")
     parser.add_argument("--dataName", type=str, default=None, help="Base name for output files (default: dale_spikes_xx).")
     parser.add_argument("--dataPath", type=str, default='/pscratch/sd/b/balewski/2025_causalNet_tmp/', help="Output directory for all files.")
@@ -355,26 +373,13 @@ def main():
     }
 
     if not args.expRate:
-        # Initialize bias vector B based on idle firing rate
-        evol_conf[ 'idleRate']= args.idleRate
-        Ri_arg = np.array(args.idleRate)
-        Bi = np.log(Ri_arg)
-        B_idle = np.random.uniform(Bi[0],Bi[1], size=(Nn,))
-        if args.exc_rate_dump!=None:
-            B_idle[:args.num_excite]-=args.exc_rate_dump  # reduce excite rate
-        
+        evol_conf['idleRate']= args.idleRate
+        B_idle = set_flat_selfSpiking(args)
     else:
-        from UtilGenExpFreqs import gen_realistic_freqs
-        rateGen_conf = {
-            'min_freq': 1,
-            'max_freq': 45,
-            'trapezoid_height': 0.15,
-            'trapezoid_rmin':0.3,
-            'sigma': 2
-        }
+        B_idle, rateGen_conf = set_real_selfSpiking(args)
         evol_conf['rate_gen_conf']=rateGen_conf
-        B_idle = np.log(gen_realistic_freqs(num_samples=Nn,**rateGen_conf))
-        
+
+    # print('B_idle:',B_idle)    
     # Generate spike data using the Poisson  process
     probLo, probHi = args.edge_prob
     min_rho = args.num_neurons * probLo
@@ -390,7 +395,8 @@ def main():
     print("Spike generation completed in %.1f seconds" % sim_time)
 
     # Evaluate spike stats and compute firing rates
-    stats_dict, rates_dict , neur_freqIdx= estimate_rates(Y, dt=args.step_size, num_excite=args.num_excite, max_samples=100000, mxNn=5)
+    varTwindow=5 #(sec)
+    stats_dict, rates_dict , neur_freqIdx= estimate_rates(Y, dt=args.step_size, num_excite=args.num_excite, max_samples=100000, varTwindow=varTwindow, mxNn=5)
    
     # REMAP MATRICES TO FREQUENCY-SORTED ORDER (PRIMARY INDEX)
     neur_revFreqIdx = neur_freqIdx.copy()  # freq_sorted_position → natural_index (original from estimate_rates)
@@ -411,12 +417,19 @@ def main():
     Y_uchar = np.clip(Y, 0, 255).astype(np.uint8)
     Y_freq_sorted = Y_uchar[:, neur_revFreqIdx]  # Reorder neurons by frequency
     rates_freq_sorted = rates_dict['single_rates'][neur_revFreqIdx]  # Reorder rates by frequency
+    # Get variance, SNR, and Fano factor from estimate_rates and reorder
+    single_rates_var_sorted = rates_dict['sigle_rates_var'][neur_revFreqIdx]
+    single_rates_snr_sorted = rates_dict['sigle_rates_snr'][neur_revFreqIdx]
+    single_fano_fact_sorted = rates_dict['single_fano_fact'][neur_revFreqIdx]
         
     spikeD = {
         'spikes': Y_freq_sorted,
-        'single_rates': rates_freq_sorted
+        'single_rates': rates_freq_sorted,
+        'sigle_rates_var': single_rates_var_sorted,
+        'sigle_rates_snr': single_rates_snr_sorted,
+        'single_fano_fact': single_fano_fact_sorted
     }
-    spikeMD={ 'short_name':args.dataName,'time_step_sec':args.step_size,'data_type':'simDale' }
+    spikeMD={ 'short_name':args.dataName,'time_step_sec':args.step_size,'data_type':'simDale', 'var_time_window_sec':varTwindow }
 
     outFt = os.path.join(args.dataPath, args.dataName + '.simTruth.npz')
     write_data_npz(trueD, outFt, metaD=trueMD)
@@ -425,11 +438,11 @@ def main():
     write_data_npz(spikeD, outFs, metaD=spikeMD)
     if args.verb>1:  pprint(spikeMD)
         
-    print("\nSimulation completed successfully!")
+    print("\nSimulation completed successfully!") 
     print("\nNext step commands:")
-    print("  ./view_dalePoisson.py  --dataPath $dataPath   --dataName %s  -p c a b " % args.dataName)
+    print("  ./view_dalePoisson.py  --dataPath $dataPath   --dataName %s  -p c d a b " % args.dataName)
     print("  ./fit_lassoPoisson.py  --dataPath $dataPath   --dataName %s  --num_epochs 50 " % args.dataName)
     print("    --dataPath "+args.dataPath)
 
 if __name__ == '__main__':
-    main() 
+    main()  

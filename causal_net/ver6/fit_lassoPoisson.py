@@ -76,7 +76,7 @@ def main():
         device = check_gpu_availability()
     args.rank=rank
     if rank==0:
-        print("Configuration:", vars(args))
+        print("FitLasso Config:", vars(args))
         print("world_size=%d" % (world_size))
     # enable fast matmul paths
     torch.backends.cudnn.benchmark = True
