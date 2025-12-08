@@ -38,7 +38,7 @@ class Plotter(PlotterBackbone):
         PlotterBackbone.__init__(self,args)         
 
 #...!...!..................
-    def summary_fitLasso(self,fitD, md,byFreq=False, figId=1):
+    def summary_fitLasso(self,fitD, md,byFreq=False, figId=1):  # p=a
         figId=self.smart_append(figId)        
         nrow,ncol=2,4
         fig=self.plt.figure(figId,facecolor='white', figsize=(19,6))

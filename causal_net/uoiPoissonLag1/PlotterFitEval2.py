@@ -12,6 +12,9 @@ from matplotlib.colors import TwoSlopeNorm
 from scipy.stats import gennorm
 from matplotlib.colors import LogNorm
 from Util_poissonFdr import qa_Bfit, qa_Afit
+import sys, os
+sys.path.append(os.path.join(os.path.dirname(__file__), '../ver6'))
+from Util_pseudospectra import compute_pseudospectrum
 
 #............................
 #............................
@@ -20,9 +23,8 @@ class Plotter(PlotterBackbone):
     def __init__(self, args):
         PlotterBackbone.__init__(self,args)
 
-
 #...!...!..................
-    def summary_fitUoI(self,fitD, trueD,md,byFreq=False, figId=1):
+    def summary_fitUoI(self,fitD, trueD,md,byFreq=False, figId=1):  # p=a
         figId=self.smart_append(figId)
         nrow,ncol=1,4
         fig=self.plt.figure(figId,facecolor='white', figsize=(14,3))
@@ -102,7 +104,7 @@ class Plotter(PlotterBackbone):
         self.plt.tight_layout(rect=[0,0,1,0.92])
 
 #...!...!..................
-    def correlations(self, fitD, trueD, md, figId=1):
+    def correlations_fitUoI(self, fitD, trueD, md, figId=1):  # p=b
         figId=self.smart_append(figId)
         nrow,ncol=3,4
         fig=self.plt.figure(figId,facecolor='white', figsize=(14,9))
@@ -141,7 +143,7 @@ class Plotter(PlotterBackbone):
                     np.min([ax.get_xlim(), ax.get_ylim()]),
                     np.max([ax.get_xlim(), ax.get_ylim()]),
                 ]
-                ax.plot(lims, lims, 'r--', alpha=0.75, zorder=0)
+                ax.plot(lims, lims, 'k--', alpha=0.75, zorder=0,lw=0.8)
                 ax.set_aspect('equal', 'box')
                 ax.set_xlim(lims)
                 ax.set_ylim(lims)
@@ -162,12 +164,13 @@ class Plotter(PlotterBackbone):
         # Second row: residuals vs single_rates with adaptive x-scale, lighter colors
         rates = fitD.get('single_rates', None)
         use_log_x = False
-        if rates is not None and np.any(rates > 0):
-            rmin = float(np.min(rates[rates > 0]))
-            rmax = float(np.max(rates))
-            ratio = rmin / rmax if rmax > 0 else 1.0
-            # If small dynamic range (min/max > 0.02), use linear; otherwise log
-            use_log_x = not (ratio > 0.02)
+        assert rates is not None #and np.any(rates > 0):
+        rmin = 0 # float(np.min(rates[rates > 0]))
+        rmax = float(np.max(rates))
+        ratio = rmin / rmax if rmax > 0 else 1.0
+        # If small dynamic range (min/max > 0.02), use linear; otherwise log
+        use_log_x = not (ratio > 0.02)
+        
         for i, name in enumerate(names):
             ax = self.plt.subplot(nrow, ncol, ncol + i + 1)
             stats = qaD[name]
@@ -210,7 +213,7 @@ class Plotter(PlotterBackbone):
             fval = stats['fval']
             if tval.size > 0:
                 resid = fval - tval
-                ax.hist(resid, bins=100, color=colors[name], alpha=0.6, edgecolor=None)
+                ax.hist(resid, bins=60, color=colors[name], alpha=0.6, edgecolor=None)
                 ax.axvline(0.0, linestyle='--', color='black', linewidth=0.8)
                 # stats box (reuse top-row mean/std)
                 ax.text(0.95, 0.90, 'N=%d\nmean=%.3f\nstd=%.3f'%(tval.shape[0], stats['res_mean'], stats['res_std']),
@@ -226,7 +229,7 @@ class Plotter(PlotterBackbone):
         self.plt.tight_layout(rect=[0,0,1,0.95])
 
 #...!...!..................
-    def correlation_for_kris(self, fitD, trueD, md, figId=1):
+    def correlation_for_kris(self, fitD, trueD, md, figId=1):  #p=c
         figId=self.smart_append(figId)
         nrow,ncol=2,4
         fig=self.plt.figure(figId,facecolor='white', figsize=(14,6))
@@ -261,7 +264,7 @@ class Plotter(PlotterBackbone):
             if tval.size > 0:
                 ax.scatter(tval, fval, alpha=0.6, s=10, c=color)
                 lims = [np.min([ax.get_xlim(), ax.get_ylim()]), np.max([ax.get_xlim(), ax.get_ylim()])]
-                ax.plot(lims, lims, 'r--', alpha=0.75, zorder=0)
+                ax.plot(lims, lims, 'k--', alpha=0.75, zorder=0,lw=0.8)
                 ax.set_aspect('equal', 'box'); ax.set_xlim(lims); ax.set_ylim(lims)
                 ax.plot(np.mean(tval), np.mean(fval), '+', c='black', markersize=18, markeredgewidth=3)
             ax.grid(True, alpha=0.3)
@@ -306,6 +309,82 @@ class Plotter(PlotterBackbone):
         self.plt.suptitle(fig_tit)
         self.plt.tight_layout(rect=[0,0,1,0.94])
 
+#...!...!..................
+    def eigenvalues_fitUoI(self, fitD, trueD, md, figId=1):  # p=d
+
+        figId=self.smart_append(figId)
+        nrow,ncol=1,2
+        fig=self.plt.figure(figId,facecolor='white', figsize=(8,4))
+
+        fitType=md['fit_type']
+        assert not  md.get('data_type') == 'bioExp'  # no truts for experimental data
+
+        # Unpack arrays from bigD
+        A_fit = fitD['A_'+fitType]
+        A_true = trueD['A_true']
+           
+        eigT = np.linalg.eigvals(A_true)
+        eigF = np.linalg.eigvals(A_fit)
+
+        reT = np.real(eigT)
+        imT = np.imag(eigT)
+
+        ax = self.plt.subplot(nrow,ncol,1)
+        ax.scatter(reT, imT, color='blue', marker='o', label='True', s=10)
+
+        reF = np.real(eigF)
+        imF = np.imag(eigF)
+        ax.scatter(reF, imF, color='red', marker='o', facecolors='none', label='fit', s=20)
+
+        ax.set_ylim(-0.1,)
+        #ax.set_xlim(right=1)
+        ax.axhline(0, linestyle='--', color='k', linewidth=1)
+        ax.axvline(0, linestyle='--', color='k', linewidth=1)
+        ax.grid(True, alpha=0.3)
+        ax.set_xlabel("Real Part")
+        ax.set_ylabel("Imaginary Part")
+        ax.legend()
+        #ax.set_title(f'Eigenvalues for {outName}  %d samples'%(args.samples))
+
+    def pseudospectra_fitUoI(self, fitD, trueD, md, figId=5):
+        figId = self.smart_append(figId)
+        fig = self.plt.figure(figId, facecolor='white', figsize=(8, 6))
+
+        fitType = md['fit_type']
+        A_fit = fitD['A_' + fitType]
+
+        npts = 80
+        minY = -0.2
+        epsMin = 0.03
+
+        X, Y, sigma_grid, eigs = compute_pseudospectrum(A_fit, npts, minY)
+
+        ax = self.plt.subplot(1, 1, 1)
+        title = 'Pseudospectra, fit M%d, %s' % (A_fit.shape[0], md['short_name'])
+
+        levels = np.logspace(-2.5, -0.5, 10)
+        contour = ax.contour(X, Y, sigma_grid, levels=levels, cmap='viridis', linewidths=0.8)
+        ax.clabel(contour, inline=True, fontsize=8, fmt='ε=%.3f')
+        ax.text(0.05, 0.85, 'green: ε<%.3f' % epsMin, transform=ax.transAxes)
+        mask = sigma_grid > epsMin
+        sigma_grid_masked = np.ma.array(sigma_grid, mask=mask)
+
+        contour_fill = ax.contourf(X, Y, sigma_grid_masked, levels=np.linspace(0, epsMin, 10),
+                                   colors=['lightgreen'], alpha=0.5)
+
+        ax.scatter(np.real(eigs), np.imag(eigs), color='red', s=15, zorder=3, label='Eigenvalues')
+
+        ax.axvline(0, color='black', linestyle='--', lw=1.5)
+        ax.axhline(0, color='black', linestyle='--', lw=1.5)
+
+        ax.set_title(title, fontsize=14)
+        ax.set_xlabel('Real Part')
+        ax.set_ylabel('Imaginary Part')
+
+        ax.grid(True, linestyle=':', alpha=0.6)
+        ax.legend()
+        ax.set_ylim(bottom=minY)
+        ax.set_xlim(-3, )
 
 #............................
 #............................

@@ -200,7 +200,7 @@ def set_real_selfSpiking(args):
         'sigma': 2
     }
     inh_rateConf = {
-        'min_freq': 2*min_freq,
+        'min_freq': 4*min_freq,
         'max_freq': 90,
         'trapezoid_height': 0.15, 
         'trapezoid_rmin': 0.3,

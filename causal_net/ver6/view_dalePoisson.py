@@ -94,6 +94,9 @@ if __name__=="__main__":
   
     if 'd' in args.showPlots:
         plot.rates_study(trueD,spikeD,trueMD,figId=4)
+
+    if 'e' in args.showPlots:
+        plot.Dale_matrix_pseudospectra(trueD['A_true'],trueMD,trueD,figId=5)
  
     plot.display_all()
     print('M:done - view_dalePoisson completed successfully!')

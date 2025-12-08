@@ -1,0 +1,48 @@
+#!/bin/bash 
+#SBATCH  -N 4  -C cpu --exclusive -A m2043 
+# SBATCH  --time=30:00 -q debug
+#SBATCH --time 5:28:00  -q regular 
+#SBATCH --output=out/%j.out
+#SBATCH  --licenses=scratch
+#SBATCH  --image nersc/causal-net:v5   # Nov 5 2025
+
+# - - - E N D    O F    SLURM    C O M M A N D S
+set -u ;  # exit  if you try to use an uninitialized variable
+
+export OMP_NUM_THREADS=2
+
+#  only Jan owns those 2 datasets:
+inpPath=/pscratch/sd/b/balewski/2025Dec6_causalNetData/
+dataPath=/pscratch/sd/b/balewski/2025Dec6_causalNetFit/
+#dataPath=/pscratch/sd/b/balewski/2025_causalNet_tmp/
+
+#dataName=daleM140r4Hz
+#dataName=daleM140r2Hz
+dataName=daleM140r1Hz
+#dataName=daleM140r05Hz
+
+fdrRate=0.01
+
+#samples=100_000 ; maxIter=50
+samples=400_000 ; maxIter=300
+#samples=1000_000 ; maxIter=200 ; fdrRate=0.002
+#samples=1600_000 ; maxIter=150
+#samples=2000_000 ; maxIter=100
+
+N=${SLURM_NNODES}
+jobId=${SLURM_JOBID}
+ntask=$((32 * N))
+echo S: job dataName=$dataName samples=$samples ntask=$ntask maxIter $maxIter 
+
+last_four=${jobId: -4}  # Extract last 4 characters
+fitName=${dataName}_uoi${last_four}
+
+time srun -n $ntask --distribution=block:block shifter python  fit_uoiPoissonLag1.py --dataName  $dataName --samples $samples --maxIter $maxIter    --verb 2   --fdrRate $fdrRate --fitName $fitName --dataPath $inpPath --outPath $dataPath
+echo
+echo 'S:fit done'
+echo
+ shifter   ./eval_fitUoI.py --dataPath $dataPath  --dataName   $fitName  -p a b c e -X
+
+echo
+echo 'S:eval done'
+echo

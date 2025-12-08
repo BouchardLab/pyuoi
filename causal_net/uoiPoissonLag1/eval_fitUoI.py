@@ -47,13 +47,14 @@ def main():
         pprint(fitMD); exit(1)
    
     # Load spike data for frequency sorting
-    spikeF = fitMD['fit_uoi']['fit_input_name']    
-    spikesFF = os.path.join(args.dataPath, f"{spikeF}.spikes.npz")
+    spikeF = fitMD['fit_uoi']['fit_input_name']
+    inpPath= fitMD['fit_uoi']['fit_input_path']
+    spikesFF = os.path.join(inpPath, f"{spikeF}.spikes.npz")
     spikeD, spikeMD = read_data_npz(spikesFF)
     #pprint(spikeMD)
     
     if fitMD['spike_data']['data_type']=='simDale': 
-        truthFF = os.path.join(args.dataPath, f"{spikeF}.simTruth.npz")
+        truthFF = os.path.join(inpPath, f"{spikeF}.simTruth.npz")
         trueD,trueMD = read_data_npz(truthFF)
         #pprint(trueMD)
         for xx in ['short_name']:
@@ -68,9 +69,13 @@ def main():
     if 'a' in args.showPlots:
         plot.summary_fitUoI(fitD,trueD,MD,figId=1)
     if 'b' in args.showPlots:
-        plot.correlations(fitD,trueD,MD,figId=2)
+        plot.correlations_fitUoI(fitD,trueD,MD,figId=2)
     if 'c' in args.showPlots:
         plot.correlation_for_kris(fitD,trueD,MD,figId=3)
+    if 'd' in args.showPlots:
+        plot.eigenvalues_fitUoI(fitD,trueD,MD,figId=4)
+    if 'e' in args.showPlots:
+        plot.pseudospectra_fitUoI(fitD,trueD,MD,figId=5)
    
     plot.display_all()
 

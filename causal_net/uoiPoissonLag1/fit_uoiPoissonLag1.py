@@ -65,7 +65,7 @@ def main():
     parser = argparse.ArgumentParser(description='UoI-VAR Poisson ADMM test')
     parser.add_argument('--dataName', default='daleM20_746c4b', help='dataset name (e.g., daleM20_746c4b)')
     parser.add_argument("--dataPath", type=str, default="/pscratch/sd/b/balewski/2025_causalNet_tmp/")
-    parser.add_argument("--outPath", type=str, default="/pscratch/sd/b/balewski/2025_causalNet_tmp/", help="output directory for fit artifacts")
+    parser.add_argument("--outPath",  type=str, default="/pscratch/sd/b/balewski/2025_causalNet_tmp/", help="output directory for fit artifacts")
 
     parser.add_argument('--samples', type=int, default=100000, help='number of data samples to use')
     parser.add_argument('--fitName', default=None, help='output file name core')
@@ -141,8 +141,8 @@ def main():
             w=1/rates
             w/=np.sum(w)
             w*=data.shape[1]
-            print('rates:',rates)
-            print('w',w)
+            #1print('rates:',rates)
+            #1print('w',w)
            
     else:
         w = None
@@ -201,23 +201,23 @@ def main():
     TP, FP, TN, FN = matrix_comparison(A_truth, A_fit, threshold=0)
     # these two adds up == real sparsity in B_truth
     M=A_truth.shape[0]; M2=M*M
-    print('dataName=%s  M=%d  M^2=%d'%(args.dataName,M,M2))
+    print('dataName=%s   M=%d  M^2=%d  '%(args.dataName,M,M2))
     print("TP  p=%.3e  n=%d "%(TP,TP*M2))
     print("FN  p=%.3e  n=%d "%(FN,FN*M2))               
     print("FP  p=%.3e  n=%d "%(FP,FP*M2))
-    print("TN: ", TN)
+    print("TN  p=%.3e  "% TN)
     
     
-    print('detailed QA  %s  M=%d  M^2=%d  samples=%d/k' %(args.dataName,M,M2,args.samples/1000))
+    print('detailed QA  %s  M=%d  M^2=%d  samples=%d/k  FDR rate=%.4f' %(args.dataName,M,M2,args.samples/1000,args.fdrRate))
     qaD=qa_Afit(A_truth, A_fit)
     qaD['bterm']=qa_Bfit(B_truth, B_fit)
 
     #if spikeMD['data_type']=='simDale':         flags=' -p  a  c  '
     #   else:
-    flags=' -p a b  '
-    print('\n  shifter   ./eval_fitUoI.py --dataPath $dataPath  --dataName %s  %s    -X ' % (outName,flags))
+    flags=' -p a c e  '
+    print('\n  shifter   ./eval_fitUoI.py --dataPath $fitPath  --dataName %s  %s    -X ' % (outName,flags))
        
-    print('    --dataPath '+args.dataPath)
+    print('    --dataPath '+args.fitPath)
 
  
 #...!...!..................

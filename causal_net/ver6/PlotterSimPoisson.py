@@ -27,6 +27,7 @@ import matplotlib.colors as colors
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
+from Util_pseudospectra import compute_pseudospectrum
     
 #............................
 #............................
@@ -95,7 +96,42 @@ class Plotter(PlotterBackbone):
         ax.axvline(0,color='red', linestyle='--')
         ax.grid(True)
       
+    def Dale_matrix_pseudospectra(self, A, md, trueD, figId=5):  # p=e
+        figId = self.smart_append(figId)
+        fig = self.plt.figure(figId, facecolor='white', figsize=(8, 6))
         
+        npts = 80
+        minY = -0.2
+        epsMin = 0.03
+
+        X, Y, sigma_grid, eigs = compute_pseudospectrum(A, npts, minY)
+        
+        ax = self.plt.subplot(1, 1, 1)
+        title = 'Pseudospectra, true M%d, %s' % (A.shape[0], md['short_name'])
+        
+        levels = np.logspace(-2.5, -0.5, 10)
+        contour = ax.contour(X, Y, sigma_grid, levels=levels, cmap='viridis', linewidths=0.8)
+        ax.clabel(contour, inline=True, fontsize=8, fmt='ε=%.3f')
+        ax.text(0.05, 0.85,   'green: ε<%.3f'%epsMin, transform=ax.transAxes) 
+        mask = sigma_grid > epsMin
+        sigma_grid_masked = np.ma.array(sigma_grid, mask=mask)
+
+        contour_fill = ax.contourf(X, Y, sigma_grid_masked, levels=np.linspace(0, epsMin, 10), 
+                                    colors=['lightgreen'], alpha=0.5)
+        
+        ax.scatter(np.real(eigs), np.imag(eigs), color='red', s=15, zorder=3, label='Eigenvalues')
+        
+        ax.axvline(0, color='black', linestyle='--', lw=1.5)
+        ax.axhline(0, color='black', linestyle='--', lw=1.5)
+        
+        ax.set_title(title, fontsize=14)
+        ax.set_xlabel('Real Part')
+        ax.set_ylabel('Imaginary Part')
+        
+        ax.grid(True, linestyle=':', alpha=0.6)
+        ax.legend()
+        ax.set_ylim(bottom=minY)
+        ax.set_xlim(-3,)
 #...!...!..................
     def histo_weights_rates(self,trueD,spikeD,md,byFreq=False,figId=3):        
         figId=self.smart_append(figId)        
