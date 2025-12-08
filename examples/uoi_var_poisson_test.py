@@ -111,7 +111,7 @@ if rank == 0:
     # M80_285c84
     # M150_448b86
 
-    data = np.load('/pscratch/sd/y/yxu2/data/daleM80_285c84.spikes.npz')['spikes'][:10000].astype(np.double)
+    data = np.load('/pscratch/sd/y/yxu2/data/daleM80_285c84.spikes.npz')['spikes'][:100000].astype(np.double)
     B_truth = np.load('/pscratch/sd/y/yxu2/data/daleM80_285c84.simTruth.npz')["A_true"]
     data_pois = None
 
@@ -168,6 +168,7 @@ for l1_suppression in np.arange(1):#(14,15):
             if lag == 1:
                 B_model = uoi_poisson.VAR_coef_[0]
                 model_bias = uoi_poisson.VAR_bias_
+                l1_support_count = uoi_poisson.self.l1_support_count
 
                 # print("L1-loss: ", uoi_poisson.loss["l1"])
                 
