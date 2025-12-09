@@ -1,0 +1,24 @@
+Short instruction, assuming data are generated
+
+salloc -q interactive -C gpu  -t 4:00:00 -A m2043 -N 1
+module load pytorch
+
+
+inpPath=/pscratch/sd/b/balewski/2025Dec6_causalNetData/
+fitPath=/pscratch/sd/b/balewski/2025Dec6_causalNetFit2/
+
+ ./fit_lassoPoisson.py  --outPath $fitPath --inpPath $inpPath   --dataName daleM140r1Hz  --num_epochs 50   --num_samples 100_001
+./eval_fitLasso.py --dataPath $fitPath  --dataName daleM140r1Hz-he7odu   -p  a  c 
+
+ ./fitLasso4GPU.sh   --outPath $fitPath --inpPath $inpPath   --dataName daleM140r1Hz  --num_epochs 50   --num_samples 100_001
+
+ ./bootsFit.sh   --outPath $fitPath --inpPath $inpPath   --dataName daleM140r1Hz  --num_epochs 50   --num_samples 100_001  --dropDataFrac 0.33  --num_bootstraps 1   --bootsTag b1
+ ./bootsFit.sh   --outPath $fitPath --inpPath $inpPath   --dataName daleM140r1Hz  --num_epochs 50   --num_samples 100_001  --dropDataFrac 0.33  --num_bootstraps 1   --bootsTag b1  --desyncTime
+
+./selectEdges_FDR.py  --dataPath $fitPath --dataName  daleM140r1Hzb1   --num_bootstraps  1 --alphaFDR 1e-3 -p ab
+
+./fit_regressPoisson.py  --dataPath $fitPath  --dataName daleM140r1Hzb1  
+./eval_fitRegress.py    --dataPath $fitPath  --dataName daleM140r1Hzb1-712bf9 -p b c
+
+./eval_fitLasso.py --dataPath $fitPath  --dataName daleM140r1Hz-rgsru7   -p  a  c 
+

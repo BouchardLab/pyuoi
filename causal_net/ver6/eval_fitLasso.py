@@ -58,17 +58,16 @@ def main():
     if args.verb>1: 
         pprint(fitMD); exit(1)
 
-    #1maskD,maskMD=select_edges_from_fitLasso(fitD,args.ampl_thres)
-    #1maskMD['fit_lasso']=fitMD['fit_lasso']
-
     # Load spike data for frequency sorting
-    spikeF = fitMD['fit_lasso']['lassoFit_input_name']    
-    spikesFF = os.path.join(args.dataPath, f"{spikeF}.spikes.npz")
+    spikeF = fitMD['fit_lasso']['lassoFit_input_name']
+    inpPath= fitMD['fit_lasso']['lassoFit_input_path']
+    spikesFF = os.path.join(inpPath, f"{spikeF}.spikes.npz")
+ 
     spikeD, spikeMD = read_data_npz(spikesFF)
     #pprint(spikeMD)
     
     if fitMD['data_type']=='simDale': 
-        truthFF = os.path.join(args.dataPath, f"{spikeF}.simTruth.npz")
+        truthFF = os.path.join(inpPath, f"{spikeF}.simTruth.npz")
         trueD,trueMD = read_data_npz(truthFF)    
         # Combine metadata   just for plotter
         MD = {**fitMD, **trueMD, 'short_name': args.dataName} #, 'post': vars(args)}

@@ -71,8 +71,10 @@ def main():
          
     if rank==0: print("Effective configuration:", vars(args))
     
-    spike_data_name = fmd['lassoFit_input_name']
-    spikesFF = os.path.join(args.dataPath, f"{spike_data_name}.spikes.npz")
+    spikeF = fmd['lassoFit_input_name']
+    inpPath= fitMD['fit_lasso']['lassoFit_input_path']
+    spikesFF = os.path.join(inpPath, f"{spikeF}.spikes.npz")
+ 
     spikeD, spikeMD = read_data_npz(spikesFF,verb=rank==0)
     dataYield, dataRates = spikeD['spikes'], np.clip(spikeD['single_rates'], 0.1, 40.0)
     T, M = dataYield.shape
@@ -183,7 +185,7 @@ def main():
         fitMD['short_name']=args.fitName
         fit2FF = os.path.join(args.dataPath, f"{args.fitName}.regressFit.npz")
         write_data_npz(bigD, fit2FF, metaD=fitMD)
-        print('\n  ./eval_fitRegress.py    --dataPath $dataPath  --dataName %s -p b c ' % (args.fitName))
+        print('\n  ./eval_fitRegress.py    --dataPath $fitPath  --dataName %s -p b c ' % (args.fitName))
 
     # ensure distributed shutdown to avoid resource leak warning
     if is_dist and dist.is_initialized():

@@ -6,7 +6,6 @@ import argparse
 import sys
 from toolbox.Util_NumpyIO import read_data_npz
 from PlotterFitEval import Plotter
-#from UtilDalePoisson import select_edges_from_fitLasso
 from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
 from selectEdges_FDR import  print_table_4_Yao
 from UtilSelectFDR import eval_tagged_edges_4_simu, load_auxiliary_plotting_data
@@ -38,7 +37,7 @@ def main():
     fitFF = os.path.join(args.dataPath, f"{args.dataName}.regressFit.npz")
     fitD, fitMD = read_data_npz(fitFF)
 
-    if 1:  # patch old data
+    if 0:  # patch old data
         #fitMD['data_type']='simDale'
         #fitMD['fit_type']='regress'
         fitD['single_rates']=fitD.pop('firing_rates')

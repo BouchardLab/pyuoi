@@ -354,14 +354,16 @@ def load_auxiliary_plotting_data(fitMD,  dataName, dataPath):
     """
     
     # Load spike data for frequency sorting
-    spikeF = fitMD['fit_lasso']['lassoFit_input_name']    
-    spikesFF = os.path.join(dataPath, f"{spikeF}.spikes.npz")
+    spikeF = fitMD['fit_lasso']['lassoFit_input_name']
+    inpPath= fitMD['fit_lasso']['lassoFit_input_path']
+    spikesFF = os.path.join(inpPath, f"{spikeF}.spikes.npz")
+ 
     spikeD, spikeMD = read_data_npz(spikesFF, verb=0)
     
     # Load ground truth data if simulated Dale data
     trueD = None
     if fitMD['data_type']=='simDale':
-        truthFF = os.path.join(dataPath, f"{spikeF}.simTruth.npz")
+        truthFF = os.path.join(inpPath, f"{spikeF}.simTruth.npz")
         trueD, trueMD = read_data_npz(truthFF, verb=0)    
         # Combine metadata just for plotter
         MD = {**fitMD, **trueMD, 'short_name': dataName}

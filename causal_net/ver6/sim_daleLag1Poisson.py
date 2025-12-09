@@ -320,7 +320,7 @@ def main():
     min_rho = args.num_neurons * probLo
     max_rho = args.num_neurons * probHi
     rho_target = np.random.uniform(min_rho, max_rho, size=args.num_neurons)
-    rho_target = np.maximum(5.0, rho_target).astype(int)  # 
+    rho_target = np.maximum(2.0, rho_target).astype(int)  # 
     #1rho_target=np.linspace(1,args.num_neurons,args.num_neurons).astype(int)  # testing only, linear growth
 
     print(f"Generated rho_target from range [%.2f, %.2f] with min value 5.0" % (min_rho, max_rho))
@@ -348,7 +348,7 @@ def main():
     assert args.step_size>0.001
     assert args.spectralR>0.01
     if not args.expRate:
-        assert args.idleRate[0]>0.5
+        assert args.idleRate[0]>=0.5
         assert args.idleRate[1]>args.idleRate[0]
     
     # Generate the stable Dale connectivity matrix A

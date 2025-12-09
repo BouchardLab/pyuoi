@@ -155,7 +155,7 @@ def main():
     print(f"FDR results saved to: {output_file}")
 
     print("\nNext step commands:")
-    print(f"  ./fit_regressPoisson.py  --dataPath $dataPath  --dataName {dataName}  ")
+    print(f"  ./fit_regressPoisson.py  --dataPath $fitPath  --dataName {dataName}  ")
  
     
     # Generate plots if requested
@@ -172,12 +172,8 @@ def main():
         # Rename records so select_edges_from_fitLasso() has the expected names
         fitD['A_lasso'] = A_avr.copy()  # tmp
         fitD['B_lasso'] = B_avr.copy()
-        #fitD['A_lasso'] = fitD.pop('A_avr')
-        #fitD['B_lasso'] = fitD.pop('B_avr')
                 
         # Load auxiliary data needed for plotting
-        #maskMD={}
-        #XspikeD, trueD, MD = load_auxiliary_plotting_data(fitMD, maskMD, dataName, dataPath, alpha)
         spikeD, trueD, MD = load_auxiliary_plotting_data(fitMD,  dataName, dataPath)
         # Add mask metadata and FDR method info
         
@@ -187,8 +183,7 @@ def main():
         if fitMD['data_type']=='simDale':
             evalD=eval_tagged_edges_4_simu(fitD,trueD)            
             print_table_4_Yao(evalD,fitMD)
-        
-             
+                     
         edgeD=summary_reco_neuronNet(A_avr, A_std)
         
         # adjustment for plotting

@@ -69,6 +69,7 @@ def main():
     if 'a' in args.showPlots:
         plot.summary_fitUoI(fitD,trueD,MD,figId=1)
     if 'b' in args.showPlots:
+        MD['resRange']={'inh':(-0.15,0.1),'exc':(-0.07,0.11),'diag':(-0.2,0.2),'bterm':(-0.3,0.3)}
         plot.correlations_fitUoI(fitD,trueD,MD,figId=2)
     if 'c' in args.showPlots:
         plot.correlation_for_kris(fitD,trueD,MD,figId=3)

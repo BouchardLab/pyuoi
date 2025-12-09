@@ -48,7 +48,8 @@ from torch.utils.data import Dataset
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataName", type=str, default="dale_2aee70")
-    parser.add_argument("--dataPath", type=str, default="/pscratch/sd/b/balewski/2025_causalNet_tmp/")
+    parser.add_argument("--inpPath", type=str, default="/pscratch/sd/b/balewski/2025_causalNet_tmp/")
+    parser.add_argument("--outPath", type=str, default=None)
     parser.add_argument("--num_samples", type=int, default=None)
     parser.add_argument("--num_epochs", type=int, default=7)
     parser.add_argument("--batch_size", type=int, default=2048)
@@ -57,7 +58,7 @@ def main():
     parser.add_argument("--fitName", type=str, default=None)
     parser.add_argument("--desyncTime", action='store_true', help="If true completely shuffle time axis for input data, independently for all channels")
     parser.add_argument("--dropDataFrac", type=float, default=0.0, help="Fraction of training samples to randomly drop per rank (0.0=use all data, 0.3=drop 30%%)")
- 
+
     args = parser.parse_args()
     
     # DDP init
@@ -76,6 +77,7 @@ def main():
         device = check_gpu_availability()
     args.rank=rank
     if rank==0:
+        if args.inpPath==None:  args.inpPath= args.inpPath
         print("FitLasso Config:", vars(args))
         print("world_size=%d" % (world_size))
     # enable fast matmul paths
@@ -87,7 +89,7 @@ def main():
     
     # --- data loading and preprocessing (rank 0 only) ---
     if rank == 0:
-        spikesFF = os.path.join(args.dataPath, f"{args.dataName}.spikes.npz")
+        spikesFF = os.path.join(args.inpPath, f"{args.dataName}.spikes.npz")
         spikeD, spikeMD = read_data_npz(spikesFF, verb=True)
         dataYield = spikeD['spikes']
         dataRates = np.clip(spikeD['single_rates'], 0.1, 40.0)
@@ -168,20 +170,20 @@ def main():
         # saving from fit_Lasso ---
         mdl = model.module if hasattr(model,'module') else model
         lassoD = { 'A_lasso': mdl.A.detach().cpu().numpy(), 'B_lasso': mdl.B.detach().cpu().numpy(), 'losses_total': np.array(losses_total), 'losses_wo_L1': np.array(losses_wo_L1), 'losses_epochs': np.array(train_epochs, dtype=np.int32), 'learning_rates': np.array(learning_rates), 'single_rates': dataRates }
-        lassoMD = { 'lassoFit_output_name': fit_core, 'lassoFit_input_name': args.dataName, 'batch_size': args.batch_size, 'num_samples_used': n_pairs, 'num_epochs': args.num_epochs, 'num_train_samples': n_pairs, 'learning_rate': args.lr, 'L1_alpha': args.L1_alpha, 'step_size': step_size, 'training_time_sec': total_time, 'num_neurons': Nn, 'dropDataFrac': args.dropDataFrac }
+        lassoMD = { 'lassoFit_output_name': fit_core, 'lassoFit_input_name': args.dataName,  'lassoFit_input_path': args.inpPath ,'batch_size': args.batch_size, 'num_samples_used': n_pairs, 'num_epochs': args.num_epochs, 'num_train_samples': n_pairs, 'learning_rate': args.lr, 'L1_alpha': args.L1_alpha, 'step_size': step_size, 'training_time_sec': total_time, 'num_neurons': Nn, 'dropDataFrac': args.dropDataFrac }
         spikeMD['fit_type']='lasso'        
         spikeMD['fit_lasso']=lassoMD
         spikeMD['edge_selector']={'selector_type':'None'}
           
-        fitFF = os.path.join(args.dataPath, f"{fit_core}.lassoFit.npz")
+        fitFF = os.path.join(args.outPath, f"{fit_core}.lassoFit.npz")
         write_data_npz(lassoD, fitFF, metaD=spikeMD)
 
     if rank==0:
         if spikeMD['data_type']=='simDale':         flags=' -p  a  c  '
         else:         flags=' -p a c  '
-        print('\n  ./eval_fitLasso.py --dataPath $dataPath  --dataName %s  %s  ' % (fit_core,flags))
+        print('\n  ./eval_fitLasso.py --dataPath $fitPath  --dataName %s  %s  ' % (fit_core,flags))
         print('\n  ./fit_regressPoisson.py  --dataName %s  ' % (fit_core))
-        print('    --dataPath '+args.dataPath)
+        print('    --dataPath '+args.outPath)
     
     # ensure distributed shutdown to avoid resource leak warning
     if is_dist and dist.is_initialized():

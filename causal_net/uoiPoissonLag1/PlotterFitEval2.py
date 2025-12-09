@@ -155,8 +155,7 @@ class Plotter(PlotterBackbone):
             ax.set(title=sub_tit, xlabel='True Value', ylabel='Fitted Value')
             
             # mean/std box
-            ax.text(0.95, 0.07, 'N=%d\nmean=%.3f\nstd=%.3f'%(tval.shape[0], stats['res_mean'], stats['res_std']),
-                    transform=ax.transAxes, fontsize=9, va='bottom', ha='right')
+            ax.text(0.95, 0.07, 'resid N=%d\nmean=%.3f\nstd=%.3f'%(tval.shape[0], stats['res_mean'], stats['res_std']), transform=ax.transAxes, fontsize=9, va='bottom', ha='right')
             if name in ['exc','inh']:
                 ax.text(0.05, 0.95, 'TP=%d\nFP=%d\nFN=%d'%(stats['TP'], stats['FP'], stats['FN']),
                         transform=ax.transAxes, fontsize=9, va='top', ha='left')
@@ -207,6 +206,7 @@ class Plotter(PlotterBackbone):
         
         # Third row: histograms of residuals with stats and x=0 line
         for i, name in enumerate(names):
+            #print('AAA',i,name)
             ax = self.plt.subplot(nrow, ncol, 2*ncol + i + 1)
             stats = qaD[name]
             tval = stats['tval']
@@ -216,14 +216,14 @@ class Plotter(PlotterBackbone):
                 ax.hist(resid, bins=60, color=colors[name], alpha=0.6, edgecolor=None)
                 ax.axvline(0.0, linestyle='--', color='black', linewidth=0.8)
                 # stats box (reuse top-row mean/std)
-                ax.text(0.95, 0.90, 'N=%d\nmean=%.3f\nstd=%.3f'%(tval.shape[0], stats['res_mean'], stats['res_std']),
-                        transform=ax.transAxes, fontsize=9, va='top', ha='right')
+                ax.text(0.95, 0.90, 'N=%d\nmean=%.3f\nstd=%.3f'%(tval.shape[0], stats['res_mean'], stats['res_std']),  transform=ax.transAxes, fontsize=9, va='top', ha='right')
             ax.grid(True, alpha=0.3)
             sub_tit='%s residuals'%(name.capitalize())
-            ax.set(title=sub_tit,
-                   xlabel='fit - true',
-                   ylabel='count')
-        
+            ax.set(title=sub_tit,   xlabel='fit - true',  ylabel='count')
+            
+            if 'resRange' in md: ax.set_xlim(md['resRange'][name])
+            if name=='inh': ax.text(0.05,0.9,data_short, transform=ax.transAxes, fontsize=10,color='m')
+            
         # Title for the figure
         self.plt.suptitle(fig_tit)
         self.plt.tight_layout(rect=[0,0,1,0.95])
@@ -271,7 +271,7 @@ class Plotter(PlotterBackbone):
             sub_tit=name.capitalize()
             ax.set(title=sub_tit, xlabel='True Value', ylabel='Fitted Value')
             # lightweight stats text (no frame)
-            ax.text(0.95, 0.07, 'N=%d\nmean=%.3f\nstd=%.3f'%(tval.shape[0], stats['res_mean'], stats['res_std']),
+            ax.text(0.95, 0.07, 'resid N=%d\nmean=%.3f\nstd=%.3f'%(tval.shape[0], stats['res_mean'], stats['res_std']),
                     transform=ax.transAxes, fontsize=9, va='bottom', ha='right')
             if name in ['exc','inh']:
                 ax.text(0.05, 0.95, 'TP=%d\nFP=%d\nFN=%d'%(stats['TP'], stats['FP'], stats['FN']),

@@ -41,7 +41,7 @@ class Plotter(PlotterBackbone):
         
         figId=self.smart_append(figId)        
         nrow,ncol=1,3
-        fig=self.plt.figure(figId,facecolor='white', figsize=(15,3.5))
+        fig=self.plt.figure(figId,facecolor='white', figsize=(15,4.))
 
         dmd=md['dale_conf']
         numExc=dmd['num_excite']

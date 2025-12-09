@@ -145,7 +145,7 @@ echo "Total bootstraps: $NUM_BOOTSTRAPS"
 echo "Total time: ${TOTAL_DURATION}s (${HOURS}h ${MINUTES}m ${SECONDS}s)"
 echo "Average per bootstrap: $((TOTAL_DURATION / NUM_BOOTSTRAPS))s"
 echo "Finished at: $(date)"
-echo " ./selectEdges_FDR.py  --dataPath \$dataPath --dataName  ${DATANAME}${BOOTS_TAG}   --num_bootstraps  $NUM_BOOTSTRAPS --alphaFDR 1e-3 -p ab  "
+echo " ./selectEdges_FDR.py  --dataPath \$fitPath --dataName  ${DATANAME}${BOOTS_TAG}   --num_bootstraps  $NUM_BOOTSTRAPS --alphaFDR 1e-3 -p ab  "
 echo "################################################################"
 
 echo ""
@@ -153,3 +153,11 @@ echo "Bootstrap results saved with fitNames:"
 for ((k=1; k<=NUM_BOOTSTRAPS; k++)); do
     echo "  ${DATANAME}-${FIT_SUFFIX}$((k-1))"
 done
+
+
+# ./fit_lassoPoisson.py $fixArgs $varArgs   # 1 GPU job, for testing
+
+
+#  ./fitLasso4GPU.sh   --outPath $fitPath --inpPath $inpPath   --dataName daleM140r1Hz  --num_epochs 50   --num_samples 100_001
+
+#  ./bootsFit.sh   --outPath $fitPath --inpPath $inpPath   --dataName daleM140r1Hz  --num_epochs 50   --num_samples 100_001  --dropDataFrac 0.33  --num_bootstraps 1   --bootsTag b1
