@@ -1,38 +1,46 @@
 #!/bin/bash
 
-IMG=balewski/causal-net:p2b
+IMG=balewski/causal-net:p2f
 
-echo launch image $IMG
-echo you are launching Podman image ...  remeber to exit
+echo "Launching image $IMG"
+echo "You are launching Podman image... remember to exit."
 
-JNB_PORT=''
+# Initialize variables
+JNB_PORT=''  # No spaces
 BASE_DIR=/2025_UoI-VAR   # here git has home
 WORK_DIR=$BASE_DIR/causal_net
 DATA_VAULT=/shared_volumes/bioDataVault2025
 
+# Default port for Jupyter Notebook
+PORT=8846
+
+# Parse arguments
 echo "The number of arguments is: $#"
-#  encoded variables:    jnb
-PORT=8839
 for var in "$@"; do
   echo "The length of argument '$var' is: ${#var}"
-  if [[ "jnb" ==  $var ]];  then
-      JNB_PORT=" -p  ${PORT}:${PORT}"
-      echo added  $JNB_PORT
-      echo "  cd notebooks;  jupyter notebook --ip 0.0.0.0 --no-browser --allow-root --port  $PORT "
+  if [[ "jnb" ==  $var ]]; then
+      JNB_PORT="-p${PORT}:${PORT}"  # Remove space before ${PORT}
+      echo "Added port mapping: $JNB_PORT"
+      echo "  cd notebooks;  jupyter notebook --ip 0.0.0.0 --no-browser --allow-root --port $PORT"
   fi
-  # ... more ...
 done
-    
-eval podman run -it --network=host  \
-     --volume /shared_volumes/$BASE_DIR:$BASE_DIR \
-     --volume /shared_volumes/$WORK_DIR:$WORK_DIR \
-     --volume $DATA_VAULT:/dataVault2025 \
-     -e My_dataVault=/dataVault2025/causalNet_tmp \
-     --workdir $WORK_DIR \
-     $IMG /bin/bash
 
-#      #     -e DISPLAY  -v $HOME:$HOME -e HOME  \
+# Display the port mapping being added (for debugging)
+echo "Final Jupyter port mapping: xx${JNB_PORT}xxx"
 
-#       --user $(id -u):$(id -g)  $JNB_PORT \
-#      --volume /shared_volumes/$WORK_DIR/opt:/opt \
-    
+# Check final command for debugging
+CMD="podman run -it \
+  --volume /shared_volumes/$BASE_DIR:$BASE_DIR \
+  --volume /shared_volumes/$WORK_DIR:$WORK_DIR \
+  --volume $DATA_VAULT:/dataVault2025 \
+  -e My_dataVault=/dataVault2025/causalNet_tmp \
+  --workdir $WORK_DIR \
+  --user $(id -u):$(id -g) \
+  $JNB_PORT \
+  $IMG /bin/bash"
+
+# Print the command to be executed
+echo "Running command: $CMD"
+
+# Execute the command
+eval $CMD

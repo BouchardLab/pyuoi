@@ -1,10 +1,4 @@
 Simple programs
-qqq
-= = = = = = = = = =
-module load python 
- ./binSpike_decay.py
-
-Example function adding spikes to binary spike list, makes nice plot
 
 = = = = = = = = =
 
@@ -19,27 +13,6 @@ Do some analysis of spike.pkl file and unrolls it to numpy array with spikes vs.
 
 Not used for anything.
 
-= = = = = = = = = ==
-
-./uoi_var_cprof.py
-
-Profiling of toy UoI job
-
-
-= = = = = = =  == = =
-
-uoi_mpi_checkBig.py
-
-The scalable important test code, to be used inside Shifter on  PM like this
-
-srun -n256 shifter  ./uoi_mpi_checkBig.py
-
-
-= = = = = = = = = =
-
-uoi_var_demo.py
-
-very small example
 
 
 = = = = = = = = =
@@ -71,9 +44,4 @@ Model coefficient dimensions.
 
 
 = = = = = = =  == = =
-
-uoi_mpi_scalable.py
-
-
-Uses the above pattern for the  UoI code on fake or real data  problem
 
