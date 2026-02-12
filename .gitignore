@@ -126,3 +126,6 @@ old/
 result/
 .bash_history
 .viminfo
+.ipython/
+.jupyter/
+.local/
