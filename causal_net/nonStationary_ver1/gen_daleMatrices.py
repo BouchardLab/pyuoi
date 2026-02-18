@@ -24,13 +24,13 @@ Pipeline:
       rates to the spectral radius.
    c) Spike time series Y is generated via a stationary VAR(1) Poisson
       process:  Y_t ~ Poisson(exp(A @ Y_{t-1} + B) * dt).
-   d) Firing-rate statistics (rates, Fano factor, SNR, coincidence
+   d) Firing-rate statistics (rates, Fano factor, coincidence
       rate) are computed by estimate_rates().
 
 3. All results are stacked along axis 0 (spectral-radius dimension)
    and saved into two .npz files:
      <dataName>.simTruth.npz  — A_true, B_true, E_true, metadata
-     <dataName>.spikes.npz    — spikes, single_rates, variance, SNR, Fano
+     <dataName>.spikes.npz    — spikes, single_rates, variance, Fano
 
 Output shapes (nR = len(spect_radius), N = num_neurons, T = num_steps):
   E_true        (N, N)       int    — shared connectivity mask
@@ -126,14 +126,21 @@ def gen_dale_matrics(conf, E_true, verb=1):
 
 #################### Simulation ##################
 
-def set_flat_selfSpiking(Nn, idleRate, spect_radii):
-    """Generate B_idle for each spectral radius; idleRate range is scaled by R."""
+def set_flat_selfSpiking(Nn, idleRate, spect_radii, num_excite):
+    """Generate B_idle per spectral radius; excitatory idle-rate range is scaled by sqrt(50/Nn)."""
+    assert 0 < num_excite <= Nn
+    #excit_rate_scale = np.sqrt(10 / float(Nn))
+    excit_rate_scale = 10/Nn
+    log_excit_shift = np.log(excit_rate_scale)
     num_radii = len(spect_radii)
     B_all = np.zeros((num_radii, Nn))
     for ir, R in enumerate(spect_radii):
-        Ri_scaled = np.array(idleRate) * R
+        Ri_scaled = np.array(idleRate, dtype=float) * R
         Bi = np.log(Ri_scaled)
         B_all[ir] = np.random.uniform(Bi[0], Bi[1], size=(Nn,))
+        #B_all[ir, :num_excite] -= log_excit_shift  # reduce rate of excitatpory neurons for larger Nn
+        B_all[ir, :num_excite] -= 1.  # reduce inhibitory rate
+        B_all[ir, num_excite:] += 1.  # increase excitatory rate
     return B_all
 
 def gen_stationary_lag1_poisson(num_steps, dt, A, B_intercept, num_excite, verb=0):
@@ -173,7 +180,7 @@ def gen_stationary_lag1_poisson(num_steps, dt, A, B_intercept, num_excite, verb=
     if verb>0:
         print('t=0 Y[t] sum=%d, Excit(first 3):%s, Inhib(first 3):%s'%(np.sum(Y[0]), Y[0][:3], Y[0][num_excite:num_excite+3]))
 
-    kk=15
+    kk=5
     # Main simulation loop
     if verb > 0:
         print("Starting main simulation loop...")
@@ -210,8 +217,8 @@ def main():
     parser.add_argument("--edge_prob", type=float, nargs=2, default=[0.05, 0.2], help="Range of edge probability [min, max]; mean is used as mask connectivity.")
     parser.add_argument("--num_steps", type=int, default=10_000, help="Number of time steps for simulation.")
     parser.add_argument("--step_size", type=float, default=0.01, help="Integration time step size (dt) in seconds.")
-    parser.add_argument("--spect_radius", type=float, nargs='+', default=[0.4], help="Target spectral radius value(s) for the connectivity matrix.")
-    parser.add_argument("--idleRate", type=float, nargs=2, default=[0.5, 10.], help="Range of idle firing rates [min, max] in Hz.")
+    parser.add_argument("--spect_radius", type=float, nargs='+', default=[0.3, 0.95], help="Target spectral radius value(s) for the connectivity matrix.")
+    parser.add_argument("--idleRate", type=float, nargs=2, default=[15, 30.], help="Range of idle firing rates [min, max] in Hz.")
     parser.add_argument('-v',"--verb", type=int, default=1, help="Verbosity level (0=quiet, 1=normal).")
     parser.add_argument("--dataName", type=str, default=None, help="Base name for output files (default: dale_spikes_xx).")
     parser.add_argument("--dataPath", type=str, default='/pscratch/sd/b/balewski/2025_causalNet_tmp/', help="Output directory for all files.")
@@ -255,12 +262,12 @@ def main():
         'idleRate': args.idleRate
     }
 
-    B_all = set_flat_selfSpiking(Nn, args.idleRate, args.spect_radius)
+    B_all = set_flat_selfSpiking(Nn, args.idleRate, args.spect_radius, args.num_excite)
     varTwindow=5 #(sec)
 
     num_radii = len(args.spect_radius)
     A_list, Y_list = [], []
-    rates_list, rates_var_list, rates_snr_list, fano_list = [], [], [], []
+    rates_list, rates_var_list, fano_list = [], [], []
     stats_list = []
 
     for ir, R in enumerate(args.spect_radius):
@@ -294,7 +301,6 @@ def main():
         Y_list.append(np.clip(Y, 0, 255).astype(np.uint8))
         rates_list.append(rates_dict['single_rates'])
         rates_var_list.append(rates_dict['sigle_rates_var'])
-        rates_snr_list.append(rates_dict['sigle_rates_snr'])
         fano_list.append(rates_dict['single_fano_fact'])
         stats_list.append(stats_dict)
 
@@ -311,7 +317,6 @@ def main():
         'spikes': np.stack(Y_list, axis=0),
         'single_rates': np.stack(rates_list, axis=0),
         'sigle_rates_var': np.stack(rates_var_list, axis=0),
-        'sigle_rates_snr': np.stack(rates_snr_list, axis=0),
         'single_fano_fact': np.stack(fano_list, axis=0)
     }
     spikeMD={ 'short_name':args.dataName,'time_step_sec':args.step_size,'data_type':'simDale', 'var_time_window_sec':varTwindow }
@@ -325,8 +330,11 @@ def main():
         
     print("\nSimulation completed successfully!") 
     print("\nNext step commands:")
-    print("  ./view_daleMatrix.py  --dataPath $dataPath   --dataName %s  -p a   -i 0   -X  a d   bc " % args.dataName)
     print("     dataPath="+args.dataPath)
+    print("  ./view_daleMatrix.py  --dataPath $dataPath   --dataName %s  -p b -i 0   -X  -p a c d  " % args.dataName)
+    print("  ./view_spikesTrain.py  --dataPath $dataPath   --dataName %s  -p b -i 0   -X " % args.dataName)
+   
 
 if __name__ == '__main__':
     main()  
+ 

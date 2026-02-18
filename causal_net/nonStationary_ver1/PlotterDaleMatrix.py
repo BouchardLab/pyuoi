@@ -28,7 +28,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 from Util_pseudospectra import compute_pseudospectrum
-    
+from UtilDalePoisson import get_offdiag_triplets
+        
 #............................
 #............................
 #............................
@@ -128,22 +129,22 @@ class Plotter(PlotterBackbone):
         ax.axhline(1,color='m',linestyle='--')
         ax.axvline(1,color='m',linestyle='--')
         ax.axvline(-1,color='m',linestyle='--')
+
 #...!...!..................
     def histo_weights_rates(self,trueD,spikeD,md,figId=3):        
         figId=self.smart_append(figId)        
         nrow,ncol=1,4
-        fig=self.plt.figure(figId,facecolor='white', figsize=(15,4))        
+        fig=self.plt.figure(figId,facecolor='white', figsize=(15,3.5))        
         data_name=md['short_name']
         dmd=md['dale_conf']
         numExc=dmd['num_excite']
         numNeur=dmd['num_neurons']
-        R_sel = md.get('sel_spect_radius', None)
-        R_tag = ', R=%.3f' % R_sel if R_sel is not None else ''
+        R_sel = md['sel_spect_radius']
+        R_tag = ', R=%.2f' % R_sel 
                 
         A=trueD['A_true']
         single_rates = spikeD['single_rates']
   
-        from UtilSelectFDR import get_offdiag_triplets
         # output:  np.column_stack([i_indices, j_indices, values])
         EposT=get_offdiag_triplets(A,isPos=True)
         EnegT=get_offdiag_triplets(A,isPos=False)
@@ -172,7 +173,7 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.3)
 
         #.... : histogram of rates
-        ax = self.plt.subplot(nrow,ncol,2)
+        ax = self.plt.subplot(nrow,ncol,3)
         ax.hist(single_rates, bins=20)
         ax.set_xlabel('Firing rate (Hz)')
         ax.set_ylabel('num neurons')
@@ -193,7 +194,7 @@ class Plotter(PlotterBackbone):
         
         x_vals = np.arange(numNeur)         
         #....  edge count
-        ax = self.plt.subplot(nrow,ncol,3)
+        ax = self.plt.subplot(nrow,ncol,2)
         ax.fill_between(x_vals, edgeCount, step='mid', color='salmon', alpha=0.7)
         ax.set_xlabel(neurXlab)
         ax.set_ylabel('num true edges')
@@ -215,7 +216,7 @@ class Plotter(PlotterBackbone):
         ax.set_ylabel('Firing rate (Hz)')
         ax.set_ylim(0,)
         ax.grid(True, alpha=0.3)
-        ax.set_title('Single Neuron Firing Rates')
+        ax.set_title('Single Neurons, R=%.2f' % R_sel)
         ax.legend()
  
 
@@ -235,7 +236,6 @@ class Plotter(PlotterBackbone):
         
         B_idle = trueD['B_true']
         single_rates = spikeD['single_rates']
-        single_rates_snr = spikeD['sigle_rates_snr']
         
         # Natural indexing: first numExc are excitatory, rest inhibitory
         exc_mask = np.zeros(numNeur, dtype=bool)
@@ -263,19 +263,12 @@ class Plotter(PlotterBackbone):
         ax.plot(bx, by, linestyle='--', color='black', linewidth=0.8, label='y=exp(x)')
         ax.legend()
 
-        # 2) Scatter: x=B_idle, y=single SNR (from spikeD)
-        ax = self.plt.subplot(nrow,ncol,2)
-        ax.scatter(B_idle[exc_mask], single_rates_snr[exc_mask], s=14, alpha=0.6, facecolors='none', edgecolors='red', label='Excitatory')
-        ax.scatter(B_idle[inh_mask], single_rates_snr[inh_mask], s=14, alpha=0.6, facecolors='none', edgecolors='blue', label='Inhibitory')
-        ax.set_xlabel('true B_idle')
-        ax.set_ylabel('single SNR (rate^2/var)')
-        ax.grid(True, alpha=0.3)
-        ax.set_yscale('log')
-        ax.set_title('single SNR vs B_idle')
-        ax.legend()
+        # 2) Keep this panel intentionally empty (SNR plot removed)
+        ax = self.plt.subplot(nrow,ncol,4)
+        ax.set_axis_off()
         
         # 3) Histogram: single_rates for excitatory
-        ax3 = self.plt.subplot(nrow,ncol,3)
+        ax3 = self.plt.subplot(nrow,ncol,2)
         exc_vals = single_rates[exc_mask]
         inh_vals = single_rates[inh_mask]
         # compute common bins and range (start at 0)
@@ -292,7 +285,7 @@ class Plotter(PlotterBackbone):
         ax3.set_title('Rates: Excitatory (N=%d)' % (numExc))
         
         # 4) Histogram: single_rates for inhibitory
-        ax4 = self.plt.subplot(nrow,ncol,4)
+        ax4 = self.plt.subplot(nrow,ncol,3)
         ax4.hist(inh_vals, bins=common_bins, color='blue', alpha=0.7, edgecolor=None)
         ax4.set_xlabel('single_rates (Hz)')
         ax4.set_ylabel('num neurons')
@@ -301,4 +294,3 @@ class Plotter(PlotterBackbone):
         # unify x-range starting at 0 for both histograms
         ax3.set_xlim(0, x_max)
         ax4.set_xlim(0, x_max)
-

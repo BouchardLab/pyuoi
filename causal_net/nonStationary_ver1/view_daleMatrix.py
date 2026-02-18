@@ -26,7 +26,7 @@ __email__ = "janstar1122@gmail.com"
 import os
 from pprint import pprint
 import numpy as np
-from PlotterSimPoisson import Plotter
+from PlotterDaleMatrix import Plotter
 from toolbox.Util_NumpyIO import read_data_npz
 import argparse
 
@@ -102,11 +102,11 @@ if __name__=="__main__":
     if 'b' in args.showPlots:
         plot.histo_weights_rates(trueD_r,spikeD_r,trueMD,figId=2)
  
-    if 'd' in args.showPlots:
-        plot.rates_study(trueD_r,spikeD_r,trueMD,figId=4)
+    if 'c' in args.showPlots:
+        plot.rates_study(trueD_r,spikeD_r,trueMD,figId=3)
 
-    if 'e' in args.showPlots:
-        plot.Dale_matrix_pseudospectra(trueD_r['A_true'],trueMD,trueD_r,figId=5)
+    if 'd' in args.showPlots:
+        plot.Dale_matrix_pseudospectra(trueD_r['A_true'],trueMD,trueD_r,figId=4)
  
     plot.display_all()
     print('M:done - view_dalePoisson completed successfully!')

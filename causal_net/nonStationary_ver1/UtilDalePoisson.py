@@ -50,12 +50,11 @@ def compute_consecutive_coincidence_rate(Y,time_evol):
 
 def estimate_rates(Y, dt, num_excite, max_samples, varTwindow=5, mxNn=5, verb=1, spect_radius=None):
     """
-    Evaluates spike statistics and estimates firing rates, Fano factors, and SNR.
+    Evaluates spike statistics and estimates firing rates and Fano factors.
     
     Computes statistics over non-overlapping time windows of length varTwindow:
     - Fano Factor: Var[spike count] / Mean[spike count] per neuron (dimensionless)
     - Rate variance: Var[rate] per neuron (Hz^2)
-    - SNR: (mean rate)^2 / Var[rate] per neuron (dimensionless)
 
     Args:
         Y (np.ndarray): Spike data array (time_steps x n_neurons).
@@ -68,7 +67,7 @@ def estimate_rates(Y, dt, num_excite, max_samples, varTwindow=5, mxNn=5, verb=1,
     Returns:
         tuple: A tuple containing (stats_dict, rates_dict, neur_freq_index):
             - stats_dict (dict): Contains population-level spike statistics.
-            - rates_dict (dict): Contains per-neuron firing rates, Fano factors, rate variance, and SNR.
+            - rates_dict (dict): Contains per-neuron firing rates, Fano factors, and rate variance.
             - neur_freq_index (np.ndarray): Neuron indices sorted by firing rate (low to high).
     """
     # 1. Clip data to max_samples_for_rates
@@ -106,15 +105,9 @@ def estimate_rates(Y, dt, num_excite, max_samples, varTwindow=5, mxNn=5, verb=1,
                            out=np.zeros_like(var_window_spike_counts), 
                            where=mean_window_spike_counts != 0)
     
-    # Convert window spike counts to rates (Hz) for rate variance and SNR
+    # Convert window spike counts to rates (Hz) for rate variance
     window_rates = window_spike_counts / (window_size * dt)  # shape: (num_windows, n_neurons), Hz
-    mean_window_rates = np.mean(window_rates, axis=0)  # mean rate per neuron (Hz)
     single_rates_var = np.var(window_rates, axis=0)  # variance of rate across windows, per neuron (Hz^2)
-    
-    # SNR: (mean rate)^2 / var(rate) - dimensionless
-    single_rates_snr = np.divide(mean_window_rates**2, single_rates_var,
-                                 out=np.zeros_like(single_rates_var),
-                                 where=single_rates_var != 0)
 
     # Compute raw arrays (full time series)
     spike_counts = np.sum(Y, axis=0)
@@ -134,20 +127,14 @@ def estimate_rates(Y, dt, num_excite, max_samples, varTwindow=5, mxNn=5, verb=1,
     std_rate_all = float(np.std(spike_rates))
     avg_fano_all = float(np.mean(fano_factor))
     std_fano_all = float(np.std(fano_factor))
-    avg_snr_all = float(np.mean(single_rates_snr))
-    std_snr_all = float(np.std(single_rates_snr))
     avg_rate_excit = float(np.mean(spike_rates[:num_excite]))
     std_rate_excit = float(np.std(spike_rates[:num_excite]))
     avg_fano_excit = float(np.mean(fano_factor[:num_excite]))
     std_fano_excit = float(np.std(fano_factor[:num_excite]))
-    avg_snr_excit = float(np.mean(single_rates_snr[:num_excite]))
-    std_snr_excit = float(np.std(single_rates_snr[:num_excite]))
     avg_rate_inhib = float(np.mean(spike_rates[num_excite:]))
     std_rate_inhib = float(np.std(spike_rates[num_excite:]))
     avg_fano_inhib = float(np.mean(fano_factor[num_excite:]))
     std_fano_inhib = float(np.std(fano_factor[num_excite:]))
-    avg_snr_inhib = float(np.mean(single_rates_snr[num_excite:]))
-    std_snr_inhib = float(np.std(single_rates_snr[num_excite:]))
     
     # Build stats dictionary with computed values
     stats_dict = {
@@ -161,20 +148,14 @@ def estimate_rates(Y, dt, num_excite, max_samples, varTwindow=5, mxNn=5, verb=1,
         'std_spike_rate_all': std_rate_all,
         'avg_fano_factor_all': avg_fano_all,
         'std_fano_factor_all': std_fano_all,
-        'avg_snr_all': avg_snr_all,
-        'std_snr_all': std_snr_all,
         'avg_spike_rate_excit': avg_rate_excit,
         'std_spike_rate_excit': std_rate_excit,
         'avg_fano_factor_excit': avg_fano_excit,
         'std_fano_factor_excit': std_fano_excit,
-        'avg_snr_excit': avg_snr_excit,
-        'std_snr_excit': std_snr_excit,
         'avg_spike_rate_inhib': avg_rate_inhib,
         'std_spike_rate_inhib': std_rate_inhib,
         'avg_fano_factor_inhib': avg_fano_inhib,
         'std_fano_factor_inhib': std_fano_inhib,
-        'avg_snr_inhib': avg_snr_inhib,
-        'std_snr_inhib': std_snr_inhib,
         'conc_rate_per_neuron': float(conc_rate_per_neuron),
         'median_spike_rate_all': med_rate_all
     }
@@ -191,7 +172,6 @@ def estimate_rates(Y, dt, num_excite, max_samples, varTwindow=5, mxNn=5, verb=1,
         print('Mean Spike Count per bin (dt=%.3fs): %s' % (dt, mean_counts_per_bin[:mxE]))
         print('Rate Variance (window=%.1fs):        %s' % (varTwindow, single_rates_var[:mxE]))
         print('Fano Factor (Var/Mean):               %s' % fano_factor[:mxE])
-        print('SNR (rate^2/var):                     %s' % single_rates_snr[:mxE])
 
         print('\n--- Stats for first %d Inhibitory Neurons ---' % mxI)
         np.set_printoptions(precision=2)
@@ -201,15 +181,14 @@ def estimate_rates(Y, dt, num_excite, max_samples, varTwindow=5, mxNn=5, verb=1,
         print('Mean Spike Count per bin (dt=%.3fs): %s' % (dt, mean_counts_per_bin[inhib_slice]))
         print('Rate Variance (window=%.1fs):        %s' % (varTwindow, single_rates_var[inhib_slice]))
         print('Fano Factor (Var/Mean):               %s' % fano_factor[inhib_slice])
-        print('SNR (rate^2/var):                     %s' % single_rates_snr[inhib_slice])
 
     # Print population summary using dictionary values (always printed)
     R_tag = ', R=%.3f' % spect_radius if spect_radius is not None else ''
     print('\n--- Population Summary Statistics%s ---' % R_tag)
-    print('All   (%d neurons): Avg Rate=%.2f±%.2f Hz, Avg Fano=%.2f±%.2f, Avg SNR=%.2f±%.2f' % (Nn_sim, stats_dict['avg_spike_rate_all'], stats_dict['std_spike_rate_all'], stats_dict['avg_fano_factor_all'], stats_dict['std_fano_factor_all'], stats_dict['avg_snr_all'], stats_dict['std_snr_all']))
-    print('Excit (%d neurons): Avg Rate=%.2f±%.2f Hz, Avg Fano=%.2f±%.2f, Avg SNR=%.2f±%.2f' % (num_excite, stats_dict['avg_spike_rate_excit'], stats_dict['std_spike_rate_excit'], stats_dict['avg_fano_factor_excit'], stats_dict['std_fano_factor_excit'], stats_dict['avg_snr_excit'], stats_dict['std_snr_excit']))
+    print('All   (%d neurons): Avg Rate=%.2f±%.2f Hz, Avg Fano=%.2f±%.2f' % (Nn_sim, stats_dict['avg_spike_rate_all'], stats_dict['std_spike_rate_all'], stats_dict['avg_fano_factor_all'], stats_dict['std_fano_factor_all']))
+    print('Excit (%d neurons): Avg Rate=%.2f±%.2f Hz, Avg Fano=%.2f±%.2f' % (num_excite, stats_dict['avg_spike_rate_excit'], stats_dict['std_spike_rate_excit'], stats_dict['avg_fano_factor_excit'], stats_dict['std_fano_factor_excit']))
     if num_inhib > 0:
-        print('Inhib (%d neurons): Avg Rate=%.2f±%.2f Hz, Avg Fano=%.2f±%.2f, Avg SNR=%.2f±%.2f' % (num_inhib, stats_dict['avg_spike_rate_inhib'], stats_dict['std_spike_rate_inhib'], stats_dict['avg_fano_factor_inhib'], stats_dict['std_fano_factor_inhib'], stats_dict['avg_snr_inhib'], stats_dict['std_snr_inhib']))
+        print('Inhib (%d neurons): Avg Rate=%.2f±%.2f Hz, Avg Fano=%.2f±%.2f' % (num_inhib, stats_dict['avg_spike_rate_inhib'], stats_dict['std_spike_rate_inhib'], stats_dict['avg_fano_factor_inhib'], stats_dict['std_fano_factor_inhib']))
     
     # Print key summary values using dictionary
     summary_keys = ['conc_rate_per_neuron', 'median_spike_rate_all']
@@ -226,7 +205,6 @@ def estimate_rates(Y, dt, num_excite, max_samples, varTwindow=5, mxNn=5, verb=1,
         'single_rates': spike_rates,
         'neur_freqIdx':neur_freq_index,
         'sigle_rates_var': single_rates_var,
-        'sigle_rates_snr': single_rates_snr,
         'single_fano_fact': fano_factor
     }
 
