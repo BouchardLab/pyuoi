@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
  ./gen_daleMatrices.py --num_neurons 100 --num_excite 70 --num_steps 10000 --dataName test1
- ./gen_daleMatrices.py --num_neurons 100 --num_excite 70 --spect_radius 0.2 0.4 0.8 --dataName test2
+ ./gen_daleMatrices.py --num_neurons 100 --num_excite 70 --spectral_radius 0.2 0.4 0.8 --dataName test2
 
 Dale Poisson Simulator — generates synthetic spike data from a recurrent
 neuronal network obeying Dale's principle using a discrete-time Poisson
@@ -15,7 +15,7 @@ Pipeline:
    Each neuron draws its own connection probability uniformly from
    --edge_prob [lo, hi], producing a binary N x N mask.
 
-2. For each spectral radius R in --spect_radius:
+2. For each spectral radius R in --spectral_radius:
    a) Weight matrix A_true is initialized with E-I balanced random
       weights, masked by E_true, then rescaled so that the spectral
       radius equals R.
@@ -217,7 +217,7 @@ def main():
     parser.add_argument("--edge_prob", type=float, nargs=2, default=[0.05, 0.2], help="Range of edge probability [min, max]; mean is used as mask connectivity.")
     parser.add_argument("--num_steps", type=int, default=10_000, help="Number of time steps for simulation.")
     parser.add_argument("--step_size", type=float, default=0.01, help="Integration time step size (dt) in seconds.")
-    parser.add_argument("--spect_radius", type=float, nargs='+', default=[0.3, 0.95], help="Target spectral radius value(s) for the connectivity matrix.")
+    parser.add_argument("--spectral_radius", type=float, nargs='+', default=[0.3, 0.95], help="Target spectral radius value(s) for the connectivity matrix.")
     parser.add_argument("--idleRate", type=float, nargs=2, default=[15, 30.], help="Range of idle firing rates [min, max] in Hz.")
     parser.add_argument('-v',"--verb", type=int, default=1, help="Verbosity level (0=quiet, 1=normal).")
     parser.add_argument("--dataName", type=str, default=None, help="Base name for output files (default: dale_spikes_xx).")
@@ -249,7 +249,7 @@ def main():
     dale_conf = {
         'num_neurons': args.num_neurons,
         'num_excite': args.num_excite,
-        'spect_radius': args.spect_radius,  
+        'spect_radius': args.spectral_radius,  
         'edge_prob': args.edge_prob,
     }
 
@@ -262,15 +262,15 @@ def main():
         'idleRate': args.idleRate
     }
 
-    B_all = set_flat_selfSpiking(Nn, args.idleRate, args.spect_radius, args.num_excite)
+    B_all = set_flat_selfSpiking(Nn, args.idleRate, args.spectral_radius, args.num_excite)
     varTwindow=5 #(sec)
 
-    num_radii = len(args.spect_radius)
+    num_radii = len(args.spectral_radius)
     A_list, Y_list = [], []
     rates_list, rates_var_list, fano_list = [], [], []
     stats_list = []
 
-    for ir, R in enumerate(args.spect_radius):
+    for ir, R in enumerate(args.spectral_radius):
         verb_r = args.verb if ir == 0 else 0
         print(f"\n{'='*60}")
         print(f"  Spectral radius [{ir+1}/{num_radii}]: R={R:.3f}")
