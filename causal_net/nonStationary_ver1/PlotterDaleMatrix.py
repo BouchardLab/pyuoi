@@ -47,7 +47,7 @@ class Plotter(PlotterBackbone):
         dmd=md['dale_conf']
         numExc=dmd['num_excite']
         numNeur=dmd['num_neurons']
-        R_sel = md.get('sel_spect_radius', None)
+        R_sel = md['sel_spect_radius']
         R_tag = ', R=%.3f' % R_sel if R_sel is not None else ''
         print('A.shape=',A.shape)
         vmin = A.min()
@@ -62,7 +62,7 @@ class Plotter(PlotterBackbone):
         ax.grid()
         cbar = fig.colorbar(im, ax=ax, extend="both", shrink=0.7)
         
-        tit='True Dale, M%d%s, %s'%(A.shape[0], R_tag, md['short_name'])
+        tit='True Dale, N%d%s, %s'%(A.shape[0], R_tag, md['short_name'])
         ax.set(title=tit)
         ax.axhline(numExc-0.5,color='k',ls='--', label='E/I boundary')
         ax.axvline(numExc-0.5,color='k',ls='--')
@@ -75,7 +75,7 @@ class Plotter(PlotterBackbone):
         ax.scatter(real_parts, imag_parts, color='blue', marker='o')
         ax.set_xlabel("Real Part")
         ax.set_ylabel("Imaginary Part")
-        tit3='Eigenvalues, M%d%s, %s'%(A.shape[0], R_tag, md['short_name'])
+        tit3='Eigenvalues, N%d%s, %s'%(A.shape[0], R_tag, md['short_name'])
         ax.set_title(tit3)
         ax.axhline(0, color='black', lw=0.5)
         ax.axvline(0, color='black', lw=0.5)
@@ -98,9 +98,9 @@ class Plotter(PlotterBackbone):
         X, Y, sigma_grid, eigs = compute_pseudospectrum(A, npts, minY)
         
         ax = self.plt.subplot(1, 1, 1)
-        R_sel = md.get('sel_spect_radius', None)
+        R_sel = md['sel_spect_radius']
         R_tag = ', R=%.3f' % R_sel if R_sel is not None else ''
-        title = 'Pseudospectra, true M%d%s, %s' % (A.shape[0], R_tag, md['short_name'])
+        title = 'Pseudospectra, true N%d%s, %s' % (A.shape[0], R_tag, md['short_name'])
         
         levels = np.logspace(-2.5, -0.5, 10)
         contour = ax.contour(X, Y, sigma_grid, levels=levels, cmap='viridis', linewidths=0.8)
@@ -167,7 +167,7 @@ class Plotter(PlotterBackbone):
         ax.hist(EposT[:,2], bins=binX, color='red', alpha=0.7, edgecolor=None,label='pos:%d'%EposT.shape[0])
 
         ax.legend(loc='upper left')
-        tit='True Dale, M%d%s, %s'%(A.shape[0], R_tag, md['short_name'])
+        tit='True Dale, N%d%s, %s'%(A.shape[0], R_tag, md['short_name'])
         ax.set(title=tit, xlabel='True weight value',ylabel='num edges')
         ax.axvline(0,color='k',ls='--')
         ax.grid(True, alpha=0.3)
@@ -231,7 +231,7 @@ class Plotter(PlotterBackbone):
         dmd=md['dale_conf']
         numExc=dmd['num_excite']
         numNeur=dmd['num_neurons']
-        R_sel = md.get('sel_spect_radius', None)
+        R_sel = md['sel_spect_radius']
         R_tag = ', R=%.3f' % R_sel if R_sel is not None else ''
         
         B_idle = trueD['B_true']
@@ -250,7 +250,7 @@ class Plotter(PlotterBackbone):
         ax.set_ylabel('single_rates (Hz)')
         ax.set_yscale('log')
         ax.grid(True, alpha=0.3)
-        tit='True Dale, M%d%s, %s'%(numNeur, R_tag, data_name)
+        tit='True Dale, N%d%s, %s'%(numNeur, R_tag, data_name)
         ax.set_title(tit)
        
         # reference line: y = exp(B), clipped to central 80% of B range

@@ -1,5 +1,8 @@
+#!/usr/bin/env python3
+
 import numpy as np
 import argparse
+import os
 
 # the code you have refined is a direct implementation of a Switching Poisson Vector Autoregressive (S-PVAR) model, though in the specific context of the Mudrik paper, it is referred to as a Decomposed Linear Dynamical System (dLDS).
 
@@ -56,10 +59,12 @@ def simulate_dlds_evolution(n_steps, A_true, B_true, target_states, max_delta_c=
 
 def main():
     parser = argparse.ArgumentParser(description="dLDS Stochastic Poisson Spike Generator")
-    parser.add_argument("--num_steps", type=int, default=100, help="Number of time steps.")
+    parser.add_argument('-t',"--num_steps", type=int, default=100, help="Number of time steps.")
     parser.add_argument("--step_size", type=float, default=0.01, help="dt in seconds.")
     parser.add_argument("--max_delta_c", type=float, default=0.05, help="Max change in c per step.")
     parser.add_argument("--dwell_steps", type=int, default=6, help="Mean number of steps to stay in a state.")
+    parser.add_argument("--simTruth_path", type=str, default='/dataVault2026/neurodata_tmp/daleN100_4822fd.simTruth.npz', help="Path to input simTruth npz file.")
+    parser.add_argument("--out_npz", type=str, default=None, help="Output npz path (default: <simTruth_base>.toySpikes.npz).")
     parser.add_argument("-v", "--verb", type=int, default=1, help="Verbosity level.")
     args = parser.parse_args()
 
@@ -67,7 +72,7 @@ def main():
     for arg in vars(args): print('myArg:', arg, getattr(args, arg))
 
     # Load ground truth data
-    data_path = '/dataVault2026/neurodata_tmp/daleM100_4822fd.simTruth.npz'
+    data_path = args.simTruth_path
     data = np.load(data_path)
     A_true = data['A_true']
     B_true = data['B_true']
@@ -106,6 +111,22 @@ def main():
     print(f"Spikes matrix shape: {spikes.shape}, Dtype: {spikes.dtype}")
     print(f"Actual Mean Dwell Time: {np.mean(durations):.2f} steps (Target: {args.dwell_steps})")
     print('transition_matrix:\n',transition_matrix)
+
+    # Save output in requested format:
+    # spikes: (nT, Nn), S_true: (nT,)
+    out_npz = args.out_npz
+    if out_npz is None:
+        out_npz = data_path.replace('.simTruth.npz', '.toySpikes.npz')
+        if out_npz == data_path:
+            root, _ = os.path.splitext(data_path)
+            out_npz = root + '.toySpikes.npz'
+
+    S_true = target_states.astype(np.int32)
+    np.savez_compressed(out_npz, spikes=spikes, S_true=S_true)
+    print('saved npz:', out_npz)
+    print('  spikes shape:', spikes.shape, spikes.dtype)
+    print('  S_true shape:', S_true.shape, S_true.dtype)
+
     for arg in vars(args): print('myArg:', arg, getattr(args, arg))
     
 if __name__ == "__main__":

@@ -32,25 +32,29 @@ def get_parser():
     
     parser.add_argument('-X',"--noXterm", action="store_true", help="Disable X terminal for plotting")
 
-    parser.add_argument("--dataPath",default='/pscratch/sd/b/balewski/2025_causalNet_tmp/',help="head dir for input data")
-    parser.add_argument("--dataName",  default='daleM150_448b86',help='simulated Dale network base name')
-    parser.add_argument("--outPath", type=str, default=None, help="Output path for plots (defaults to dataPath)")
-    parser.add_argument('-i', '--idxR', type=int, default=0, help="Index into spect_radius list, selects which R to plot")
+    parser.add_argument("--basePath",default='/pscratch/sd/b/balewski/2025_causalNet_tmp/',help="head dir for input data")
+    parser.add_argument("--dataName",  default=None,help='simulated Dale network base name')
+  
+    parser.add_argument('-i', '--idxR', type=int, default=0, help="Index into spect_radius list; if idxR<0 read spikes from spikesData/")
 
     parser.add_argument('-T','--time_range' , default=[0., 600],  nargs=2,   type=float, help='display data time range in seconds')
     parser.add_argument('-r','--time_rebin2', default=50, type=int, help='rebin current time axis')
    
     args = parser.parse_args()
     # make arguments more flexible
-    if args.outPath is None:   args.outPath = args.dataPath
+    if args.idxR >= 0:
+        args.inpPath = os.path.join(args.basePath, 'truthDale')
+    else:
+        args.inpPath = os.path.join(args.basePath, 'spikesData')
+    args.outPath = os.path.join(args.basePath,'plots')
     args.showPlots=''.join(args.showPlots)
       
     print( 'myArg-program:',parser.prog)
     for arg in vars(args):  print( 'myArg:',arg, getattr(args, arg))
 
     if args.time_range!=None: assert args.time_range[0] < args.time_range[1] 
-    assert os.path.exists(args.dataPath)
-    assert os.path.exists(args.outPath)
+    assert os.path.exists(args.basePath)
+    assert os.path.exists(args.inpPath), f"missing inpPath: {args.inpPath}"
     return args
 
 
@@ -94,15 +98,12 @@ def select_radius_slice(spikeD, data_path, data_name, idxR, verb=1):
     assert 0 <= idxR < nR, f"idxR={idxR} out of range for spikes with nR={nR}"
 
     truthFF = os.path.join(data_path, f"{data_name}.simTruth.npz")
-    R_sel = None
-    if os.path.exists(truthFF):
-        _, trueMD = read_data_npz(truthFF, verb=verb>0)
-        spect_radii = trueMD['dale_conf']['spect_radius']
-        assert idxR < len(spect_radii), f"idxR={idxR} out of range, only {len(spect_radii)} radii available"
-        R_sel = spect_radii[idxR]
-        print(f"\nSelected spectral radius [{idxR}]: R={R_sel:.3f}  (out of {spect_radii})")
-    else:
-        print(f"\nSelected spectral index [{idxR}] from spikes with nR={nR}")
+    assert os.path.exists(truthFF), f"missing simTruth file: {truthFF}"
+    _, trueMD = read_data_npz(truthFF, verb=verb>0)
+    spect_radii = trueMD['dale_conf']['spect_radius']
+    assert idxR < len(spect_radii), f"idxR={idxR} out of range, only {len(spect_radii)} radii available"
+    R_sel = spect_radii[idxR]
+    print(f"\nSelected spectral radius [{idxR}]: R={R_sel:.3f}  (out of {spect_radii})")
 
     spikeD_r = {}
     for key, arr in spikeD.items():
@@ -112,39 +113,7 @@ def select_radius_slice(spikeD, data_path, data_name, idxR, verb=1):
             spikeD_r[key] = arr
     return spikeD_r, R_sel
 
-#...!...!....................
-def ensure_plot_metadata(spikeD, spikeMD):
-    """Create minimal metadata needed by PlotSpikesTrain when optional bioExp metadata is absent."""
-    spikeMD['num_neurons'] = int(spikeD['spikes'].shape[1])
 
-    if 'single_rates' in spikeD:
-        rates = spikeD['single_rates'].astype(float)
-    else:
-        dt = float(spikeMD['time_step_sec'])
-        rates = np.sum(spikeD['spikes'], axis=0) / (spikeD['spikes'].shape[0] * dt)
-        spikeD['single_rates'] = rates
-
-    if 'single_fano_fact' in spikeD:
-        fano = spikeD['single_fano_fact'].astype(float)
-    else:
-        fano = np.zeros_like(rates, dtype=float)
-
-    if 'rate_summary' not in spikeMD:
-        spikeMD['rate_summary'] = {
-            'median_spike_rate': float(np.median(rates)),
-            'min_spike_rate': float(np.min(rates)),
-            'max_spike_rate': float(np.max(rates)),
-            'avg_spike_rate': float(np.mean(rates)),
-            'std_spike_rate': float(np.std(rates)),
-            'avg_fano_factor': float(np.mean(fano)),
-            'std_fano_factor': float(np.std(fano)),
-        }
-    if 'data_selector' not in spikeMD:
-        spikeMD['data_selector'] = {
-            'drop_neur_by_freq_range': [0, 0],
-            'freq_range': [float(np.min(rates)), float(np.max(rates))]
-        }
-    
   
 #=================================
 #=================================
@@ -155,28 +124,27 @@ if __name__=="__main__":
     args=get_parser()
     np.set_printoptions(precision=3)
 
-    spikesFF = os.path.join(args.dataPath, f"{args.dataName}.spikes.npz")
+    spikesFF = os.path.join(args.inpPath, f"{args.dataName}.spikes.npz")
     spikeD, spikeMD = read_data_npz(spikesFF, verb=args.verb>0)
     if args.verb>1: pprint(spikeMD)
 
-    spikeD_r, R_sel = select_radius_slice(spikeD, args.dataPath, args.dataName, args.idxR, verb=args.verb)
-    if R_sel is not None:
-        spikeMD['sel_spect_radius'] = R_sel
+    S_true = None
+    if args.idxR < 0:
+        prismFF = os.path.join(args.inpPath, f"{args.dataName}.prismTruth.npz")
+        assert os.path.exists(prismFF), f"missing prismTruth file: {prismFF}"
+        prismD, prismMD = read_data_npz(prismFF, verb=args.verb>0)
+        S_true = prismD['S_true']
+        if args.verb > 0:
+            print('loaded prismTruth S_true:', S_true.shape)
+        if args.verb>1: pprint(prismMD)
 
-    # Optional metadata extension from bioExp file
-    bioFF=spikesFF.replace('spikes','bioExp')
-    if os.path.exists(bioFF):
-        _, bioMD = read_data_npz(bioFF, verb=args.verb>0)
-        if bioMD is not None:
-            spikeMD.update(**bioMD)
-    elif args.verb > 0:
-        print('Optional metadata not found, skip:', bioFF)
+    spikeD_r, R_sel = select_radius_slice(spikeD, args.inpPath, args.dataName, args.idxR, verb=args.verb)
+    spikeMD['sel_spect_radius'] = R_sel
     
     #--------------------------------
     # ....  plotting ........
-    if 'short_name' not in spikeMD:
-        spikeMD['short_name'] = args.dataName
-    ensure_plot_metadata(spikeD_r, spikeMD)
+    spikeMD['short_name']
+  
 
     args.prjName=f"{spikeMD['short_name']}_view{args.idxR}"
     spikeMD['plot']={}    
@@ -188,7 +156,7 @@ if __name__=="__main__":
         plot.freq_histo(spikeD_r,spikeMD,figId=1)
     if 'b' in args.showPlots:
         rebD=rebin_spike_rates(spikeD_r['spikes'], spikeMD, args.time_rebin2)
-        plot.freq_vs_time(rebD,spikeMD,figId=2)
+        plot.freq_vs_time(rebD,spikeMD,figId=2, S_true=S_true)
 
     plot.display_all()
     print('M:done')

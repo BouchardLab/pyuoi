@@ -220,24 +220,25 @@ def main():
     parser.add_argument("--spectral_radius", type=float, nargs='+', default=[0.3, 0.95], help="Target spectral radius value(s) for the connectivity matrix.")
     parser.add_argument("--idleRate", type=float, nargs=2, default=[15, 30.], help="Range of idle firing rates [min, max] in Hz.")
     parser.add_argument('-v',"--verb", type=int, default=1, help="Verbosity level (0=quiet, 1=normal).")
-    parser.add_argument("--dataName", type=str, default=None, help="Base name for output files (default: dale_spikes_xx).")
-    parser.add_argument("--dataPath", type=str, default='/pscratch/sd/b/balewski/2025_causalNet_tmp/', help="Output directory for all files.")
+    parser.add_argument("--dataName", type=str, default=None, help="Base name for output files (default: daleN<num_neurons>_<hash>).")
+    parser.add_argument("--basePath", type=str, default='/pscratch/sd/b/balewski/2025_causalNet_tmp/', help="Output directory for all files.")
 
     np.set_printoptions(precision=3, suppress=True)
 
     args = parser.parse_args()
     if args.dataName is None:
-        args.dataName='daleM%d_'%args.num_neurons+hashlib.md5(os.urandom(32)).hexdigest()[:6]
-        
+        args.dataName='daleN%d_'%args.num_neurons+hashlib.md5(os.urandom(32)).hexdigest()[:6]
+
+    outPath=os.path.join(args.basePath, 'truthDale')
     print("\nStarting simulation with configuration:")
     print(vars(args))
 
     # Validation checks
     Nn = args.num_neurons
     assert Nn >= 10
-    assert args.num_excite >= 5
+    assert args.num_excite >= 5 
     assert args.num_excite < Nn
-    assert os.path.exists(args.dataPath)
+    assert os.path.exists(args.basePath)
     assert args.num_steps>=1000
     assert args.step_size>0.001
     assert args.idleRate[0]>=0.5
@@ -264,6 +265,7 @@ def main():
 
     B_all = set_flat_selfSpiking(Nn, args.idleRate, args.spectral_radius, args.num_excite)
     varTwindow=5 #(sec)
+    max_samples = 100000
 
     num_radii = len(args.spectral_radius)
     A_list, Y_list = [], []
@@ -295,7 +297,9 @@ def main():
         sim_time = time.time() - start_time
         print("Spike generation completed in %.1f seconds" % sim_time)
 
-        stats_dict, rates_dict, _ = estimate_rates(Y, dt=args.step_size, num_excite=args.num_excite, max_samples=100000, varTwindow=varTwindow, mxNn=5, verb=verb_r, spect_radius=R)
+        stats_dict, rates_dict, _ = estimate_rates(Y, dt=args.step_size, num_excite=args.num_excite, max_samples=max_samples, varTwindow=varTwindow, mxNn=5, verb=verb_r, spect_radius=R)
+        stats_dict['var_time_window_sec'] = float(varTwindow)
+        stats_dict['max_samples'] = int(max_samples)
 
         A_list.append(A_dale)
         Y_list.append(np.clip(Y, 0, 255).astype(np.uint8))
@@ -321,18 +325,19 @@ def main():
     }
     spikeMD={ 'short_name':args.dataName,'time_step_sec':args.step_size,'data_type':'simDale', 'var_time_window_sec':varTwindow }
 
-    outFt = os.path.join(args.dataPath, args.dataName + '.simTruth.npz')
+    outFt = os.path.join(outPath,args.dataName + '.simTruth.npz')
     write_data_npz(trueD, outFt, metaD=trueMD)
     if args.verb>1:  pprint(trueMD)
-    outFs = os.path.join(args.dataPath, args.dataName + '.spikes.npz')
+    outFs = os.path.join(outPath, args.dataName + '.spikes.npz')
     write_data_npz(spikeD, outFs, metaD=spikeMD)
     if args.verb>1:  pprint(spikeMD)
         
     print("\nSimulation completed successfully!") 
     print("\nNext step commands:")
-    print("     dataPath="+args.dataPath)
-    print("  ./view_daleMatrix.py  --dataPath $dataPath   --dataName %s  -p b -i 0   -X  -p a c d  " % args.dataName)
-    print("  ./view_spikesTrain.py  --dataPath $dataPath   --dataName %s  -p b -i 0   -X " % args.dataName)
+    print("     basePath="+args.basePath)
+    print("  ./view_daleMatrix.py  --basePath $basePath   --dataName %s  -p b -i 0   -X  -p a c d  " % args.dataName)
+    print("  ./view_spikesTrain.py  --basePath $basePath   --dataName %s  -p b -i 0   -X " % args.dataName)
+    print("  ./gen_spikesTrain.py  --basePath $basePath   --truthName %s   " % args.dataName)
    
 
 if __name__ == '__main__':

@@ -17,7 +17,7 @@ Available plots (-p flag):
   e  Pseudospectral contour plot with eigenvalue overlay
 
 Usage:
-    ./view_daleMatrix.py --dataName daleM100_9fbe7f -i 0 -p a b d e
+    ./view_daleMatrix.py --dataName daleN100_9fbe7f -i 0 -p a b d e
 """
 
 __author__ = "Jan Balewski"
@@ -36,26 +36,27 @@ def get_parser():
     parser.add_argument("-v","--verbosity",type=int,  help="increase output verbosity", default=1, dest='verb')
     parser.add_argument("-p", "--showPlots",  default='a b', nargs='+',help="abc-string listing shown plots: a=Dale_matrix_and_eigen, b=histo_weights_rates, d=rates_study, e=pseudospectra")
     parser.add_argument('-X',"--noXterm", action="store_true", help="Disable X terminal for plotting")
-    parser.add_argument("--dataPath",default='/pscratch/sd/b/balewski/2025_causalNet_tmp/',help="head dir for input data")
-    parser.add_argument("--dataName",  default='daleM150_448b86',help='simulated Dale network base name')
-    parser.add_argument("--outPath", type=str, default=None, help="Output path for plots (defaults to dataPath)")
+    parser.add_argument("--basePath",default='/pscratch/sd/b/balewski/2025_causalNet_tmp/',help="head dir for input data")
+    parser.add_argument("--dataName",  default='daleN150_448b86',help='simulated Dale network base name')
+    #parser.add_argument("--outPath", type=str, default=None, help="Output path for plots (defaults to basePath)")
     parser.add_argument('-i', '--idxR', type=int, default=0, help="Index into spect_radius list, selects which R to plot")
     
     args = parser.parse_args()
     
     # make arguments more flexible
-    if args.outPath is None:   args.outPath = args.dataPath
+    args.inpPath = os.path.join(args.basePath,'truthDale')
+    args.outPath = os.path.join(args.basePath,'plots')
     args.showPlots=''.join(args.showPlots)
     
     print( 'myArg-program:',parser.prog)
     for arg in vars(args):  print( 'myArg:',arg, getattr(args, arg))
     
-    assert os.path.exists(args.dataPath)
+    assert os.path.exists(args.basePath)
     return args
 
 #=================================
 #=================================
-#  M A I N 
+#  M A I N  
 #=================================
 #=================================
 if __name__=="__main__":
@@ -63,14 +64,14 @@ if __name__=="__main__":
     np.set_printoptions(precision=3)
     
     # Load simulation truth data (Dale matrices, biases, etc.)
-    truthFF = os.path.join(args.dataPath, f"{args.dataName}.simTruth.npz")
+    truthFF = os.path.join(args.inpPath, f"{args.dataName}.simTruth.npz")
     trueD, trueMD = read_data_npz(truthFF, verb=args.verb>0)
     if args.verb>1: 
         print("\nSimulation Truth Metadata:")
         pprint(trueMD)
     
     # Load spike data (generated spike counts and rates)
-    spikesFF = os.path.join(args.dataPath, f"{args.dataName}.spikes.npz")
+    spikesFF = os.path.join(args.inpPath, f"{args.dataName}.spikes.npz")
     spikeD, spikeMD = read_data_npz(spikesFF, verb=args.verb>0)
     if args.verb>1:
         print("\nSpike Data Metadata:")
@@ -110,4 +111,3 @@ if __name__=="__main__":
  
     plot.display_all()
     print('M:done - view_dalePoisson completed successfully!')
-

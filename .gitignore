@@ -129,3 +129,5 @@ result/
 .ipython/
 .jupyter/
 .local/
+.emacs.d/
+.lesshst
