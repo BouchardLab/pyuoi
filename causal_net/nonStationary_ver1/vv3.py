@@ -38,7 +38,7 @@ def get_parser():
                         help="Head dir for all data.")
     parser.add_argument("--dataName", default=None,
                         help="Spikes base name, e.g. daleN100_46f1c4_b90619")
-    parser.add_argument("--T_show", type=int, default=500,
+    parser.add_argument("--T_show", type=int, default=1000,
                         help="Number of time steps shown in raster panels.")
     parser.add_argument("-p", "--plotFmt", default="b",
                         help="Plot format: b=batch(save png), s=screen.")
@@ -85,14 +85,13 @@ def pass_label(value, threshold, higher_is_better=True):
 
 
 def make_title(tag, fitMD, eta_clip):
+    """Title without total T - shows only displayed range."""
     return (f"PRISM Stage 1 — {tag}\n"
             f"{fitMD.get('short_name','')}   "
-            f"T={fitMD.get('num_steps','')}  "
             f"N={fitMD.get('num_neurons','')}  "
             f"M={fitMD.get('num_states','')}  "
             f"eta_clip=±{eta_clip}  "
-            f"dt={fitMD.get('time_step_sec','')}")
-
+            f"dt={fitMD.get('time_step_sec','')} sec")
 
 # ================================================================
 #  Canvas 1 : time-domain panels
@@ -100,85 +99,147 @@ def make_title(tag, fitMD, eta_clip):
 def make_canvas1(fitD, fitMD, spikes, S_true, C_true, eta_clip, T_show):
     """
     Layout (4 rows):
-      Row 0 (tall) : observed spike raster
-      Row 1 (tall) : predicted rate heatmap  |  eta heatmap
+      Row 0 (tall) : observed spike raster  - all neurons
+      Row 1 (tall) : predicted rate heatmap | eta heatmap  - all neurons
       Row 2 (med)  : C_true mixing coefficients
       Row 3 (thin) : true state trace
+    All panels share the same time axis [0, T_show].
+    Heatmap z-ranges are locked and IDENTICAL in scale:
+      lambda_t : [0,  lam_vmax]       95th percentile
+      eta_t    : [-eta_clip, +eta_clip]
+    Both colorbars use the same number of ticks for visual consistency.
     """
     lambda_t = fitD["lambda_t"]   # (T, N)
     eta_t    = fitD["eta_t"]      # (T, N)
 
-    T, N    = spikes.shape
-    T_show  = min(T_show, T)
-    n_show  = min(60, N)
-    M       = C_true.shape[1]
+    T, N   = spikes.shape
+    T_show = min(T_show, T)
+    M      = C_true.shape[1]
+    dt     = float(fitMD.get("time_step_sec", 0.01))
 
-    fig = plt.figure(figsize=(14, 11))
+    # ---- locked z-ranges ----------------------------------------
+    # lambda: physical range [0, 95th pct] - no negative values
+    lam_vmax  = float(np.percentile(lambda_t[:T_show, :], 95))
+    lam_vmin  = 0.0
+    # eta: symmetric, locked exactly to ±eta_clip
+    eta_vmin  = -eta_clip
+    eta_vmax  =  eta_clip
+    # shared colorbar tick count
+    N_TICKS   = 5
+
+    # ---- shared x-tick positions --------------------------------
+    x_ticks = np.linspace(0, T_show, 6, dtype=int)
+
+    fig = plt.figure(figsize=(16, 12))
     fig.suptitle(make_title("Time-Domain Panels", fitMD, eta_clip),
                  fontsize=10, y=1.00)
 
     gs = gridspec.GridSpec(4, 2, figure=fig,
-                           height_ratios=[2.5, 2.5, 1.5, 0.6],
-                           hspace=0.35, wspace=0.28)
+                           height_ratios=[2.6, 2.6, 1.3, 0.65],
+                           hspace=0.50, wspace=0.28)
 
-    # ---- Row 0: observed raster (spans both columns) ----
+    # ----------------------------------------------------------------
+    # Row 0: observed raster (spans both columns, all neurons)
+    # ----------------------------------------------------------------
     ax_obs = fig.add_subplot(gs[0, :])
-    t_idx, n_idx = np.where(spikes[:T_show, :n_show] > 0)
-    ax_obs.scatter(t_idx, n_idx, s=1.5, color="black", alpha=0.55)
+    t_idx, n_idx = np.where(spikes[:T_show, :N] > 0)
+    ax_obs.scatter(t_idx, n_idx, s=0.8, color="black", alpha=0.45)
     ax_obs.set_xlim(0, T_show)
-    ax_obs.set_ylim(-0.5, n_show - 0.5)
+    ax_obs.set_ylim(-0.5, N - 0.5)
     ax_obs.set_ylabel("Neuron index")
-    ax_obs.set_title(f"Observed spikes  (first {n_show} neurons)")
-    ax_obs.set_xticklabels([])
+    ax_obs.set_title(f"Observed spikes  (all {N} neurons)")
+    # E/I boundary heuristic
+    mean_rate = spikes[:T_show, :].mean(axis=0)
+    boundary  = int(np.sum(mean_rate > mean_rate.mean()))
+    ax_obs.axhline(boundary, color="red", lw=0.8, ls="--", alpha=0.6,
+                   label=f"rate boundary ~{boundary}")
+    ax_obs.legend(fontsize=7, loc="upper right")
+    ax_obs.set_xticks(x_ticks)
+    ax_obs.set_xticklabels([str(v) for v in x_ticks], fontsize=8)
+    ax_obs.set_xlabel("Time step", fontsize=8)
 
-    # ---- Row 1 left: predicted rate heatmap ----
+    # ----------------------------------------------------------------
+    # Row 1 left: predicted rate heatmap - locked z [lam_vmin, lam_vmax]
+    # ----------------------------------------------------------------
     ax_lam = fig.add_subplot(gs[1, 0])
-    im1 = ax_lam.imshow(lambda_t[:T_show, :n_show].T,
+    im1 = ax_lam.imshow(lambda_t[:T_show, :N].T,
                         aspect="auto", origin="lower",
-                        extent=[0, T_show, 0, n_show],
-                        cmap="hot", interpolation="nearest")
-    plt.colorbar(im1, ax=ax_lam, label="λ (sp/bin)", pad=0.02)
+                        extent=[0, T_show, 0, N],
+                        cmap="hot", interpolation="nearest",
+                        vmin=lam_vmin, vmax=lam_vmax)
+    cb1 = plt.colorbar(im1, ax=ax_lam, label="λ (sp/bin)", pad=0.02)
+    cb1.set_ticks(np.linspace(lam_vmin, lam_vmax, N_TICKS))
+    cb1.ax.yaxis.set_major_formatter(
+        plt.FuncFormatter(lambda x, _: f"{x:.3f}"))
     ax_lam.set_ylabel("Neuron index")
-    ax_lam.set_title("Predicted rate  λ_t")
-    ax_lam.set_xticklabels([])
+    ax_lam.set_title(f"Predicted rate  λ_t   "
+                     f"z=[{lam_vmin:.2f}, {lam_vmax:.2f}]  (95th pct)")
+    ax_lam.set_xticks(x_ticks)
+    ax_lam.set_xticklabels([str(v) for v in x_ticks], fontsize=8)
+    ax_lam.set_xlabel("Time step", fontsize=8)
 
-    # ---- Row 1 right: eta heatmap ----
+    # ----------------------------------------------------------------
+    # Row 1 right: eta heatmap - locked to [-eta_clip, +eta_clip]
+    # ----------------------------------------------------------------
     ax_eta = fig.add_subplot(gs[1, 1])
-    im2 = ax_eta.imshow(eta_t[:T_show, :n_show].T,
+    im2 = ax_eta.imshow(eta_t[:T_show, :N].T,
                         aspect="auto", origin="lower",
-                        extent=[0, T_show, 0, n_show],
+                        extent=[0, T_show, 0, N],
                         cmap="RdBu_r", interpolation="nearest",
-                        vmin=-eta_clip, vmax=eta_clip)
-    plt.colorbar(im2, ax=ax_eta, label="η", pad=0.02)
+                        vmin=eta_vmin, vmax=eta_vmax)
+    cb2 = plt.colorbar(im2, ax=ax_eta, label="η", pad=0.02)
+    cb2.set_ticks(np.linspace(eta_vmin, eta_vmax, N_TICKS))
+    cb2.ax.yaxis.set_major_formatter(
+        plt.FuncFormatter(lambda x, _: f"{x:.1f}"))
     ax_eta.set_ylabel("Neuron index")
-    ax_eta.set_title("Internal potential  η_t")
-    ax_eta.set_xticklabels([])
+    ax_eta.set_title(f"Internal potential  η_t   "
+                     f"z=[{eta_vmin:.1f}, {eta_vmax:.1f}]  (locked ±eta_clip)")
+    ax_eta.set_xticks(x_ticks)
+    ax_eta.set_xticklabels([str(v) for v in x_ticks], fontsize=8)
+    ax_eta.set_xlabel("Time step", fontsize=8)
 
-    # ---- Row 2: mixing coefficients (spans both columns) ----
+    # ----------------------------------------------------------------
+    # Row 2: mixing coefficients (spans both columns)
+    # ----------------------------------------------------------------
     ax_c = fig.add_subplot(gs[2, :])
     colors = plt.cm.tab10(np.linspace(0, 0.5, M))
     for m in range(M):
-        ax_c.plot(C_true[:T_show, m], lw=1.0,
+        ax_c.plot(C_true[:T_show, m], lw=1.1,
                   color=colors[m], label=f"c_{m}", alpha=0.85)
     ax_c.set_xlim(0, T_show)
     ax_c.set_ylim(-0.05, 1.05)
-    ax_c.set_ylabel("Coefficient value")
+    ax_c.set_ylabel("Coefficient")
     ax_c.set_title("C_true  mixing coefficients")
     ax_c.legend(fontsize=8, loc="upper right", ncol=M)
-    ax_c.set_xticklabels([])
+    ax_c.set_xticks(x_ticks)
+    ax_c.set_xticklabels([str(v) for v in x_ticks], fontsize=8)
+    ax_c.set_xlabel("Time step", fontsize=8)
 
-    # ---- Row 3: true state trace (spans both columns) ----
+    # ----------------------------------------------------------------
+    # Row 3: true state trace (spans both columns)
+    # ----------------------------------------------------------------
     ax_s = fig.add_subplot(gs[3, :])
     ax_s.step(np.arange(T_show), S_true[:T_show],
-              where="mid", color="steelblue", lw=1)
+              where="mid", color="steelblue", lw=1.2)
     ax_s.set_xlim(0, T_show)
+    ax_s.set_ylim(-0.3, int(S_true.max()) + 0.5)
     ax_s.set_ylabel("State", fontsize=8)
-    ax_s.set_xlabel(f"Time step  (first {T_show} of {T})", fontsize=9)
+    ax_s.set_xticks(x_ticks)
+    ax_s.set_xticklabels([str(v) for v in x_ticks], fontsize=8)
+    ax_s.set_xlabel(
+        f"Time step  "
+        f"(showing {T_show} bins = {T_show * dt:.1f} sec  "
+        f"of {T} total)",
+        fontsize=9)
     ax_s.yaxis.set_major_locator(MaxNLocator(integer=True))
 
+    # secondary axis in seconds
+    ax_s2 = ax_s.twiny()
+    ax_s2.set_xlim(0, T_show * dt)
+    ax_s2.set_xlabel("Time (sec)", fontsize=8)
+    ax_s2.xaxis.set_major_locator(plt.MaxNLocator(6))
+
     return fig
-
-
 # ================================================================
 #  Canvas 2 : statistics panels
 # ================================================================
@@ -366,7 +427,7 @@ def main():
     if args.plotFmt == "b":
         out1 = os.path.join(args.outPlots,
                              f"{args.dataName}_s1_canvas1.png")
-        fig1.savefig(out1, bbox_inches="tight", dpi=130)
+        fig1.savefig(out1, bbox_inches="tight")
         print(f"  saved: {out1}")
     else:
         plt.show(block=not args.noBlock)
@@ -378,7 +439,7 @@ def main():
     if args.plotFmt == "b":
         out2 = os.path.join(args.outPlots,
                              f"{args.dataName}_s1_canvas2.png")
-        fig2.savefig(out2, bbox_inches="tight", dpi=130)
+        fig2.savefig(out2, bbox_inches="tight")
         print(f"  saved: {out2}")
     else:
         plt.show(block=not args.noBlock)
@@ -397,10 +458,7 @@ def main():
         sym = "✓" if ok else "✗"
         print(f"  {sym} {label}: {val:.5f}  "
               f"({'≥' if higher else '≤'}{thresh})")
-    print(f"{'='*52}")
-    print(f"\n  canvas1: {args.dataName}_s1_canvas1.png")
-    print(f"  canvas2: {args.dataName}_s1_canvas2.png")
-
+    
 
 if __name__ == "__main__":
     main()

@@ -43,7 +43,7 @@ def get_parser():
    
     parser.add_argument("-t", "--num_steps", type=int, default=None, help="Number of time steps (default: from input evol_conf)")
     parser.add_argument("--max_delta_c", type=float, default=0.02, help="Max coefficient change per step.")
-    parser.add_argument("--dwell_steps", type=int, default=500, help="Mean number of steps to stay in a target state.")
+    parser.add_argument("--dwell_steps", type=int, default=200, help="Mean number of steps to stay in a target state.")
     parser.add_argument("--seed", type=int, default=42, help="Optional random seed.")
 
     args = parser.parse_args()
@@ -233,7 +233,8 @@ def main():
         "data_type": "simPrism",
         "short_name": args.dataName,
         "time_step_sec": evol_conf_in["step_size"],
-        'poisson_eta_clip': evol_conf_in['poisson_eta_clip']
+        'poisson_eta_clip': evol_conf_in['poisson_eta_clip'],
+        "input_truth_name": args.truthName,
     }
 
     # 2) Truth/aux file: all remaining arrays + remaining metadata
@@ -246,7 +247,6 @@ def main():
     }
     prismTruthMD = {
         "short_name": args.dataName,
-        "input_truth_name": args.truthName,
         "data_type": "simPrism",
         "var_time_window_sec": float(var_time_window_sec),
         "dale_conf": dale_conf,

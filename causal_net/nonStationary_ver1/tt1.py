@@ -9,8 +9,8 @@ numerical stability (eta clipping, log-floor), and loss implementation
 before any fitting begins.
 
 Reads:
-  <basePath>/truthDale/<truthName>.simTruth.npz   (A_true, B_true)
-  <basePath>/spikesData/<dataName>.spikes.npz     (spikes)
+  <basePath>/spikesData/<dataName>.spikes.npz     (spikes, input_truth_name)
+  <basePath>/truthDale/<input_truth_name>.simTruth.npz   (A_true, B_true)
   <basePath>/spikesData/<dataName>.prismTruth.npz (C_true, S_true)
 
 Writes:
@@ -45,8 +45,6 @@ def get_parser():
     parser.add_argument("--basePath",
                         default="/dataVault2026/neurodata_tmp2",
                         help="Head dir for all data.")
-    parser.add_argument("--truthName", default=None,
-                        help="simTruth base name, e.g. daleN100_46f1c4")
     parser.add_argument("--dataName", default=None,
                         help="Spikes base name, e.g. daleN100_46f1c4_b90619")
     parser.add_argument("--device", default="cuda",
@@ -61,7 +59,6 @@ def get_parser():
     for arg in vars(args):
         print("myArg:", arg, getattr(args, arg))
 
-    assert args.truthName is not None, "must provide --truthName"
     assert args.dataName  is not None, "must provide --dataName"
     assert os.path.exists(args.basePath),   f"missing basePath: {args.basePath}"
     assert os.path.exists(args.inpTruth),   f"missing truthDale: {args.inpTruth}"
@@ -168,17 +165,18 @@ def main():
     args = get_parser()
     np.set_printoptions(precision=3, suppress=True)
 
-    # ---- load simTruth (A_true, B_true) ----
-    truthFF = os.path.join(args.inpTruth, f"{args.truthName}.simTruth.npz")
-    trueD, trueMD = read_data_npz(truthFF, verb=args.verb > 0)
-    if args.verb > 1:
-        print("\nsimTruth metadata:"); pprint(trueMD)
-
     # ---- load spikes ----
     spikesFF = os.path.join(args.inpSpikes, f"{args.dataName}.spikes.npz")
     spikesD, spikesMD = read_data_npz(spikesFF, verb=args.verb > 0)
     if args.verb > 1:
         print("\nspikes metadata:"); pprint(spikesMD)
+
+    # ---- load simTruth (A_true, B_true) ----
+    truthName = spikesMD['input_truth_name']
+    truthFF = os.path.join(args.inpTruth, f"{truthName}.simTruth.npz")
+    trueD, trueMD = read_data_npz(truthFF, verb=args.verb > 0)
+    if args.verb > 1:
+        print("\nsimTruth metadata:"); pprint(trueMD)
 
     # ---- load prismTruth (C_true, S_true) ----
     prismTruthFF = os.path.join(args.inpSpikes, f"{args.dataName}.prismTruth.npz")
@@ -220,7 +218,7 @@ def main():
     outMD = {
         "data_type":        "prismStage1",
         "short_name":       args.dataName,
-        "input_truth_name": args.truthName,
+        "input_truth_name": truthName,
         "time_step_sec":    dt,
         "stage":            1,
         "eta_clip":         eta_clip,
