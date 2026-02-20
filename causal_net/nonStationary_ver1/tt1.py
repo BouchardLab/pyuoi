@@ -86,7 +86,7 @@ def poisson_deviance(Y, lambda_t, log_eps=LOG_EPS):
     return dev
 
 
-def run_forward_model(A_true, B_true, C_true, spikes, dt, device, verb=1):
+def run_forward_model(A_true, B_true, C_true, spikes, dt, eta_clip, device, verb=1):
     """
     Compute forward Poisson model using ground-truth parameters.
 
@@ -126,7 +126,7 @@ def run_forward_model(A_true, B_true, C_true, spikes, dt, device, verb=1):
         Y_prev = Y[t-1].float() if t > 0 else torch.zeros(N, device=device)
 
         eta_t = A_eff @ Y_prev + B_eff              # (N,)
-        eta_t = torch.clamp(eta_t, max=ETA_CLIP)    # numerical safety
+        eta_t = torch.clamp(eta_t, min=-eta_clip, max=eta_clip)    # numerical safety
 
         lam_t = torch.exp(eta_t) * dt               # (N,)
 
@@ -192,6 +192,7 @@ def main():
     C_true = torch.tensor(prismTruthD["C_true"],   dtype=torch.float32)
     spikes = torch.tensor(spikesD["spikes"],       dtype=torch.int32)
     dt     = float(spikesMD["time_step_sec"])
+    eta_clip     = float(spikesMD["poisson_eta_clip"])
 
     # Ensure A, B are state-first: (M,N,N), (M,N)
     if A_true.ndim == 2:
@@ -211,7 +212,7 @@ def main():
         print(f"Using device: {device}")
 
     # ---- forward model ----
-    results = run_forward_model(A_true, B_true, C_true, spikes, dt, device, verb=args.verb)
+    results = run_forward_model(A_true, B_true, C_true, spikes, dt, eta_clip, device,  verb=args.verb)
 
     # ---- save ----
     outD = {k: v.numpy().astype(np.float32) for k, v in results.items()}
@@ -222,7 +223,7 @@ def main():
         "input_truth_name": args.truthName,
         "time_step_sec":    dt,
         "stage":            1,
-        "eta_clip":         ETA_CLIP,
+        "eta_clip":         eta_clip,
         "log_eps":          LOG_EPS,
         "num_neurons":      int(N),
         "num_steps":        int(T),

@@ -99,7 +99,7 @@ def build_target_states(n_steps, n_states, dwell_steps, rng):
     return S_true, trans.astype(np.float32)
 
 
-def simulate_switching_poisson(n_steps, A_atoms, B_atoms, S_true, max_delta_c, dt, rng, verb=1):
+def simulate_switching_poisson(n_steps, A_atoms, B_atoms, S_true, max_delta_c, dt, eta_clip,rng, verb=1):
     """Switching Poisson generator: smooth c_t toward one-hot target state S_true[t]."""
     n_states, n_neurons = B_atoms.shape
     spikes = np.zeros((n_steps, n_neurons), dtype=np.int32)
@@ -134,7 +134,7 @@ def simulate_switching_poisson(n_steps, A_atoms, B_atoms, S_true, max_delta_c, d
 
         prev_y = spikes[t - 1].astype(float) if t > 0 else np.zeros(n_neurons, dtype=float)
         eta_t = A_eff @ prev_y + B_eff
-        lambda_t = np.exp(np.clip(eta_t, -5, 5))
+        lambda_t = np.exp(np.clip(eta_t, -eta_clip, eta_clip))
         spikes[t] = rng.poisson(lambda_t * dt).astype(np.int32)
 
     return spikes, C_true
@@ -184,6 +184,7 @@ def main():
         S_true=S_true,
         max_delta_c=args.max_delta_c,
         dt=step_size,
+        eta_clip=evol_conf_in['poisson_eta_clip'],
         rng=rng,
         verb=args.verb,
     )
@@ -210,7 +211,7 @@ def main():
         "num_states": int(n_states),
         "seed": args.seed,
         "max_samples": int(max_samples),
-        "var_time_window_sec": float(var_time_window_sec),
+       # "var_time_window_sec": float(var_time_window_sec),
     }
 
     # Preserve input dale_conf when present; ensure core fields exist
@@ -231,7 +232,8 @@ def main():
     spikesMD = {
         "data_type": "simPrism",
         "short_name": args.dataName,
-        "time_step_sec": float(step_size),
+        "time_step_sec": evol_conf_in["step_size"],
+        'poisson_eta_clip': evol_conf_in['poisson_eta_clip']
     }
 
     # 2) Truth/aux file: all remaining arrays + remaining metadata

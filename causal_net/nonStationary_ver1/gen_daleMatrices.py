@@ -143,7 +143,7 @@ def set_flat_selfSpiking(Nn, idleRate, spect_radii, num_excite):
         B_all[ir, num_excite:] += 1.  # increase excitatory rate
     return B_all
 
-def gen_stationary_lag1_poisson(num_steps, dt, A, B_intercept, num_excite, verb=0):
+def gen_stationary_lag1_poisson(num_steps, dt, A, B_intercept, num_excite, eta_clip,verb=0):
     """
     Generates a multivariate Poisson VAR(1) process:
         Y_t ~ Poisson(exp(A @ Y_{t-1} + B_intercept))
@@ -187,7 +187,7 @@ def gen_stationary_lag1_poisson(num_steps, dt, A, B_intercept, num_excite, verb=
     for t in range(1, num_steps):
         eta = A @ Y[t-1] + B_intercept
         #eta = B_intercept  # use it to see idle rate only
-        lambda_t = np.exp(np.clip(eta, -5, 5))  # avoid overflow        
+        lambda_t = np.exp(np.clip(eta, -eta_clip, eta_clip))  # avoid overflow        
         Y[t] = np.random.poisson(lambda_t*dt)
         
         if verb>0 and t<5:
@@ -226,10 +226,13 @@ def main():
     np.set_printoptions(precision=3, suppress=True)
 
     args = parser.parse_args()
+    args.varTwindow=5 #(sec)
+    args.poisson_eta_clip=5  # [1e-3Hz , 1e3Hz]
     if args.dataName is None:
         args.dataName='daleN%d_'%args.num_neurons+hashlib.md5(os.urandom(32)).hexdigest()[:6]
 
     outPath=os.path.join(args.basePath, 'truthDale')
+    
     print("\nStarting simulation with configuration:")
     print(vars(args))
 
@@ -260,11 +263,12 @@ def main():
         'num_steps': args.num_steps,
         'step_size': args.step_size,
         'evol_time': args.num_steps*args.step_size,
-        'idleRate': args.idleRate
+        'idleRate': args.idleRate,
+        'poisson_eta_clip': args.poisson_eta_clip
     }
 
     B_all = set_flat_selfSpiking(Nn, args.idleRate, args.spectral_radius, args.num_excite)
-    varTwindow=5 #(sec)
+    
     max_samples = 100000
 
     num_radii = len(args.spectral_radius)
@@ -293,12 +297,12 @@ def main():
 
         B_idle = B_all[ir]
         start_time = time.time()
-        Y = gen_stationary_lag1_poisson(num_steps=args.num_steps, dt=args.step_size, A=A_dale, B_intercept=B_idle, num_excite=args.num_excite, verb=verb_r)
+        Y = gen_stationary_lag1_poisson(num_steps=args.num_steps, dt=args.step_size, A=A_dale, B_intercept=B_idle, num_excite=args.num_excite,eta_clip=args.poisson_eta_clip, verb=verb_r)
         sim_time = time.time() - start_time
         print("Spike generation completed in %.1f seconds" % sim_time)
 
-        stats_dict, rates_dict, _ = estimate_rates(Y, dt=args.step_size, num_excite=args.num_excite, max_samples=max_samples, varTwindow=varTwindow, mxNn=5, verb=verb_r, spect_radius=R)
-        stats_dict['var_time_window_sec'] = float(varTwindow)
+        stats_dict, rates_dict, _ = estimate_rates(Y, dt=args.step_size, num_excite=args.num_excite, max_samples=max_samples, varTwindow=args.varTwindow, mxNn=5, verb=verb_r, spect_radius=R)
+        stats_dict['var_time_window_sec'] = float(args.varTwindow)
         stats_dict['max_samples'] = int(max_samples)
 
         A_list.append(A_dale)
@@ -323,7 +327,7 @@ def main():
         'sigle_rates_var': np.stack(rates_var_list, axis=0),
         'single_fano_fact': np.stack(fano_list, axis=0)
     }
-    spikeMD={ 'short_name':args.dataName,'time_step_sec':args.step_size,'data_type':'simDale', 'var_time_window_sec':varTwindow }
+    spikeMD={ 'short_name':args.dataName,'time_step_sec':args.step_size,'data_type':'simDale', 'poisson_eta_clip': args.poisson_eta_clip }
 
     outFt = os.path.join(outPath,args.dataName + '.simTruth.npz')
     write_data_npz(trueD, outFt, metaD=trueMD)
