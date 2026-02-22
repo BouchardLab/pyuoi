@@ -21,6 +21,8 @@ Output arrays in .prismTruth.npz:
   sigle_rates_var   (N,)   float
   single_fano_fact  (N,)   float
 
+Here is the patched file with --schedule mc (existing behavior) and --schedule rr (round-robin):
+
 """
 
 import os
@@ -30,7 +32,6 @@ from pprint import pprint
 import numpy as np
 
 from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
-# Reuse the same stats function import path used by gen_daleMatrices.py
 from gen_daleMatrices import estimate_rates
 
 
@@ -40,11 +41,14 @@ def get_parser():
     parser.add_argument("--basePath", default="/pscratch/sd/b/balewski/2025_causalNet_tmp/", help="head dir for input data")
     parser.add_argument("--truthName", default=None, help="input simTruth base name")
     parser.add_argument("--dataName", type=str, default=None, help="output spikes base name (default: <truthName>_<hash6>)")
-   
+
     parser.add_argument("-t", "--num_steps", type=int, default=None, help="Number of time steps (default: from input evol_conf)")
     parser.add_argument("--max_delta_c", type=float, default=0.02, help="Max coefficient change per step.")
     parser.add_argument("--dwell_steps", type=int, default=200, help="Mean number of steps to stay in a target state.")
     parser.add_argument("--seed", type=int, default=42, help="Optional random seed.")
+    parser.add_argument("--schedule", choices=["mc", "rr"], default="mc",
+                        help="State schedule: 'mc' = random Markov chain (default), "
+                             "'rr' = deterministic round-robin (equal state coverage).")
 
     args = parser.parse_args()
     args.inpPath = os.path.join(args.basePath, "truthDale")
@@ -81,8 +85,35 @@ def ensure_state_atoms(A_in, B_in):
     return A.astype(float), B.astype(float)
 
 
-def build_target_states(n_steps, n_states, dwell_steps, rng):
-    """Markov target-state sequence with geometric dwell time."""
+def _print_state_stats(S_true, n_states, n_steps):
+    """Print per-state counts and dwell statistics (shared by both schedules)."""
+    counts = np.bincount(S_true, minlength=n_states)
+    fracs = counts / n_steps
+    parts = '  '.join(f's{m}:{counts[m]}({fracs[m]:.1%})' for m in range(n_states))
+    print(f"Target state distribution (T={n_steps}): {parts}")
+
+    dwell_lens = {m: [] for m in range(n_states)}
+    run_state, run_len = S_true[0], 1
+    for t in range(1, n_steps):
+        if S_true[t] == run_state:
+            run_len += 1
+        else:
+            dwell_lens[run_state].append(run_len)
+            run_state, run_len = S_true[t], 1
+    dwell_lens[run_state].append(run_len)
+    for m in range(n_states):
+        d = dwell_lens[m]
+        print(f"  state {m}: {len(d)} episodes, dwell mean={np.mean(d):.1f} steps, "
+              f"total={np.sum(d)} steps")
+
+
+def build_target_states_mc(n_steps, n_states, dwell_steps, rng):
+    """Random Markov chain target-state sequence with geometric dwell time.
+
+    Each time step the chain either stays (prob = 1 - 1/dwell_steps) or
+    transitions uniformly to one of the other states.  State coverage is
+    uncontrolled — a single unlucky run can give very few bins to one state.
+    """
     if n_states == 1:
         return np.zeros(n_steps, dtype=np.int32), np.ones((1, 1), dtype=np.float32)
 
@@ -96,10 +127,41 @@ def build_target_states(n_steps, n_states, dwell_steps, rng):
     for t in range(n_steps):
         state = rng.choice(n_states, p=trans[state])
         S_true[t] = state
+
+    _print_state_stats(S_true, n_states, n_steps)
     return S_true, trans.astype(np.float32)
 
 
-def simulate_switching_poisson(n_steps, A_atoms, B_atoms, S_true, max_delta_c, dt, eta_clip,rng, verb=1):
+def build_target_states_rr(n_steps, n_states, dwell_steps, rng):
+    """Round-robin with fixed dwell_steps per visit.
+
+    States cycle 0,1,2,0,1,2,...  Every visit lasts exactly dwell_steps
+    steps (last visit of each state is trimmed to fit T).  Total steps per
+    state is guaranteed to be T//M ± dwell_steps — no luck involved.
+    """
+    if n_states == 1:
+        return np.zeros(n_steps, dtype=np.int32), np.ones((1, 1), dtype=np.float32)
+
+    S_true = np.zeros(n_steps, dtype=np.int32)
+    t = 0
+    visit = 0
+    while t < n_steps:
+        state = visit % n_states                  # strict round-robin
+        t_end = min(t + dwell_steps, n_steps)     # fixed dwell, trim at end
+        S_true[t:t_end] = state
+        t = t_end
+        visit += 1
+
+    # Transition matrix: same symmetric form as MC for metadata consistency
+    p_exit = 1.0 / float(dwell_steps)
+    p_stay = 1.0 - p_exit
+    trans = np.full((n_states, n_states), p_exit / float(n_states - 1), dtype=float)
+    np.fill_diagonal(trans, p_stay)
+
+    _print_state_stats(S_true, n_states, n_steps)
+    return S_true, trans.astype(np.float32)
+
+def simulate_switching_poisson(n_steps, A_atoms, B_atoms, S_true, max_delta_c, dt, eta_clip, rng, verb=1):
     """Switching Poisson generator: smooth c_t toward one-hot target state S_true[t]."""
     n_states, n_neurons = B_atoms.shape
     spikes = np.zeros((n_steps, n_neurons), dtype=np.int32)
@@ -158,7 +220,7 @@ def main():
     step_size = float(evol_conf_in["step_size"])
     var_time_window_sec = float(dale_stats0["var_time_window_sec"])
     max_samples = int(dale_stats0["max_samples"])
- 
+
     if args.num_steps is None:
         args.num_steps = int(evol_conf_in["num_steps"])
 
@@ -175,7 +237,10 @@ def main():
     num_excite = min(max(1, num_excite), n_neurons - 1)
 
     rng = np.random.default_rng(args.seed)
-    S_true, transition_matrix = build_target_states(args.num_steps, n_states, args.dwell_steps, rng)
+
+    schedule_fn = {"mc": build_target_states_mc,
+                   "rr": build_target_states_rr}[args.schedule]
+    S_true, transition_matrix = schedule_fn(args.num_steps, n_states, args.dwell_steps, rng)
 
     spikes, C_true = simulate_switching_poisson(
         n_steps=args.num_steps,
@@ -189,7 +254,6 @@ def main():
         verb=args.verb,
     )
 
-    # Recompute stats using the same flow as gen_daleMatrices.py
     stats_dict, rates_dict, _ = estimate_rates(
         spikes,
         dt=step_size,
@@ -201,7 +265,6 @@ def main():
         spect_radius=None,
     )
 
-    # Build new evol_conf for this generator
     evol_conf = {
         "num_steps": int(args.num_steps),
         "step_size": float(step_size),
@@ -210,23 +273,20 @@ def main():
         "dwell_steps": int(args.dwell_steps),
         "num_states": int(n_states),
         "seed": args.seed,
+        "schedule": args.schedule,
         "max_samples": int(max_samples),
-       # "var_time_window_sec": float(var_time_window_sec),
     }
 
-    # Preserve input dale_conf when present; ensure core fields exist
     dale_conf = dict(dale_conf_in)
     dale_conf["num_neurons"] = int(dale_conf["num_neurons"])
     dale_conf["num_excite"] = int(dale_conf["num_excite"])
 
-    # Keep dale_simu_stats compact in prismTruth metadata
     stats_meta = dict(stats_dict)
     for key in ("num_excitatory", "num_inhibitory", "num_neurons", "num_steps"):
         stats_meta.pop(key, None)
 
-    # 1) Main spikes file: only spikes + single_rates with minimal metadata
     spikesD = {
-        "spikes": spikes.astype(np.int32),  # requested format: (T, N) int32
+        "spikes": spikes.astype(np.int32),
         "single_rates": rates_dict["single_rates"],
     }
     spikesMD = {
@@ -237,7 +297,6 @@ def main():
         "input_truth_name": args.truthName,
     }
 
-    # 2) Truth/aux file: all remaining arrays + remaining metadata
     prismTruthD = {
         "S_true": S_true.astype(np.int32),
         "C_true": C_true.astype(np.float32),
@@ -259,12 +318,12 @@ def main():
     write_data_npz(spikesD, outFs, metaD=spikesMD)
     write_data_npz(prismTruthD, outFt, metaD=prismTruthMD)
 
-    if args.verb>1:
+    if args.verb > 1:
         print('\nspikes MD:'); pprint(spikesMD)
         print('\nprismTruth MD:'); pprint(prismTruthMD)
 
     print("\n  ./view_spikesTrain.py  --basePath $basePath   --dataName %s  --idxR -1  -p b     -X " % args.dataName)
 
+
 if __name__ == "__main__":
     main()
- 

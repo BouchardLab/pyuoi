@@ -113,11 +113,11 @@ def pass_label(value, threshold, higher_is_better=True):
 def make_title(tag, fitMD, eta_clip):
     """Title without total T."""
     return (f"PRISM Stage 1 — {tag}\n"
-            f"{fitMD.get('short_name','')}   "
-            f"N={fitMD.get('num_neurons','')}  "
-            f"M={fitMD.get('num_states','')}  "
+            f"{fitMD['short_name']}   "
+            f"N={fitMD['num_neurons']}  "
+            f"M={fitMD['num_states']}  "
             f"eta_clip=±{eta_clip}  "
-            f"dt={fitMD.get('time_step_sec','')} sec")
+            f"dt={fitMD['time_step_sec']} sec")
 
 
 # ================================================================
@@ -139,7 +139,7 @@ def make_canvas1(fitD, fitMD, spikes, S_true, C_true,
     T, N   = spikes.shape
     T_show = min(T_show, T)
     M      = C_true.shape[1]
-    dt     = float(fitMD.get("time_step_sec", 0.01))
+    dt     = float(fitMD["time_step_sec"])
 
     lam_vmax = float(np.percentile(lambda_t[:T_show, :], 95))
     lam_vmin = 0.0
@@ -265,7 +265,7 @@ def make_canvas1(fitD, fitMD, spikes, S_true, C_true,
     ax_s.set_xlabel(
         f"Time step  "
         f"(showing {T_show} bins = {T_show * dt:.1f} sec  "
-        f"of {fitMD.get('num_steps', '?')} total)",
+        f"of {fitMD['num_steps']} total)",
         fontsize=9)
     ax_s.yaxis.set_major_locator(MaxNLocator(integer=True))
     ax_s2 = ax_s.twiny()
@@ -459,9 +459,9 @@ def make_canvas2(fitD, fitMD, spikes, C_true, stable_mask,
         ("PRISM Stage 1 Summary",          "black", 11, True),
         ("",                                "black",  9, False),
         (f"T={T}  N={N}  "
-         f"M={fitMD.get('num_states','')}","black",  9, False),
+         f"M={fitMD['num_states']}","black",  9, False),
         (f"eta_clip = ±{eta_clip}",         "black",  9, False),
-        (f"dt = {fitMD.get('time_step_sec','')} sec",
+        (f"dt = {fitMD['time_step_sec']} sec",
                                             "black",  9, False),
         ("",                                "black",  9, False),
         (f"Stable bins : {T_stable}/{T} "

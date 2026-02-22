@@ -1,0 +1,22 @@
+Goal: fit non-stationary multi-state leiner model . Input poisson spikes. States transitions are extended in time 
+
+*prism_stage1_train.py
+only test prediction from ground truth
+
+*prism_stage2_train.py
+Read in A_true, B_true --> fit state probability coefficients vs. time : C_hat 
+works
+
+*prism_stage3_train.py
+Read C_true and mask (E_true) -->  fit simultanously 3 models:  A_hat, B_hat
+works to some extend
+
+*prism_stage4_train.py
+Read only C_true --> fit  A_hat, B_hat
+failed because  it is hard to  guess E_mask
+
+
+
+salloc --nodes 1 --qos shared_interactive --time 01:00:00 -C gpu  -A nstaff
+ 
+

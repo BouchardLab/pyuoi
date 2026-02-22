@@ -142,7 +142,8 @@ class Plotter(PlotterBackbone):
         ax.bar(timeV+Tbin*.5, cntAboveMed, width=Tbin, color='teal', align='center', alpha=0.7)
         ax.set(ylabel='neurons > median', title=f'neurons above displayed-time median rate ({medRateDisp:.2f} Hz)')
         ax.set_xlim(xL,xR)
-        ax.tick_params(axis='x', labelbottom=False)
+        ax.tick_params(axis='x', labelbottom=True)
+        ax.set_xlabel('Time (s)')
         ax.grid()
         
         # ....... bottom row: 2D histogram
@@ -191,4 +192,5 @@ class Plotter(PlotterBackbone):
             ax.grid()
         else:
             ax.set_axis_off()
-        ax.tick_params(axis='x', labelbottom=False)
+        ax.tick_params(axis='x', labelbottom=True)
+        ax.set_xlabel('Time (s)')
