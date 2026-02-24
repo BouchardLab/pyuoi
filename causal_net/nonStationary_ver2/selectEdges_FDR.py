@@ -11,11 +11,10 @@ import argparse
 import os
 import numpy as np
 from pprint import pprint
-from toolbox.Util_NumpyIO import write_data_npz
-from PlotterFitEval import Plotter
+from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
+from PlotterLassoFitEval import Plotter
 from UtilSelectFDR import (summary_reco_neuronNet, compare_triplets, eval_tagged_edges_4_simu, 
-                           get_offdiag_triplets, edge_selector_fdr, load_bootstrap_data, 
-                           load_auxiliary_plotting_data)
+                           get_offdiag_triplets, edge_selector_fdr, load_bootstrap_data)
 
 def print_table_4_Yao(evalD,fitMD):
     
@@ -80,7 +79,7 @@ def main():
     parser.add_argument("--num_bootstraps", type=int, nargs='+', required=True, help="Number of bootstraps: 1 value (duplicated for real/desync) or 2 values [Kreal, Kdesync]")
     parser.add_argument("--alphaFDR", type=float, default=0.002, help="FDR significance level")
     
-    parser.add_argument('-p',"--showPlots", type=str,nargs='+', default="f", help="Plot types to show: a=structure, e=experiment_eigen, f=freqSortA_histos")
+    parser.add_argument('-p',"--showPlots", type=str,nargs='+', default="f", help="Plot types to show: a=structure, b=residuals (sim), c=summary_network, d=edge mask vs truth, f=freqSortA_histos")
     parser.add_argument("--outPath", type=str, default=None, help="Output path for plots (defaults to basePath/plots)")
     parser.add_argument('-X',"--noXterm", action="store_true", help="Disable X terminal for plotting")
     args = parser.parse_args()
@@ -169,29 +168,54 @@ def main():
         # Prepare plotting data (compatible with eval_fitLasso.py structure)
         fitD = output_data.copy()  # Use our processed output data as fitD
         fitMD = output_meta
-
+        pprint(fitMD)
         if 0:  # patch old data
                 fitMD['fit_lasso']['num_epochs']=fitMD['fit_lasso']['n_epochs']
         
         # Rename records so select_edges_from_fitLasso() has the expected names
         fitD['A_lasso'] = A_avr.copy()  # tmp
         fitD['B_lasso'] = B_avr.copy()
-                
-        # Load auxiliary data needed for plotting
-        spikeD, trueD, MD = load_auxiliary_plotting_data(fitMD,  dataName, dataPath)
-        # Add mask metadata and FDR method info
+                 
+             # Load spike data for frequency sorting
+        spikeF = fitMD['fit_lasso']['lassoFit_input_name']
+        inpPath2= fitMD['fit_lasso']['lassoFit_input_path']
+        spikesFF = os.path.join(inpPath2, f"{spikeF}.spikes.npz")
         
+        spikeD, spikeMD = read_data_npz(spikesFF)
+
+        MD = {**fitMD,  'short_name': args.dataName} 
+    
+        if 'simDale' in fitMD['data_type']:
+            truthPath=inpPath2
+            truthF=spikeF
+        if 'simPrism' in fitMD['data_type']:
+            truthPath= os.path.join(args.basePath, 'truthDale/')
+            truthF=spikeMD['input_truth_name']
+        
+        truthFF = os.path.join(truthPath, f"{truthF}.simTruth.npz")    
+        trueD,trueMD = read_data_npz(truthFF)
+        
+        MD.update(  trueMD )
+        MD['E_true']=trueD['E_true']
+    
         MD['edge_selection_method'] = 'fdr'
         MD['fdr_alpha'] = alpha
-    
-        if fitMD['data_type']=='simDale':
+      
+        if fitMD['data_type']=='simDaleStates':
+            At=trueD['A_true']
+            Bt=trueD['B_true']
+            Mstate=At.shape[0]; assert Mstate==1
+            #print('ss',At.shape)
+            trueD['A_true']=At[0]
+            trueD['B_true']=Bt[0]
+            spikeD['single_rates']=spikeD['single_rates'][0]
             evalD=eval_tagged_edges_4_simu(fitD,trueD)            
             print_table_4_Yao(evalD,fitMD)
+        MD['A_true']=trueD['A_true']
                      
         edgeD=summary_reco_neuronNet(A_avr, A_std)
         
         # adjustment for plotting
-
         fitD['single_rates']=spikeD['single_rates']
         
         # Setup plotter
@@ -203,13 +227,16 @@ def main():
             plot.summary_fitLasso(fitD,MD,figId=1)
 
         if 'b' in args.showPlots:
-            assert  fitMD['data_type']=='simDale'
+            assert  fitMD['data_type']=='simDaleStates'
             plot.residuals(evalD,MD,figId=2)
 
         if 'c' in args.showPlots:            
             plot.summary_network(fitD, edgeD,MD, figId=3)
 
         if 'd' in args.showPlots:
+             plot.edges_fitLasso(fitD, MD, minW=0, figId=2)
+
+        if 'f' in args.showPlots:
             plot.freqSortA_histos(fitD, MD, spikeD, figId=4)
       
 

@@ -20,7 +20,7 @@ import os
 
 from pprint import pprint
 import numpy as np
-from PlotSpikesTrain import Plotter
+from PlotterSpikesTrain import Plotter
 from toolbox.Util_NumpyIO import read_data_npz
 import argparse
 #...!...!....................
@@ -35,10 +35,10 @@ def get_parser():
     parser.add_argument("--basePath",default='/pscratch/sd/b/balewski/2025_causalNet_tmp/',help="head dir for input data")
     parser.add_argument("--dataName",  default=None,help='simulated Dale network base name')
   
-    parser.add_argument('-i', '--idxState', type=int, default=0, help="Index into state list; if idxState<0 read spikes from spikesData/")
+    parser.add_argument('-m', '--idxState', type=int, default=0, help="Index into state list; if idxState<0 read spikes from spikesData/")
 
-    parser.add_argument('-T','--time_range_sec' , default=[0., 600],  nargs=2,   type=float, help='display data time range in seconds')
-    parser.add_argument('-r','--time_rebin2', default=50, type=int, help='rebin current time axis')
+    parser.add_argument('-T','--time_range_sec' , default=[0., 50],  nargs=2,   type=float, help='display data time range in seconds')
+    parser.add_argument('-r','--time_rebin2', default=20, type=int, help='rebin current time axis')
    
     args = parser.parse_args()
     # make arguments more flexible
@@ -87,7 +87,7 @@ def rebin_spike_rates(spikeYield, md, tReb2):
     return rebD
 
 #...!...!....................
-def select_radius_slice(spikeD, data_path, data_name, idxState, verb=1):
+def XXXselect_radius_slice(spikeD, data_path, data_name, idxState, verb=1):
     """Select one spectral-radius slice from stacked spikes arrays if present."""
     spikes = spikeD['spikes']
     if spikes.ndim == 2:
@@ -127,20 +127,38 @@ if __name__=="__main__":
     spikesFF = os.path.join(args.inpPath, f"{args.dataName}.spikes.npz")
     spikeD, spikeMD = read_data_npz(spikesFF, verb=args.verb>0)
     if args.verb>1: pprint(spikeMD)
-
-    S_true = None
-    if args.idxState < 0:
+    
+    
+    '''
+   
+  
+    spikeD_r, R_sel = XXXselect_radius_slice(spikeD, args.inpPath, args.dataName, args.idxState, verb=args.verb)
+    spikeMD['sel_spect_radius'] = R_sel
+    '''
+    if args.idxState >=0:  # per state information
+          # Load simulation truth data (Dale matrices, biases, etc.)
+        truthFF = os.path.join(args.inpPath, f"{args.dataName}.simTruth.npz")
+        trueD, trueMD = read_data_npz(truthFF, verb=args.verb>0)
+        if args.verb>1: 
+            print("\nSimulation Truth Metadata:");        pprint(trueMD)
+            
+        dataYield = spikeD['spikes']
+        Mstate,Nt, Nn = dataYield.shape
+        m=args.idxState
+        assert m<Mstate
+        spikeD['spikes']=dataYield[m]
+        spikeD['single_rates']=spikeD['single_rates'][m]
+        spikeMD['sel_spect_radius'] =trueMD['dale_conf']['spectral_radius'][m]
+        S_true = None
+        
+    if args.idxState <0:  #  multi-state simulations
         prismFF = os.path.join(args.inpPath, f"{args.dataName}.prismTruth.npz")
         assert os.path.exists(prismFF), f"missing prismTruth file: {prismFF}"
         prismD, prismMD = read_data_npz(prismFF, verb=args.verb>0)
         S_true = prismD['S_true']
-        if args.verb > 0:
-            print('loaded prismTruth S_true:', S_true.shape)
-        if args.verb>1: pprint(prismMD)
-
-    spikeD_r, R_sel = select_radius_slice(spikeD, args.inpPath, args.dataName, args.idxState, verb=args.verb)
-    spikeMD['sel_spect_radius'] = R_sel
-    
+        if args.verb > 0:  print('loaded prismTruth S_true:', S_true.shape);
+        if args.verb > 1:  pprint(prismMD)
+        spikeMD['sel_spect_radius'] =-77
     #--------------------------------
     # ....  plotting ........
     spikeMD['short_name']
@@ -153,9 +171,9 @@ if __name__=="__main__":
     plot=Plotter(args)
    
     if 'a' in args.showPlots:
-        plot.freq_histo(spikeD_r,spikeMD,figId=1)
+        plot.freq_histo(spikeD,spikeMD,figId=1)
     if 'b' in args.showPlots:
-        rebD=rebin_spike_rates(spikeD_r['spikes'], spikeMD, args.time_rebin2)
+        rebD=rebin_spike_rates(spikeD['spikes'], spikeMD, args.time_rebin2)
         plot.freq_vs_time(rebD,spikeMD,figId=2, S_true=S_true)
 
     plot.display_all()

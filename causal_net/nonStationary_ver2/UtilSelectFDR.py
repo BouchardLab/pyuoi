@@ -97,6 +97,7 @@ def eval_tagged_edges_4_simu(fitD, trueD):
     #print(sorted(trueD))
     At=trueD['A_true']
     Bt=trueD['B_true']
+    
     EposT=get_offdiag_triplets(At,True)
     EnegT=get_offdiag_triplets(At,False)
     print('True num edges  pos=%d  neg=%d'%(EposT.shape[0],EnegT.shape[0]))
@@ -110,13 +111,13 @@ def eval_tagged_edges_4_simu(fitD, trueD):
     #... zip diagonal
     diag_At = np.diag(At)
     diag_Ar = np.diag(Ar)
-   
+
     evalD={}
     evalD['pos']=compare_triplets(EposR, EposT)
     evalD['neg']=compare_triplets(EnegR, EnegT)
     evalD['diag']=np.column_stack([diag_Ar, diag_At])
     evalD['bterm']=np.column_stack([Br, Bt])
-
+    #print(' diag_At', diag_At)
     return  evalD
 
 
@@ -325,51 +326,3 @@ def load_bootstrap_data(dataName, dataPath, K, verb=1):
         
     return A_edges_real_list, A_edges_shuf_list, A_real_list, B_real_list, output_meta,output_big1
 
-
-def load_auxiliary_plotting_data(fitMD,  dataName, dataPath):
-    """
-    Load auxiliary data needed for plotting (spike data, ground truth, metadata).
-    
-    Parameters
-    ----------
-    fitMD : dict
-        Fit metadata dictionary
-    maskMD : dict
-        Mask metadata dictionary  
-    dataName : str
-        Dataset name for short_name
-    dataPath : str
-        Path to data directory
-    alpha : float
-        FDR alpha value for metadata
-        
-    Returns
-    -------
-    spikeD : dict
-        Spike data dictionary
-    trueD : dict or None
-        Ground truth data (None if not simDale)
-    MD : dict
-        Combined metadata for plotting
-    """
-    
-    # Load spike data for frequency sorting
-    spikeF = fitMD['fit_lasso']['lassoFit_input_name']
-    inpPath= fitMD['fit_lasso']['lassoFit_input_path']
-    spikesFF = os.path.join(inpPath, f"{spikeF}.spikes.npz")
- 
-    spikeD, spikeMD = read_data_npz(spikesFF, verb=0)
-    
-    # Load ground truth data if simulated Dale data
-    trueD = None
-    if fitMD['data_type']=='simDale':
-        truthFF = os.path.join(inpPath, f"{spikeF}.simTruth.npz")
-        trueD, trueMD = read_data_npz(truthFF, verb=0)    
-        # Combine metadata just for plotter
-        MD = {**fitMD, **trueMD, 'short_name': dataName}
-    else:
-        MD = {**fitMD, 'short_name': dataName}
-    
-    #XMD.update(maskMD)
-    
-    return spikeD, trueD, MD

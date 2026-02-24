@@ -99,7 +99,7 @@ def main():
         print(f"Loaded T={T}, M={M}, using {n_pairs} pairs (all for training), world_size={world_size}, per_gpu_bs={args.batch_size//max(1,world_size)}")
 
     # --- Set up model for L2-only fit ---
-    trainable_mask = fitD['W_mask']
+    trainable_mask = fitD['E_mask']
     if rank==0:
         print(f"Trainable mask: {trainable_mask.sum()} out of {trainable_mask.size} A elements are trainable")
         print(f"Trainable fraction: {trainable_mask.mean():.3f}")

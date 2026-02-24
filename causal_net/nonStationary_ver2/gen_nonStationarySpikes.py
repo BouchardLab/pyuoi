@@ -49,7 +49,7 @@ def get_parser():
     parser.add_argument("--schedule", choices=["mc", "rr"], default="mc",
                         help="State schedule: 'mc' = random Markov chain (default), "
                              "'rr' = deterministic round-robin (equal state coverage).")
-
+ 
     args = parser.parse_args()
     args.inpPath = os.path.join(args.basePath, "truthDale")
     args.outPath = os.path.join(args.basePath, "spikesData")
@@ -170,8 +170,6 @@ def simulate_switching_poisson(n_steps, A_atoms, B_atoms, S_true, max_delta_c, d
     c_curr = np.zeros(n_states, dtype=float)
     c_curr[S_true[0]] = 1.0
 
-    if verb > 0:
-
     for t in range(n_steps):
         target = np.zeros(n_states, dtype=float)
         target[S_true[t]] = 1.0
@@ -273,6 +271,7 @@ def main():
         "seed": args.seed,
         "schedule": args.schedule,
         "max_samples": int(max_samples),
+        "truth_input_name" : args.truthName,
     }
 
     dale_conf = dict(dale_conf_in)
@@ -320,7 +319,10 @@ def main():
         print('\nspikes MD:'); pprint(spikesMD)
         print('\nprismTruth MD:'); pprint(prismTruthMD)
 
-    print("\n  ./view_spikesTrain.py  --basePath $basePath   --dataName %s  --idxR -1  -p b     -X " % args.dataName)
+    print("\n  ./view_spikesTrain.py  --basePath $basePath   --dataName %s  --idxState -1 --time_range_sec 0 20   -p b     -X " % args.dataName)
+
+    print("  ./fitLasso4GPU.sh   --basePath $basePath     --dataName %s  --num_epochs 100  " % args.dataName)
+    print("  ./bigLassoBoots.sh    --basePath $basePath     --dataName %s  --num_epochs 100  --dropDataFrac 0.33  --num_bootstraps 2   --bootsTag b2   --desyncTime  " % args.dataName)
 
 
 if __name__ == "__main__":

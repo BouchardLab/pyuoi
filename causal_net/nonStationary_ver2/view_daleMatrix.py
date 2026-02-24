@@ -39,7 +39,7 @@ def get_parser():
     parser.add_argument("--basePath",default='/pscratch/sd/b/balewski/2025_causalNet_tmp/',help="head dir for input data")
     parser.add_argument("--dataName",  default='daleN150_448b86',help='simulated Dale network base name')
     #parser.add_argument("--outPath", type=str, default=None, help="Output path for plots (defaults to basePath)")
-    parser.add_argument('-i', '--idxState', type=int, default=0, help="Index into state list, selects which state to plot")
+    parser.add_argument('-m', '--idxState', type=int, default=0, help="Index into state list, selects which state to plot")
     
     args = parser.parse_args()
     
@@ -67,22 +67,20 @@ if __name__=="__main__":
     truthFF = os.path.join(args.inpPath, f"{args.dataName}.simTruth.npz")
     trueD, trueMD = read_data_npz(truthFF, verb=args.verb>0)
     if args.verb>1: 
-        print("\nSimulation Truth Metadata:")
-        pprint(trueMD)
+        print("\nSimulation Truth Metadata:");        pprint(trueMD)
     
     # Load spike data (generated spike counts and rates)
     spikesFF = os.path.join(args.inpPath, f"{args.dataName}.spikes.npz")
     spikeD, spikeMD = read_data_npz(spikesFF, verb=args.verb>0)
     if args.verb>1:
-        print("\nSpike Data Metadata:")
-        pprint(spikeMD)
+        print("\nSpike Data Metadata:");        pprint(spikeMD)
     
     # Merge metadata for plotting
     trueMD['short_name'] = args.dataName
     
     # Select spectral radius slice
     ir = args.idxState
-    spect_radii = trueMD['dale_conf']['spect_radius']
+    spect_radii = trueMD['dale_conf']['spectral_radius']
     assert ir < len(spect_radii), f"idxState={ir} out of range, only {len(spect_radii)} states available"
     R_sel = spect_radii[ir]
     print(f"\nSelected spectral radius [{ir}]: R={R_sel:.3f}  (out of {spect_radii})")

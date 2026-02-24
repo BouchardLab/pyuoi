@@ -1,0 +1,11 @@
+True A,M matrices need to be generated first
+
+=============================
+Sequence of  steps
+
+basePath=/pscratch/sd/b/balewski/2026_causalNet_tmp2/
+
+ mkdir plots/ spikesData/ truthDale/ lassoFdrFit
+
+./gen_daleMatrices.py --basePath $basePath     --num_neurons 60 --num_excite 20     --spectral_radius 0.8 0.85 0.9  --idleRate 5 15 --num_steps 400_001 
+
