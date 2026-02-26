@@ -141,6 +141,10 @@ class Plotter(PlotterBackbone):
         ax.set(ylabel=frLab,xlabel=xLab,title='num neurons')
         ax.grid(True, alpha=0.4)
         ax.axvline(0, linestyle='--', color='lime', linewidth=1)
+
+        short_name = md.get('short_name', '')
+        if short_name:
+            fig.suptitle(f"Summary LASSO: {short_name}", fontsize=14)
  
  #...!...!..................
     def residuals(self, evalD,md, figId=1):
@@ -199,6 +203,10 @@ class Plotter(PlotterBackbone):
         
         ax = self.plt.subplot(nrow,ncol,4+ncol)        
         plot_1D_residuals(ax,V[:,1],V[:,0],lab='diag',col=dCol)
+
+        short_name = md.get('short_name', '')
+        if short_name:
+            fig.suptitle(f"Residuals: {short_name}", fontsize=14)
  
 
 #...!...!..................
@@ -227,6 +235,8 @@ class Plotter(PlotterBackbone):
         wzoomMx=0.05        
         # Remove diagonal elements by setting them to NaN
         A_fit_no_diag = A_fit.copy()
+
+        short_name = md.get('short_name', '')
  
         np.fill_diagonal(A_fit_no_diag, np.nan)
         A_flat = A_fit_no_diag.flatten()
@@ -245,6 +255,9 @@ class Plotter(PlotterBackbone):
         # Left column: 2D histogram of A-matrix (mutiple rows)
         ax = self.plt.subplot2grid((nrow, ncol), (1, 0), rowspan=5)
         ax.axvline(0, linestyle='--', color='lime', linewidth=1)
+
+        if short_name:
+            fig.suptitle(f"Freq-sorted weights: {short_name}", fontsize=14)
 
 #...!...!..................
     def edges_fitLasso(self, fitD, md, minW=0,figId=1):
@@ -381,7 +394,9 @@ class Plotter(PlotterBackbone):
         ax.grid(axis='y', alpha=0.4)
 
         fig.subplots_adjust(bottom=0.18)
-        fig.suptitle(f"Edge detection vs truth, minW={minW}: {md.get('short_name','')}", fontsize=14)
+        short_name = md.get('short_name', '')
+        tag = f", short_name={short_name}" if short_name else ""
+        fig.suptitle(f"Edge detection vs truth, minW={minW}{tag}", fontsize=14)
         return
 
 #...!...!..................
@@ -457,6 +472,10 @@ class Plotter(PlotterBackbone):
         mask = abs_weights <= threshold
         avg_weights_accepted = avg_weights[mask]
         std_devs_accepted = std_devs[mask]
+
+        short_name = md.get('short_name', '')
+        if short_name:
+            fig.suptitle(f"Summary network: {short_name}", fontsize=14)
     
         # Count accepted and rejected
         n_total = len(avg_weights)

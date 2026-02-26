@@ -26,7 +26,7 @@ def parse_args():
     parser.add_argument("--num_epochs", type=int, default=251)
     parser.add_argument("--lr", type=float, default=4e-3)
     parser.add_argument("--end_lr_frac", type=float, default=0.2, help="Final LR as fraction of initial LR (linear decay). Default 0.2 = 1/5.")
-    parser.add_argument("--lambda3", type=float, default=1e-3, help="Group lasso strength")
+    parser.add_argument("--lambda3", type=float, default=1.0, help="Group lasso strength")
     parser.add_argument("--epsW", type=float, default=0.02, help="Group-norm floor for zeroing weights")
     parser.add_argument("--minW", type=float, default=0.02, help="Edge magnitude threshold for reporting counts")
     parser.add_argument("--chunk_size", type=int, default=128*1024, help="Time batching size")

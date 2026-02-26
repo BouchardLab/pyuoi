@@ -10,7 +10,7 @@ FDR = False Discovery Rate - a statistical method for controlling errors when te
 import argparse
 import os
 import random
-import string
+import secrets
 import numpy as np
 from pprint import pprint
 from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
@@ -152,12 +152,16 @@ def main():
     for xx in [ 'losses_total', 'losses_epochs', 'losses_wo_L1']:
         outD[xx]=output_big1[xx]
 
-    outMD['edge_selector']={'selector_type':'FDR', 'alpha':args.alphaFDR}
-    outMD['provenance']['fdr_selector_file']=dataName
-    pprint(outMD)
     # Save results
-    hash_str = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
-    fdr_core = f"{dataName}-{hash_str}"
+    hash6 = secrets.token_hex(3) # 6 hex digits
+    fdr_core = f"{dataName}-{hash6}"
+ 
+    outMD['edge_selector']={'selector_type':'FDR', 'alpha':args.alphaFDR}
+    outMD['provenance']['fdr_selector_input_file']=dataName
+    outMD['provenance']['fdr_selector_output_file']=fdr_core
+    outMD['short_name']=fdr_core
+    
+    pprint(outMD)
     output_file = os.path.join(dataPath, f"{fdr_core}.FDRselected.npz")
     write_data_npz(outD, output_file, metaD=outMD)
     print(f"FDR results saved to: {output_file}")
@@ -172,7 +176,7 @@ def main():
     # Prepare plotting data (compatible with eval_fitLasso.py structure)
     fitD = outD.copy()  # Use our processed output data as fitD
     fitMD = outMD
-    pprint(fitMD)
+    #pprint(fitMD)
 
     # Rename records so select_edges_from_fitLasso() has the expected names
     fitD['A_lasso'] = A_avr.copy()  # tmp
@@ -184,8 +188,8 @@ def main():
     spikesFF = os.path.join(inpPath2, f"{spikeF}.spikes.npz")       
     spikeD, spikeMD = read_data_npz(spikesFF)
 
-    MD = {**fitMD,  'short_name': args.dataName} 
-
+    MD = {**fitMD}
+        
     if 'simDale' in fitMD['data_type']:
         truthPath=inpPath2
         truthF=spikeF
@@ -213,12 +217,13 @@ def main():
         evalD=eval_tagged_edges_4_simu(fitD,trueD)            
         print_table_4_Yao(evalD,fitMD)
     MD['A_true']=trueD['A_true']
-
+    MD['short_name']=fdr_core
+    
     edgeD=summary_reco_neuronNet(A_avr, A_std)
 
     # adjustment for plotting
     fitD['single_rates']=spikeD['single_rates']
-
+    
     # Setup plotter
     args.prjName = dataName 
     plot = Plotter(args)

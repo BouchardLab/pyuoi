@@ -32,7 +32,7 @@ from pprint import pprint
 import numpy as np
 
 from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
-from gen_daleMatrices import estimate_rates
+from gen_daleMatrices2 import estimate_rates
 
 
 def get_parser():
