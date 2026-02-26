@@ -202,20 +202,20 @@ def main():
     args = get_parser()
     np.set_printoptions(precision=3, suppress=True)
 
-    truthFF = os.path.join(args.inpPath, f"{args.truthName}.simTruth.npz")
-    trueD, trueMD = read_data_npz(truthFF, verb=args.verb > 0)
+    daleFF = os.path.join(args.inpPath, f"{args.truthName}.simTruth.npz")
+    daleD, daleMD = read_data_npz(daleFF, verb=args.verb > 0)
     if args.verb > 1:
         print("\nInput simTruth metadata:")
-        pprint(trueMD)
+        pprint(daleMD)
 
-    assert isinstance(trueMD, dict), "Expected dictionary metadata in simTruth file"
-    dale_conf_in = dict(trueMD["dale_conf"])
-    evol_conf_in = dict(trueMD["evol_conf"])
-    dale_stats0 = dict(trueMD["dale_simu_stats"][0])
-
-    step_size = float(evol_conf_in["step_size"])
-    var_time_window_sec = float(dale_stats0["var_time_window_sec"])
-    max_samples = int(dale_stats0["max_samples"])
+    assert isinstance(daleMD, dict), "Expected dictionary metadata in simTruth file"
+    dale_conf_in = daleMD["dale_conf"]
+    evol_conf_in = daleMD["evol_conf"]
+    proven_in=daleMD['provenance']
+   
+    step_size = evol_conf_in["step_size"]
+    var_time_window_sec = 5 #(sec)
+    max_samples = 100_000 # time steps
 
     if args.num_steps is None:
         args.num_steps = int(evol_conf_in["num_steps"])
@@ -227,7 +227,7 @@ def main():
     assert max_samples >= 100
     assert var_time_window_sec > 0
 
-    A_atoms, B_atoms = ensure_state_atoms(trueD["A_true"], trueD["B_true"])
+    A_atoms, B_atoms = ensure_state_atoms(daleD["A_true"], daleD["B_true"])
     n_states, n_neurons = B_atoms.shape
     num_excite = int(dale_conf_in["num_excite"])
     num_excite = min(max(1, num_excite), n_neurons - 1)
@@ -269,7 +269,8 @@ def main():
         "dwell_steps": int(args.dwell_steps),
         "num_states": int(n_states),
         "seed": args.seed,
-        "schedule": args.schedule,
+        "state_schedule": args.schedule,
+        "num_states": len(dale_conf_in['spectral_radius']),
         "max_samples": int(max_samples),
         "truth_input_name" : args.truthName,
     }
@@ -288,28 +289,29 @@ def main():
     }
     spikesMD = {
         "data_type": "simPrism",
-        "short_name": args.dataName,
         "time_step_sec": evol_conf_in["step_size"],
         'poisson_eta_clip': evol_conf_in['poisson_eta_clip'],
-        "input_truth_name": args.truthName,
+        'provenance': proven_in
     }
-
+    proven_in['state_transition_file']= args.dataName
+  
     prismTruthD = {
         "S_true": S_true.astype(np.int32),
         "C_true": C_true.astype(np.float32),
         "state_transition": transition_matrix.astype(np.float32),
         "sigle_rates_var": rates_dict["sigle_rates_var"],
         "single_fano_fact": rates_dict["single_fano_fact"],
-    }
+     }
+  
     prismTruthMD = {
         "short_name": args.dataName,
         "data_type": "simPrism",
         "var_time_window_sec": float(var_time_window_sec),
         "dale_conf": dale_conf,
         "evol_conf": evol_conf,
-        "dale_simu_stats": [stats_meta],
     }
 
+    #  "dale_simu_stats": [stats_meta],
     outFs = os.path.join(args.outPath, args.dataName + ".spikes.npz")
     outFt = os.path.join(args.outPath, args.dataName + ".prismTruth.npz")
     write_data_npz(spikesD, outFs, metaD=spikesMD)
@@ -321,6 +323,8 @@ def main():
 
     print("\n  ./view_spikesTrain.py  --basePath $basePath   --dataName %s  --idxState -1 --time_range_sec 0 20   -p b     -X " % args.dataName)
 
+    print("  ./fit_lassoPoisson.py  --basePath $basePath  --dataName   %s   --num_epochs  50  " % args.dataName)
+   
     print("  ./fitLasso4GPU.sh   --basePath $basePath     --dataName %s  --num_epochs 100  " % args.dataName)
     print("  ./bigLassoBoots.sh    --basePath $basePath     --dataName %s  --num_epochs 100  --dropDataFrac 0.33  --num_bootstraps 2   --bootsTag b2   --desyncTime  " % args.dataName)
 

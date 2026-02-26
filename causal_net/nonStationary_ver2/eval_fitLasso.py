@@ -48,24 +48,17 @@ def main():
     # Load fit results
     fitFF = os.path.join(args.inpPath, f"{args.dataName}.lassoFit.npz")
     fitD, fitMD = read_data_npz(fitFF)
-      
-    if 0:  # patch old data
-        #pprint(fitMD)
-        #fitMD['fit_type']='lasso'
-        fitMD['fit_lasso']['num_epochs']=fitMD['fit_lasso']['n_epochs']
-    #pprint(fitMD)
-   
+     
     if args.verb>1: 
         pprint(fitMD); exit(1)
 
     # Load spike data for frequency sorting
-    spikeF = fitMD['fit_lasso']['lassoFit_input_name']
-    inpPath2= fitMD['fit_lasso']['lassoFit_input_path']
+    spikeF = fitMD['provenance']['state_transition_file']    
+    inpPath2=os.path.join(args.basePath, 'spikesData')
     spikesFF = os.path.join(inpPath2, f"{spikeF}.spikes.npz")
- 
     spikeD, spikeMD = read_data_npz(spikesFF)
+    
     #pprint(spikeMD)
-    # Combine metadata   just for plotter
     MD = {**fitMD,  'short_name': args.dataName} 
     
     if 'simDale' in fitMD['data_type']:
@@ -73,7 +66,7 @@ def main():
         truthF=spikeF
     if 'simPrism' in fitMD['data_type']:
         truthPath= os.path.join(args.basePath, 'truthDale/')
-        truthF=spikeMD['input_truth_name']
+        truthF=fitMD['provenance']['state_model_file']
         
     truthFF = os.path.join(truthPath, f"{truthF}.simTruth.npz")    
     trueD,trueMD = read_data_npz(truthFF)       

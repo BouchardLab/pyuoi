@@ -25,6 +25,8 @@ import os
 import time
 import random
 import argparse
+
+
 import numpy as np
 from pprint import pprint
 import torch.optim as optim
@@ -58,6 +60,7 @@ def main():
     parser.add_argument("--fitName", type=str, default=None)
     parser.add_argument("--desyncTime", action='store_true', help="If true completely shuffle time axis for input data, independently for all channels")
     parser.add_argument("--dropDataFrac", type=float, default=0.0, help="Fraction of training samples to randomly drop per rank (0.0=use all data, 0.3=drop 30%%)")
+    parser.add_argument("--verb", "-v", type=int, default=1, help="Verbosity level")
 
     args = parser.parse_args()
     if args.inpPath ==None:
@@ -99,7 +102,7 @@ def main():
     if rank == 0:
         spikesFF = os.path.join(args.inpPath, f"{args.dataName}.spikes.npz")
         spikeD, spikeMD = read_data_npz(spikesFF, verb=True)
-        pprint(spikeMD)
+        if args.verb>1: pprint(spikeMD)
         dataYield = spikeD['spikes']
         dataRates = spikeD['single_rates']
         step_size = spikeMD['time_step_sec']
@@ -118,7 +121,6 @@ def main():
         XY_np = None
         Nn = None
         dataRates = None
-        spikeMD = None
         step_size = None
     
     # --- Broadcast data from rank 0 to all other ranks ---
@@ -163,43 +165,13 @@ def main():
     if rank==0:
         print(f"Loaded pairs={n_pairs/1000}k, Nn={Nn}, using {n_pairs/1000}k pairs (all for training), world_size={world_size}, per_gpu_bs={args.batch_size//max(1,world_size)}")
 
-    # --- Original training logic from fit_poissonV4.py ---
     base_model = PoissonGLModel(Nn).to(device)
     model = DDP(base_model, device_ids=[local_rank]) if is_dist else base_model
-    start_time = time.time()
+    start_time = time.time() if rank == 0 else None
     losses_total, losses_wo_L1, learning_rates, train_epochs = train_Poisson_model(
         model, device, train_loader, args.num_epochs, lr=args.lr, L1_alpha=args.L1_alpha, firing_rates=dataRates, use_scheduler=True,
         train_sampler=train_loader.sampler if isinstance(train_loader.sampler, DistributedSampler) else None
     )
-    total_time = time.time() - start_time
-    if rank==0:
-        print(f"Training completed in {total_time:.1f} seconds")
-  
-        if args.fitName is None:
-            import string
-            hash_str =  ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
-            fit_core = f"{args.dataName}-{hash_str}"
-        else:
-            fit_core = args.fitName
-
-        # saving from fit_Lasso ---
-        mdl = model.module if hasattr(model,'module') else model
-        A_hat=mdl.A.detach().cpu().numpy()
-        E_hat = (np.abs(A_hat) > 1e-5)
-        lassoD = { 'A_lasso': A_hat, 'B_lasso': mdl.B.detach().cpu().numpy(), 'E_lasso':E_hat, 'losses_total': np.array(losses_total), 'losses_wo_L1': np.array(losses_wo_L1), 'losses_epochs': np.array(train_epochs, dtype=np.int32), 'learning_rates': np.array(learning_rates), 'single_rates': dataRates }
-        lassoMD = { 'lassoFit_output_name': fit_core, 'lassoFit_input_name': args.dataName,  'lassoFit_input_path': args.inpPath ,'batch_size': args.batch_size, 'num_samples_used': n_pairs, 'num_epochs': args.num_epochs, 'num_train_samples': n_pairs, 'learning_rate': args.lr, 'L1_alpha': args.L1_alpha, 'step_size': step_size, 'training_time_sec': total_time, 'num_neurons': Nn, 'dropDataFrac': args.dropDataFrac }
-        spikeMD['fit_type']='lasso'        
-        spikeMD['fit_lasso']=lassoMD
-        spikeMD['edge_selector']={'selector_type':'None'}
-          
-        fitFF = os.path.join(args.outPath, f"{fit_core}.lassoFit.npz")
-        write_data_npz(lassoD, fitFF, metaD=spikeMD)
-
-    if rank==0:
-        if spikeMD['data_type']=='simDale':         flags=' -p  a  b c  '
-        else:         flags=' -p a c  '
-        print('    basePath='+args.basePath)
-        print('  ./eval_fitLasso.py --basePath $basePath  --dataName %s  %s \n ' % (fit_core,flags))    
     # ensure distributed shutdown to avoid resource leak warning
     if is_dist and dist.is_initialized():
         try:
@@ -207,6 +179,42 @@ def main():
         except TypeError:
             dist.barrier()
         dist.destroy_process_group()
+
+    if rank > 0:
+        return
+
+    total_time = time.time() - start_time
+    print(f"Training completed in {total_time:.1f} seconds")
+  
+    if args.fitName is None:
+        import secrets
+        hash6 = secrets.token_hex(3) # 6 hex digits
+        fit_core = f"{args.dataName}-{hash6}"
+    else:
+        fit_core = args.fitName
+
+    # saving from fit_Lasso ---
+    mdl = model.module if hasattr(model,'module') else model
+    A_hat=mdl.A.detach().cpu().numpy()
+    E_hat = (np.abs(A_hat) > 1e-5)
+    lassoD = { 'A_lasso': A_hat, 'B_lasso': mdl.B.detach().cpu().numpy(), 'E_lasso':E_hat, 'losses_total': np.array(losses_total), 'losses_wo_L1': np.array(losses_wo_L1), 'losses_epochs': np.array(train_epochs, dtype=np.int32), 'learning_rates': np.array(learning_rates), 'single_rates': dataRates }
+    lassoMD = {'batch_size': args.batch_size, 'num_samples_used': n_pairs, 'num_epochs': args.num_epochs, 'num_train_samples': n_pairs, 'learning_rate': args.lr, 'L1_alpha': args.L1_alpha, 'step_size': step_size, 'training_time_sec': total_time, 'num_neurons': Nn, 'dropDataFrac': args.dropDataFrac }
+    #  'lassoFit_output_name': fit_core, 'lassoFit_input_name': args.dataName,  'lassoFit_input_path': args.inpPath ,
+   
+    outMD=spikeMD
+    outMD['fit_type']='lasso'        
+    outMD['fit_lasso']=lassoMD
+    outMD['edge_selector']={'selector_type':'None'}
+    outMD['provenance']['fit_lassoFdr_file']=fit_core
+
+    if args.verb>1: pprint(outMD)
+    fitFF = os.path.join(args.outPath, f"{fit_core}.lassoFit.npz")
+    write_data_npz(lassoD, fitFF, metaD=outMD)
+
+    if spikeMD['data_type']=='simDale':         flags=' -p  a  b c  '
+    else:         flags=' -p a c  '
+    print('    basePath='+args.basePath)
+    print('  ./eval_fitLasso.py --basePath $basePath  --dataName %s  %s \n ' % (fit_core,flags))    
 
 if __name__ == "__main__":
     main()

@@ -9,6 +9,8 @@ FDR = False Discovery Rate - a statistical method for controlling errors when te
 """
 import argparse
 import os
+import random
+import string
 import numpy as np
 from pprint import pprint
 from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
@@ -106,7 +108,7 @@ def main():
     alpha = args.alphaFDR
 
     # Load all bootstrap data
-    A_edges_real_list, A_edges_desync_list, A_real_list, B_real_list, output_meta,output_big1 = load_bootstrap_data(
+    A_edges_real_list, A_edges_desync_list, A_real_list, B_real_list, outMD, output_big1 = load_bootstrap_data(
         dataName, dataPath, K, args.verb
     )
 
@@ -130,15 +132,15 @@ def main():
     # Apply FDR mask to off-diagonal elements only
     off_diag_mask = ~np.eye(N, dtype=bool)
     E_mask_full[off_diag_mask] = E_mask[off_diag_mask]
+    print(f"E_mask_full shape: {E_mask_full.shape}, nnz: {np.count_nonzero(E_mask_full)}")
 
     A_avr[~E_mask_full]=0.  # now none-existing edges are 0
     
     print(f"Computed averages and std from {K} real bootstraps")
-    print(f"A_avr shape: {A_avr.shape}, B_avr shape: {B_avr.shape}")
-    print(f"Mask preserves diagonal and selects {E_mask.sum()} significant off-diagonal edges")
+    print(f"A_avr shape: {A_avr.shape},  E_mask: {E_mask.sum()} significant off-diagonal edges")
     
     # Prepare output data
-    output_data = {
+    outD = {
         'E_mask': E_mask_full,
         'A_avr': A_avr,
         'A_std': A_std,
@@ -148,100 +150,99 @@ def main():
         'summary': summary
     }
     for xx in [ 'losses_total', 'losses_epochs', 'losses_wo_L1']:
-        output_data[xx]=output_big1[xx]
+        outD[xx]=output_big1[xx]
 
-    output_meta['edge_selector']={'selector_type':'FDR', 'alpha':args.alphaFDR}
- 
+    outMD['edge_selector']={'selector_type':'FDR', 'alpha':args.alphaFDR}
+    outMD['provenance']['fdr_selector_file']=dataName
+    pprint(outMD)
     # Save results
-    output_file = os.path.join(dataPath, f"{dataName}.FDRselected.npz")
-    write_data_npz(output_data, output_file, metaD=output_meta)
+    hash_str = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+    fdr_core = f"{dataName}-{hash_str}"
+    output_file = os.path.join(dataPath, f"{fdr_core}.FDRselected.npz")
+    write_data_npz(outD, output_file, metaD=outMD)
     print(f"FDR results saved to: {output_file}")
 
     print("\nNext step commands:")
-    print(f"  ./fit_regressPoisson.py  --dataPath $fitPath  --dataName {dataName}  ")
- 
+    print(f"  ./fit_regressPoisson.py  --dataPath $fitPath  --dataName {fdr_core}  ")
     
+    # ------  only plotting is below --------
     # Generate plots if requested
-    if args.showPlots:
-        print(f"\nGenerating plots: {args.showPlots}")
-        
-        # Prepare plotting data (compatible with eval_fitLasso.py structure)
-        fitD = output_data.copy()  # Use our processed output data as fitD
-        fitMD = output_meta
-        pprint(fitMD)
-        if 0:  # patch old data
-                fitMD['fit_lasso']['num_epochs']=fitMD['fit_lasso']['n_epochs']
-        
-        # Rename records so select_edges_from_fitLasso() has the expected names
-        fitD['A_lasso'] = A_avr.copy()  # tmp
-        fitD['B_lasso'] = B_avr.copy()
-                 
-             # Load spike data for frequency sorting
-        spikeF = fitMD['fit_lasso']['lassoFit_input_name']
-        inpPath2= fitMD['fit_lasso']['lassoFit_input_path']
-        spikesFF = os.path.join(inpPath2, f"{spikeF}.spikes.npz")
-        
-        spikeD, spikeMD = read_data_npz(spikesFF)
+    print(f"\nGenerating plots: {args.showPlots}")
 
-        MD = {**fitMD,  'short_name': args.dataName} 
-    
-        if 'simDale' in fitMD['data_type']:
-            truthPath=inpPath2
-            truthF=spikeF
-        if 'simPrism' in fitMD['data_type']:
-            truthPath= os.path.join(args.basePath, 'truthDale/')
-            truthF=spikeMD['input_truth_name']
-        
-        truthFF = os.path.join(truthPath, f"{truthF}.simTruth.npz")    
-        trueD,trueMD = read_data_npz(truthFF)
-        
-        MD.update(  trueMD )
-        MD['E_true']=trueD['E_true']
-    
-        MD['edge_selection_method'] = 'fdr'
-        MD['fdr_alpha'] = alpha
-      
-        if fitMD['data_type']=='simDaleStates':
-            At=trueD['A_true']
-            Bt=trueD['B_true']
-            Mstate=At.shape[0]; assert Mstate==1
-            #print('ss',At.shape)
-            trueD['A_true']=At[0]
-            trueD['B_true']=Bt[0]
-            spikeD['single_rates']=spikeD['single_rates'][0]
-            evalD=eval_tagged_edges_4_simu(fitD,trueD)            
-            print_table_4_Yao(evalD,fitMD)
-        MD['A_true']=trueD['A_true']
-                     
-        edgeD=summary_reco_neuronNet(A_avr, A_std)
-        
-        # adjustment for plotting
-        fitD['single_rates']=spikeD['single_rates']
-        
-        # Setup plotter
-        args.prjName = dataName 
-        plot = Plotter(args)
-        
-        # Generate plots based on showPlots argument
-        if 'a' in args.showPlots:
-            plot.summary_fitLasso(fitD,MD,figId=1)
+    # Prepare plotting data (compatible with eval_fitLasso.py structure)
+    fitD = outD.copy()  # Use our processed output data as fitD
+    fitMD = outMD
+    pprint(fitMD)
 
-        if 'b' in args.showPlots:
-            assert  fitMD['data_type']=='simDaleStates'
-            plot.residuals(evalD,MD,figId=2)
+    # Rename records so select_edges_from_fitLasso() has the expected names
+    fitD['A_lasso'] = A_avr.copy()  # tmp
+    fitD['B_lasso'] = B_avr.copy()
 
-        if 'c' in args.showPlots:            
-            plot.summary_network(fitD, edgeD,MD, figId=3)
+    # Load spike data for frequency sorting
+    spikeF = fitMD['provenance']['state_transition_file']    
+    inpPath2=os.path.join(args.basePath, 'spikesData')
+    spikesFF = os.path.join(inpPath2, f"{spikeF}.spikes.npz")       
+    spikeD, spikeMD = read_data_npz(spikesFF)
 
-        if 'd' in args.showPlots:
-             plot.edges_fitLasso(fitD, MD, minW=0, figId=2)
+    MD = {**fitMD,  'short_name': args.dataName} 
 
-        if 'f' in args.showPlots:
-            plot.freqSortA_histos(fitD, MD, spikeD, figId=4)
-      
+    if 'simDale' in fitMD['data_type']:
+        truthPath=inpPath2
+        truthF=spikeF
+    if 'simPrism' in fitMD['data_type']:
+        truthPath= os.path.join(args.basePath, 'truthDale/')
+        truthF=fitMD['provenance']['state_model_file']     
 
-        plot.display_all()
-        print("Plotting completed.")
+    truthFF = os.path.join(truthPath, f"{truthF}.simTruth.npz")    
+    trueD,trueMD = read_data_npz(truthFF)
+
+    MD.update(  trueMD )
+    MD['E_true']=trueD['E_true']
+
+    MD['edge_selection_method'] = 'fdr'
+    MD['fdr_alpha'] = alpha
+
+    if fitMD['data_type']=='simDaleStates':
+        At=trueD['A_true']
+        Bt=trueD['B_true']
+        Mstate=At.shape[0]; assert Mstate==1
+        #print('ss',At.shape)
+        trueD['A_true']=At[0]
+        trueD['B_true']=Bt[0]
+        spikeD['single_rates']=spikeD['single_rates'][0]
+        evalD=eval_tagged_edges_4_simu(fitD,trueD)            
+        print_table_4_Yao(evalD,fitMD)
+    MD['A_true']=trueD['A_true']
+
+    edgeD=summary_reco_neuronNet(A_avr, A_std)
+
+    # adjustment for plotting
+    fitD['single_rates']=spikeD['single_rates']
+
+    # Setup plotter
+    args.prjName = dataName 
+    plot = Plotter(args)
+
+    # Generate plots based on showPlots argument
+    if 'a' in args.showPlots:
+        plot.summary_fitLasso(fitD,MD,figId=1)
+
+    if 'b' in args.showPlots:
+        assert  fitMD['data_type']=='simDaleStates'
+        plot.residuals(evalD,MD,figId=2)
+
+    if 'c' in args.showPlots:            
+        plot.summary_network(fitD, edgeD,MD, figId=3)
+
+    if 'd' in args.showPlots:
+         plot.edges_fitLasso(fitD, MD, minW=0, figId=2)
+
+    if 'f' in args.showPlots:
+        plot.freqSortA_histos(fitD, MD, spikeD, figId=4)
+
+
+    plot.display_all()
+    print("Plotting completed.")
 
 if __name__ == "__main__":
     main()

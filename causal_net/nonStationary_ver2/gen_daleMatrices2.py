@@ -223,7 +223,7 @@ def main():
 
     args = parser.parse_args()
     args.varTwindow=5 #(sec)
-    args.poisson_eta_clip=5  # [1e-3Hz , 1e3Hz]
+    args.poisson_eta_clip=5  #~ [1e-3Hz , 1e3Hz]
     if args.dataName is None:
         args.dataName='daleN%d_'%args.num_neurons+hashlib.md5(os.urandom(32)).hexdigest()[:6]
 
@@ -265,7 +265,7 @@ def main():
 
     B_all = set_flat_selfSpiking(Nn, args.idleRate, args.spectral_radius, args.num_excite)
     
-    max_samples = 100000
+    max_samples = 100_000
 
     num_radii = len(args.spectral_radius)
     A_list, Y_list = [], []
@@ -315,7 +315,9 @@ def main():
         'E_true': E_true
     }
     
-    trueMD = {'dale_conf': dale_conf, 'evol_conf': evol_conf, 'short_name': args.dataName, 'dale_simu_stats': stats_list}  
+    trueMD = {'dale_conf': dale_conf, 'evol_conf': evol_conf, 'short_name': args.dataName,
+              'provenance':{'state_model_file':args.dataName}}
+    # delete , 'dale_simu_stats': stats_list}  
         
     spikeD = {
         'spikes': np.stack(Y_list, axis=0),
@@ -337,7 +339,7 @@ def main():
     print("     basePath="+args.basePath)
     print("  ./view_daleMatrix.py  --basePath $basePath   --dataName %s  -p b -m 0   -X  -p a c d  " % args.dataName)
     print("  ./view_spikesTrain.py  --basePath $basePath   --dataName %s  --time_range_sec 0 20 -p b -m 0   -X " % args.dataName)
-    print("  ./gen_spikesTrain.py  --basePath $basePath   --truthName %s   " % args.dataName)
+    print("  ./gen_nonStationarySpikes.py  --basePath $basePath   --truthName %s   " % args.dataName)
     print("  ./fit_lassoPoisson.py  --basePath $basePath  --inpPath ${basePath}/truthDale --dataName   %s   --num_epochs  50  " % args.dataName)
    
 
