@@ -12,6 +12,26 @@ class Plotter(PlotterBackbone):
     def __init__(self, args):
         PlotterBackbone.__init__(self, args)
 
+    def _rebin_1d(self, x, merge):
+        merge = int(max(1, merge))
+        if merge <= 1:
+            return np.asarray(x)
+        x = np.asarray(x)
+        n = x.shape[0] // merge
+        if n <= 0:
+            return x
+        return x[: n * merge].reshape(n, merge).mean(axis=1)
+
+    def _rebin_2d(self, x, merge):
+        merge = int(max(1, merge))
+        if merge <= 1:
+            return np.asarray(x)
+        x = np.asarray(x)
+        n = x.shape[0] // merge
+        if n <= 0:
+            return x
+        return x[: n * merge].reshape(n, merge, x.shape[1]).mean(axis=1)
+
     def summary_prismMstep(self, fitD, md, figId=1):
         figId = self.smart_append(figId)
         fig = self.plt.figure(figId, facecolor='white', figsize=(12, 3.5))
@@ -70,6 +90,88 @@ class Plotter(PlotterBackbone):
 
         minW = float(getattr(self.args, "minW", md.get("train", {}).get("minW", 0.0)))
         fig.suptitle(f"Prism M-step, minW={minW:g}: {md.get('short_name','')}", fontsize=12)
+
+    def state_seq_prismMstep(self, estepD, md, figId=2, time_reb=20):
+        figId = self.smart_append(figId)
+        fig = self.plt.figure(figId, facecolor='white', figsize=(12, 6))
+
+        if estepD is None:
+            ax = self.plt.subplot(1, 1, 1)
+            ax.axis("off")
+            ax.text(0.05, 0.6, "Missing E-step fit (S_hat/C_hat) for state sequence plot.", fontsize=12)
+            fig.suptitle(f"State sequence: {md.get('short_name','')}", fontsize=12)
+            return
+
+        S_hat = estepD.get("S_hat")
+        S_hat_CL = estepD.get("S_hat_CL")
+        C_hat = estepD.get("c_hat")
+        S_true = md.get("S_true")
+        C_true = md.get("C_true")
+
+        if S_hat is None or C_hat is None or S_true is None or C_true is None:
+            ax = self.plt.subplot(1, 1, 1)
+            ax.axis("off")
+            ax.text(0.05, 0.6, "Missing S_hat/C_hat or S_true/C_true for state sequence plot.", fontsize=12)
+            fig.suptitle(f"State sequence: {md.get('short_name','')}", fontsize=12)
+            return
+
+        trainMD = md.get("estep_train", {})
+        t0_bin = 0
+        t1_bin = None
+        if isinstance(trainMD.get("time_range_bins", None), (list, tuple)) and len(trainMD["time_range_bins"]) == 2:
+            t0_bin, t1_bin = trainMD["time_range_bins"]
+
+        S_true = np.asarray(S_true)
+        C_true = np.asarray(C_true)
+        if t1_bin is not None:
+            S_true = S_true[t0_bin : t1_bin + 1]
+            C_true = C_true[t0_bin : t1_bin + 1]
+
+        S_hat = np.asarray(S_hat)
+        S_hat_CL = np.asarray(S_hat_CL) if S_hat_CL is not None else None
+        C_hat = np.asarray(C_hat)
+
+        # Rebin
+        S_hat_rb = self._rebin_1d(S_hat, time_reb)
+        C_hat_rb = self._rebin_2d(C_hat, time_reb)
+        S_true_rb = self._rebin_1d(S_true, time_reb)
+        C_true_rb = self._rebin_2d(C_true, time_reb)
+        CL_hat_rb = self._rebin_1d(S_hat_CL, time_reb) if S_hat_CL is not None else None
+
+        # Confidence for truth from C_true
+        if C_true_rb is not None and C_true_rb.ndim == 2 and C_true_rb.shape[1] >= 2:
+            sort_true = np.sort(C_true_rb, axis=1)
+            CL_true_rb = sort_true[:, -1] - sort_true[:, -2]
+        else:
+            CL_true_rb = None
+
+        dt = trainMD.get("time_step_sec", None)
+        if dt is not None:
+            t = (t0_bin + np.arange(len(S_hat_rb)) * max(1, int(time_reb))) * float(dt)
+        else:
+            t = np.arange(len(S_hat_rb))
+
+        ax = self.plt.subplot(2, 1, 1)
+        ax.plot(t, S_hat_rb, color="k", linewidth=1.0, label="S_hat")
+        if CL_hat_rb is not None:
+            ax.fill_between(t, S_hat_rb - CL_hat_rb, S_hat_rb + CL_hat_rb, color="gray", alpha=0.3, label="S_hat_CL")
+        for m in range(C_hat_rb.shape[1]):
+            ax.plot(t, C_hat_rb[:, m], linewidth=0.8, alpha=0.8, label=f"C_hat[{m}]")
+        ax.set(title="Fit: S_hat and C_hat", xlabel="time (s)" if dt is not None else "time bin", ylabel="state")
+        ax.grid(True, alpha=0.3)
+        ax.legend(ncol=4, fontsize=8)
+
+        ax = self.plt.subplot(2, 1, 2)
+        ax.plot(t, S_true_rb, color="k", linewidth=1.0, label="S_true")
+        if CL_true_rb is not None:
+            ax.fill_between(t, S_true_rb - CL_true_rb, S_true_rb + CL_true_rb, color="gray", alpha=0.3, label="C_true CL")
+        for m in range(C_true_rb.shape[1]):
+            ax.plot(t, C_true_rb[:, m], linewidth=0.8, alpha=0.8, label=f"C_true[{m}]")
+        ax.set(title="Truth: S_true and C_true", xlabel="time (s)" if dt is not None else "time bin", ylabel="state")
+        ax.grid(True, alpha=0.3)
+        ax.legend(ncol=4, fontsize=8)
+
+        fig.suptitle(f"State sequence: {md.get('short_name','')}", fontsize=12)
 
     def state_corr_prismMstep(self, fitD, md, figId=2):
         self.state_corr_truth_prismMstep(fitD, md, type="fit", figId=figId)

@@ -14,20 +14,10 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate and plot prism M-step results")
     parser.add_argument("--dataName", type=str, required=True, help="Base name for prismMstep file")
     parser.add_argument("--basePath", type=str, default="/pscratch/sd/b/balewski/2026_causalNet_tmp2/", help="head dir for input/output data")
-    parser.add_argument(
-        "-p",
-        "--showPlots",
-        type=str,
-        nargs='+',
-        default="a",
-        help=(
-            "Plot types: a=training summary, b=2D correlations (A_true vs A_hat, B_true vs B_hat), "
-            "c=B_true vs B_hat, d=state correlations (fit), e=state correlations (truth), "
-            "f=edge detection vs truth, g=A_true vs A_hat"
-        ),
-    )
+    parser.add_argument("-p", "--showPlots", type=str, nargs='+', default="a", help=("Plot types: a=training summary, b=state sequence (fit vs truth), c=2D correlations (A_true vs A_hat, B_true vs B_hat), d=state correlations (fit), e=state correlations (truth), f=edge detection vs truth, g=A_true vs A_hat"))
     parser.add_argument("--minW", type=float, default=0.02, help="Threshold for A-correlation sub-regions in scatter plots")
     parser.add_argument("--divideB", type=float, default=2.5, help="B-data x-axis divisor for correlation plots")
+    parser.add_argument("--timeReb", type=int, default=20, help="Time rebin factor for plots with time axis")
     parser.add_argument("-X", "--noXterm", action="store_true", help="Disable X terminal for plotting")
     parser.add_argument("-v", "--verb", type=int, default=1, help="Verbosity level")
     args = parser.parse_args()
@@ -68,6 +58,28 @@ def main():
         if args.verb > 0:
             print("Warning: provenance missing state_model_file; skipping truth load")
 
+    st_name = prov.get("state_transition_file")
+    if st_name:
+        prismTruthFF = os.path.join(args.basePath, "spikesData", f"{st_name}.prismTruth.npz")
+        if os.path.exists(prismTruthFF):
+            trD, trMD = read_data_npz(prismTruthFF, verb=args.verb > 1)
+            MD["S_true"] = trD.get("S_true")
+            MD["C_true"] = trD.get("C_true")
+        else:
+            if args.verb > 0:
+                print(f"Warning: missing prismTruth file: {prismTruthFF}")
+
+    # TODO: replace this with your preferred E-step file selection
+    estepFF = os.path.join(args.inpPath, f"{args.dataName}.prismEstep.npz")
+    estepD, estepMD = (None, None)
+    if os.path.exists(estepFF):
+        estepD, estepMD = read_data_npz(estepFF, verb=args.verb > 1)
+        if isinstance(estepMD, dict):
+            MD["estep_train"] = estepMD.get("train", {})
+    else:
+        if args.verb > 0:
+            print(f"Warning: missing E-step file: {estepFF}")
+
     args.prjName = args.dataName
     plot = Plotter(args)
 
@@ -75,10 +87,10 @@ def main():
         plot.summary_prismMstep(fitD, MD, figId=1)
 
     if 'b' in args.showPlots:
-        plot.eval_ABcorr_prismMstep(fitD, MD, figId=2)
+        plot.state_seq_prismMstep(estepD, MD, figId=2, time_reb=args.timeReb)
 
     if 'c' in args.showPlots:
-        free1
+        plot.eval_ABcorr_prismMstep(fitD, MD, figId=3)
 
     if 'd' in args.showPlots:
         plot.state_ABcorr_prismMstep(fitD, MD, type="fit", figId=4)

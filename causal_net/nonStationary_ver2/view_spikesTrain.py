@@ -127,14 +127,7 @@ if __name__=="__main__":
     spikesFF = os.path.join(args.inpPath, f"{args.dataName}.spikes.npz")
     spikeD, spikeMD = read_data_npz(spikesFF, verb=args.verb>0)
     if args.verb>1: pprint(spikeMD)
-    
-    
-    '''
    
-  
-    spikeD_r, R_sel = XXXselect_radius_slice(spikeD, args.inpPath, args.dataName, args.idxState, verb=args.verb)
-    spikeMD['sel_spect_radius'] = R_sel
-    '''
     if args.idxState >=0:  # per state information
           # Load simulation truth data (Dale matrices, biases, etc.)
         truthFF = os.path.join(args.inpPath, f"{args.dataName}.simTruth.npz")
@@ -159,12 +152,11 @@ if __name__=="__main__":
         if args.verb > 0:  print('loaded prismTruth S_true:', S_true.shape);
         if args.verb > 1:  pprint(prismMD)
         spikeMD['sel_spect_radius'] =-77
+
     #--------------------------------
     # ....  plotting ........
-    spikeMD['short_name']
-  
-
-    args.prjName=f"{spikeMD['short_name']}_view{args.idxState}"
+    spikeMD['short_name']=f"{args.dataName}_state{args.idxState}"
+    args.prjName=spikeMD['short_name']
     spikeMD['plot']={}    
     spikeMD['plot']['time_rangeLR']=np.array(args.time_range_sec)
     
