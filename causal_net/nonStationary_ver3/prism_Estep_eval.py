@@ -17,14 +17,15 @@ def compute_ll_gap(spikes, A_true, B_true, t0_bin, t1_bin, dt, eta_clip):
     y_prev = spikes_sub[:-1]
     y_curr = spikes_sub[1:]
     T_pairs = y_prev.shape[0]
-    M = A_true.shape[0]
+    M = B_true.shape[0]
     ll_gap = np.zeros((T_pairs,), dtype=np.float64)
     if M == 1:
         return ll_gap
     for t in range(T_pairs):
         yp = y_prev[t]
         yc = y_curr[t]
-        eta = np.einsum("mij,j->mi", A_true, yp) + B_true
+        base = A_true @ yp
+        eta = base[None, :] + B_true
         eta_c = np.minimum(eta, eta_clip)
         lam = np.exp(eta_c) * dt
         scores = np.sum(yc * eta_c - lam, axis=1)

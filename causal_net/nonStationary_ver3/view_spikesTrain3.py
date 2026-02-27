@@ -142,7 +142,7 @@ if __name__=="__main__":
         assert m<Mstate
         spikeD['spikes']=dataYield[m]
         spikeD['single_rates']=spikeD['single_rates'][m]
-        spikeMD['sel_spect_radius'] =trueMD['dale_conf']['spectral_radius'][m]
+        spikeMD['sel_spect_radius'] = trueMD['dale_conf']['spectral_radius']
         S_true = None
         
     if args.idxState <0:  #  multi-state simulations
@@ -158,6 +158,7 @@ if __name__=="__main__":
     #--------------------------------
     # ....  plotting ........
     spikeMD['short_name']=f"{args.dataName}_state{args.idxState}"
+    spikeMD['sel_state'] = int(args.idxState)
     args.prjName=spikeMD['short_name']
     spikeMD['plot']={}    
     spikeMD['plot']['time_rangeLR']=np.array(args.time_range_sec)

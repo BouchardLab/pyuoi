@@ -52,15 +52,14 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.4)
         ax.legend()
 
-        trainMD = md.get("train", {})
-        if trainMD:
-            txt = (
-                f"lr={trainMD.get('lr')}\n"
-                f"lambda3={trainMD.get('lambda3')}\n"
-                f"chunk={trainMD.get('chunk_size')}\n"
-                f"eta_clip={trainMD.get('eta_clip')}"
-            )
-            ax.text(0.02, 0.95, txt, transform=ax.transAxes, va="top", fontsize=9)
+        trainMD = md["train"]
+        txt = (
+            f"lr={trainMD['lr']}\n"
+            f"lambda3={trainMD['lambda3']}\n"
+            f"chunk={trainMD['chunk_size']}\n"
+            f"eta_clip={trainMD['eta_clip']}"
+        )
+        ax.text(0.02, 0.95, txt, transform=ax.transAxes, va="top", fontsize=9)
 
         # ---- Group lasso
         ax = self.plt.subplot(1, 4, 2)
@@ -77,7 +76,7 @@ class Plotter(PlotterBackbone):
 
         # ---- Edges above minW
         ax = self.plt.subplot(1, 4, 4)
-        minW = float(getattr(self.args, "minW", md.get("train", {}).get("minW", 0.0)))
+        minW = float(self.args.minW)
         state_counts = np.asarray(fitD["nz_edges_minW_state"])
         edges_mean = state_counts.mean(axis=1)
         max_diff = state_counts.max(axis=1) - state_counts.min(axis=1)
@@ -88,47 +87,32 @@ class Plotter(PlotterBackbone):
         ax.set(title=f"Edges/State |A|>{minW:g}", xlabel="epoch", ylabel="count")
         ax.grid(True, alpha=0.4)
 
-        minW = float(getattr(self.args, "minW", md.get("train", {}).get("minW", 0.0)))
-        fig.suptitle(f"Prism M-step, minW={minW:g}: {md.get('short_name','')}", fontsize=12)
+        minW = float(self.args.minW)
+        fig.suptitle(f"Prism M-step, minW={minW:g}: {md['short_name']}", fontsize=12)
 
     def state_seq_prismMstep(self, estepD, md, figId=2, time_reb=20):
         figId = self.smart_append(figId)
         fig = self.plt.figure(figId, facecolor='white', figsize=(12, 6))
 
-        if estepD is None:
-            ax = self.plt.subplot(1, 1, 1)
-            ax.axis("off")
-            ax.text(0.05, 0.6, "Missing E-step fit (S_hat/C_hat) for state sequence plot.", fontsize=12)
-            fig.suptitle(f"State sequence: {md.get('short_name','')}", fontsize=12)
-            return
+        assert estepD is not None, "Missing E-step fit (S_hat/C_hat) for state sequence plot."
 
-        S_hat = estepD.get("S_hat")
-        S_hat_CL = estepD.get("S_hat_CL")
-        C_hat = estepD.get("c_hat")
-        S_true = md.get("S_true")
-        C_true = md.get("C_true")
+        S_hat = estepD["S_hat"]
+        S_hat_CL = estepD["S_hat_CL"]
+        C_hat = estepD["c_hat"]
+        S_true = md["S_true"]
+        C_true = md["C_true"]
 
-        if S_hat is None or C_hat is None or S_true is None or C_true is None:
-            ax = self.plt.subplot(1, 1, 1)
-            ax.axis("off")
-            ax.text(0.05, 0.6, "Missing S_hat/C_hat or S_true/C_true for state sequence plot.", fontsize=12)
-            fig.suptitle(f"State sequence: {md.get('short_name','')}", fontsize=12)
-            return
-
-        trainMD = md.get("estep_train", {})
-        t0_bin = 0
-        t1_bin = None
-        if isinstance(trainMD.get("time_range_bins", None), (list, tuple)) and len(trainMD["time_range_bins"]) == 2:
-            t0_bin, t1_bin = trainMD["time_range_bins"]
+        trainMD = md["estep_train"]
+        time_range_bins = trainMD["time_range_bins"]
+        t0_bin, t1_bin = time_range_bins
 
         S_true = np.asarray(S_true)
         C_true = np.asarray(C_true)
-        if t1_bin is not None:
-            S_true = S_true[t0_bin : t1_bin + 1]
-            C_true = C_true[t0_bin : t1_bin + 1]
+        S_true = S_true[t0_bin : t1_bin + 1]
+        C_true = C_true[t0_bin : t1_bin + 1]
 
         S_hat = np.asarray(S_hat)
-        S_hat_CL = np.asarray(S_hat_CL) if S_hat_CL is not None else None
+        S_hat_CL = np.asarray(S_hat_CL)
         C_hat = np.asarray(C_hat)
 
         # Rebin
@@ -136,61 +120,48 @@ class Plotter(PlotterBackbone):
         C_hat_rb = self._rebin_2d(C_hat, time_reb)
         S_true_rb = self._rebin_1d(S_true, time_reb)
         C_true_rb = self._rebin_2d(C_true, time_reb)
-        CL_hat_rb = self._rebin_1d(S_hat_CL, time_reb) if S_hat_CL is not None else None
+        CL_hat_rb = self._rebin_1d(S_hat_CL, time_reb)
 
-        # Confidence for truth from C_true
-        if C_true_rb is not None and C_true_rb.ndim == 2 and C_true_rb.shape[1] >= 2:
-            sort_true = np.sort(C_true_rb, axis=1)
-            CL_true_rb = sort_true[:, -1] - sort_true[:, -2]
-        else:
-            CL_true_rb = None
-
-        dt = trainMD.get("time_step_sec", None)
-        if dt is not None:
-            t = (t0_bin + np.arange(len(S_hat_rb)) * max(1, int(time_reb))) * float(dt)
-        else:
-            t = np.arange(len(S_hat_rb))
+        dt = trainMD["time_step_sec"]
+        t = (t0_bin + np.arange(len(S_hat_rb)) * max(1, int(time_reb))) * float(dt)
 
         ax = self.plt.subplot(2, 1, 1)
         ax.plot(t, S_hat_rb, color="k", linewidth=1.0, label="S_hat")
-        if CL_hat_rb is not None:
-            ax.fill_between(t, S_hat_rb - CL_hat_rb, S_hat_rb + CL_hat_rb, color="gray", alpha=0.3, label="S_hat_CL")
+        ax.fill_between(t, S_hat_rb - CL_hat_rb, S_hat_rb + CL_hat_rb, color="gray", alpha=0.3, label="S_hat_CL")
         for m in range(C_hat_rb.shape[1]):
             ax.plot(t, C_hat_rb[:, m], linewidth=0.8, alpha=0.8, label=f"C_hat[{m}]")
-        ax.set(title="Fit: S_hat and C_hat", xlabel="time (s)" if dt is not None else "time bin", ylabel="state")
+        ax.set(title="Fit: S_hat and C_hat", xlabel="time (s)", ylabel="state")
         ax.grid(True, alpha=0.3)
         ax.legend(ncol=4, fontsize=8)
 
         ax = self.plt.subplot(2, 1, 2)
         ax.plot(t, S_true_rb, color="k", linewidth=1.0, label="S_true")
-        if CL_true_rb is not None:
-            ax.fill_between(t, S_true_rb - CL_true_rb, S_true_rb + CL_true_rb, color="gray", alpha=0.3, label="C_true CL")
         for m in range(C_true_rb.shape[1]):
             ax.plot(t, C_true_rb[:, m], linewidth=0.8, alpha=0.8, label=f"C_true[{m}]")
-        ax.set(title="Truth: S_true and C_true", xlabel="time (s)" if dt is not None else "time bin", ylabel="state")
+        ax.set(title="Truth: S_true and C_true", xlabel="time (s)", ylabel="state")
         ax.grid(True, alpha=0.3)
         ax.legend(ncol=4, fontsize=8)
 
-        fig.suptitle(f"State sequence: {md.get('short_name','')}", fontsize=12)
+        fig.suptitle(f"State sequence: {md['short_name']}", fontsize=12)
 
     def state_corr_prismMstep(self, fitD, md, figId=2):
         self.state_corr_truth_prismMstep(fitD, md, type="fit", figId=figId)
 
     def state_ABcorr_prismMstep(self, fitD, md, type="truth", figId=5):
         figId = self.smart_append(figId)
-        minW = float(getattr(self.args, "minW", 0.15))
-        divideB = float(getattr(self.args, "divideB", 2.5))
+        minW = float(self.args.minW)
+        divideB = float(self.args.divideB)
 
         if type == "fit":
-            A = fitD.get("fA") if fitD is not None else None
-            B = fitD.get("fB") if fitD is not None else None
+            A = fitD["fA"]
+            B = fitD["fB"]
             title = "State correlations"
             a_lab = "A_hat"
             b_lab = "B_hat"
             a_color = "b"
         elif type == "truth":
-            A = md.get("A_true")
-            B = md.get("B_true")
+            A = md["A_true"]
+            B = md["B_true"]
             title = "Truth state correlations"
             a_lab = "A_true"
             b_lab = "B_true"
@@ -200,7 +171,7 @@ class Plotter(PlotterBackbone):
             ax = self.plt.subplot(1, 1, 1)
             ax.axis("off")
             ax.text(0.05, 0.6, f"Unknown state_corr type: {type}", fontsize=12)
-            fig.suptitle(f"State correlations: {md.get('short_name','')}", fontsize=12)
+            fig.suptitle(f"State correlations: {md['short_name']}", fontsize=12)
             return
 
         A = np.asarray(A)
@@ -231,30 +202,16 @@ class Plotter(PlotterBackbone):
             y = B[j]
             plot_corr_B_divisor(ax, x, y, divideB, f"{b_lab} s{i}-s{j}", f"s{i}", f"s{j}", s=8, alpha=0.6, color=a_color)
 
-        fig.suptitle(f"{title}: {md.get('short_name','')}", fontsize=12)
+        fig.suptitle(f"{title}: {md['short_name']}", fontsize=12)
 
     def eval_ABcorr_prismMstep(self, fitD, md, figId=2):
-        A_hat = fitD.get("fA")
-        B_hat = fitD.get("fB")
-        A_true = md.get("A_true")
-        B_true = md.get("B_true")
+        A_hat = fitD["fA"]
+        B_hat = fitD["fB"]
+        A_true = md["A_true"]
+        B_true = md["B_true"]
         figId = self.smart_append(figId)
-        minW = float(getattr(self.args, "minW", 0.15))
-        divideB = float(getattr(self.args, "divideB", 2.5))
-
-        if A_hat is None or B_hat is None or A_true is None or B_true is None:
-            fig = self.plt.figure(figId, facecolor='white', figsize=(10, 3))
-            ax = self.plt.subplot(1, 1, 1)
-            ax.axis("off")
-            ax.text(
-                0.05,
-                0.6,
-                "Missing A_true/B_true or fA/fB for 2D correlations.\n"
-                "Check provenance and truthDale inputs.",
-                fontsize=12,
-            )
-            fig.suptitle(f"2D correlations: {md.get('short_name','')}", fontsize=12)
-            return
+        minW = float(self.args.minW)
+        divideB = float(self.args.divideB)
 
         A_hat = np.asarray(A_hat)
         B_hat = np.asarray(B_hat)
@@ -280,14 +237,14 @@ class Plotter(PlotterBackbone):
             ax = self.plt.subplot(2, ncol, ncol + m + 1)
             plot_corr_B_divisor(ax, B_true[m], B_hat[m], divideB, f"B corr, state {m}", "B_true", "B_hat", s=8, alpha=0.5)
 
-        minW = float(getattr(self.args, "minW", md.get("train", {}).get("minW", 0.0)))
-        fig.suptitle(f"2D correlations, minW={minW:g}: {md.get('short_name','')}", fontsize=12)
+        minW = float(self.args.minW)
+        fig.suptitle(f"2D correlations, minW={minW:g}: {md['short_name']}", fontsize=12)
 
     def edge_state_prismMstep(self, fitD, md, figId=6):
-        A_hat = fitD.get("fA")
-        E_true = md.get("E_true")
+        A_hat = fitD["fA"]
+        E_true = md["E_true"]
         figId = self.smart_append(figId)
-        minW = float(getattr(self.args, "minW", 0.15))
+        minW = float(self.args.minW)
 
         A_hat = np.asarray(A_hat)
         E_true = np.asarray(E_true)
@@ -377,7 +334,7 @@ class Plotter(PlotterBackbone):
 
         fig.subplots_adjust(bottom=0.12)
         fig.suptitle(
-            f"Edge detection vs truth, minW={minW} (off diagonal only): {md.get('short_name','')}",
+            f"Edge detection vs truth, minW={minW} (off diagonal only): {md['short_name']}",
             fontsize=14,
         )
 

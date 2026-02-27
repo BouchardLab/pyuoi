@@ -118,11 +118,12 @@ def main():
     A_true = trueD["A_true"]
     B_true = trueD["B_true"]
 
-    assert A_true.ndim == 3, "A_true must have shape (M,N,N)"
+    assert A_true.ndim == 2, "A_true must have shape (N,N)"
     assert B_true.ndim == 2, "B_true must have shape (M,N)"
-    M, N, N2 = A_true.shape
+    N, N2 = A_true.shape
     assert N == N2, "A_true must be square"
-    assert B_true.shape[0] == M and B_true.shape[1] == N, "B_true shape mismatch"
+    M = B_true.shape[0]
+    assert B_true.shape[1] == N, "B_true shape mismatch"
 
     T_full, N_spk = spikes.shape
     assert N_spk == N, "Spike data N does not match A_true/B_true"
@@ -186,7 +187,8 @@ def main():
                 y_curr = Y_curr[t - 1]
 
                 # Predictor columns (M x N) for this time step
-                z = torch.matmul(A_t, y_prev) + B_t
+                base = torch.matmul(A_t, y_prev)
+                z = base[None, :] + B_t
 
                 c_t = prev_c_hat[t].clone()
                 for _ in range(args.pgd_iter):

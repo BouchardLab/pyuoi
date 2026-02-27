@@ -1,5 +1,7 @@
 True A,M matrices need to be generated first
 
+salloc -q shared_interactive -C gpu  -t 4:00:00  -N 1 -A m2043
+
 =============================
 Sequence of  steps
 

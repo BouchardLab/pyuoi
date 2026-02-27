@@ -103,7 +103,7 @@ class Plotter(PlotterBackbone):
         tit='dataset '+md['short_name']
         time_step=rebD['time_step2']
         R_sel = md['sel_spect_radius']
-        R_tag = ', R=%.3f' % R_sel if R_sel is not None else ''
+        state_tag = md['sel_state']
          
         # clip time data for display      
         tL,tR=md['plot']['time_rangeLR']
@@ -125,7 +125,7 @@ class Plotter(PlotterBackbone):
         medRateDisp = float(np.median(rate2D))
         cntAboveMed = np.sum(rate2D > medRateDisp, axis=1)
            
-        tit0='dataset: %s%s    nchan=%d  Tbin=%.2f sec'%(md['short_name'], R_tag, nchan, time_step)
+        tit0='dataset: %s  state=%d  R=%.3f    nchan=%d  Tbin=%.2f sec'%(md['short_name'], state_tag, R_sel, nchan, time_step)
         
         # Create gridspec with top/middle traces, heatmap, and optional state trace
         #gs = fig.add_gridspec(5, 1, height_ratios=[0.15,0.15,0.59,0.01,0.09], hspace=0.10)
@@ -205,7 +205,7 @@ class Plotter(PlotterBackbone):
             if np.any(sel):
                 t_sel = t_state[sel]
                 s_sel = S_oracle[sel]
-                ax.step(t_sel, s_sel, where='post', color='k', linewidth=1.0)
+                ax.step(t_sel, s_sel, where='post', color='g', linewidth=1.0)
                 smin = int(np.min(s_sel))
                 smax = int(np.max(s_sel))
                 ax.set_ylim(smin - 0.5, smax + 0.5)

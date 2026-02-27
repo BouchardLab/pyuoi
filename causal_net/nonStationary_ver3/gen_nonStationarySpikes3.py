@@ -32,7 +32,7 @@ from pprint import pprint
 import numpy as np
 
 from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
-from gen_daleMatrices2 import estimate_rates
+from gen_daleMatrices3 import estimate_rates
 
 
 def get_parser():
@@ -67,21 +67,15 @@ def get_parser():
 
 
 def ensure_state_atoms(A_in, B_in):
-    """Normalize A/B arrays to state-first tensors: A(M,N,N), B(M,N)."""
-    if A_in.ndim == 2:
-        A = A_in[None, ...]
-    else:
-        A = A_in
-    if B_in.ndim == 1:
-        B = B_in[None, ...]
-    else:
-        B = B_in
-
-    assert A.ndim == 3, f"A_true must be 2D or 3D, got shape={A.shape}"
+    """Normalize A/B arrays to A(N,N), B(M,N) with shared A across states."""
+    A = A_in
+    B = B_in
+    assert A.ndim == 2, f"A_true must be 2D, got shape={A.shape}"
+    if B.ndim == 1:
+        B = B[None, ...]
     assert B.ndim == 2, f"B_true must be 1D or 2D, got shape={B.shape}"
-    assert A.shape[0] == B.shape[0], f"state mismatch: A states={A.shape[0]}, B states={B.shape[0]}"
-    assert A.shape[1] == A.shape[2], f"A must be square per state, got {A.shape}"
-    assert A.shape[1] == B.shape[1], f"neuron mismatch: A N={A.shape[1]}, B N={B.shape[1]}"
+    assert A.shape[0] == A.shape[1], f"A must be square, got {A.shape}"
+    assert A.shape[0] == B.shape[1], f"neuron mismatch: A N={A.shape[0]}, B N={B.shape[1]}"
     return A.astype(float), B.astype(float)
 
 
@@ -161,7 +155,7 @@ def build_target_states_rr(n_steps, n_states, dwell_steps, rng):
     _print_state_stats(S_true, n_states, n_steps)
     return S_true, trans.astype(np.float32)
 
-def simulate_switching_poisson(n_steps, A_atoms, B_atoms, S_true, max_delta_c, dt, eta_clip, rng, verb=1):
+def simulate_switching_poisson(n_steps, A, B_atoms, S_true, max_delta_c, dt, eta_clip, rng, verb=1):
     """Switching Poisson generator: smooth c_t toward one-hot target state S_true[t]."""
     n_states, n_neurons = B_atoms.shape
     spikes = np.zeros((n_steps, n_neurons), dtype=np.int32)
@@ -187,7 +181,7 @@ def simulate_switching_poisson(n_steps, A_atoms, B_atoms, S_true, max_delta_c, d
             c_str = ", ".join([f"{x:.2f}" for x in c_curr])
             print(f"{t:<6} | {int(S_true[t]):<6} | [{c_str}]")
 
-        A_eff = np.einsum("m,mij->ij", c_curr, A_atoms)
+        A_eff = A
         B_eff = np.einsum("m,mj->j", c_curr, B_atoms)
 
         prev_y = spikes[t - 1].astype(float) if t > 0 else np.zeros(n_neurons, dtype=float)
@@ -198,15 +192,16 @@ def simulate_switching_poisson(n_steps, A_atoms, B_atoms, S_true, max_delta_c, d
     return spikes, C_true
 
 
-def compute_oracle_states(spikes, A_atoms, B_atoms, dt, eta_clip):
-    """Oracle state by max Poisson log-likelihood using true A/B."""
+def compute_oracle_states_comA(spikes, A, B_atoms, dt, eta_clip):
+    """Oracle state by max Poisson log-likelihood using shared A and per-state B."""
     n_steps, n_neurons = spikes.shape
     n_states = B_atoms.shape[0]
     S_oracle = np.zeros((n_steps,), dtype=np.int32)
     prev_y = np.zeros(n_neurons, dtype=np.float64)
     for t in range(n_steps):
         y_curr = spikes[t].astype(np.float64)
-        eta = np.einsum("mij,j->mi", A_atoms, prev_y) + B_atoms
+        base = A @ prev_y
+        eta = base[None, :] + B_atoms
         eta_c = np.clip(eta, -eta_clip, eta_clip)
         lam = np.exp(eta_c) * dt
         scores = np.sum(y_curr * eta_c - lam, axis=1)
@@ -257,7 +252,7 @@ def main():
 
     spikes, C_true = simulate_switching_poisson(
         n_steps=args.num_steps,
-        A_atoms=A_atoms,
+        A=A_atoms,
         B_atoms=B_atoms,
         S_true=S_true,
         max_delta_c=args.max_delta_c,
@@ -266,9 +261,9 @@ def main():
         rng=rng,
         verb=args.verb,
     )
-    S_oracle = compute_oracle_states(
+    S_oracle = compute_oracle_states_comA(
         spikes=spikes,
-        A_atoms=A_atoms,
+        A=A_atoms,
         B_atoms=B_atoms,
         dt=step_size,
         eta_clip=evol_conf_in['poisson_eta_clip'],
@@ -294,7 +289,7 @@ def main():
         "num_states": int(n_states),
         "seed": args.seed,
         "state_schedule": args.schedule,
-        "num_states": len(dale_conf_in['spectral_radius']),
+        "num_states": int(n_states),
         "max_samples": int(max_samples),
         "truth_input_name" : args.truthName,
     }
@@ -348,7 +343,7 @@ def main():
         print('\nspikes MD:'); pprint(spikesMD)
         print('\nprismTruth MD:'); pprint(prismTruthMD)
 
-    print("\n  ./view_spikesTrain.py  --basePath $basePath   --dataName %s  --idxState -1 --time_range_sec 0 20   -p b     -X " % args.dataName)
+    print("\n  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --idxState -1 --time_range_sec 0 20   -p b     -X " % args.dataName)
 
     print("  ./fit_lassoPoisson.py  --basePath $basePath  --dataName   %s   --num_epochs  50  " % args.dataName)
    

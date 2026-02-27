@@ -39,46 +39,27 @@ def main():
     MD = {**fitMD, "short_name": args.dataName}
 
     # Load ground truth (A_true/B_true) if available
-    prov = fitMD.get("provenance", {})
-    truth_name = prov.get("state_model_file")
-    if truth_name:
-        truthPath = os.path.join(args.basePath, "truthDale")
-        truthFF = os.path.join(truthPath, f"{truth_name}.simTruth.npz")
-        if os.path.exists(truthFF):
-            trueD, trueMD = read_data_npz(truthFF)
-            MD.update(trueMD)
-            MD["A_true"] = trueD.get("A_true")
-            MD["B_true"] = trueD.get("B_true")
-            MD["E_true"] = trueD.get("E_true")
-            MD["short_name"] = args.dataName
-        else:
-            if args.verb > 0:
-                print(f"Warning: missing truth file: {truthFF}")
-    else:
-        if args.verb > 0:
-            print("Warning: provenance missing state_model_file; skipping truth load")
+    prov = fitMD["provenance"]
+    truth_name = prov["state_model_file"]
+    truthPath = os.path.join(args.basePath, "truthDale")
+    truthFF = os.path.join(truthPath, f"{truth_name}.simTruth.npz")
+    trueD, trueMD = read_data_npz(truthFF)
+    MD.update(trueMD)
+    MD["A_true"] = trueD["A_true"]
+    MD["B_true"] = trueD["B_true"]
+    MD["E_true"] = trueD["E_true"]
+    MD["short_name"] = args.dataName
 
-    st_name = prov.get("state_transition_file")
-    if st_name:
-        prismTruthFF = os.path.join(args.basePath, "spikesData", f"{st_name}.prismTruth.npz")
-        if os.path.exists(prismTruthFF):
-            trD, trMD = read_data_npz(prismTruthFF, verb=args.verb > 1)
-            MD["S_true"] = trD.get("S_true")
-            MD["C_true"] = trD.get("C_true")
-        else:
-            if args.verb > 0:
-                print(f"Warning: missing prismTruth file: {prismTruthFF}")
+    st_name = prov["state_transition_file"]
+    prismTruthFF = os.path.join(args.basePath, "spikesData", f"{st_name}.prismTruth.npz")
+    trD, trMD = read_data_npz(prismTruthFF, verb=args.verb > 1)
+    MD["S_true"] = trD["S_true"]
+    MD["C_true"] = trD["C_true"]
 
-    # TODO: replace this with your preferred E-step file selection
     estepFF = os.path.join(args.inpPath, f"{args.dataName}.prismEstep.npz")
     estepD, estepMD = (None, None)
-    if os.path.exists(estepFF):
-        estepD, estepMD = read_data_npz(estepFF, verb=args.verb > 1)
-        if isinstance(estepMD, dict):
-            MD["estep_train"] = estepMD.get("train", {})
-    else:
-        if args.verb > 0:
-            print(f"Warning: missing E-step file: {estepFF}")
+    estepD, estepMD = read_data_npz(estepFF, verb=args.verb > 1)
+    MD["estep_train"] = estepMD["train"]
 
     args.prjName = args.dataName
     plot = Plotter(args)

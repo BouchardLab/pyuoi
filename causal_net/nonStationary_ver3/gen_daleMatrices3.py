@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
- ./gen_daleMatrices.py --num_neurons 100 --num_excite 70 --num_steps 10000 --dataName test1
- ./gen_daleMatrices.py --num_neurons 100 --num_excite 70 --spectral_radius 0.2 0.4 0.8 --dataName test2
+ ./gen_daleMatrices3.py --num_neurons 100 --num_excite 70 --num_steps 10000 --dataName test1
+ ./gen_daleMatrices3.py --num_neurons 100 --num_excite 70 --spectral_radius 0.5 --Boffsets 0 10 20 --dataName test2
 
 Dale Poisson Simulator — generates synthetic spike data from a recurrent
 neuronal network obeying Dale's principle using a discrete-time Poisson
@@ -15,16 +15,14 @@ Pipeline:
    Each neuron draws its own connection probability uniformly from
    --edge_prob [lo, hi], producing a binary N x N mask.
 
-2. For each spectral radius R in --spectral_radius:
-   a) Weight matrix A_true is initialized with E-I balanced random
-      weights, masked by E_true, then rescaled so that the spectral
-      radius equals R.
-   b) Bias vector B_true is sampled from log-uniform in
-      [idleRate_lo * R, idleRate_hi * R], coupling baseline firing
-      rates to the spectral radius.
-   c) Spike time series Y is generated via a stationary VAR(1) Poisson
+2. Generate a single weight matrix A_true for the target spectral radius.
+3. For each B-offset in --Boffsets:
+   a) Bias vector B_true is sampled from log-uniform in
+      [idleRate_lo + offset, idleRate_hi + offset], then scaled by
+      the spectral radius.
+   b) Spike time series Y is generated via a stationary VAR(1) Poisson
       process:  Y_t ~ Poisson(exp(A @ Y_{t-1} + B) * dt).
-   d) Firing-rate statistics (rates, Fano factor, coincidence
+   c) Firing-rate statistics (rates, Fano factor, coincidence
       rate) are computed by estimate_rates().
 
 3. All results are stacked along axis 0 (spectral-radius dimension)
@@ -32,12 +30,12 @@ Pipeline:
      <dataName>.simTruth.npz  — A_true, B_true, E_true, metadata
      <dataName>.spikes.npz    — spikes, single_rates, variance, Fano
 
-Output shapes (nR = len(spect_radius), N = num_neurons, T = num_steps):
+Output shapes (nB = len(Boffsets), N = num_neurons, T = num_steps):
   E_true        (N, N)       int    — shared connectivity mask
-  A_true        (nR, N, N)   float  — weight matrices
-  B_true        (nR, N)      float  — bias vectors
-  spikes        (nR, T, N)   uint8  — spike counts
-  single_rates  (nR, N)      float  — mean firing rates (Hz)
+  A_true        (N, N)       float  — weight matrix
+  B_true        (nB, N)      float  — bias vectors
+  spikes        (nB, T, N)   uint8  — spike counts
+  single_rates  (nB, N)      float  — mean firing rates (Hz)
 """
 
 import numpy as np
@@ -125,20 +123,19 @@ def gen_dale_matrics(conf, E_true, verb=1):
 
 #################### Simulation ##################
 
-def set_flat_selfSpiking(Nn, idleRate, spect_radii, num_excite, idle_offset=None):
-    """Generate B_idle per spectral radius; excitatory idle-rate range is scaled by sqrt(50/Nn)."""
+def set_flat_selfSpiking(Nn, idleRate, spect_radius, num_excite, boffsets):
+    """Generate B_idle per B-offset; excitatory idle-rate range is scaled by sqrt(50/Nn)."""
     assert 0 < num_excite <= Nn
     sizeScale = np.sqrt(float(Nn)/100)
-    num_radii = len(spect_radii)
-    B_all = np.zeros((num_radii, Nn))
-    for ir, R in enumerate(spect_radii):
-        offset = 0.0 if idle_offset is None else float(idle_offset[ir])
-        idle_eff = np.array(idleRate, dtype=float) + offset
+    B_all = np.zeros((len(boffsets), Nn))
+    R = float(spect_radius)
+    for ib, offset in enumerate(boffsets):
+        idle_eff = np.array(idleRate, dtype=float) + float(offset)
         Ri_scaled = idle_eff * R
         Bi = np.log(Ri_scaled)
-        B_all[ir] = np.random.uniform(Bi[0], Bi[1], size=(Nn,))
-        B_all[ir, :num_excite] += -R*1.5 +0.5 -sizeScale # reduce inhibitory rate
-        B_all[ir, num_excite:] += 0.7 # reduce excitatory rate
+        B_all[ib] = np.random.uniform(Bi[0], Bi[1], size=(Nn,))
+        B_all[ib, :num_excite] += -R*1.5 +0.5 -sizeScale # reduce inhibitory rate
+        B_all[ib, num_excite:] += 0.7 # reduce excitatory rate
     return B_all
 
 def gen_stationary_lag1_poisson(num_steps, dt, A, B_intercept, num_excite, eta_clip,verb=0):
@@ -215,9 +212,9 @@ def main():
     parser.add_argument("--edge_prob", type=float, nargs=2, default=[0.05, 0.2], help="Range of edge probability [min, max]; mean is used as mask connectivity.")
     parser.add_argument("--num_steps", type=int, default=10_001, help="Number of time steps for simulation.")
     parser.add_argument("--step_size", type=float, default=0.01, help="Integration time step size (dt) in seconds.")
-    parser.add_argument("--spectral_radius", type=float, nargs='+', default=[0.3, 0.95], help="Target spectral radius value(s) for the connectivity matrix.")
+    parser.add_argument("--spectral_radius", type=float, default=0.3, help="Target spectral radius value for the connectivity matrix.")
     parser.add_argument("--idleRate", type=float, nargs=2, default=[15, 30.], help="Range of idle firing rates [min, max] in Hz.")
-    parser.add_argument("--idleOffset", type=float, nargs='*', default=None, help="Optional per-radius offset added to idleRate range (length must match spectral_radius).")
+    parser.add_argument("--Boffsets", type=float, nargs='+', default=[0.0], help="Per-state offsets added to idleRate range.")
     parser.add_argument('-v',"--verb", type=int, default=1, help="Verbosity level (0=quiet, 1=normal).")
     parser.add_argument("--dataName", type=str, default=None, help="Base name for output files (default: daleN<num_neurons>_<hash>).")
     parser.add_argument("--basePath", type=str, default='/pscratch/sd/b/balewski/2025_causalNet_tmp/', help="Output directory for all files.")
@@ -245,8 +242,7 @@ def main():
     assert args.step_size>0.001
     assert args.idleRate[0]>=0.5
     assert args.idleRate[1]>args.idleRate[0]
-    if args.idleOffset is not None:
-        assert len(args.idleOffset) == len(args.spectral_radius)
+    assert len(args.Boffsets) >= 1
     # Generate sparse connectivity mask (per-neuron random connectivity in edge_prob range)
     E_true = generate_sparse_mask(Nn, args.edge_prob)
     print(f"\n=== Generated sparse mask: edge_prob={args.edge_prob}, actual={np.mean(E_true):.3f}, non-zero={np.sum(E_true)} ===")
@@ -254,10 +250,10 @@ def main():
     dale_conf = {
         'num_neurons': args.num_neurons,
         'num_excite': args.num_excite,
-        'spectral_radius': args.spectral_radius,  
+        'spectral_radius': args.spectral_radius,
         'edge_prob': args.edge_prob,
         'idleRate': args.idleRate,
-        'idleOffset': args.idleOffset,
+        'Boffsets': args.Boffsets,
     }
 
     print("Dale configuration:"); pprint(dale_conf)
@@ -269,54 +265,56 @@ def main():
         'poisson_eta_clip': args.poisson_eta_clip
     }
 
-    B_all = set_flat_selfSpiking(Nn, args.idleRate, args.spectral_radius, args.num_excite, idle_offset=args.idleOffset)
+    B_all = set_flat_selfSpiking(Nn, args.idleRate, args.spectral_radius, args.num_excite, boffsets=args.Boffsets)
     
     max_samples = 100_000
 
-    num_radii = len(args.spectral_radius)
-    A_list, Y_list = [], []
+    Y_list = []
     rates_list, rates_var_list, fano_list = [], [], []
     stats_list = []
 
-    for ir, R in enumerate(args.spectral_radius):
-        verb_r = args.verb if ir == 0 else 0
+    verb_r = args.verb
+    print(f"\n{'='*60}")
+    print(f"  Spectral radius: R={args.spectral_radius:.3f}")
+    print(f"{'='*60}")
+
+    dale_conf_r = dale_conf.copy()
+    dale_conf_r['spect_radius'] = args.spectral_radius
+
+    A_dale = gen_dale_matrics(dale_conf_r, E_true, verb=verb_r)
+
+    if verb_r > 0:
+        total_connections = A_dale.size
+        zero_connections = np.sum(np.abs(A_dale) < 1e-10)
+        non_zero_connections = total_connections - zero_connections
+        sparsity = zero_connections / total_connections
+        print(f'Matrix sparsity: {sparsity*100:.1f}% ({zero_connections}/{total_connections} connections are zero)')
+        print(f'Non-zero connections: {non_zero_connections} ({(1-sparsity)*100:.1f}%)')
+
+    for ib, offset in enumerate(args.Boffsets):
         print(f"\n{'='*60}")
-        print(f"  Spectral radius [{ir+1}/{num_radii}]: R={R:.3f}")
+        print(f"  B offset [{ib+1}/{len(args.Boffsets)}]: offset={offset:.3f}")
         print(f"{'='*60}")
 
-        dale_conf_r = dale_conf.copy()
-        dale_conf_r['spect_radius'] = R
-
-        A_dale = gen_dale_matrics(dale_conf_r, E_true, verb=verb_r)
-
-        if verb_r > 0:
-            total_connections = A_dale.size
-            zero_connections = np.sum(np.abs(A_dale) < 1e-10)
-            non_zero_connections = total_connections - zero_connections
-            sparsity = zero_connections / total_connections
-            print(f'Matrix sparsity: {sparsity*100:.1f}% ({zero_connections}/{total_connections} connections are zero)')
-            print(f'Non-zero connections: {non_zero_connections} ({(1-sparsity)*100:.1f}%)')
-
-        B_idle = B_all[ir]
+        B_idle = B_all[ib]
         start_time = time.time()
-        Y = gen_stationary_lag1_poisson(num_steps=args.num_steps, dt=args.step_size, A=A_dale, B_intercept=B_idle, num_excite=args.num_excite,eta_clip=args.poisson_eta_clip, verb=verb_r)
+        Y = gen_stationary_lag1_poisson(num_steps=args.num_steps, dt=args.step_size, A=A_dale, B_intercept=B_idle, num_excite=args.num_excite,eta_clip=args.poisson_eta_clip, verb=verb_r if ib == 0 else 0)
         sim_time = time.time() - start_time
         print("Spike generation completed in %.1f seconds" % sim_time)
 
-        stats_dict, rates_dict, _ = estimate_rates(Y, dt=args.step_size, num_excite=args.num_excite, max_samples=max_samples, varTwindow=args.varTwindow, mxNn=5, verb=verb_r, spect_radius=R)
+        stats_dict, rates_dict, _ = estimate_rates(Y, dt=args.step_size, num_excite=args.num_excite, max_samples=max_samples, varTwindow=args.varTwindow, mxNn=5, verb=0, spect_radius=args.spectral_radius)
         stats_dict['var_time_window_sec'] = float(args.varTwindow)
         stats_dict['max_samples'] = int(max_samples)
 
-        A_list.append(A_dale)
         Y_list.append(np.clip(Y, 0, 255).astype(np.uint8))
         rates_list.append(rates_dict['single_rates'])
         rates_var_list.append(rates_dict['sigle_rates_var'])
         fano_list.append(rates_dict['single_fano_fact'])
         stats_list.append(stats_dict)
 
-    # Stack results along axis=0 (spectral radius dimension)
+    # Stack results along axis=0 (B-offset dimension)
     trueD = {
-        'A_true': np.stack(A_list, axis=0),
+        'A_true': A_dale,
         'B_true': B_all,
         'E_true': E_true
     }
@@ -343,9 +341,9 @@ def main():
     print("\nSimulation completed successfully!") 
     print("\nNext step commands:")
     print("     basePath="+args.basePath)
-    print("  ./view_daleMatrix.py  --basePath $basePath   --dataName %s  -p b -m 0   -X  -p a c d  " % args.dataName)
-    print("  ./view_spikesTrain.py  --basePath $basePath   --dataName %s  --time_range_sec 0 20 -p b -m 0   -X " % args.dataName)
-    print("  ./gen_nonStationarySpikes.py  --basePath $basePath   --truthName %s   " % args.dataName)
+    print("  ./view_daleMatrix3.py  --basePath $basePath   --dataName %s  -p b -m 0   -X  -p a c d  " % args.dataName)
+    print("  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --time_range_sec 0 20 -p b -m 0   -X " % args.dataName)
+    print("  ./gen_nonStationarySpikes3.py  --basePath $basePath   --truthName %s   " % args.dataName)
     print("  ./fit_lassoPoisson.py  --basePath $basePath  --inpPath ${basePath}/truthDale --dataName   %s   --num_epochs  50  " % args.dataName)
    
 
