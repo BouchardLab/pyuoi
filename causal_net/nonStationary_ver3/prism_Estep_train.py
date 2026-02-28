@@ -26,7 +26,7 @@ def parse_args():
     parser.add_argument("--num_epochs", type=int, default=10, help="Number of full passes over time range")
     parser.add_argument("--pgd_iter", type=int, default=8, help="PGD iterations per time step")
     parser.add_argument("--lr", type=float, default=0.1, help="PGD step size")
-    parser.add_argument("--dwell_sec", type=float, default=0.2, help="Expected state dwell time in seconds for Viterbi decoding")
+    parser.add_argument("--decode_dwell_sec", type=float, default=0.2, help="Expected state dwell time in seconds for Viterbi decoding")
     parser.add_argument("--chunk_size", type=int, default=2 * 1024, help="Time chunk size for progress")
     parser.add_argument("-T", "--time_range_sec", default=[0.0, 50.0], nargs=2, type=float, help="display data time range in seconds")
     parser.add_argument("--seed", type=int, default=123)
@@ -242,7 +242,7 @@ def main():
     print(f"Total training time: {time.time() - t_start:.1f}s")
     
     # Decode most probable state (Viterbi) and confidence level
-    p_stay = float(math.exp(-args.time_step_sec / float(args.dwell_sec)))
+    p_stay = float(math.exp(-args.time_step_sec / float(args.decode_dwell_sec)))
     c_hat_np = c_hat.detach().cpu().numpy()
     S_hat_np = viterbi_decode(c_hat_np, p_stay)
     if M == 1:
@@ -255,7 +255,7 @@ def main():
 
     # Save results
     out_base = make_prism_out_base(args.dataName)
-    out_name = f"{out_base}.prismEstep.npz"
+    out_name = f"{out_base}.prismEstep.npz"  
     outFF = os.path.join(outPath, out_name)
 
     outD = {
@@ -280,8 +280,7 @@ def main():
         "pgd_iter": int(args.pgd_iter),
         "lr": float(args.lr),
         "decode": "viterbi",
-        "dwell_sec": float(args.dwell_sec),
-        "p_stay": float(p_stay),
+        "decode_dwell_sec": float(args.decode_dwell_sec),
         "chunk_size": int(args.chunk_size),
         "seed": int(args.seed),
         "time_step_sec": float(args.time_step_sec),

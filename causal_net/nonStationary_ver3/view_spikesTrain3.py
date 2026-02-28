@@ -154,6 +154,7 @@ if __name__=="__main__":
         if args.verb > 0:  print('loaded prismTruth S_true:', S_true.shape);
         if args.verb > 1:  pprint(prismMD)
         spikeMD['sel_spect_radius'] =-77
+        spikeMD['oracle_score'] = prismMD.get('oracle_score', None)
 
     #--------------------------------
     # ....  plotting ........

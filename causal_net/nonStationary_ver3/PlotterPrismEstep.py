@@ -154,7 +154,7 @@ class Plotter(PlotterBackbone):
 
     def state_seq_prismEstep(self, fitD, md, figId=2, time_reb=20):
         figId = self.smart_append(figId)
-        fig = self.plt.figure(figId, facecolor='white', figsize=(10, 8.5))
+        fig = self.plt.figure(figId, facecolor='white', figsize=(12, 8.5))
         gs = fig.add_gridspec(4, 1, height_ratios=[1.0, 1.0, 0.5, 0.5], hspace=0.9)
 
         S_hat = fitD["S_hat"]
@@ -193,7 +193,7 @@ class Plotter(PlotterBackbone):
         ax.set(title=f"Fit (acc={acc:.3f})", xlabel="time (s)", ylabel="state")
         ax.yaxis.set_major_locator(MaxNLocator(integer=True))
         ax.grid(True, alpha=0.3)
-
+       
         ax2 = ax.twinx()
         for m in range(C_hat_rb.shape[1]):
             ax2.plot(t, C_hat_rb[:, m], linewidth=0.8, alpha=0.8, label=f"C_hat[{m}]")
@@ -212,7 +212,7 @@ class Plotter(PlotterBackbone):
         for m in range(C_true_rb.shape[1]):
             ax2.plot(t, C_true_rb[:, m], linewidth=0.8, alpha=0.8, label=f"C_true[{m}]")
         ax2.set_ylabel("C_true")
-
+        
         ax.legend(loc="lower left", bbox_to_anchor=(0.0, 1.02), fontsize=8)
         ax2.legend(loc="lower right", bbox_to_anchor=(1.0, 1.02), ncol=4, fontsize=8)
 
@@ -224,6 +224,6 @@ class Plotter(PlotterBackbone):
 
         fig.suptitle(
             f"Dataset: {md['short_name']} | $\\lambda_2$={trainMD['lambda2']}, "
-            f"lr={trainMD['lr']}, pgd_iter={trainMD['pgd_iter']}, dwell={trainMD['dwell_sec']}s",
+            f"lr={trainMD['lr']}, pgd_iter={trainMD['pgd_iter']}, decode_dwell={trainMD['decode_dwell_sec']}s",
             fontsize=12,
         )

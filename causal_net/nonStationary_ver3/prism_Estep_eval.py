@@ -79,7 +79,7 @@ def main():
     fitFF = os.path.join(args.inpPath, f"{args.dataName}.prismEstep.npz")
     fitD, fitMD = read_data_npz(fitFF)
     if args.verb > 1:    pprint(fitMD)
-      
+
     truthF = fitMD["provenance"]['state_transition_file']
     truthFF = os.path.join(truthPath, f"{truthF}.prismTruth.npz")
     trueD, trueMD = read_data_npz(truthFF, verb=args.verb > 0)
@@ -98,7 +98,11 @@ def main():
     MD["B_true"] = B_true
     MD["C_true"] = C_true
     MD["S_true"] = S_true
-    MD["eval_Estep"] = eval_estep_metrics(fitD, MD, spikes)
+    MD["eval_Estep"] = eval_estep_metrics(fitD, MD, spikes) 
+    print(
+        f"E-step evaluation accuracy: {MD['eval_Estep']['acc']:.3f} "
+        f"for decode_dwell_sec: {MD['train']['decode_dwell_sec']:.1f}"
+    )
 
     args.prjName = args.dataName
     plot = Plotter(args) 

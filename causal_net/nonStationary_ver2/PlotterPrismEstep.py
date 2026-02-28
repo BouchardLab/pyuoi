@@ -79,22 +79,6 @@ class Plotter(PlotterBackbone):
         ax2.yaxis.set_major_locator(MaxNLocator(integer=True))
         ax2.legend(loc="lower right", bbox_to_anchor=(1.0, 1.02), fontsize=8)
 
-    def plot_ll_gap(self, ax, md, trainMD, time_bin_merge=20):
-        ll_gap = np.asarray(md["eval_Estep"]["ll_gap"])
-        merge = int(max(1, time_bin_merge))
-        if merge > 1 and len(ll_gap) >= merge:
-            n = len(ll_gap) // merge
-            ll_gap = ll_gap[: n * merge].reshape(n, merge).mean(axis=1)
-
-        dt = trainMD["time_step_sec"]
-        t0_bin = trainMD["time_range_bins"][0]
-        t = (t0_bin + np.arange(len(ll_gap)) * merge) * float(dt)
-
-        ax.plot(t, ll_gap, color="tab:blue", linewidth=0.8, label="LL gap")
-        ax.set(title="LL gap (best - 2nd)", xlabel="time (s)", ylabel="value")
-        ax.grid(True, alpha=0.4)
-        ax.legend(loc="lower left", bbox_to_anchor=(0.0, 1.02), fontsize=8)
-
     def summary_prismEstep(self, fitD, md, figId=1, time_bin_merge=20):
         figId = self.smart_append(figId)
         fig = self.plt.figure(figId, facecolor='white', figsize=(10, 5.5))
@@ -154,8 +138,8 @@ class Plotter(PlotterBackbone):
 
     def state_seq_prismEstep(self, fitD, md, figId=2, time_reb=20):
         figId = self.smart_append(figId)
-        fig = self.plt.figure(figId, facecolor='white', figsize=(10, 8.5))
-        gs = fig.add_gridspec(4, 1, height_ratios=[1.0, 1.0, 0.5, 0.5], hspace=0.9)
+        fig = self.plt.figure(figId, facecolor='white', figsize=(12, 7.0))
+        gs = fig.add_gridspec(3, 1, height_ratios=[1.0, 1.0, 0.5], hspace=0.85)
 
         S_hat = fitD["S_hat"]
         S_hat_CL = fitD["S_hat_CL"]
@@ -218,9 +202,6 @@ class Plotter(PlotterBackbone):
 
         ax = fig.add_subplot(gs[2, 0])
         self.plot_loss_time(ax, fitD, md, trainMD, time_bin_merge=time_reb)
-
-        ax = fig.add_subplot(gs[3, 0])
-        self.plot_ll_gap(ax, md, trainMD, time_bin_merge=time_reb)
 
         fig.suptitle(
             f"Dataset: {md['short_name']} | $\\lambda_2$={trainMD['lambda2']}, "

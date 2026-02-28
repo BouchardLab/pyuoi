@@ -43,7 +43,7 @@ def get_parser():
     parser.add_argument("--dataName", type=str, default=None, help="output spikes base name (default: <truthName>_<hash6>)")
 
     parser.add_argument("-t", "--num_steps", type=int, default=None, help="Number of time steps (default: from input evol_conf)")
-    parser.add_argument("--max_delta_c", type=float, default=0.2, help="Max coefficient change per step.")
+    parser.add_argument("--max_deltaC_perStep", dest="max_delta_c", type=float, default=0.2, help="Max coefficient change per step.")
     parser.add_argument("--dwell_steps", type=int, default=200, help="Mean number of steps to stay in a target state.")
     parser.add_argument("--seed", type=int, default=42, help="Optional random seed.")
     parser.add_argument("--schedule", choices=["mc", "rr"], default="mc",
@@ -111,6 +111,8 @@ def build_target_states_mc(n_steps, n_states, dwell_steps, rng):
     if n_states == 1:
         return np.zeros(n_steps, dtype=np.int32), np.ones((1, 1), dtype=np.float32)
 
+    minDwellFrac = 0.3
+    min_dwell_steps = max(1, int(np.ceil(minDwellFrac * float(dwell_steps))))
     p_exit = 1.0 / float(dwell_steps)
     p_stay = 1.0 - p_exit
     trans = np.full((n_states, n_states), p_exit / float(n_states - 1), dtype=float)
@@ -118,9 +120,18 @@ def build_target_states_mc(n_steps, n_states, dwell_steps, rng):
 
     S_true = np.zeros(n_steps, dtype=np.int32)
     state = 0
+    run_len = 0
     for t in range(n_steps):
-        state = rng.choice(n_states, p=trans[state])
-        S_true[t] = state
+        if run_len < min_dwell_steps:
+            next_state = state
+        else:
+            next_state = rng.choice(n_states, p=trans[state])
+        S_true[t] = next_state
+        if next_state == state:
+            run_len += 1
+        else:
+            state = next_state
+            run_len = 1
 
     _print_state_stats(S_true, n_states, n_steps)
     return S_true, trans.astype(np.float32)
@@ -210,6 +221,16 @@ def compute_oracle_states_comA(spikes, A, B_atoms, dt, eta_clip):
     return S_oracle
 
 
+def compute_oracle_score(S_true, S_oracle):
+    """Return agreement ratio between oracle and target states over full length."""
+    if S_true is None or S_oracle is None:
+        return None
+    nmin = min(S_true.shape[0], S_oracle.shape[0])
+    if nmin <= 0:
+        return None
+    return float(np.mean(S_true[:nmin] == S_oracle[:nmin]))
+
+
 def main():
     args = get_parser()
     np.set_printoptions(precision=3, suppress=True)
@@ -279,6 +300,8 @@ def main():
         verb=args.verb,
         spect_radius=None,
     )
+    oracle_score = compute_oracle_score(S_true, S_oracle)
+    dwell_time_sec = float(args.dwell_steps * step_size)
 
     evol_conf = {
         "num_steps": int(args.num_steps),
@@ -286,6 +309,7 @@ def main():
         "evol_time": float(args.num_steps * step_size),
         "max_delta_c": float(args.max_delta_c),
         "dwell_steps": int(args.dwell_steps),
+        "dwell_time_sec": dwell_time_sec,
         "num_states": int(n_states),
         "seed": args.seed,
         "state_schedule": args.schedule,
@@ -329,6 +353,7 @@ def main():
         "short_name": args.dataName,
         "data_type": "simPrism",
         "var_time_window_sec": float(var_time_window_sec),
+        "oracle_score": oracle_score,
         "dale_conf": dale_conf,
         "evol_conf": evol_conf,
     }
@@ -343,7 +368,10 @@ def main():
         print('\nspikes MD:'); pprint(spikesMD)
         print('\nprismTruth MD:'); pprint(prismTruthMD)
 
-    print("\n  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --idxState -1 --time_range_sec 0 20   -p b     -X " % args.dataName)
+    if oracle_score is not None:
+        print(f"oracle score={oracle_score:.3f}  dataName={args.dataName}  N={n_neurons}  exc={num_excite}  dwell={dwell_time_sec:.2f} sec")
+
+    print("\n  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --idxState -1 --time_range_sec 0 20   -p b    " % args.dataName)
 
     print("  ./fit_lassoPoisson.py  --basePath $basePath  --dataName   %s   --num_epochs  50  " % args.dataName)
    

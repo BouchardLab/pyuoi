@@ -134,8 +134,8 @@ def set_flat_selfSpiking(Nn, idleRate, spect_radius, num_excite, boffsets):
         Ri_scaled = idle_eff * R
         Bi = np.log(Ri_scaled)
         B_all[ib] = np.random.uniform(Bi[0], Bi[1], size=(Nn,))
-        B_all[ib, :num_excite] += -R*1.5 +0.5 -sizeScale # reduce inhibitory rate
-        B_all[ib, num_excite:] += 0.7 # reduce excitatory rate
+        B_all[ib, :num_excite] +=-0.3  - R*1.5 - sizeScale# reduce excitatory rate
+        B_all[ib, num_excite:] += 1.7  # reduce  inhibitory rate  
     return B_all
 
 def gen_stationary_lag1_poisson(num_steps, dt, A, B_intercept, num_excite, eta_clip,verb=0):
@@ -338,12 +338,19 @@ def main():
     write_data_npz(spikeD, outFs, metaD=spikeMD)
     if args.verb>1:  pprint(spikeMD)
         
-    print("\nSimulation completed successfully!") 
+    print("\nSimulation completed successfully!")
+    print(f"\nRate Summary {args.dataName}  N={args.num_neurons}  exc={args.num_excite}, R={args.spectral_radius:.3f}  ")
+    header = f"{'state':>5} {'B offset':>9} {'all rate (Hz)':>14} {'exc rate (Hz)':>14} {'inh rate (Hz)':>14}"
+    print(header)
+    print("-" * len(header))
+    for ib, offset in enumerate(args.Boffsets):
+        s = stats_list[ib]
+        print(f"{ib:5d} {float(offset):9.1f} {s['avg_spike_rate_all']:14.1f} {s['avg_spike_rate_excit']:14.1f} {s['avg_spike_rate_inhib']:14.1f}")
     print("\nNext step commands:")
     print("     basePath="+args.basePath)
     print("  ./view_daleMatrix3.py  --basePath $basePath   --dataName %s  -p b -m 0   -X  -p a c d  " % args.dataName)
     print("  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --time_range_sec 0 20 -p b -m 0   -X " % args.dataName)
-    print("  ./gen_nonStationarySpikes3.py  --basePath $basePath   --truthName %s   " % args.dataName)
+    print("  ./gen_nonStationarySpikes3.py  --basePath $basePath   --truthName %s     --dwell_steps 50 " % args.dataName)
     print("  ./fit_lassoPoisson.py  --basePath $basePath  --inpPath ${basePath}/truthDale --dataName   %s   --num_epochs  50  " % args.dataName)
    
 
