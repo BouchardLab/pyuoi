@@ -200,8 +200,7 @@ class Plotter(PlotterBackbone):
         ax.set_xlim(xL, xR)
         if S_oracle is not None:
             assert S_oracle.ndim == 1, f"S_oracle must be 1D, got shape={S_oracle.shape}"
-            assert isinstance(md, dict) and md.get('oracle_score', None) is not None, "Missing oracle_score in metadata"
-            score_txt = f", score={md['oracle_score']:.3f}"
+            score_txt = f", avr_score={md['oracle_score']:.3f}"
             dt0 = float(md['time_step_sec'])
             t_state = np.arange(S_oracle.shape[0], dtype=float) * dt0
             sel = (t_state >= xL) & (t_state < xR + dt0)

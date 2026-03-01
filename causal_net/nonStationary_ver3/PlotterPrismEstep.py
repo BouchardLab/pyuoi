@@ -224,6 +224,6 @@ class Plotter(PlotterBackbone):
 
         fig.suptitle(
             f"Dataset: {md['short_name']} | $\\lambda_2$={trainMD['lambda2']}, "
-            f"lr={trainMD['lr']}, pgd_iter={trainMD['pgd_iter']}, decode_dwell={trainMD['decode_dwell_sec']}s",
+            f"lr={trainMD['lr']}, pgd_iter={trainMD['pgd_iter']}, decode_dwell={md['decode_eval']['decode_dwell_sec']}s",
             fontsize=12,
         )

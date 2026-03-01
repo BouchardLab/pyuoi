@@ -154,7 +154,13 @@ if __name__=="__main__":
         if args.verb > 0:  print('loaded prismTruth S_true:', S_true.shape);
         if args.verb > 1:  pprint(prismMD)
         spikeMD['sel_spect_radius'] =-77
-        spikeMD['oracle_score'] = prismMD.get('oracle_score', None)
+        oraE = prismMD['oracle_eval']
+        spikeMD['oracle_score'] = oraE['avr_score']
+        print(f"gen, oracle avr score {oraE['avr_score']:.3f}, {args.dataName}")
+        print(f"  {'state':>5s}  {'score':>5s}")
+        print(f"  {'-----':>5s}  {'-----':>5s}")
+        for m, sc in enumerate(oraE['score_per_state']):
+            print(f"  {m:5d}  {sc:5.3f}")
 
     #--------------------------------
     # ....  plotting ........

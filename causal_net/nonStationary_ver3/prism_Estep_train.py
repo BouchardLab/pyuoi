@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """
+salloc -q shared_interactive -C gpu  -t 4:00:00  -N 1 -A m2043
+
 E-step training for non-stationary Poisson dLDS with simplex-constrained coefficients.
 Uses ground-truth dictionaries (A_true/B_true) to fit c_t sequentially.
 """
@@ -22,13 +24,13 @@ def parse_args():
     parser = argparse.ArgumentParser(description="E-step training for prism model (simplex PGD)")
     parser.add_argument("--dataName", type=str, required=True, help="Base name of spikes file in spikesData/")
     parser.add_argument("--basePath", type=str, default="/pscratch/sd/b/balewski/2026_causalNet_tmp2/", help="Head dir for input/output data")
-    parser.add_argument("--lambda2", type=float, default=0.1, help="Temporal smoothness strength")
-    parser.add_argument("--num_epochs", type=int, default=10, help="Number of full passes over time range")
-    parser.add_argument("--pgd_iter", type=int, default=8, help="PGD iterations per time step")
-    parser.add_argument("--lr", type=float, default=0.1, help="PGD step size")
-    parser.add_argument("--decode_dwell_sec", type=float, default=0.2, help="Expected state dwell time in seconds for Viterbi decoding")
+    parser.add_argument("--lambda2", type=float, default=2.0, help="Temporal smoothness strength")
+    parser.add_argument("--num_epochs", type=int, default=1, help="Number of full passes over time range")
+    parser.add_argument("--pgd_iter", type=int, default=40, help="PGD iterations per time step")
+    parser.add_argument("--lr", type=float, default=0.03, help="PGD step size")
+    parser.add_argument("--decode_dwell_sec", type=float, default=0.1, help="Expected state dwell time in seconds for Viterbi decoding")
     parser.add_argument("--chunk_size", type=int, default=2 * 1024, help="Time chunk size for progress")
-    parser.add_argument("-T", "--time_range_sec", default=[0.0, 50.0], nargs=2, type=float, help="display data time range in seconds")
+    parser.add_argument("-T", "--time_range_sec", default=[0.0, 10.0], nargs=2, type=float, help="display data time range in seconds")
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("-v", "--verb", type=int, default=1)
     return parser.parse_args()
@@ -248,9 +250,7 @@ def main():
     if M == 1:
         S_hat_CL = torch.zeros((T_eff,), dtype=torch.float32, device=c_hat.device)
     else:
-        eps = 1e-12
-        ent = -(c_hat * torch.log(c_hat + eps)).sum(dim=1)
-        S_hat_CL = (ent / math.log(M)).to(dtype=torch.float32)
+        S_hat_CL = (1.0 - c_hat.max(dim=1).values).to(dtype=torch.float32)
     S_hat = torch.from_numpy(S_hat_np).to(dtype=torch.int64, device=c_hat.device)
 
     # Save results
@@ -279,8 +279,6 @@ def main():
         "num_epochs": int(args.num_epochs),
         "pgd_iter": int(args.pgd_iter),
         "lr": float(args.lr),
-        "decode": "viterbi",
-        "decode_dwell_sec": float(args.decode_dwell_sec),
         "chunk_size": int(args.chunk_size),
         "seed": int(args.seed),
         "time_step_sec": float(args.time_step_sec),
@@ -291,6 +289,10 @@ def main():
         "time_range_sec": [float(t0_sec), float(t1_sec)],
         "time_range_bins": [int(start_bin), int(end_bin)],
     }
+    outMD["decode_eval"] = {
+        "decode": "viterbi",
+        "decode_dwell_sec": float(args.decode_dwell_sec),
+      }
     outMD["provenance"] = prov
 
     write_data_npz(outD, outFF, metaD=outMD)

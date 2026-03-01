@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate one spike train from A/B dictionary atoms in <truthName>.simTruth.npz.
+Generate one spike train from A/B dictionary atoms in <inputStates>.simTruth.npz.
 
 Generation logic matches toy_Mudrik_spiker.py (smooth switching coefficients
 and Poisson spikes). I/O pattern follows view_spikesTrain.py for reading,
@@ -39,12 +39,12 @@ def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--verbosity", type=int, default=1, dest="verb", help="Verbosity level.")
     parser.add_argument("--basePath", default="/pscratch/sd/b/balewski/2025_causalNet_tmp/", help="head dir for input data")
-    parser.add_argument("--truthName", default=None, help="input simTruth base name")
-    parser.add_argument("--dataName", type=str, default=None, help="output spikes base name (default: <truthName>_<hash6>)")
+    parser.add_argument("--inputStates", default=None, help="input simTruth base name")
+    parser.add_argument("--dataName", type=str, default=None, help="output spikes base name (default: <inputStates>_<hash6>)")
 
     parser.add_argument("-t", "--num_steps", type=int, default=None, help="Number of time steps (default: from input evol_conf)")
-    parser.add_argument("--max_deltaC_perStep", dest="max_delta_c", type=float, default=0.2, help="Max coefficient change per step.")
-    parser.add_argument("--dwell_steps", type=int, default=200, help="Mean number of steps to stay in a target state.")
+    parser.add_argument("--state_change_speed", type=float, default=0.2, help="Max coefficient change per step.")
+    parser.add_argument("--true_dwell_steps", type=int, default=200, help="Mean number of steps to stay in a target state.")
     parser.add_argument("--seed", type=int, default=42, help="Optional random seed.")
     parser.add_argument("--schedule", choices=["mc", "rr"], default="mc",
                         help="State schedule: 'mc' = random Markov chain (default), "
@@ -54,7 +54,7 @@ def get_parser():
     args.inpPath = os.path.join(args.basePath, "truthDale")
     args.outPath = os.path.join(args.basePath, "spikesData")
     if args.dataName is None:
-        args.dataName = f"{args.truthName}_{hashlib.md5(os.urandom(32)).hexdigest()[:6]}"
+        args.dataName = f"{args.inputStates}_{hashlib.md5(os.urandom(32)).hexdigest()[:6]}"
 
     print("myArg-program:", parser.prog)
     for arg in vars(args):
@@ -166,7 +166,7 @@ def build_target_states_rr(n_steps, n_states, dwell_steps, rng):
     _print_state_stats(S_true, n_states, n_steps)
     return S_true, trans.astype(np.float32)
 
-def simulate_switching_poisson(n_steps, A, B_atoms, S_true, max_delta_c, dt, eta_clip, rng, verb=1):
+def simulate_switching_poisson(n_steps, A, B_atoms, S_true, state_change_speed, dt, eta_clip, rng, verb=1):
     """Switching Poisson generator: smooth c_t toward one-hot target state S_true[t]."""
     n_states, n_neurons = B_atoms.shape
     spikes = np.zeros((n_steps, n_neurons), dtype=np.int32)
@@ -180,7 +180,7 @@ def simulate_switching_poisson(n_steps, A, B_atoms, S_true, max_delta_c, dt, eta
         target[S_true[t]] = 1.0
 
         diff = target - c_curr
-        c_curr += np.clip(diff, -max_delta_c, max_delta_c)
+        c_curr += np.clip(diff, -state_change_speed, state_change_speed)
         c_sum = np.sum(c_curr)
         if c_sum <= 0:
             c_curr = target.copy()
@@ -221,21 +221,29 @@ def compute_oracle_states_comA(spikes, A, B_atoms, dt, eta_clip):
     return S_oracle
 
 
-def compute_oracle_score(S_true, S_oracle):
-    """Return agreement ratio between oracle and target states over full length."""
+def compute_oracle_score(S_true, S_oracle, n_states):
+    """Return overall and per-state agreement between oracle and target states."""
     if S_true is None or S_oracle is None:
-        return None
+        return None, []
     nmin = min(S_true.shape[0], S_oracle.shape[0])
     if nmin <= 0:
-        return None
-    return float(np.mean(S_true[:nmin] == S_oracle[:nmin]))
+        return None, []
+    avr_score = float(np.mean(S_true[:nmin] == S_oracle[:nmin]))
+    score_per_state = []
+    for m in range(n_states):
+        mask = S_true[:nmin] == m
+        if mask.sum() > 0:
+            score_per_state.append(float((S_oracle[:nmin][mask] == m).mean()))
+        else:
+            score_per_state.append(float("nan"))
+    return avr_score, score_per_state
 
 
 def main():
     args = get_parser()
     np.set_printoptions(precision=3, suppress=True)
 
-    daleFF = os.path.join(args.inpPath, f"{args.truthName}.simTruth.npz")
+    daleFF = os.path.join(args.inpPath, f"{args.inputStates}.simTruth.npz")
     daleD, daleMD = read_data_npz(daleFF, verb=args.verb > 0)
     if args.verb > 1:
         print("\nInput simTruth metadata:")
@@ -255,8 +263,8 @@ def main():
 
     assert args.num_steps >= 100
     assert step_size > 0
-    assert args.max_delta_c > 0
-    assert args.dwell_steps >= 1
+    assert args.state_change_speed > 0
+    assert args.true_dwell_steps >= 1
     assert max_samples >= 100
     assert var_time_window_sec > 0
 
@@ -269,14 +277,14 @@ def main():
 
     schedule_fn = {"mc": build_target_states_mc,
                    "rr": build_target_states_rr}[args.schedule]
-    S_true, transition_matrix = schedule_fn(args.num_steps, n_states, args.dwell_steps, rng)
+    S_true, transition_matrix = schedule_fn(args.num_steps, n_states, args.true_dwell_steps, rng)
 
     spikes, C_true = simulate_switching_poisson(
         n_steps=args.num_steps,
         A=A_atoms,
         B_atoms=B_atoms,
         S_true=S_true,
-        max_delta_c=args.max_delta_c,
+        state_change_speed=args.state_change_speed,
         dt=step_size,
         eta_clip=evol_conf_in['poisson_eta_clip'],
         rng=rng,
@@ -300,22 +308,22 @@ def main():
         verb=args.verb,
         spect_radius=None,
     )
-    oracle_score = compute_oracle_score(S_true, S_oracle)
-    dwell_time_sec = float(args.dwell_steps * step_size)
+    oracle_score, oracle_score_per_state = compute_oracle_score(S_true, S_oracle, n_states)
+    true_dwell_time_sec = float(args.true_dwell_steps * step_size)
 
     evol_conf = {
         "num_steps": int(args.num_steps),
         "step_size": float(step_size),
         "evol_time": float(args.num_steps * step_size),
-        "max_delta_c": float(args.max_delta_c),
-        "dwell_steps": int(args.dwell_steps),
-        "dwell_time_sec": dwell_time_sec,
+        "state_change_speed": float(args.state_change_speed),
+        "true_dwell_steps": int(args.true_dwell_steps),
+        "true_dwell_time_sec": true_dwell_time_sec,
         "num_states": int(n_states),
         "seed": args.seed,
         "state_schedule": args.schedule,
         "num_states": int(n_states),
         "max_samples": int(max_samples),
-        "truth_input_name" : args.truthName,
+        "truth_input_name" : args.inputStates,
     }
 
     dale_conf = dict(dale_conf_in)
@@ -348,15 +356,20 @@ def main():
         "sigle_rates_var": rates_dict["sigle_rates_var"],
         "single_fano_fact": rates_dict["single_fano_fact"],
      }
-  
+
+    
     prismTruthMD = {
         "short_name": args.dataName,
         "data_type": "simPrism",
         "var_time_window_sec": float(var_time_window_sec),
-        "oracle_score": oracle_score,
         "dale_conf": dale_conf,
         "evol_conf": evol_conf,
     }
+    prismTruthMD['oracle_eval'] = {
+        "avr_score": oracle_score,
+        "score_per_state": oracle_score_per_state,
+    }
+    
 
     #  "dale_simu_stats": [stats_meta],
     outFs = os.path.join(args.outPath, args.dataName + ".spikes.npz")
@@ -369,9 +382,14 @@ def main():
         print('\nprismTruth MD:'); pprint(prismTruthMD)
 
     if oracle_score is not None:
-        print(f"oracle score={oracle_score:.3f}  dataName={args.dataName}  N={n_neurons}  exc={num_excite}  dwell={dwell_time_sec:.2f} sec")
+        print(f"gen, oracle avr score {oracle_score:.3f}, {args.dataName}")
+        print(f"  {'state':>5s}  {'score':>5s}")
+        print(f"  {'-----':>5s}  {'-----':>5s}")
+        for m, sc in enumerate(oracle_score_per_state):
+            print(f"  {m:5d}  {sc:5.3f}")
 
     print("\n  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --idxState -1 --time_range_sec 0 20   -p b    " % args.dataName)
+    print("\n  ./prism_Estep_train.py --basePath $basePath   --dataName %s      " % args.dataName)
 
     print("  ./fit_lassoPoisson.py  --basePath $basePath  --dataName   %s   --num_epochs  50  " % args.dataName)
    

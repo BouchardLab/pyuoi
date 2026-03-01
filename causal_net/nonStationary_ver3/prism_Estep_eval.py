@@ -39,11 +39,30 @@ def eval_estep_metrics(fitD, md, spikes):
     t0_bin, t1_bin = trainMD["time_range_bins"]
     s_true = md["S_true"][t0_bin : t1_bin + 1]
     s_hat = fitD["S_hat"]
+    s_hat_cl = fitD["S_hat_CL"]
     n_cmp = min(s_true.shape[0], s_hat.shape[0])
     if n_cmp > 0:
         acc = float((s_true[:n_cmp] == s_hat[:n_cmp]).mean())
     else:
         acc = float("nan")
+
+    # Per-state average S_hat_CL and accuracy
+    M = int(trainMD["num_states"])
+    avg_cl_per_state = []
+    acc_per_state = []
+    for m in range(M):
+        mask = s_hat[:n_cmp] == m
+        cnt = int(mask.sum())
+        if cnt > 0:
+            avg_cl_per_state.append(float(s_hat_cl[:n_cmp][mask].mean()))
+            acc_per_state.append(float((s_true[:n_cmp][mask] == m).mean()))
+        else:
+            avg_cl_per_state.append(float("nan"))
+            acc_per_state.append(float("nan"))
+
+    # Store per-state metrics in decode_eval metadata
+    md["decode_eval"]["avg_cl_per_state"] = avg_cl_per_state
+    md["decode_eval"]["acc_per_state"] = acc_per_state
 
     A_true = md["A_true"]
     B_true = md["B_true"]
@@ -99,11 +118,16 @@ def main():
     MD["C_true"] = C_true
     MD["S_true"] = S_true
     MD["eval_Estep"] = eval_estep_metrics(fitD, MD, spikes) 
+    decE = MD["decode_eval"]
     print(
-        f"E-step evaluation accuracy: {MD['eval_Estep']['acc']:.3f} "
-        f"for decode_dwell_sec: {MD['train']['decode_dwell_sec']:.1f}"
+        f"E-step eval avr acc {MD['eval_Estep']['acc']:.3f}, {args.dataName}"
     )
+    print(f"  {'state':>5s}  {'CL':>6s}  {'acc':>5s}")
+    print(f"  {'-----':>5s}  {'------':>6s}  {'-----':>5s}")
+    for m, (cl, ac) in enumerate(zip(decE["avg_cl_per_state"], decE["acc_per_state"])):
+        print(f"  {m:5d}  {cl:6.3f}  {ac:5.3f}")
 
+    #pprint(decE)
     args.prjName = args.dataName
     plot = Plotter(args) 
 
