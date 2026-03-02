@@ -213,7 +213,7 @@ class Plotter(PlotterBackbone):
                 ax.set_ylim(smin - 0.5, smax + 0.5)
                 ax.set_yticks(np.arange(smin, smax + 1, 1))
                 ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-            ax.set_ylabel('state S')
+            ax.set_ylabel('oracle S')
             ax.set_title(f"oracle state{score_txt}")
             ax.grid()
         else:

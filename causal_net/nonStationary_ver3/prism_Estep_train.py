@@ -2,8 +2,47 @@
 """
 salloc -q shared_interactive -C gpu  -t 4:00:00  -N 1 -A m2043
 
-E-step training for non-stationary Poisson dLDS with simplex-constrained coefficients.
-Uses ground-truth dictionaries (A_true/B_true) to fit c_t sequentially.
+E-step feasibility test for non-stationary Poisson dLDS.
+
+Given the ground-truth dictionary (A_true, B_true) from gen_daleMatrices3.py,
+infer the simplex-valued state coefficients c_t in [Delta^{M-1}] for every
+time bin using projected gradient descent (PGD) on the probability simplex.
+
+This isolates the E-step of the EM framework to assess how well the latent
+state sequence can be recovered when the dictionary is perfectly known.
+
+Model (shared A, per-state B):
+  Z_t[m, :] = A @ Y_{t-1} + B_m          predictor matrix  (M x N)
+  eta_t      = c_t @ Z_t                  linear predictor  (N,)
+  lambda_t   = exp( clip(eta_t, max=eta_clip) ) * dt
+  Y_t       ~ Poisson(lambda_t)
+
+Per-step objective (minimised over c_t in Delta^{M-1}):
+  L_t(c_t) = sum_i [ exp(clip(eta_i)) * dt - Y_i * (eta_i + log dt) ]
+            + lambda2 * || c_t - c_{t-1} ||^2
+
+Optimisation:
+  - Sequential PGD: process bins t = 1 ... T in order.
+  - At each bin: pgd_iter gradient steps followed by simplex projection.
+  - Multiple epochs re-sweep the full time range using the previous
+    epoch's c_hat as warm start.
+
+Initialisation:  c_t = 1/M  (uniform) for all t.
+
+State decoding (post-hoc, no gradient):
+  S_hat[t] = argmax_m c_hat[t, m]
+  Optionally apply a minimum-dwell filter (--decode_inertia_sec) to
+  suppress short state flips.
+
+Confidence: S_hat_CL[t] = 1 - max_m c_hat[t, m]   (0 = fully confident).
+
+Hyperparameter defaults:
+  lambda2            = 2.0    temporal smoothness weight
+  lr                 = 0.03   PGD step size
+  pgd_iter           = 40     PGD iterations per time bin
+  num_epochs         = 1      passes over the time range
+  chunk_size         = 2048   bins per progress-print block
+  decode_inertia_sec = 0.0    minimum dwell filter (disabled)
 """
 
 import os
@@ -60,6 +99,8 @@ def project_to_simplex(v: torch.Tensor) -> torch.Tensor:
 
 def viterbi_decode(c_hat, p_stay):
     """Viterbi decode most likely state sequence from c_hat with stay/switch prior."""
+    """ Viterbi is a globally optimal probabilistic decoder. It operates on the soft coefficients c_hat (the simplex weights) and finds the single state sequence hat{S}_{1:T} that maximizes the joint probability of emissions and transitions simultaneously across all time bins.
+    """
     eps = 1e-12
     T, M = c_hat.shape
     if M == 1:
@@ -298,7 +339,7 @@ def main():
     write_data_npz(outD, outFF, metaD=outMD)
     print(f"Saved prism E-step fit to: {outFF}")
     print('   basePath=' + args.basePath)
-    print('   ./prism_Estep_eval.py  --basePath $basePath  --dataName %s   -p b a   \n ' % (out_base))
+    print('   ./prism_Estep_eval.py  --basePath $basePath  --dataName %s   -p b a  -X \n ' % (out_base))
 
 if __name__ == "__main__":
     main()

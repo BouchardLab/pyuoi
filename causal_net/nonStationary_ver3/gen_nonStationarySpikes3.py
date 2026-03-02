@@ -1,28 +1,44 @@
 #!/usr/bin/env python3
 """
-Generate one spike train from A/B dictionary atoms in <inputStates>.simTruth.npz.
+Generate one non-stationary spike train using the ground-truth dictionary
+(A_true, B_true) produced by gen_daleMatrices3.py.
 
-Generation logic matches toy_Mudrik_spiker.py (smooth switching coefficients
-and Poisson spikes). I/O pattern follows view_spikesTrain.py for reading,
-and output writing follows gen_daleMatrices.py.
+The connectivity matrix A is shared across all states.  Each state m has its
+own bias vector B_m.  At every time bin the effective bias is the convex
+combination  B_eff = sum_m c_mt * B_m,  where c_t tracks a slowly-moving
+target that aims at the one-hot vector of the current target state S_true[t].
 
-Output files:
-  <basePath>/spikesData/<dataName>.spikes.npz
-  <basePath>/spikesData/<dataName>.prismTruth.npz
+State-sequence schedules (--schedule):
+  mc  — Markov chain with geometric dwell (mean = true_dwell_steps),
+        minimum dwell = ceil(0.3 * true_dwell_steps).
+  rr  — Round-robin: states cycle 0,1,...,M-1 with exactly true_dwell_steps
+        bins per visit.
 
-Output arrays in .spikes.npz:
-  spikes            (T, N) int32
-  single_rates      (N,)   float
+Smooth coefficient update at each bin (state_change_speed = nu):
+  c_t  <- Simplex_project( c_{t-1} + clip(e_{S_t} - c_{t-1}, -nu, nu) )
 
-Output arrays in .prismTruth.npz:
-  S_true            (T,)   int32
-  C_true            (T, M) float32
-  state_transition  (M, M) float32
-  sigle_rates_var   (N,)   float
-  single_fano_fact  (N,)   float
+Spike generation (Poisson GLM):
+  eta_t   = A @ Y_{t-1} + B_eff
+  lambda_t = exp( clip(eta_t, -eta_clip, eta_clip) ) * dt
+  Y_t     ~ Poisson(lambda_t)
 
-Here is the patched file with --schedule mc (existing behavior) and --schedule rr (round-robin):
+An oracle state sequence S_oracle is also computed: at each t the state with
+the highest Poisson log-likelihood given (A, {B_m}) and the observed spikes.
 
+Output files saved to <basePath>/spikesData/:
+  <dataName>.spikes.npz     — spikes (T, N) int32, single_rates (N,)
+  <dataName>.prismTruth.npz — S_true, C_true, S_oracle, state_transition,
+                               A_true, B_true, rate variance, Fano factor
+
+Output shapes (T = num_steps, N = num_neurons, M = num_states):
+  spikes            (T, N)    int32   — non-stationary spike counts
+  single_rates      (N,)      float   — mean firing rates (Hz)
+  S_true            (T,)      int32   — target state index per bin
+  C_true            (T, M)    float32 — smooth simplex coefficients
+  S_oracle          (T,)      int32   — oracle (max-likelihood) state per bin
+  state_transition  (M, M)    float32 — Markov transition matrix used/implied
+  A_true            (N, N)    float   — shared connectivity matrix (copy)
+  B_true            (M, N)    float   — per-state bias vectors (copy)
 """
 
 import os
@@ -43,8 +59,8 @@ def get_parser():
     parser.add_argument("--dataName", type=str, default=None, help="output spikes base name (default: <inputStates>_<hash6>)")
 
     parser.add_argument("-t", "--num_steps", type=int, default=None, help="Number of time steps (default: from input evol_conf)")
-    parser.add_argument("--state_change_speed", type=float, default=0.2, help="Max coefficient change per step.")
-    parser.add_argument("--true_dwell_steps", type=int, default=200, help="Mean number of steps to stay in a target state.")
+    parser.add_argument("--state_change_speed", type=float, default=0.33, help="Max coefficient change per step.")
+    parser.add_argument("--true_dwell_steps", type=int, default=30, help="Mean number of steps to stay in a target state.")
     parser.add_argument("--seed", type=int, default=42, help="Optional random seed.")
     parser.add_argument("--schedule", choices=["mc", "rr"], default="mc",
                         help="State schedule: 'mc' = random Markov chain (default), "
@@ -241,6 +257,7 @@ def compute_oracle_score(S_true, S_oracle, n_states):
 
 def main():
     args = get_parser()
+    print('gen non-stationary spikes args:', vars(args), '\n')
     np.set_printoptions(precision=3, suppress=True)
 
     daleFF = os.path.join(args.inpPath, f"{args.inputStates}.simTruth.npz")
@@ -388,7 +405,7 @@ def main():
         for m, sc in enumerate(oracle_score_per_state):
             print(f"  {m:5d}  {sc:5.3f}")
 
-    print("\n  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --idxState -1 --time_range_sec 0 20   -p b    " % args.dataName)
+    print("\n  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --idxState -1 --time_range_sec 0 6   -p b    " % args.dataName)
     print("\n  ./prism_Estep_train.py --basePath $basePath   --dataName %s      " % args.dataName)
 
     print("  ./fit_lassoPoisson.py  --basePath $basePath  --dataName   %s   --num_epochs  50  " % args.dataName)

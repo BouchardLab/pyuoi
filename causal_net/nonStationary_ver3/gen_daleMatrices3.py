@@ -3,39 +3,41 @@
  ./gen_daleMatrices3.py --num_neurons 100 --num_excite 70 --num_steps 10000 --dataName test1
  ./gen_daleMatrices3.py --num_neurons 100 --num_excite 70 --spectral_radius 0.5 --Boffsets 0 10 20 --dataName test2
 
-Dale Poisson Simulator — generates synthetic spike data from a recurrent
-neuronal network obeying Dale's principle using a discrete-time Poisson
-GLM (generalized linear model).
+Primary purpose: generate the ground-truth dictionary (A_true, B_true) for use
+by gen_nonStationarySpikes3.py.  The stationary spike generation performed here
+is for evaluation only (firing-rate sanity check per B-vector).
 
 Dale's principle: each neuron is either excitatory (positive outgoing
 weights) or inhibitory (negative outgoing weights), never both.
 
 Pipeline:
-1. Sparse connectivity mask E_true (shared across all spectral radii).
+1. Sparse connectivity mask E_true (N, N).
    Each neuron draws its own connection probability uniformly from
-   --edge_prob [lo, hi], producing a binary N x N mask.
+   --edge_prob [lo, hi].  Self-loops (diagonal) are always included.
 
-2. Generate a single weight matrix A_true for the target spectral radius.
-3. For each B-offset in --Boffsets:
-   a) Bias vector B_true is sampled from log-uniform in
-      [idleRate_lo + offset, idleRate_hi + offset], then scaled by
-      the spectral radius.
-   b) Spike time series Y is generated via a stationary VAR(1) Poisson
-      process:  Y_t ~ Poisson(exp(A @ Y_{t-1} + B) * dt).
-   c) Firing-rate statistics (rates, Fano factor, coincidence
-      rate) are computed by estimate_rates().
+2. Generate ONE weight matrix A_true for --spectral_radius R:
+   - Excitatory rows (0..N_E-1): weights ~ Uniform(1-v, 1+v), v=0.2.
+   - Inhibitory rows (N_E..N-1): weights ~ Uniform(-r-rv, -r+rv),
+     r = N_E/N_I (balance ratio).
+   - Mask with E_true, then rescale so rho(A_true) = R exactly.
 
-3. All results are stacked along axis 0 (spectral-radius dimension)
-   and saved into two .npz files:
-     <dataName>.simTruth.npz  — A_true, B_true, E_true, metadata
-     <dataName>.spikes.npz    — spikes, single_rates, variance, Fano
+3. For each offset in --Boffsets generate one bias vector B_m (N,):
+   - idle rate range shifted by offset, converted to log scale,
+     with separate corrections for excitatory and inhibitory neurons.
+   - Stationary spikes Y are simulated (for evaluation) via
+     Y_t ~ Poisson(exp(clip(A @ Y_{t-1} + B_m, max=eta_clip)) * dt).
+   - Firing-rate statistics (rate, variance, Fano factor) computed.
 
-Output shapes (nB = len(Boffsets), N = num_neurons, T = num_steps):
-  E_true        (N, N)       int    — shared connectivity mask
-  A_true        (N, N)       float  — weight matrix
-  B_true        (nB, N)      float  — bias vectors
-  spikes        (nB, T, N)   uint8  — spike counts
-  single_rates  (nB, N)      float  — mean firing rates (Hz)
+Output files saved to <basePath>/truthDale/:
+  <dataName>.simTruth.npz   — A_true, B_true, E_true + metadata
+  <dataName>.spikes.npz     — stationary spikes + rate statistics
+
+Output shapes (M = len(Boffsets), N = num_neurons, T = num_steps):
+  E_true        (N, N)    int    — shared binary connectivity mask
+  A_true        (N, N)    float  — single shared weight matrix
+  B_true        (M, N)    float  — one bias vector per state/offset
+  spikes        (M, T, N) uint8  — stationary spikes per bias vector
+  single_rates  (M, N)    float  — mean firing rates (Hz) per bias vector
 """
 
 import numpy as np
@@ -228,9 +230,9 @@ def main():
         args.dataName='daleN%d_'%args.num_neurons+hashlib.md5(os.urandom(32)).hexdigest()[:6]
 
     outPath=os.path.join(args.basePath, 'truthDale')
-    print("\nStarting simulation with configuration:")
-    print(vars(args))
-
+    
+    print('gen dale matrices args:', vars(args), '\n')
+   
     # Validation checks
     Nn = args.num_neurons
     assert Nn >= 10
@@ -350,7 +352,7 @@ def main():
     print("     basePath="+args.basePath)
     print("  ./view_daleMatrix3.py  --basePath $basePath   --dataName %s  -p b -m 0   -X  -p a c d  " % args.dataName)
     print("  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --time_range_sec 0 20 -p b -m 0   -X " % args.dataName)
-    print("  ./gen_nonStationarySpikes3.py  --basePath $basePath   --truthName %s     --dwell_steps 50 " % args.dataName)
+    print("  ./gen_nonStationarySpikes3.py  --basePath $basePath   --inputStatesxs %s     --true_dwell_steps 30 " % args.dataName)
     print("  ./fit_lassoPoisson.py  --basePath $basePath  --inpPath ${basePath}/truthDale --dataName   %s   --num_epochs  50  " % args.dataName)
    
 
