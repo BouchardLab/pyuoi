@@ -427,7 +427,7 @@ class Plotter(PlotterBackbone):
         norm = colors.BoundaryNorm(bounds, cmap_conf.N)
         ax = self.plt.subplot(gs[2])
         im = ax.imshow(conf_map, cmap=cmap_conf, norm=norm, origin='lower')
-        ax.set(title='Confusion map')
+        ax.set(title='A confusion map')
         cbar = self.plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
         cbar.set_ticks([0,1,2,3])
         cbar.set_ticklabels(['TN','FN','FP','TP'])
@@ -446,9 +446,9 @@ class Plotter(PlotterBackbone):
         for name, val in zip(bar_names, vals):
             ax.text(name, y_pos, f"{val}", ha='center', va='center', fontsize=10)
         txt=f'precision={precision:.3f}\nrecall={recall:.3f}\nf1={f1:.3f}\nacc={acc:.3f}'
-        ax.text(0.55, 0.75,  txt, transform=ax.transAxes)
+        ax.text(0.55, 0.70,  txt, transform=ax.transAxes)
 
-        ax.set_title('stats')
+        ax.set_title('A edges classification')
         ax.grid(axis='y', alpha=0.4)
 
         fig.subplots_adjust(bottom=0.18)
@@ -553,7 +553,7 @@ class Plotter(PlotterBackbone):
                   f'Rejected: {n_rejected:,} ({n_rejected/n_total*100:.1f}%)\n'
                   f'abs(x) cutoff: ±{threshold:.3f}')
     
-        ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, 
+        ax.text(0.02, 0.90, stats_text, transform=ax.transAxes, 
             fontsize=10, verticalalignment='top')
        
 
@@ -608,7 +608,7 @@ def plot_trainingCurves(ax,fitD,md,title='aa3'):
 
 def add_delay_markers(ax, fmd):
     """Add dashed black vertical lines at delayed-constraint boundaries."""
-    delay = fmd.get('delay_epoch', None)
+    delay = fmd.get('L1_prune_epoch', None)
     if delay is None:
         return
     delay = int(delay)

@@ -101,9 +101,9 @@ def preprocess_data(Y, args):
 
 def train_Poisson_model(model, device, train_loader, n_epochs, lr, L1_alpha=0.0, use_scheduler=False,
                         firing_rates=None, train_sampler=None, print_every=20, apply_prox=False,
-                        lr_end_factor=0.03, minW=1e-6, rho_max=0.99, rho_enforce_every_batch=10, delay_epoch=0):
-    if delay_epoch < 0:
-        raise ValueError(f"delay_epoch must be >= 0, got {delay_epoch}")
+                        lr_end_factor=0.03, minW=1e-6, rho_max=0.99, rho_enforce_every_batch=10, L1_prune_epoch=0):
+    if L1_prune_epoch < 0:
+        raise ValueError(f"L1_prune_epoch must be >= 0, got {L1_prune_epoch}")
     if rho_enforce_every_batch < 1:
         raise ValueError(f"rho_enforce_every_batch must be >= 1, got {rho_enforce_every_batch}")
     use_fused = (isinstance(device, torch.device) and device.type=='cuda' and torch.cuda.is_available())
@@ -132,7 +132,7 @@ def train_Poisson_model(model, device, train_loader, n_epochs, lr, L1_alpha=0.0,
         train_loss_w_L1 = 0
         train_loss_wo_L1 = 0
         apply_rho = True
-        apply_prune = (epoch >= delay_epoch)
+        apply_prune = (epoch >= L1_prune_epoch)
         for batch_idx, (Y_prev, Y_curr) in enumerate(train_loader):
             Y_prev, Y_curr = Y_prev.float().to(device, non_blocking=True), Y_curr.float().to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
