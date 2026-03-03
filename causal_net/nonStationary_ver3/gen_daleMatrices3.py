@@ -352,7 +352,7 @@ def main():
     print("     basePath="+args.basePath)
     print("  ./view_daleMatrix3.py  --basePath $basePath   --dataName %s  -p b -m 0   -X  -p a c d  " % args.dataName)
     print("  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --time_range_sec 0 20 -p b -m 0   -X " % args.dataName)
-    print("  ./gen_nonStationarySpikes3.py  --basePath $basePath   --inputStatesxs %s     --true_dwell_steps 30 " % args.dataName)
+    print("  ./gen_nonStationarySpikes3.py  --basePath $basePath   --inputStates %s     --true_dwell_steps 30 " % args.dataName)
     print("  ./fit_lassoPoisson.py  --basePath $basePath  --inpPath ${basePath}/truthDale --dataName   %s   --num_epochs  50  " % args.dataName)
    
 

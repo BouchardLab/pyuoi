@@ -408,7 +408,7 @@ def main():
     print("\n  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --idxState -1 --time_range_sec 0 6   -p b    " % args.dataName)
     print("\n  ./prism_Estep_train.py --basePath $basePath   --dataName %s      " % args.dataName)
 
-    print("  ./fit_lassoPoisson.py  --basePath $basePath  --dataName   %s   --num_epochs  50  " % args.dataName)
+    print("  ./fit_lassoPoisson3.py  --basePath $basePath  --dataName   %s   --num_epochs  300  " % args.dataName)
    
     print("  ./fitLasso4GPU.sh   --basePath $basePath     --dataName %s  --num_epochs 100  " % args.dataName)
     print("  ./bigLassoBoots.sh    --basePath $basePath     --dataName %s  --num_epochs 100  --dropDataFrac 0.33  --num_bootstraps 2   --bootsTag b2   --desyncTime  " % args.dataName)
