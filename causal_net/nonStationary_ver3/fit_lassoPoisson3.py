@@ -69,6 +69,7 @@ def main():
     dataYield = spikeD['spikes']
     dataRates = spikeD['single_rates']
     step_size = spikeMD['time_step_sec']
+    eta_clip    = spikeMD["poisson_eta_clip"]
     if 'simDale' in spikeMD['data_type']:
         _, _, Nn = dataYield.shape
         dataYield = dataYield[0]
@@ -90,7 +91,7 @@ def main():
     train_loader = make_loader(X_np, Yt_np, args, is_dist=False)
     print(f"Loaded pairs={n_pairs/1000}k, Nn={Nn}, using {n_pairs/1000}k pairs (all for training), batch_size={args.batch_size}")
 
-    model = PoissonGLModel(Nn).to(device)
+    model = PoissonGLModel(Nn, eta_clip=eta_clip).to(device)
     start_time = time.time()
     losses_total, losses_wo_L1, learning_rates, train_epochs, sparsity_epoch, nz_offdiag_epoch, spectral_radius_epoch = train_Poisson_model(
         model, device, train_loader, args.num_epochs, lr=args.lr, L1_alpha=args.L1_alpha, firing_rates=dataRates, use_scheduler=True,

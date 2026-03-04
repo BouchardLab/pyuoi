@@ -19,7 +19,7 @@ Smooth coefficient update at each bin (state_change_speed = nu):
 
 Spike generation (Poisson GLM):
   eta_t   = A @ Y_{t-1} + B_eff
-  lambda_t = exp( clip(eta_t, -eta_clip, eta_clip) ) * dt
+  lambda_t = exp( clip(eta_t, max=eta_clip) ) * dt
   Y_t     ~ Poisson(lambda_t)
 
 An oracle state sequence S_oracle is also computed: at each t the state with
@@ -213,7 +213,7 @@ def simulate_switching_poisson(n_steps, A, B_atoms, S_true, state_change_speed, 
 
         prev_y = spikes[t - 1].astype(float) if t > 0 else np.zeros(n_neurons, dtype=float)
         eta_t = A_eff @ prev_y + B_eff
-        lambda_t = np.exp(np.clip(eta_t, -eta_clip, eta_clip))
+        lambda_t = np.exp(np.clip(eta_t, max=eta_clip))
         spikes[t] = rng.poisson(lambda_t * dt).astype(np.int32)
 
     return spikes, C_true
@@ -229,7 +229,7 @@ def compute_oracle_states_comA(spikes, A, B_atoms, dt, eta_clip):
         y_curr = spikes[t].astype(np.float64)
         base = A @ prev_y
         eta = base[None, :] + B_atoms
-        eta_c = np.clip(eta, -eta_clip, eta_clip)
+        eta_c = np.clip(eta, max=eta_clip)
         lam = np.exp(eta_c) * dt
         scores = np.sum(y_curr * eta_c - lam, axis=1)
         S_oracle[t] = int(np.argmax(scores))
@@ -407,6 +407,7 @@ def main():
 
     print("\n  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --idxState -1 --time_range_sec 0 6   -p b    " % args.dataName)
     print("\n  ./prism_Estep_train.py --basePath $basePath   --dataName %s      " % args.dataName)
+    print("\n  ./prism_Mstep_train3.py --basePath $basePath   --dataName %s      " % args.dataName)
 
     print("  ./fit_lassoPoisson3.py  --basePath $basePath  --dataName   %s   --num_epochs  300  " % args.dataName)
    

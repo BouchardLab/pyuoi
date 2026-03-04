@@ -140,8 +140,8 @@ def set_flat_selfSpiking(Nn, idleRate, spect_radius, num_excite, boffsets):
             B_all[ib, :num_excite] +=-0.3  - R*1.5 - sizeScale# reduce excitatory rate
             B_all[ib, num_excite:] += 1.7  # reduce  inhibitory rate  
         if 1:  # for ver 3b
-            B_all[ib, :num_excite] +=1.  - R*1.5 - sizeScale # reduce excitatory rate
-            #B_all[ib, num_excite:] += 1.7  # reduce  inhibitory rate  
+            B_all[ib, :num_excite] +=0.8  - R*1.5 - sizeScale # reduce excitatory rate
+            #B_all[ib, num_excite:] += 0.5  # reduce  inhibitory rate  
     return B_all
 
 def gen_stationary_lag1_poisson(num_steps, dt, A, B_intercept, num_excite, eta_clip,verb=0):

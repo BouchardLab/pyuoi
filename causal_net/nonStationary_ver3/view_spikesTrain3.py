@@ -38,7 +38,7 @@ def get_parser():
     parser.add_argument('-m', '--idxState', type=int, default=0, help="Index into state list; if idxState<0 read spikes from spikesData/")
 
     parser.add_argument('-T','--time_range_sec' , default=[0., 50],  nargs=2,   type=float, help='display data time range in seconds')
-    parser.add_argument('-r','--time_rebin2', default=20, type=int, help='rebin current time axis')
+    parser.add_argument('-r','--time_rebin2', default=5, type=int, help='rebin current time axis')
    
     args = parser.parse_args()
     # make arguments more flexible

@@ -29,14 +29,15 @@ class PoissonGLModel(nn.Module):
     rate_t = exp(A @ Y_prev + B) * dt
 
     Constructor:
-      PoissonGLM(n_neurons)
+      PoissonGLM(n_neurons, eta_clip)
         - Stage A: random initialization of A and B
-      PoissonGLM(n_neurons, A_init, B_init, trainable_mask)
+      PoissonGLM(n_neurons, eta_clip, A_init, B_init, trainable_mask)
         - Stage B: efficient parameterization with only trainable weights in a single tensor
     """
-    def __init__(self, n_neurons, A_init=None, B_init=None, trainable_mask=None, noise_scale=0.0):
+    def __init__(self, n_neurons, eta_clip, A_init=None, B_init=None, trainable_mask=None, noise_scale=0.0):
         super().__init__()
         self.n_neurons = n_neurons
+        self.eta_clip = float(eta_clip)
         
         if A_init is None:  # Stage A: standard parameterization
             self.A = nn.Parameter(torch.randn(n_neurons, n_neurons) * 0.1)
@@ -102,7 +103,8 @@ class PoissonGLModel(nn.Module):
             return self.C[self.n_trainable_A:]
 
     def forward(self, Y_prev, dt=0.01):
-        linear = torch.addmm(self.B.unsqueeze(0), Y_prev, self.A.t()).clamp(min=-10, max=10)
+        linear = torch.addmm(self.B.unsqueeze(0), Y_prev, self.A.t())
+        linear = torch.clamp(linear, max=self.eta_clip)
         return torch.exp(linear) * dt
 
 
