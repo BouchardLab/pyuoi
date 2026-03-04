@@ -3,7 +3,9 @@
 Single-GPU prism M-step training for non-stationary Poisson GLM.
 
 Fits a shared connectivity matrix A and per-state bias vectors B_hat[m]
-using ground-truth hard state assignments S_true(t) from prismTruth.
+using ground-truth state targets from prismTruth:
+  - soft mode: C_true(t) simplex coefficients (default)
+  - hard mode: S_true(t) one-hot state assignments
 """
 
 import os
@@ -24,7 +26,7 @@ from UtilTorch import check_gpu_availability
 
 
 class SwitchingPoissonGLModel(nn.Module):
-    """Shared A, per-state B[m], hard assignment by state index."""
+    """Shared A, per-state B[m], mixed by per-sample coefficients."""
     def __init__(self, n_neurons, n_states, eta_clip):
         super().__init__()
         self.n_neurons = int(n_neurons)
@@ -33,18 +35,21 @@ class SwitchingPoissonGLModel(nn.Module):
         self.A = nn.Parameter(torch.randn(self.n_neurons, self.n_neurons) * 0.1)
         self.B = nn.Parameter(torch.randn(self.n_states, self.n_neurons) * 0.1)
 
-    def forward(self, y_prev, s_idx, dt):
-        linear = torch.addmm(self.B[s_idx], y_prev, self.A.t())
+    def forward(self, y_prev, c_coeff, dt):
+        base = y_prev @ self.A.t()
+        b_eff = c_coeff @ self.B
+        linear = base + b_eff
         linear = torch.clamp(linear, max=self.eta_clip)
         return torch.exp(linear) * dt
 
 
-class NumpyTripletDataset(Dataset):
-    def __init__(self, x_np, y_np, s_np):
-        assert x_np.shape[0] == y_np.shape[0] == s_np.shape[0]
+class NumpyQuartetDataset(Dataset):
+    def __init__(self, x_np, y_np, s_np, c_np):
+        assert x_np.shape[0] == y_np.shape[0] == s_np.shape[0] == c_np.shape[0]
         self.x = x_np
         self.y = y_np
         self.s = s_np
+        self.c = c_np
 
     def __len__(self):
         return self.x.shape[0]
@@ -54,11 +59,12 @@ class NumpyTripletDataset(Dataset):
             torch.from_numpy(self.x[idx]).to(dtype=torch.float32),
             torch.from_numpy(self.y[idx]).to(dtype=torch.float32),
             torch.tensor(self.s[idx], dtype=torch.long),
+            torch.from_numpy(self.c[idx]).to(dtype=torch.float32),
         )
 
 
-def make_loader_xys(x_np, y_np, s_np, batch_size, shuffle=True):
-    ds = NumpyTripletDataset(x_np, y_np, s_np)
+def make_loader_xysc(x_np, y_np, s_np, c_np, batch_size, shuffle=True):
+    ds = NumpyQuartetDataset(x_np, y_np, s_np, c_np)
     return DataLoader(
         ds,
         batch_size=batch_size,
@@ -114,11 +120,20 @@ def enforce_spectral_radius_(A, rho_max, eps=1e-12):
             A.mul_(float(rho_max) / float(rho + eps))
 
 
-def preprocess_data_with_states(spikes, s_true, args):
+def _one_hot_from_indices(s_idx, n_states):
+    out = np.zeros((s_idx.shape[0], n_states), dtype=np.float32)
+    out[np.arange(s_idx.shape[0]), s_idx] = 1.0
+    return out
+
+
+def preprocess_data_with_truth(spikes, s_true, c_true, n_states, args, soft_labels=True):
     y = np.asarray(spikes)
     s_true = np.asarray(s_true).astype(np.int64)
+    c_true = np.asarray(c_true).astype(np.float32)
     nt, nn = y.shape
     assert s_true.shape[0] == nt, "S_true length mismatch with spikes length"
+    assert c_true.shape[0] == nt, "C_true length mismatch with spikes length"
+    assert c_true.shape[1] == n_states, f"C_true second dim mismatch: got {c_true.shape[1]} expected {n_states}"
 
     if args.desyncTime:
         seed = int(time.time() * 1000) % 1000000
@@ -138,6 +153,10 @@ def preprocess_data_with_states(spikes, s_true, args):
     x_np = y[:num_samples]
     yt_np = y[1:num_samples + 1]
     s_np = s_true[1:num_samples + 1]
+    if soft_labels:
+        c_np = c_true[1:num_samples + 1]
+    else:
+        c_np = _one_hot_from_indices(s_np, n_states)
 
     if args.dropDataFrac > 0:
         n_pairs = x_np.shape[0]
@@ -150,9 +169,15 @@ def preprocess_data_with_states(spikes, s_true, args):
         x_np = x_np[keep_indices]
         yt_np = yt_np[keep_indices]
         s_np = s_np[keep_indices]
+        c_np = c_np[keep_indices]
         print(f"Dropped {args.dropDataFrac:.1%} of data, keeping {x_np.shape[0]} samples (seed={drop_seed})")
 
-    return x_np.astype(np.float32), yt_np.astype(np.float32), s_np.astype(np.int64)
+    return (
+        x_np.astype(np.float32),
+        yt_np.astype(np.float32),
+        s_np.astype(np.int64),
+        c_np.astype(np.float32),
+    )
 
 
 def train_switching_mstep_model(
@@ -206,15 +231,16 @@ def train_switching_mstep_model(
         sum_nll = 0.0
         sum_l1 = 0.0
         state_nll_sum = np.zeros((model.n_states,), dtype=np.float64)
-        state_n_count = np.zeros((model.n_states,), dtype=np.int64)
+        state_n_count = np.zeros((model.n_states,), dtype=np.float64)
 
-        for batch_idx, (y_prev, y_curr, s_idx) in enumerate(train_loader):
+        for batch_idx, (y_prev, y_curr, s_idx, c_coeff) in enumerate(train_loader):
             y_prev = y_prev.float().to(device, non_blocking=True)
             y_curr = y_curr.float().to(device, non_blocking=True)
             s_idx = s_idx.long().to(device, non_blocking=True)
+            c_coeff = c_coeff.float().to(device, non_blocking=True)
 
             optimizer.zero_grad(set_to_none=True)
-            spikes = model(y_prev, s_idx, dt=dt)
+            spikes = model(y_prev, c_coeff, dt=dt)
             nll_per_sample = poisson_nll_weighted_per_sample(spikes, y_curr, firing_rates_t)
             base_loss = nll_per_sample.mean()
             if L1_alpha > 0:
@@ -234,12 +260,12 @@ def train_switching_mstep_model(
             sum_nll += float(base_loss.item())
             sum_l1 += float(l1_term.item())
             for m in range(model.n_states):
-                mask = (s_idx == m)
-                cnt = int(mask.sum().item())
-                if cnt == 0:
+                w = c_coeff[:, m]
+                w_sum = float(w.sum().item())
+                if w_sum <= 0.0:
                     continue
-                state_nll_sum[m] += float(nll_per_sample[mask].sum().item())
-                state_n_count[m] += cnt
+                state_nll_sum[m] += float((nll_per_sample * w).sum().item())
+                state_n_count[m] += w_sum
 
         n_batches = float(len(train_loader))
         loss_epoch.append(sum_tot / n_batches)
@@ -263,7 +289,7 @@ def train_switching_mstep_model(
         if scheduler is not None:
             scheduler.step()
 
-        if (epoch + 1) % 20 == 0 or (epoch + 1) == n_epochs:
+        if (epoch + 1) % 5 == 0 or (epoch + 1) == n_epochs:
             print(
                 f"Epoch {epoch+1}/{n_epochs}:  NLL={loss_nll_epoch[-1]:.5g}, "
                 f"L1={loss_l1_epoch[-1]:.5g}, A_sparsity={sparsity:.3f}, "
@@ -295,23 +321,26 @@ def main():
     parser.add_argument("--batch_size", type=int, default=2048)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--L1_alpha", type=float, default=0.02, help="L1 regularization strength, higher=more sparse (0: disable soft-thresholding)")
-    parser.add_argument("--rho_max", type=float, default=0.97, help="Maximum allowed spectral radius of A; projection applied after each batch")
+    parser.add_argument("--rho_max", type=float, default=0.92, help="Maximum allowed spectral radius of A; projection applied after each batch")
     parser.add_argument("--rho_enforce_every_batch", type=int, default=20, help="Apply spectral-radius projection every N batches")
-    parser.add_argument("--L1_prune_epoch", type=int, default=50, help="Delay L1 edge-pruning only; spectral-radius correction starts immediately")
+    parser.add_argument("--L1_prune_epoch", type=int, default=None, help="Delay L1 edge-pruning only; spectral-radius correction starts immediately")
     parser.add_argument("--minW", type=float, default=0.01, help="Threshold for A-matrix eval, not for fitting")
     parser.add_argument("--fitName", type=str, default=None)
     parser.add_argument("--desyncTime", action='store_true', help="If true completely shuffle time axis for input data, independently for all channels")
     parser.add_argument("--dropDataFrac", type=float, default=0.0, help="Fraction of training samples to randomly drop (0.0=use all data, 0.3=drop 30%%)")
+    parser.add_argument("--state_label_mode", type=str, choices=["soft", "hard"], default="soft", help="State target type: soft uses C_true, hard uses S_true one-hot.")
     parser.add_argument("--verb", "-v", type=int, default=1, help="Verbosity level")
 
     args = parser.parse_args()
 
     inpPath = os.path.join(args.basePath, 'spikesData')
     outPath = os.path.join(args.basePath, 'prismFit')
-    os.makedirs(outPath, exist_ok=True)
+    if args.L1_prune_epoch is None:
+        args.L1_prune_epoch = args.num_epochs // 3
 
     device = check_gpu_availability()
     print("\nPrism M-step Config:", vars(args), "\n")
+    assert os.path.exists(outPath) 
 
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -339,6 +368,7 @@ def main():
         print("\nprismTruth metadata:")
         pprint(trueMD)
     S_true = trueD["S_true"].astype(np.int64)
+    C_true = trueD["C_true"].astype(np.float32)
     evol_conf = trueMD.get("evol_conf", {})
     if "num_states" in evol_conf:
         n_states = int(evol_conf["num_states"])
@@ -347,9 +377,12 @@ def main():
     else:
         n_states = int(np.max(S_true) + 1)
 
-    x_np, yt_np, s_np = preprocess_data_with_states(dataYield, S_true, args)
+    use_soft_labels = (args.state_label_mode == "soft")
+    x_np, yt_np, s_np, c_np = preprocess_data_with_truth(
+        dataYield, S_true, C_true, n_states=n_states, args=args, soft_labels=use_soft_labels
+    )
     n_pairs = x_np.shape[0]
-    print(f"Preprocessed data: X={x_np.shape}, Y={yt_np.shape}, S={s_np.shape}, n_pairs={n_pairs}")
+    print(f"Preprocessed data: X={x_np.shape}, Y={yt_np.shape}, S={s_np.shape}, C={c_np.shape}, n_pairs={n_pairs}")
 
     assert n_pairs >= args.batch_size, (
         f"ERROR: Not enough samples ({n_pairs}) for batch size ({args.batch_size}) after data dropping."
@@ -359,13 +392,17 @@ def main():
         raise ValueError(f"S_true contains state id outside [0,{n_states-1}]")
 
     state_counts = np.bincount(s_np, minlength=n_states)
+    state_mass = np.sum(c_np, axis=0)
     if args.verb > 0:
         frac = state_counts / max(1, state_counts.sum())
         msg = "  ".join(f"s{m}:{state_counts[m]}({frac[m]:.1%})" for m in range(n_states))
-        print(f"Training state coverage: {msg}")
+        frac_mass = state_mass / max(1e-12, state_mass.sum())
+        msg_mass = "  ".join(f"s{m}:{state_mass[m]:.1f}({frac_mass[m]:.1%})" for m in range(n_states))
+        print(f"Training hard coverage: {msg}")
+        print(f"Training coeff mass ({args.state_label_mode}): {msg_mass}")
 
-    train_loader = make_loader_xys(x_np, yt_np, s_np, batch_size=args.batch_size, shuffle=True)
-    print(f"Loaded pairs={n_pairs/1000:.3f}k, Nn={Nn}, M={n_states}, batch_size={args.batch_size}")
+    train_loader = make_loader_xysc(x_np, yt_np, s_np, c_np, batch_size=args.batch_size, shuffle=True)
+    print(f"Loaded pairs={n_pairs/1000:.3f}k, Nn={Nn}, M={n_states}, batch_size={args.batch_size}, labels={args.state_label_mode}")
 
     model = SwitchingPoissonGLModel(Nn, n_states=n_states, eta_clip=eta_clip).to(device)
     start_time = time.time()
@@ -423,6 +460,7 @@ def main():
         "L1_prune_epoch": int(args.L1_prune_epoch),
         "minW": float(args.minW),
         "dropDataFrac": float(args.dropDataFrac),
+        "state_label_mode": str(args.state_label_mode),
         "time_step_sec": float(step_size),
         "eta_clip": float(eta_clip),
         "num_neurons": int(Nn),
