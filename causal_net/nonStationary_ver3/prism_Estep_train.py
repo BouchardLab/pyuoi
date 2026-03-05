@@ -136,7 +136,7 @@ def main():
     outPath = os.path.join(args.basePath, "prismFit")
     assert os.path.exists(outPath)
 
-    print('E-train args:', vars(args), '\n')
+    print('\nE-train args:', vars(args), '\n')
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)

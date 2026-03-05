@@ -4,8 +4,7 @@ Single-GPU prism M-step training for non-stationary Poisson GLM.
 
 Fits a shared connectivity matrix A and per-state bias vectors B_hat[m]
 using ground-truth state targets from prismTruth:
-  - soft mode: C_true(t) simplex coefficients (default)
-  - hard mode: S_true(t) one-hot state assignments
+  - C_true(t) simplex coefficients (soft labels only)
 """
 
 import os
@@ -120,13 +119,7 @@ def enforce_spectral_radius_(A, rho_max, eps=1e-12):
             A.mul_(float(rho_max) / float(rho + eps))
 
 
-def _one_hot_from_indices(s_idx, n_states):
-    out = np.zeros((s_idx.shape[0], n_states), dtype=np.float32)
-    out[np.arange(s_idx.shape[0]), s_idx] = 1.0
-    return out
-
-
-def preprocess_data_with_truth(spikes, s_true, c_true, n_states, args, soft_labels=True):
+def preprocess_data_with_truth(spikes, s_true, c_true, n_states, args):
     y = np.asarray(spikes)
     s_true = np.asarray(s_true).astype(np.int64)
     c_true = np.asarray(c_true).astype(np.float32)
@@ -153,10 +146,7 @@ def preprocess_data_with_truth(spikes, s_true, c_true, n_states, args, soft_labe
     x_np = y[:num_samples]
     yt_np = y[1:num_samples + 1]
     s_np = s_true[1:num_samples + 1]
-    if soft_labels:
-        c_np = c_true[1:num_samples + 1]
-    else:
-        c_np = _one_hot_from_indices(s_np, n_states)
+    c_np = c_true[1:num_samples + 1]
 
     if args.dropDataFrac > 0:
         n_pairs = x_np.shape[0]
@@ -317,7 +307,7 @@ def main():
     parser.add_argument("--dataName", type=str, default="dale_2aee70")
     parser.add_argument("--basePath", type=str, default="/pscratch/sd/b/balewski/2025_causalNet_tmp/", help="head dir for input/output data")
     parser.add_argument("--num_samples", type=int, default=None)
-    parser.add_argument("--num_epochs", type=int, default=200)
+    parser.add_argument("--num_epochs", type=int, default=100)
     parser.add_argument("--batch_size", type=int, default=2048)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--L1_alpha", type=float, default=0.02, help="L1 regularization strength, higher=more sparse (0: disable soft-thresholding)")
@@ -328,7 +318,6 @@ def main():
     parser.add_argument("--fitName", type=str, default=None)
     parser.add_argument("--desyncTime", action='store_true', help="If true completely shuffle time axis for input data, independently for all channels")
     parser.add_argument("--dropDataFrac", type=float, default=0.0, help="Fraction of training samples to randomly drop (0.0=use all data, 0.3=drop 30%%)")
-    parser.add_argument("--state_label_mode", type=str, choices=["soft", "hard"], default="soft", help="State target type: soft uses C_true, hard uses S_true one-hot.")
     parser.add_argument("--verb", "-v", type=int, default=1, help="Verbosity level")
 
     args = parser.parse_args()
@@ -377,9 +366,8 @@ def main():
     else:
         n_states = int(np.max(S_true) + 1)
 
-    use_soft_labels = (args.state_label_mode == "soft")
     x_np, yt_np, s_np, c_np = preprocess_data_with_truth(
-        dataYield, S_true, C_true, n_states=n_states, args=args, soft_labels=use_soft_labels
+        dataYield, S_true, C_true, n_states=n_states, args=args
     )
     n_pairs = x_np.shape[0]
     print(f"Preprocessed data: X={x_np.shape}, Y={yt_np.shape}, S={s_np.shape}, C={c_np.shape}, n_pairs={n_pairs}")
@@ -399,10 +387,10 @@ def main():
         frac_mass = state_mass / max(1e-12, state_mass.sum())
         msg_mass = "  ".join(f"s{m}:{state_mass[m]:.1f}({frac_mass[m]:.1%})" for m in range(n_states))
         print(f"Training hard coverage: {msg}")
-        print(f"Training coeff mass ({args.state_label_mode}): {msg_mass}")
+        print(f"Training coeff mass (soft/C_true): {msg_mass}")
 
     train_loader = make_loader_xysc(x_np, yt_np, s_np, c_np, batch_size=args.batch_size, shuffle=True)
-    print(f"Loaded pairs={n_pairs/1000:.3f}k, Nn={Nn}, M={n_states}, batch_size={args.batch_size}, labels={args.state_label_mode}")
+    print(f"Loaded pairs={n_pairs/1000:.3f}k, Nn={Nn}, M={n_states}, batch_size={args.batch_size}, labels=soft/C_true")
 
     model = SwitchingPoissonGLModel(Nn, n_states=n_states, eta_clip=eta_clip).to(device)
     start_time = time.time()
@@ -460,7 +448,7 @@ def main():
         "L1_prune_epoch": int(args.L1_prune_epoch),
         "minW": float(args.minW),
         "dropDataFrac": float(args.dropDataFrac),
-        "state_label_mode": str(args.state_label_mode),
+        "state_label_mode": "soft",
         "time_step_sec": float(step_size),
         "eta_clip": float(eta_clip),
         "num_neurons": int(Nn),
