@@ -129,13 +129,15 @@ def run_estep(Y_prev, Y_curr, A, B, c_hat, weights,
         c_t = c_hat[t].clone()
         for _ in range(pgd_iter):
             eta = c_t @ Z                     # (N,)
-            lam = torch.exp(torch.clamp(eta, max=eta_clip)) * dt
+            eta_c = torch.clamp(eta, max=eta_clip)
+            lam = torch.exp(eta_c) * dt
             g = Z @ ((lam - y_c) * weights) + 2.0 * lambda2 * (c_t - c_prev)
             c_t = project_to_simplex(c_t - lr * g)
 
         eta = c_t @ Z
-        lam = torch.exp(torch.clamp(eta, max=eta_clip)) * dt
-        nll_sum += float((weights * (lam - y_c * (eta + log_dt))).sum().item())
+        eta_c = torch.clamp(eta, max=eta_clip)
+        lam = torch.exp(eta_c) * dt
+        nll_sum += float((weights * (lam - y_c * (eta_c + log_dt))).sum().item())
 
         c_hat[t] = c_t
         c_prev = c_t
@@ -184,8 +186,12 @@ def run_mstep_epoch(model, loader, optimizer, device, dt,
         optimizer.zero_grad(set_to_none=True)
         pred = model(yp, cc, dt)
         nll = (-weights_b * yc * torch.log(pred + eps) + weights_b * pred).mean()
-        l1 = (L1_alpha * (model.A.abs() * l1_wt).mean()
-              if L1_alpha > 0 else torch.tensor(0.0, device=device))
+        if L1_alpha > 0:
+            n = model.A.shape[0]
+            off_abs_mean = (model.A.abs() * l1_wt).sum() / float(n * (n - 1))
+            l1 = L1_alpha * off_abs_mean
+        else:
+            l1 = torch.tensor(0.0, device=device)
         loss = nll + l1
         loss.backward()
         optimizer.step()
