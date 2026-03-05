@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-salloc -q shared_interactive -C gpu  -t 4:00:00  -N 1 -A m2043
+ salloc -q shared_interactive -C gpu  -t 4:00:00  -N 1 -A m2043
 
 E-step feasibility test for non-stationary Poisson dLDS.
 
@@ -22,10 +22,10 @@ Per-step objective (minimised over c_t in Delta^{M-1}):
             + lambda2 * || c_t - c_{t-1} ||^2
 
 Optimisation:
-  - Sequential PGD: process bins t = 1 ... T in order.
+  - Single forward sweep PGD: process bins t = 1 ... T in order.
   - At each bin: pgd_iter gradient steps followed by simplex projection.
-  - Multiple epochs re-sweep the full time range using the previous
-    epoch's c_hat as warm start.
+  - The smoothness coupling is forward-only (c_t depends on c_{t-1}),
+    so a single pass suffices.
 
 Initialisation:  c_t = 1/M  (uniform) for all t.
 
@@ -40,7 +40,6 @@ Hyperparameter defaults:
   lambda2            = 2.0    temporal smoothness weight
   lr                 = 0.03   PGD step size
   pgd_iter           = 40     PGD iterations per time bin
-  num_epochs         = 1      passes over the time range
   chunk_size         = 2048   bins per progress-print block
   decode_inertia_sec = 0.0    minimum dwell filter (disabled)
 """
@@ -64,7 +63,6 @@ def parse_args():
     parser.add_argument("--dataName", type=str, required=True, help="Base name of spikes file in spikesData/")
     parser.add_argument("--basePath", type=str, default="/pscratch/sd/b/balewski/2026_causalNet_tmp2/", help="Head dir for input/output data")
     parser.add_argument("--lambda2", type=float, default=2.0, help="Temporal smoothness strength")
-    parser.add_argument("--num_epochs", type=int, default=1, help="Number of full passes over time range")
     parser.add_argument("--pgd_iter", type=int, default=40, help="PGD iterations per time step")
     parser.add_argument("--lr", type=float, default=0.03, help="PGD step size")
     parser.add_argument("--decode_dwell_sec", type=float, default=0.1, help="Expected state dwell time in seconds for Viterbi decoding")
@@ -198,9 +196,6 @@ def main():
     # Initialize c_hat on GPU
     c_hat = torch.full((T_eff, M), 1.0 / float(M), dtype=torch.float32, device=device)
 
-    loss_epoch = []
-    loss_nll_epoch = []
-    loss_l2_epoch = []
     loss_time = np.zeros((T_pairs,), dtype=np.float64)
     loss_nll_time = np.zeros((T_pairs,), dtype=np.float64)
     loss_l2_time = np.zeros((T_pairs,), dtype=np.float64)
@@ -208,81 +203,69 @@ def main():
 
     t_start = time.time()
     torch.set_grad_enabled(False)
-    for epoch in range(1, args.num_epochs + 1):
-        t0 = time.time()
-        prev_c_hat = c_hat.clone()
-        c_prev = prev_c_hat[0]
-        nll_sum = 0.0
-        l2_sum = 0.0
-        g_data_sum = 0.0
-        g_smooth_sum = 0.0
-        g_count = 0
 
-        if epoch == args.num_epochs:
-            loss_time.fill(0.0)
-            loss_nll_time.fill(0.0)
-            loss_l2_time.fill(0.0)
+    c_prev = c_hat[0].clone()
+    nll_sum = 0.0
+    l2_sum = 0.0
+    g_data_sum = 0.0
+    g_smooth_sum = 0.0
+    g_count = 0
 
-        for t0_idx in range(1, T_eff, args.chunk_size):
-            t1_idx = min(T_eff, t0_idx + args.chunk_size)
-            for t in range(t0_idx, t1_idx):
-                y_prev = Y_prev[t - 1]
-                y_curr = Y_curr[t - 1]
+    for t0_idx in range(1, T_eff, args.chunk_size):
+        t1_idx = min(T_eff, t0_idx + args.chunk_size)
+        for t in range(t0_idx, t1_idx):
+            y_prev = Y_prev[t - 1]
+            y_curr = Y_curr[t - 1]
 
-                # Predictor columns (M x N) for this time step
-                base = torch.matmul(A_t, y_prev)
-                z = base[None, :] + B_t
+            base = torch.matmul(A_t, y_prev)
+            z = base[None, :] + B_t
 
-                c_t = prev_c_hat[t].clone()
-                for _ in range(args.pgd_iter):
-                    eta = torch.matmul(c_t, z)
-                    eta_x = torch.clamp(eta, max=args.eta_clip)
-                    lam = torch.exp(eta_x) * args.time_step_sec
-                    resid = lam - y_curr
-                    g_data = torch.matmul(z, resid)
-                    g_smooth = 2.0 * args.lambda2 * (c_t - c_prev)
-                    g = g_data + g_smooth
-                    g_data_sum += float(torch.linalg.norm(g_data).item())
-                    g_smooth_sum += float(torch.linalg.norm(g_smooth).item())
-                    g_count += 1
-                    c_t = c_t - args.lr * g
-                    c_t = project_to_simplex(c_t)
-
+            c_t = c_hat[t].clone()
+            for _ in range(args.pgd_iter):
                 eta = torch.matmul(c_t, z)
-                eta_y = torch.clamp(eta, max=args.eta_clip)
-                lam = torch.exp(eta_y) * args.time_step_sec
-                dev = lam - y_curr * (eta + log_dt)
-                loss_nll = dev.sum()
-                loss_l2 = args.lambda2 * torch.sum((c_t - c_prev) ** 2)
-                loss_t = loss_nll + loss_l2
+                eta_x = torch.clamp(eta, max=args.eta_clip)
+                lam = torch.exp(eta_x) * args.time_step_sec
+                resid = lam - y_curr
+                g_data = torch.matmul(z, resid)
+                g_smooth = 2.0 * args.lambda2 * (c_t - c_prev)
+                g = g_data + g_smooth
+                g_data_sum += float(torch.linalg.norm(g_data).item())
+                g_smooth_sum += float(torch.linalg.norm(g_smooth).item())
+                g_count += 1
+                c_t = c_t - args.lr * g
+                c_t = project_to_simplex(c_t)
 
-                nll_sum += float(loss_nll.item())
-                l2_sum += float(loss_l2.item())
-                if epoch == args.num_epochs:
-                    loss_time[t - 1] = float(loss_t.item())
-                    loss_nll_time[t - 1] = float(loss_nll.item())
-                    loss_l2_time[t - 1] = float(loss_l2.item())
+            eta = torch.matmul(c_t, z)
+            eta_y = torch.clamp(eta, max=args.eta_clip)
+            lam = torch.exp(eta_y) * args.time_step_sec
+            dev = lam - y_curr * (eta + log_dt)
+            loss_nll = dev.sum()
+            loss_l2 = args.lambda2 * torch.sum((c_t - c_prev) ** 2)
+            loss_t = loss_nll + loss_l2
 
-                c_hat[t] = c_t
-                c_prev = c_t
+            nll_sum += float(loss_nll.item())
+            l2_sum += float(loss_l2.item())
+            loss_time[t - 1] = float(loss_t.item())
+            loss_nll_time[t - 1] = float(loss_nll.item())
+            loss_l2_time[t - 1] = float(loss_l2.item())
 
-        nll_mean = nll_sum / float(T_pairs)
-        l2_mean = l2_sum / float(T_pairs)
-        loss_mean = nll_mean + l2_mean
-        loss_epoch.append(loss_mean)
-        loss_nll_epoch.append(nll_mean)
-        loss_l2_epoch.append(l2_mean)
+            c_hat[t] = c_t
+            c_prev = c_t
 
-        if args.verb > 0:
-            elaT = time.time() - t_start
-            g_data_mean = g_data_sum / float(max(1, g_count))
-            g_smooth_mean = g_smooth_sum / float(max(1, g_count))
-            print(
-                f"epoch {epoch:3d}  nll={nll_mean:.4e}  l2={l2_mean:.4e}  "
-                f"loss={loss_mean:.4e}  |g_data|={g_data_mean:.3e}  "
-                f"|g_smooth|={g_smooth_mean:.3e}  elaT={elaT:.1f}s"
-            )
-    print(f"Total training time: {time.time() - t_start:.1f}s")
+    nll_mean = nll_sum / float(T_pairs)
+    l2_mean = l2_sum / float(T_pairs)
+    loss_mean = nll_mean + l2_mean
+
+    elaT = time.time() - t_start
+    g_data_mean = g_data_sum / float(max(1, g_count))
+    g_smooth_mean = g_smooth_sum / float(max(1, g_count))
+    if args.verb > 0:
+        print(
+            f"PGD sweep  nll={nll_mean:.4e}  l2={l2_mean:.4e}  "
+            f"loss={loss_mean:.4e}  |g_data|={g_data_mean:.3e}  "
+            f"|g_smooth|={g_smooth_mean:.3e}  elaT={elaT:.1f}s"
+        )
+    print(f"Total training time: {elaT:.1f}s")
     
     # Decode most probable state (Viterbi) and confidence level
     p_stay = float(math.exp(-args.time_step_sec / float(args.decode_dwell_sec)))
@@ -306,9 +289,6 @@ def main():
         "loss_time": np.asarray(loss_time, dtype=np.float64),
         "loss_nll_time": np.asarray(loss_nll_time, dtype=np.float64),
         "loss_l2_time": np.asarray(loss_l2_time, dtype=np.float64),
-        "loss_epoch": np.asarray(loss_epoch, dtype=np.float64),
-        "loss_nll_epoch": np.asarray(loss_nll_epoch, dtype=np.float64),
-        "loss_l2_epoch": np.asarray(loss_l2_epoch, dtype=np.float64),
     }
     if single_rates is not None:
         outD["single_rates"] = single_rates
@@ -317,7 +297,6 @@ def main():
     outMD["fit_type"] = "prismEstep"
     outMD["train"] = {
         "lambda2": float(args.lambda2),
-        "num_epochs": int(args.num_epochs),
         "pgd_iter": int(args.pgd_iter),
         "lr": float(args.lr),
         "chunk_size": int(args.chunk_size),
@@ -329,6 +308,9 @@ def main():
         "num_steps": int(T_eff),
         "time_range_sec": [float(t0_sec), float(t1_sec)],
         "time_range_bins": [int(start_bin), int(end_bin)],
+        "loss_mean": float(loss_mean),
+        "loss_nll_mean": float(nll_mean),
+        "loss_l2_mean": float(l2_mean),
     }
     outMD["decode_eval"] = {
         "decode": "viterbi",

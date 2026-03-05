@@ -100,47 +100,50 @@ class Plotter(PlotterBackbone):
         fig = self.plt.figure(figId, facecolor='white', figsize=(10, 5.5))
         gs = fig.add_gridspec(2, 3, height_ratios=[1.0, 1.0], hspace=0.6, wspace=0.25)
 
-        loss_epoch = np.asarray(fitD["loss_epoch"])
-        loss_nll_epoch = np.asarray(fitD["loss_nll_epoch"])
-        loss_l2_epoch = np.asarray(fitD["loss_l2_epoch"])
-        loss_time = np.asarray(fitD["loss_time"])
         c_hat = fitD["c_hat"]
         S_hat = fitD["S_hat"]
         S_hat_CL = fitD["S_hat_CL"]
 
-        epochs = np.arange(1, len(loss_epoch) + 1)
-
-        # ---- Loss vs epoch
-        ax = fig.add_subplot(gs[0, 0])
-        ax.plot(epochs, loss_nll_epoch, label="nll")
-        ax.plot(epochs, loss_l2_epoch, label="l2")
-        ax.set(title="Loss (epoch)", xlabel="epoch", ylabel="value")
-        ax.grid(True, alpha=0.4)
-        ax.legend()
-        ax.set_yscale('log')
-
         trainMD = md["train"]
+        decE = md["decode_eval"]
         acc = md["eval_Estep"]["acc"]
+
+        # ---- State occupancy (mean c_hat) + hyperparams text
+        ax = fig.add_subplot(gs[0, 0])
+        c_hat = np.asarray(c_hat)
+        occ = c_hat.mean(axis=0)
+        ax.bar(np.arange(len(occ)), occ, color="tab:blue", alpha=0.7)
+        ax.set(title="Mean occupancy", xlabel="state", ylabel="mean c")
+        ax.set_ylim(0.0, 1.0)
+        ax.grid(True, alpha=0.3)
         txt = (
             f"lr={trainMD['lr']}\n"
             f"lambda2={trainMD['lambda2']}\n"
             f"pgd_iter={trainMD['pgd_iter']}\n"
             f"chunk={trainMD['chunk_size']}"
         )
-        ax.text(0.02, 0.95, txt, transform=ax.transAxes, va="top", fontsize=9)
+        ax.text(0.98, 0.95, txt, transform=ax.transAxes, va="top", ha="right", fontsize=9)
 
-        # ---- Loss vs time
-        ax = fig.add_subplot(gs[1, :])
-        self.plot_loss_time(ax, fitD, md, trainMD, time_bin_merge=time_bin_merge)
-
-        # ---- State occupancy (mean c_hat)
+        # ---- Per-state accuracy bar chart with CL error bars
         ax = fig.add_subplot(gs[0, 1])
-        c_hat = np.asarray(c_hat)
-        occ = c_hat.mean(axis=0)
-        ax.bar(np.arange(len(occ)), occ, color="tab:green", alpha=0.7)
-        ax.set(title="Mean occupancy", xlabel="state", ylabel="mean c")
-        ax.set_ylim(0.0, 1.0)
-        ax.grid(True, alpha=0.3)
+        acc_ps = np.asarray(decE.get("acc_per_state", []))
+        cl_ps  = np.asarray(decE.get("avg_cl_per_state", []))
+        M = len(acc_ps)
+        x = np.arange(M)
+        ax.bar(x, acc_ps, color="tab:green", alpha=0.7)
+        if len(cl_ps) == M:
+            ax.errorbar(x, acc_ps, yerr=cl_ps, fmt='o', color='k',
+                        capsize=5, markersize=4)
+        ax.axhline(1.0, color="green", linestyle="--", linewidth=1)
+        ymin = min(0.5, float(np.nanmin(acc_ps - cl_ps)) - 0.05) if len(cl_ps) == M else 0.5
+        ax.set_ylim(ymin, None)
+        ax.set(title=f"State accuracy, avr={acc:.3f}", xlabel="state", ylabel="accuracy")
+        ax.set_xticks(x)
+        ax.grid(True, alpha=0.3, axis="y")
+        ylo, yhi = ax.get_ylim()
+        y_txt = ylo + 0.80 * (yhi - ylo)
+        for i, v in enumerate(acc_ps):
+            ax.text(i + 0.3, y_txt, f"{v:.2f}", ha="center", va="center", fontsize=9)
 
         # ---- Confidence histogram
         ax = fig.add_subplot(gs[0, 2])
@@ -150,7 +153,12 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.3)
         ax.axvline(np.mean(cl), color="k", linestyle="--", linewidth=1)
 
-        fig.suptitle(f"Prism E-step: {md['short_name']}", fontsize=12)
+        # ---- Loss vs time
+        ax = fig.add_subplot(gs[1, :])
+        self.plot_loss_time(ax, fitD, md, trainMD, time_bin_merge=time_bin_merge)
+
+        t0s, t1s = trainMD["time_range_sec"]
+        fig.suptitle(f"Prism E-step: {md['short_name']},  T=[{t0s:.0f}, {t1s:.0f}] sec", fontsize=12)
 
     def state_seq_prismEstep(self, fitD, md, figId=2, time_reb=20):
         figId = self.smart_append(figId)
