@@ -5,9 +5,116 @@ Evaluation and plotting for prism EM results.
 
 import os
 import argparse
+import numpy as np
 from pprint import pprint
 from toolbox.Util_NumpyIO import read_data_npz
 from PlotterPrismEM import Plotter
+
+
+def compute_ll_gap(spikes_sub, A_true, B_true, dt, eta_clip):
+    """Per-time LL gap between best and 2nd-best true-state likelihood."""
+    y_prev = np.asarray(spikes_sub[:-1], dtype=np.float64)
+    y_curr = np.asarray(spikes_sub[1:], dtype=np.float64)
+    a_true = np.asarray(A_true, dtype=np.float64)
+    b_true = np.asarray(B_true, dtype=np.float64)
+
+    t_pairs = y_prev.shape[0]
+    m_states = b_true.shape[0]
+    ll_gap = np.zeros((t_pairs,), dtype=np.float64)
+    if m_states <= 1:
+        return ll_gap
+
+    for t in range(t_pairs):
+        yp = y_prev[t]
+        yc = y_curr[t]
+        base = a_true @ yp
+        eta = base[None, :] + b_true
+        eta_c = np.minimum(eta, float(eta_clip))
+        lam = np.exp(eta_c) * float(dt)
+        scores = np.sum(yc[None, :] * eta_c - lam, axis=1)
+        top2 = np.partition(scores, -2)[-2:]
+        ll_gap[t] = float(top2[-1] - top2[-2])
+    return ll_gap
+
+
+def eval_em_metrics_time(fitD, md, spikes):
+    """Compute per-time metrics for -p f canvas."""
+    trainMD = md["train"]
+    t0_bin, t1_bin = [int(x) for x in trainMD["time_range_bins"]]
+    dt = float(trainMD["time_step_sec"])
+    eta_clip = float(trainMD["eta_clip"])
+    lambda2 = float(trainMD["lambda2"])
+
+    spikes_sub = np.asarray(spikes[t0_bin : t1_bin + 1], dtype=np.float64)
+    yp = spikes_sub[:-1]
+    yc = spikes_sub[1:]
+
+    a_hat = np.asarray(fitD["A_hat"], dtype=np.float64)
+    b_hat = np.asarray(fitD["B_hat"], dtype=np.float64)
+    c_hat = np.asarray(fitD["c_hat"], dtype=np.float64)
+    n_pairs = spikes_sub.shape[0] - 1
+    assert c_hat.shape[0] == spikes_sub.shape[0], "c_hat and spikes_sub must have matching time bins"
+    c_pairs = c_hat[1:]
+    c_prev = c_hat[:-1]
+
+    rates = np.asarray(fitD["single_rates"], dtype=np.float64)
+    w = 1.0 / np.maximum(rates, 0.1)
+    w /= w.mean()
+
+    eta = yp @ a_hat.T + c_pairs @ b_hat
+    eta_c = np.minimum(eta, eta_clip)
+    lam = np.exp(eta_c) * dt
+    log_dt = np.log(dt)
+    nll_t = np.sum(w[None, :] * (lam - yc * (eta + log_dt)), axis=1)
+
+    dc = c_pairs - c_prev
+    l2_t = lambda2 * np.sum(dc * dc, axis=1)
+
+    ll_gap = compute_ll_gap(spikes_sub, md["A_true"], md["B_true"], dt, eta_clip)
+
+    s_true = np.asarray(md["S_true"])[t0_bin : t1_bin + 1]
+    s_hat = np.asarray(fitD["S_hat"])
+    assert s_true.shape[0] == s_hat.shape[0], "S_true and S_hat must have matching length"
+    acc = float((s_true == s_hat).mean())
+
+    return {
+        "acc": acc,
+        "loss_nll_time": nll_t,
+        "loss_l2_time": l2_t,
+        "ll_gap": ll_gap,
+        "ll_gap_mean": float(np.mean(ll_gap)),
+    }
+
+
+def eval_state_recovery(fitD, md):
+    """Compute state recovery table on full training window."""
+    trainMD = md["train"]
+    t0_bin, t1_bin = [int(x) for x in trainMD["time_range_bins"]]
+    s_true = np.asarray(md["S_true"], dtype=np.int64)[t0_bin : t1_bin + 1]
+    s_hat = np.asarray(fitD["S_hat"], dtype=np.int64)
+    s_hat_cl = np.asarray(fitD["S_hat_CL"], dtype=np.float64)
+    m_states = int(trainMD["num_states"])
+
+    assert s_true.shape[0] == s_hat.shape[0] == s_hat_cl.shape[0], \
+        "S_true/S_hat/S_hat_CL length mismatch on training window"
+
+    avg_acc = float((s_true == s_hat).mean())
+    state_acc_cl = []
+    for m in range(m_states):
+        mask = (s_hat == m)
+        cnt = int(mask.sum())
+        if cnt > 0:
+            acc_m = float((s_true[mask] == m).mean())
+            cl_m = float(s_hat_cl[mask].mean())
+        else:
+            acc_m = float("nan")
+            cl_m = float("nan")
+        state_acc_cl.append([acc_m, cl_m])  # [acc, CL]
+
+    return {
+        "avg_acc": avg_acc,
+        "state_acc_cl": state_acc_cl,
+    }
 
 
 def main():
@@ -20,11 +127,15 @@ def main():
                         help="Head dir for input/output data")
     parser.add_argument("-p", "--showPlots", type=str, nargs='+',
                         default="a",
-                        help="Plot types: a=EM convergence summary")
+                        help="Plot types: a=EM convergence summary, b=init-vs-truth states, c=A_init-vs-truth, d=A_hat-vs-truth, e=A_hat edge recovery, f=state sequence")
     parser.add_argument("--minW", type=float, default=0.02,
                         help="Threshold for A-matrix edge eval")
     parser.add_argument("--timeReb", type=int, default=20,
                         help="Time rebin factor for time-axis plots")
+    g = parser.add_argument_group("data")
+    g.add_argument("-T", "--time_range_sec", default=[0.0, 15.0],
+                   nargs=2, type=float,
+                   help="Time window [t0, t1] in seconds")
     parser.add_argument("-X", "--noXterm", action="store_true",
                         help="Disable X terminal for plotting")
     parser.add_argument("-v", "--verb", type=int, default=1,
@@ -36,39 +147,49 @@ def main():
     os.makedirs(args.outPath, exist_ok=True)
     args.showPlots = ''.join(args.showPlots)
 
-    print(vars(args))
+    print("EM-eval args:",  vars(args), "\n")
 
     # ── load EM fit ──────────────────────────────────────────────────
     fitFF = os.path.join(args.inpPath, f"{args.dataName}.prismEM.npz")
     fitD, fitMD = read_data_npz(fitFF)
     assert isinstance(fitMD, dict), "Expected metadata dict in prismEM file"
 
-    if args.verb > 1:
-        pprint(fitMD)
+    if args.verb > 1:  pprint(fitMD)
 
     MD = {**fitMD, "short_name": args.dataName}
    
     # ── load ground truth if available ───────────────────────────────
-    prov = fitMD.get("provenance", {})
-    truth_name = prov.get("state_model_file")
-    if truth_name:
-        truthPath = os.path.join(args.basePath, "truthDale")
-        truthFF = os.path.join(truthPath, f"{truth_name}.simTruth.npz")
-        if os.path.isfile(truthFF):
-            trueD, trueMD = read_data_npz(truthFF, verb=args.verb > 1)
-            MD.update(trueMD)
-            MD["A_true"] = trueD["A_true"]
-            MD["B_true"] = trueD["B_true"]
-            MD["E_true"] = trueD["E_true"]
+    prov = fitMD["provenance"]
+    truth_name = prov["state_model_file"]
+    truthPath = os.path.join(args.basePath, "truthDale")
+    truthFF = os.path.join(truthPath, f"{truth_name}.simTruth.npz")
+    trueD, trueMD = read_data_npz(truthFF, verb=args.verb > 1)
+    if args.verb > 1:  pprint(trueMD)
+    MD.update(trueMD)
+    MD["A_true"] = trueD["A_true"]
+    MD["B_true"] = trueD["B_true"]
+    MD["E_true"] = trueD["E_true"]
 
-    st_name = prov.get("state_transition_file")
-    if st_name:
-        ptFF = os.path.join(args.basePath, "spikesData",
-                            f"{st_name}.prismTruth.npz")
-        if os.path.isfile(ptFF):
-            trD, _ = read_data_npz(ptFF, verb=args.verb > 1)
-            MD["S_true"] = trD["S_true"]
-            MD["C_true"] = trD["C_true"]
+    st_name = prov["state_transition_file"]
+    ptFF = os.path.join(args.basePath, "spikesData", f"{st_name}.prismTruth.npz")
+    trD, _ = read_data_npz(ptFF, verb=args.verb > 1)
+    MD["S_true"] = trD["S_true"]
+    MD["C_true"] = trD["C_true"]
+
+    spikesFF = os.path.join(args.basePath, "spikesData", f"{st_name}.spikes.npz")
+    spikeD, _ = read_data_npz(spikesFF, verb=args.verb > 1)
+    spikes = spikeD["spikes"]
+
+    MD["eval_f"] = eval_em_metrics_time(fitD, MD, spikes)
+    reco = eval_state_recovery(fitD, MD)
+    MD["states_recovery_eval"]["avg_acc"] = reco["avg_acc"]
+    MD["states_recovery_eval"]["state_acc_cl"] = reco["state_acc_cl"]
+
+    print(f"state reco avr acc {reco['avg_acc']:.3f}, {args.dataName}")
+    print(f"  {'state':>5s}  {'CL':>6s}  {'acc':>5s}")
+    print(f"  {'-----':>5s}  {'------':>6s}  {'-----':>5s}")
+    for m, (acc_m, cl_m) in enumerate(reco["state_acc_cl"]):
+        print(f"  {m:5d}  {cl_m:6.3f}  {acc_m:5.3f}")
 
     MD["short_name"] = args.dataName
 
@@ -78,6 +199,25 @@ def main():
 
     if 'a' in args.showPlots:
         plot.summary_prismEM(fitD, MD, figId=1)
+
+    if 'b' in args.showPlots:
+        plot.state_init_prismEM(fitD, MD, figId=2, time_reb=args.timeReb)
+
+    if 'c' in args.showPlots:
+        plot.matrix_init_prismEM(fitD, MD, figId=3, est_key="A_init", est_label="A_init")
+
+    if 'd' in args.showPlots:
+        plot.matrix_init_prismEM(fitD, MD, figId=3, est_key="A_hat", est_label="A_hat")
+
+    if 'e' in args.showPlots:
+        plot.edge_recovery_prismEM(
+            fitD, MD, minW=args.minW, figId=4, est_key="A_hat", est_label="A_hat"
+        )
+
+    if 'f' in args.showPlots:
+        plot.state_seq_prismEM(
+            fitD, MD, figId=5, time_range_sec=args.time_range_sec
+        )
 
     plot.display_all()
 

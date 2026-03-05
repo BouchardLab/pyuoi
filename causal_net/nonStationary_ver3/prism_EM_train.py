@@ -34,6 +34,7 @@ from torch.utils.data import Dataset, DataLoader
 
 from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
 from UtilTorch import check_gpu_availability
+from Util_PrismEM import init_states_vs_time, init_B_from_spikes, init_A_from_spikes
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -294,6 +295,15 @@ def parse_args():
 
     g = p.add_argument_group("misc")
     g.add_argument("--seed", type=int, default=42)
+    g.add_argument("--init_states", type=str, default="data",
+                   choices=["data", "rand"],
+                   help="Initial latent-state mode: 'data' or 'rand'")
+    g.add_argument("--init_B", type=str, default="data",
+                   choices=["data", "rand"],
+                   help="Initial B mode: 'data' or 'rand'")
+    g.add_argument("--init_A", type=str, default="data",
+                   choices=["data", "rand"],
+                   help="Initial A mode: 'data' or 'rand'")
     g.add_argument("-v", "--verb", type=int, default=1)
 
     return p.parse_args()
@@ -313,7 +323,7 @@ def main():
     if args.L1_prune_em_iter is None:
         args.L1_prune_em_iter = args.num_em_iters // 3
 
-    print("EM-train args:", vars(args), "\n")
+    print("\nEM-train args:", vars(args), "\n")
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -329,7 +339,7 @@ def main():
     single_rates = spikeD["single_rates"]
     dt = float(spikeMD["time_step_sec"])
     eta_clip = float(spikeMD["poisson_eta_clip"])
-    prov = spikeMD.get("provenance", {})
+    prov = spikeMD["provenance"]
 
     T_raw, N = spikes.shape
     M = args.num_states
@@ -361,18 +371,32 @@ def main():
     Yp_gpu = torch.tensor(yp_np, device=device)
     Yc_gpu = torch.tensor(yc_np, device=device)
 
+    # ── initial states and c_hat init ────────────────────────────────
+    c_init_np, S_init, init_state_md, freq_h1d = init_states_vs_time(spikes, dt, args)
+    A_seed_np, init_A_md = init_A_from_spikes(spikes, args)
+    B_seed_np, init_B_md = init_B_from_spikes(spikes, dt, args)
+
     # ── c_hat: GPU (T_full, M) + CPU mirror (T_pairs, M) for dataset
-    c_hat_gpu = torch.full((T_full, M), 1.0 / M,
-                           dtype=torch.float32, device=device)
-    c_pairs_np = np.full((T_pairs, M), 1.0 / M, dtype=np.float32)
+    c_hat_gpu = torch.tensor(c_init_np, dtype=torch.float32, device=device)
+    c_pairs_np = c_init_np[1:].copy()
 
     dataset = PairDataset(yp_np, yc_np, c_pairs_np)
     loader = DataLoader(dataset, batch_size=args.batch_size,
-                        shuffle=True, drop_last=True,
+                        shuffle=True, drop_last=False,
                         pin_memory=True, num_workers=0)
 
     # ── model + optimizer + scheduler ────────────────────────────────
     model = SwitchingPoissonGLM(N, M, eta_clip).to(device)
+    if A_seed_np is not None:
+        with torch.no_grad():
+            model.A.copy_(torch.tensor(A_seed_np, dtype=torch.float32, device=device))
+    if B_seed_np is not None:
+        with torch.no_grad():
+            model.B.copy_(torch.tensor(B_seed_np, dtype=torch.float32, device=device))
+    A_init_np = model.A.detach().cpu().numpy().copy()
+    B_init_np = model.B.detach().cpu().numpy().copy()
+    B_init_out_np = B_init_np[0] if B_init_np.ndim == 2 and B_init_np.shape[0] > 1 else B_init_np
+
     total_m_epochs = args.num_em_iters * args.m_epochs
     optimizer = optim.Adam(model.parameters(), lr=args.lr_mstep, fused=True)
     scheduler = optim.lr_scheduler.LinearLR(
@@ -456,13 +480,19 @@ def main():
     B_hat = model.B.detach().cpu().numpy()
 
     h6 = secrets.token_hex(3)
-    out_base = f"{args.dataName}-EM-{h6}"
-    outFF = os.path.join(outPath, f"{out_base}.prismEM.npz")
+    outF = f"{args.dataName}-EM-{h6}"
+    outFF = os.path.join(outPath, f"{outF}.prismEM.npz")
+    prov['EMtrain_file']=outF
 
     outD = {
+        "A_init":         A_init_np.astype(np.float32),
         "A_hat":          A_hat.astype(np.float32),
+        "B_init":         B_init_out_np.astype(np.float32),
         "B_hat":          B_hat.astype(np.float32),
+        "freq_h1d":       np.asarray(freq_h1d, dtype=np.float32),
+        "c_init":         c_init_np.astype(np.float32),
         "c_hat":          c_hat_np.astype(np.float32),
+        "S_init":         S_init.astype(np.int64),
         "S_hat":          S_hat.astype(np.int64),
         "S_hat_CL":       S_hat_CL,
         "single_rates":   np.asarray(single_rates),
@@ -505,13 +535,16 @@ def main():
         "decode":           "viterbi",
         "decode_dwell_sec": args.decode_dwell_sec,
     }
+    outMD["init_A"] = init_A_md
+    outMD["init_state"] = init_state_md
+    outMD["init_B"] = init_B_md
     outMD["provenance"] = prov
 
     write_data_npz(outD, outFF, metaD=outMD)
     print(f"\nSaved: {outFF}")
     print(f"  basePath={args.basePath}")
     print(f"  ./prism_EM_eval.py --basePath $basePath "
-          f"--dataName {out_base} -p a b\n")
+          f"--dataName {outF} -p b c a\n")
 
 
 if __name__ == "__main__":
