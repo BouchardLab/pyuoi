@@ -31,11 +31,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-from torch.utils.data.distributed import DistributedSampler
-import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
 
 from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
+from UtilTorch import check_gpu_availability
 from Util_PrismEM import init_states_vs_time, init_B_from_spikes, init_A_from_spikes
 
 
@@ -81,39 +79,6 @@ class PairDataset(Dataset):
             torch.from_numpy(self.y_curr[idx]).float(),
             torch.from_numpy(self.c[idx]).float(),
         )
-
-
-def init_distributed():
-    """Initialize torch.distributed from torchrun environment."""
-    is_dist = (int(os.environ.get("WORLD_SIZE", "1")) > 1) or ("RANK" in os.environ)
-    if is_dist:
-        dist.init_process_group(backend="nccl")
-        rank = dist.get_rank()
-        world_size = dist.get_world_size()
-        local_rank = int(os.environ["LOCAL_RANK"])
-        torch.cuda.set_device(local_rank)
-        device = torch.device(f"cuda:{local_rank}")
-    else:
-        rank = 0
-        world_size = 1
-        local_rank = 0
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return is_dist, rank, world_size, local_rank, device
-
-
-def cleanup_distributed(is_dist):
-    if is_dist and dist.is_initialized():
-        dist.destroy_process_group()
-
-
-def pair_range_for_rank(t_pairs, world_size, rank):
-    """Return inclusive pair-index range [p0, p1] assigned to given rank."""
-    base = t_pairs // world_size
-    rem = t_pairs % world_size
-    n_loc = base + (1 if rank < rem else 0)
-    p0 = rank * base + min(rank, rem)
-    p1 = p0 + n_loc - 1
-    return p0, p1, n_loc
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -180,47 +145,6 @@ def run_estep(Y_prev, Y_curr, A, B, c_hat, weights,
     return nll_sum / max(1, T_eff - 1)
 
 
-def run_estep_shard(Y_prev, Y_curr, A, B, c_hat, weights,
-                    dt, eta_clip, lambda2, lr, pgd_iter,
-                    t0, t1):
-    """E-step update on a shard of time bins t in [t0, t1], inclusive.
-
-    Returns:
-      nll_sum_local, n_pairs_local
-    """
-    if t1 < t0:
-        return 0.0, 0
-    log_dt = math.log(dt)
-    c_prev = c_hat[t0 - 1].clone()
-    nll_sum = 0.0
-    n_pairs = 0
-
-    for t in range(t0, t1 + 1):
-        y_p = Y_prev[t - 1]
-        y_c = Y_curr[t - 1]
-
-        Z = (A @ y_p)[None, :] + B
-
-        c_t = c_hat[t].clone()
-        for _ in range(pgd_iter):
-            eta = c_t @ Z
-            eta_c = torch.clamp(eta, max=eta_clip)
-            lam = torch.exp(eta_c) * dt
-            g = Z @ ((lam - y_c) * weights) + 2.0 * lambda2 * (c_t - c_prev)
-            c_t = project_to_simplex(c_t - lr * g)
-
-        eta = c_t @ Z
-        eta_c = torch.clamp(eta, max=eta_clip)
-        lam = torch.exp(eta_c) * dt
-        nll_sum += float((weights * (lam - y_c * (eta_c + log_dt))).sum().item())
-
-        c_hat[t] = c_t
-        c_prev = c_t
-        n_pairs += 1
-
-    return nll_sum, n_pairs
-
-
 # ═══════════════════════════════════════════════════════════════════════
 #  M-step helpers  (from prism_Mstep_train3.py)
 # ═══════════════════════════════════════════════════════════════════════
@@ -251,7 +175,6 @@ def run_mstep_epoch(model, loader, optimizer, device, dt,
                     rho_every, apply_prune, off_mask, minW):
     """One DataLoader pass updating A and B.  Returns metrics dict."""
     model.train()
-    mdl = model.module if hasattr(model, "module") else model
     s_tot = s_nll = s_l1 = 0.0
     eps = 1e-8
 
@@ -264,8 +187,8 @@ def run_mstep_epoch(model, loader, optimizer, device, dt,
         pred = model(yp, cc, dt)
         nll = (-weights_b * yc * torch.log(pred + eps) + weights_b * pred).mean()
         if L1_alpha > 0:
-            n = mdl.A.shape[0]
-            off_abs_mean = (mdl.A.abs() * l1_wt).sum() / float(n * (n - 1))
+            n = model.A.shape[0]
+            off_abs_mean = (model.A.abs() * l1_wt).sum() / float(n * (n - 1))
             l1 = L1_alpha * off_abs_mean
         else:
             l1 = torch.tensor(0.0, device=device)
@@ -274,27 +197,18 @@ def run_mstep_epoch(model, loader, optimizer, device, dt,
         optimizer.step()
 
         if apply_prune and L1_alpha > 0:
-            offdiag_soft_threshold_(mdl.A, optimizer.param_groups[0]["lr"], L1_alpha)
+            offdiag_soft_threshold_(model.A, optimizer.param_groups[0]["lr"], L1_alpha)
         if bi % rho_every == 0:
-            enforce_spectral_radius_(mdl.A, rho_max)
+            enforce_spectral_radius_(model.A, rho_max)
 
         s_tot += loss.item()
         s_nll += nll.item()
         s_l1 += l1.item()
 
     nb = max(1, len(loader))
-    if dist.is_available() and dist.is_initialized():
-        v = torch.tensor([s_tot, s_nll, s_l1, float(nb)],
-                         dtype=torch.float64, device=device)
-        dist.all_reduce(v, op=dist.ReduceOp.SUM)
-        s_tot = float(v[0].item())
-        s_nll = float(v[1].item())
-        s_l1 = float(v[2].item())
-        nb = int(v[3].item())
-
     with torch.no_grad():
-        nz = int((mdl.A[off_mask].abs() > minW).sum().item())
-        rho = float(torch.linalg.eigvals(mdl.A).abs().max().item())
+        nz = int((model.A[off_mask].abs() > minW).sum().item())
+        rho = float(torch.linalg.eigvals(model.A).abs().max().item())
 
     return dict(loss=s_tot / nb, nll=s_nll / nb, l1=s_l1 / nb, rho=rho, nz=nz)
 
@@ -351,7 +265,7 @@ def parse_args():
                    help="M-step Adam epochs per EM iteration")
 
     g = p.add_argument_group("E-step")
-    g.add_argument("--pgd_iter", type=int, default=5,
+    g.add_argument("--pgd_iter", type=int, default=40,
                    help="PGD iterations per time bin")
     g.add_argument("--lr_estep", type=float, default=0.03,
                    help="PGD step size")
@@ -367,7 +281,7 @@ def parse_args():
                    help="L1 penalty on off-diagonal A")
     g.add_argument("--rho_max", type=float, default=0.92,
                    help="Hard spectral radius ceiling for A")
-    g.add_argument("--rho_enforce_every_batch", type=int, default=50,
+    g.add_argument("--rho_enforce_every_batch", type=int, default=20,
                    help="Spectral projection frequency (batches)")
     g.add_argument("--L1_prune_em_iter", type=int, default=None,
                    help="EM iter to start L1 pruning "
@@ -407,78 +321,36 @@ def parse_args():
 
 def main():
     args = parse_args()
-    is_dist, rank, world_size, local_rank, device = init_distributed()
+
     inpPath = os.path.join(args.basePath, "spikesData")
     outPath = os.path.join(args.basePath, "prismFit")
-    out_ok = True
-    out_err = ""
-    if rank == 0:
-        out_ok = os.path.exists(outPath)
-        if not out_ok:
-            out_err = f"Output dir missing: {outPath}"
-    if is_dist:
-        msg = [out_ok, out_err]
-        dist.broadcast_object_list(msg, src=0)
-        out_ok, out_err = msg
-    if not out_ok:
-        raise FileNotFoundError(out_err)
+    assert os.path.exists(outPath), f"Output dir missing: {outPath}"
 
     if args.L1_prune_em_iter is None:
         args.L1_prune_em_iter = args.num_em_iters // 3
 
-    if rank == 0:
-        print("\nEM-train args:", vars(args), "\n")
-        print(f"world_size={world_size}")
+    print("\nEM-train args:", vars(args), "\n")
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
+    device = check_gpu_availability()
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.set_float32_matmul_precision("high")
 
-    # ── load spikes (rank 0 only), then broadcast ───────────────
-    if rank == 0:
-        spikesFF = os.path.join(inpPath, f"{args.dataName}.spikes.npz")
-        spikeD, spikeMD = read_data_npz(spikesFF, verb=args.verb > 0)
-        spikes = spikeD["spikes"]
-        single_rates = spikeD["single_rates"]
-    else:
-        spikeMD = None
-        spikes = None
-        single_rates = None
-
-    if is_dist:
-        obj = [spikeMD]
-        dist.broadcast_object_list(obj, src=0)
-        spikeMD = obj[0]
-
-        if rank == 0:
-            shp = torch.tensor(spikes.shape, dtype=torch.int64, device=device)
-        else:
-            shp = torch.zeros(2, dtype=torch.int64, device=device)
-        dist.broadcast(shp, src=0)
-        T_raw = int(shp[0].item())
-        N = int(shp[1].item())
-
-        if rank == 0:
-            spikes_t = torch.as_tensor(spikes, dtype=torch.int32, device=device).contiguous()
-            rates_t = torch.as_tensor(single_rates, dtype=torch.float32, device=device).contiguous()
-        else:
-            spikes_t = torch.empty((T_raw, N), dtype=torch.int32, device=device)
-            rates_t = torch.empty((N,), dtype=torch.float32, device=device)
-        dist.broadcast(spikes_t, src=0)
-        dist.broadcast(rates_t, src=0)
-        spikes = spikes_t.cpu().numpy()
-        single_rates = rates_t.cpu().numpy()
-    else:
-        T_raw, N = spikes.shape
-
+    # ── load spikes ──────────────────────────────────────────────────
+    spikesFF = os.path.join(inpPath, f"{args.dataName}.spikes.npz")
+    spikeD, spikeMD = read_data_npz(spikesFF, verb=args.verb > 0)
+    spikes = spikeD["spikes"]
+    single_rates = spikeD["single_rates"]
     dt = float(spikeMD["time_step_sec"])
     eta_clip = float(spikeMD["poisson_eta_clip"])
-    prov = dict(spikeMD["provenance"])
+    prov = spikeMD["provenance"]
+
+    T_raw, N = spikes.shape
     M = args.num_states
 
-    # ── time range selection ─────────────────────────────────────
+    # ── time range selection ─────────────────────────────────────────
     t0_sec, t1_sec = float(args.time_range_sec[0]), float(args.time_range_sec[1])
     if t1_sec < t0_sec:
         t0_sec, t1_sec = t1_sec, t0_sec
@@ -489,103 +361,37 @@ def main():
     spikes = spikes[start_bin : end_bin + 1]
     T_full = spikes.shape[0]
     T_pairs = T_full - 1
-    if rank == 0:
-        print(f"N={N} EM={args.num_em_iters}  M={M}  T={T_full}  pairs={T_pairs}  "
-              f"dt={dt}  eta_clip={eta_clip}  "
-              f"time=[{t0_sec:.1f}, {t1_sec:.1f}]s  bins=[{start_bin}, {end_bin}]")
+    print(f"N={N} EM={args.num_em_iters}  M={M}  T={T_full}  pairs={T_pairs}  "
+          f"dt={dt}  eta_clip={eta_clip}  "
+          f"time=[{t0_sec:.1f}, {t1_sec:.1f}]s  bins=[{start_bin}, {end_bin}]")
 
-    # ── neuron weights: 1/rate, normalized to mean 1 ────────────
+    # ── neuron weights: 1/rate, normalized to mean 1 ─────────────────
     w_np = (1.0 / np.maximum(single_rates, 0.1)).astype(np.float32)
     w_np /= w_np.mean()
-    weights_gpu = torch.tensor(w_np, device=device)
-    weights_batch = weights_gpu.unsqueeze(0)
+    weights_gpu = torch.tensor(w_np, device=device)          # (N,)
+    weights_batch = weights_gpu.unsqueeze(0)                  # (1, N)
 
-    # ── time pairs: GPU for E-step, CPU numpy for DataLoader ────
+    # ── time pairs: GPU for E-step, CPU numpy for DataLoader ─────────
     yp_np = spikes[:-1].astype(np.float32)
     yc_np = spikes[1:].astype(np.float32)
     Yp_gpu = torch.tensor(yp_np, device=device)
     Yc_gpu = torch.tensor(yc_np, device=device)
 
-    # ── initial states and parameter seeds (rank 0 computes, all ranks receive) ──
-    if rank == 0:
-        c_init_np, S_init, init_state_md, freq_h1d = init_states_vs_time(spikes, dt, args)
-        A_seed_np, init_A_md = init_A_from_spikes(spikes, args)
-        B_seed_np, init_B_md = init_B_from_spikes(spikes, dt, args)
-    else:
-        c_init_np = np.empty((T_full, M), dtype=np.float32)
-        S_init = np.empty((T_full,), dtype=np.int64)
-        freq_h1d = np.empty((0,), dtype=np.float32)
-        A_seed_np = None
-        B_seed_np = None
-        init_state_md = None
-        init_A_md = None
-        init_B_md = None
+    # ── initial states and c_hat init ────────────────────────────────
+    c_init_np, S_init, init_state_md, freq_h1d = init_states_vs_time(spikes, dt, args)
+    A_seed_np, init_A_md = init_A_from_spikes(spikes, args)
+    B_seed_np, init_B_md = init_B_from_spikes(spikes, dt, args)
 
-    if is_dist:
-        c_t = torch.as_tensor(c_init_np, dtype=torch.float32, device=device)
-        s_t = torch.as_tensor(S_init, dtype=torch.int64, device=device)
-        dist.broadcast(c_t, src=0)
-        dist.broadcast(s_t, src=0)
-        c_init_np = c_t.cpu().numpy()
-        S_init = s_t.cpu().numpy()
-
-        f_len_t = torch.tensor([int(freq_h1d.shape[0]) if rank == 0 else 0],
-                               dtype=torch.int64, device=device)
-        dist.broadcast(f_len_t, src=0)
-        f_len = int(f_len_t.item())
-        if rank != 0:
-            freq_h1d = np.empty((f_len,), dtype=np.float32)
-        f_t = (torch.as_tensor(freq_h1d, dtype=torch.float32, device=device)
-               if rank == 0 else
-               torch.empty((f_len,), dtype=torch.float32, device=device))
-        if f_len > 0:
-            dist.broadcast(f_t, src=0)
-        freq_h1d = f_t.cpu().numpy()
-
-        has_A_t = torch.tensor([1 if (rank == 0 and A_seed_np is not None) else 0],
-                               dtype=torch.int64, device=device)
-        dist.broadcast(has_A_t, src=0)
-        if int(has_A_t.item()) == 1:
-            A_t = (torch.as_tensor(A_seed_np, dtype=torch.float32, device=device)
-                   if rank == 0 else
-                   torch.empty((N, N), dtype=torch.float32, device=device))
-            dist.broadcast(A_t, src=0)
-            A_seed_np = A_t.cpu().numpy()
-        else:
-            A_seed_np = None
-
-        has_B_t = torch.tensor([1 if (rank == 0 and B_seed_np is not None) else 0],
-                               dtype=torch.int64, device=device)
-        dist.broadcast(has_B_t, src=0)
-        if int(has_B_t.item()) == 1:
-            B_t = (torch.as_tensor(B_seed_np, dtype=torch.float32, device=device)
-                   if rank == 0 else
-                   torch.empty((M, N), dtype=torch.float32, device=device))
-            dist.broadcast(B_t, src=0)
-            B_seed_np = B_t.cpu().numpy()
-        else:
-            B_seed_np = None
-
+    # ── c_hat: GPU (T_full, M) + CPU mirror (T_pairs, M) for dataset
     c_hat_gpu = torch.tensor(c_init_np, dtype=torch.float32, device=device)
     c_pairs_np = c_init_np[1:].copy()
 
     dataset = PairDataset(yp_np, yc_np, c_pairs_np)
-    if is_dist:
-        sampler = DistributedSampler(
-            dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False
-        )
-        loader = DataLoader(
-            dataset, batch_size=args.batch_size, shuffle=False, sampler=sampler,
-            drop_last=False, pin_memory=True, num_workers=0
-        )
-    else:
-        sampler = None
-        loader = DataLoader(
-            dataset, batch_size=args.batch_size, shuffle=True,
-            drop_last=False, pin_memory=True, num_workers=0
-        )
+    loader = DataLoader(dataset, batch_size=args.batch_size,
+                        shuffle=True, drop_last=False,
+                        pin_memory=True, num_workers=0)
 
-    # ── model + optimizer + scheduler ────────────────────────────
+    # ── model + optimizer + scheduler ────────────────────────────────
     model = SwitchingPoissonGLM(N, M, eta_clip).to(device)
     if A_seed_np is not None:
         with torch.no_grad():
@@ -597,23 +403,18 @@ def main():
     B_init_np = model.B.detach().cpu().numpy().copy()
     B_init_out_np = B_init_np[0] if B_init_np.ndim == 2 and B_init_np.shape[0] > 1 else B_init_np
 
-    if is_dist:
-        model = DDP(model, device_ids=[local_rank])
-
     total_m_epochs = args.num_em_iters * args.m_epochs
     optimizer = optim.Adam(model.parameters(), lr=args.lr_mstep, fused=True)
     scheduler = optim.lr_scheduler.LinearLR(
         optimizer, start_factor=1.0, end_factor=args.lr_end_factor,
-        total_iters=total_m_epochs, last_epoch=-1
-    )
-    scheduler._step_count = 1
+        total_iters=total_m_epochs, last_epoch=-1)
+    scheduler._step_count = 1  # suppress spurious "step before optimizer" warning
 
-    mdl = model.module if hasattr(model, "module") else model
     off_mask = ~torch.eye(N, dtype=torch.bool, device=device)
     l1_wt = torch.ones(N, N, device=device)
     l1_wt[torch.eye(N, dtype=torch.bool, device=device)] = 0.0
 
-    # ── history ──────────────────────────────────────────────────
+    # ── history ──────────────────────────────────────────────────────
     h_e_nll = []
     h_m_loss, h_m_nll, h_m_l1 = [], [], []
     h_rho, h_nz, h_lr = [], [], []
@@ -621,67 +422,36 @@ def main():
     t_start = time.time()
     m_epoch_global = 0
 
-    # ══════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════
     #  EM loop
-    # ══════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════
     for em in range(1, args.num_em_iters + 1):
         apply_prune = em > args.L1_prune_em_iter
 
-        # ── E-step ───────────────────────────────────────────────
+        # ── E-step: single forward sweep ─────────────────────────────
         te0 = time.time()
         with torch.no_grad():
-            if is_dist:
-                p0, p1, n_loc = pair_range_for_rank(T_pairs, world_size, rank)
-                t0 = p0 + 1
-                t1 = p1 + 1
-                nll_local, n_pair_local = run_estep_shard(
-                    Yp_gpu, Yc_gpu, mdl.A.data, mdl.B.data, c_hat_gpu, weights_gpu,
-                    dt, eta_clip, args.lambda2, args.lr_estep, args.pgd_iter,
-                    t0, t1
-                )
-
-                c_upd = torch.zeros_like(c_hat_gpu)
-                c_msk = torch.zeros((T_full, 1), dtype=torch.float32, device=device)
-                c_upd[0] = c_hat_gpu[0]
-                c_msk[0] = 1.0
-                if n_loc > 0:
-                    c_upd[t0:t1 + 1] = c_hat_gpu[t0:t1 + 1]
-                    c_msk[t0:t1 + 1] = 1.0
-
-                dist.all_reduce(c_upd, op=dist.ReduceOp.SUM)
-                dist.all_reduce(c_msk, op=dist.ReduceOp.SUM)
-                c_avg = c_upd / torch.clamp(c_msk, min=1.0)
-                c_hat_gpu.copy_(torch.where(c_msk > 0.0, c_avg, c_hat_gpu))
-
-                ev = torch.tensor([nll_local, float(n_pair_local)],
-                                  dtype=torch.float64, device=device)
-                dist.all_reduce(ev, op=dist.ReduceOp.SUM)
-                e_nll = float(ev[0].item() / max(1.0, ev[1].item()))
-            else:
-                e_nll = run_estep(
-                    Yp_gpu, Yc_gpu, mdl.A.data, mdl.B.data,
-                    c_hat_gpu, weights_gpu, dt, eta_clip,
-                    args.lambda2, args.lr_estep, args.pgd_iter
-                )
-
-        te = time.time() - te0
+            e_nll = run_estep(
+                Yp_gpu, Yc_gpu,
+                model.A.data, model.B.data,
+                c_hat_gpu, weights_gpu,
+                dt, eta_clip,
+                args.lambda2, args.lr_estep, args.pgd_iter)
         h_e_nll.append(e_nll)
+        te = time.time() - te0
 
         # sync c_hat GPU → CPU dataset (in-place update)
         np.copyto(c_pairs_np, c_hat_gpu[1:].cpu().numpy())
 
-        # ── M-step: m_epochs of Adam ─────────────────────────────
+        # ── M-step: m_epochs of Adam ─────────────────────────────────
         tm0 = time.time()
         for _ in range(args.m_epochs):
             m_epoch_global += 1
-            if sampler is not None:
-                sampler.set_epoch(m_epoch_global)
             met = run_mstep_epoch(
                 model, loader, optimizer, device, dt,
                 weights_batch, l1_wt, args.L1_alpha, args.rho_max,
                 args.rho_enforce_every_batch, apply_prune,
-                off_mask, args.minW
-            )
+                off_mask, args.minW)
             scheduler.step()
 
             h_m_loss.append(met["loss"])
@@ -692,7 +462,7 @@ def main():
             h_lr.append(float(optimizer.param_groups[0]["lr"]))
         tm = time.time() - tm0
 
-        if rank == 0 and args.verb > 0:
+        if args.verb > 0:
             n_off = int(off_mask.sum().item())
             sp = 1.0 - met["nz"] / max(1, n_off)
             print(
@@ -701,89 +471,86 @@ def main():
                 f"M_nll={met['nll']:.4e} l1={met['l1']:.4e} "
                 f"rho={met['rho']:.4f} sp={sp:.3f} nz={met['nz']} "
                 f"lr={h_lr[-1]:.2e} ({tm:.1f}s)  "
-                f"tot={time.time() - t_start:.0f}s"
-            )
+                f"tot={time.time() - t_start:.0f}s")
 
-    if rank == 0:
-        print(f"\nTotal EM time: {time.time() - t_start:.1f}s")
+    print(f"\nTotal EM time: {time.time() - t_start:.1f}s")
 
-        # ── Final Viterbi decode ─────────────────────────────────
-        c_hat_np = c_hat_gpu.cpu().numpy()
-        p_stay = math.exp(-dt / args.decode_dwell_sec)
-        S_hat = viterbi_decode(c_hat_np, p_stay)
-        S_hat_CL = (1.0 - c_hat_np.max(axis=1)).astype(np.float32)
+    # ── Final Viterbi decode ─────────────────────────────────────────
+    c_hat_np = c_hat_gpu.cpu().numpy()
+    p_stay = math.exp(-dt / args.decode_dwell_sec)
+    S_hat = viterbi_decode(c_hat_np, p_stay)
+    S_hat_CL = (1.0 - c_hat_np.max(axis=1)).astype(np.float32)
 
-        mdl = model.module if hasattr(model, "module") else model
-        A_hat = mdl.A.detach().cpu().numpy()
-        B_hat = mdl.B.detach().cpu().numpy()
+    # ── Save ─────────────────────────────────────────────────────────
+    A_hat = model.A.detach().cpu().numpy()
+    B_hat = model.B.detach().cpu().numpy()
 
-        h6 = secrets.token_hex(3)
-        outF = f"{args.dataName}-EM-{h6}"
-        outFF = os.path.join(outPath, f"{outF}.prismEM.npz")
-        prov["EMtrain_file"] = outF
+    h6 = secrets.token_hex(3)
+    outF = f"{args.dataName}-EM-{h6}"
+    outFF = os.path.join(outPath, f"{outF}.prismEM.npz")
+    prov['EMtrain_file']=outF
 
-        outD = {
-            "A_init":         A_init_np.astype(np.float32),
-            "A_hat":          A_hat.astype(np.float32),
-            "B_init":         B_init_out_np.astype(np.float32),
-            "B_hat":          B_hat.astype(np.float32),
-            "freq_h1d":       np.asarray(freq_h1d, dtype=np.float32),
-            "c_init":         c_init_np.astype(np.float32),
-            "c_hat":          c_hat_np.astype(np.float32),
-            "S_init":         S_init.astype(np.int64),
-            "S_hat":          S_hat.astype(np.int64),
-            "S_hat_CL":       S_hat_CL,
-            "single_rates":   np.asarray(single_rates),
-            "e_nll_em":       np.asarray(h_e_nll, dtype=np.float64),
-            "m_loss_epoch":   np.asarray(h_m_loss, dtype=np.float64),
-            "m_nll_epoch":    np.asarray(h_m_nll, dtype=np.float64),
-            "m_l1_epoch":     np.asarray(h_m_l1, dtype=np.float64),
-            "rho_epoch":      np.asarray(h_rho, dtype=np.float64),
-            "nz_edges_epoch": np.asarray(h_nz, dtype=np.int64),
-            "learning_rates": np.asarray(h_lr, dtype=np.float64),
-        }
+    outD = {
+        "A_init":         A_init_np.astype(np.float32),
+        "A_hat":          A_hat.astype(np.float32),
+        "B_init":         B_init_out_np.astype(np.float32),
+        "B_hat":          B_hat.astype(np.float32),
+        "freq_h1d":       np.asarray(freq_h1d, dtype=np.float32),
+        "c_init":         c_init_np.astype(np.float32),
+        "c_hat":          c_hat_np.astype(np.float32),
+        "S_init":         S_init.astype(np.int64),
+        "S_hat":          S_hat.astype(np.int64),
+        "S_hat_CL":       S_hat_CL,
+        "single_rates":   np.asarray(single_rates),
+        "e_nll_em":       np.asarray(h_e_nll, dtype=np.float64),
+        "m_loss_epoch":   np.asarray(h_m_loss, dtype=np.float64),
+        "m_nll_epoch":    np.asarray(h_m_nll, dtype=np.float64),
+        "m_l1_epoch":     np.asarray(h_m_l1, dtype=np.float64),
+        "rho_epoch":      np.asarray(h_rho, dtype=np.float64),
+        "nz_edges_epoch": np.asarray(h_nz, dtype=np.int64),
+        "learning_rates": np.asarray(h_lr, dtype=np.float64),
+    }
 
-        outMD = dict(spikeMD)
-        outMD["fit_type"] = "prismEM"
-        outMD["train"] = {
-            "num_em_iters":             args.num_em_iters,
-            "m_epochs":                 args.m_epochs,
-            "total_m_epochs":           total_m_epochs,
-            "pgd_iter":                 args.pgd_iter,
-            "lr_estep":                 args.lr_estep,
-            "lr_mstep":                 args.lr_mstep,
-            "lr_end_factor":            args.lr_end_factor,
-            "lambda2":                  args.lambda2,
-            "L1_alpha":                 args.L1_alpha,
-            "rho_max":                  args.rho_max,
-            "rho_enforce_every_batch":  args.rho_enforce_every_batch,
-            "L1_prune_em_iter":         args.L1_prune_em_iter,
-            "batch_size":               args.batch_size,
-            "minW":                     args.minW,
-            "num_states":               M,
-            "num_neurons":              N,
-            "num_time_bins":            T_full,
-            "time_step_sec":            dt,
-            "eta_clip":                 eta_clip,
-            "time_range_sec":           [t0_sec, t1_sec],
-            "time_range_bins":          [start_bin, end_bin],
-            "seed":                     args.seed,
-        }
-        outMD["states_recovery_eval"] = {
-            "decode":           "viterbi",
-            "decode_dwell_sec": args.decode_dwell_sec,
-        }
-        outMD["init_A"] = init_A_md
-        outMD["init_state"] = init_state_md
-        outMD["init_B"] = init_B_md
-        outMD["provenance"] = prov
+    outMD = dict(spikeMD)
+    outMD["fit_type"] = "prismEM"
+    outMD["train"] = {
+        "num_em_iters":             args.num_em_iters,
+        "m_epochs":                 args.m_epochs,
+        "total_m_epochs":           total_m_epochs,
+        "pgd_iter":                 args.pgd_iter,
+        "lr_estep":                 args.lr_estep,
+        "lr_mstep":                 args.lr_mstep,
+        "lr_end_factor":            args.lr_end_factor,
+        "lambda2":                  args.lambda2,
+        "L1_alpha":                 args.L1_alpha,
+        "rho_max":                  args.rho_max,
+        "rho_enforce_every_batch":  args.rho_enforce_every_batch,
+        "L1_prune_em_iter":         args.L1_prune_em_iter,
+        "batch_size":               args.batch_size,
+        "minW":                     args.minW,
+        "num_states":               M,
+        "num_neurons":              N,
+        "num_time_bins":            T_full,
+        "time_step_sec":            dt,
+        "eta_clip":                 eta_clip,
+        "time_range_sec":           [t0_sec, t1_sec],
+        "time_range_bins":          [start_bin, end_bin],
+        "seed":                     args.seed,
+    }
+    outMD["states_recovery_eval"] = {
+        "decode":           "viterbi",
+        "decode_dwell_sec": args.decode_dwell_sec,
+    }
+    outMD["init_A"] = init_A_md
+    outMD["init_state"] = init_state_md
+    outMD["init_B"] = init_B_md
+    outMD["provenance"] = prov
 
-        write_data_npz(outD, outFF, metaD=outMD)
-        print(f"\nSaved: {outFF}")
-        print(f"  basePath={args.basePath}")
-        print(f"  ./prism_EM_eval.py --basePath $basePath "
-              f"--dataName {outF} -p b c a\n")
-    cleanup_distributed(is_dist)
+    write_data_npz(outD, outFF, metaD=outMD)
+    print(f"\nSaved: {outFF}")
+    print(f"  basePath={args.basePath}")
+    print(f"  ./prism_EM_eval.py --basePath $basePath "
+          f"--dataName {outF} -p b c a\n")
 
 
 if __name__ == "__main__":

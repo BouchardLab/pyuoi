@@ -59,7 +59,7 @@ class Plotter(PlotterBackbone):
         Row 2: nz off-diag edges vs M-epoch | mean occupancy | A off-diag weight histogram
         """
         figId = self.smart_append(figId)
-        fig = self.plt.figure(figId, facecolor='white', figsize=(14, 7.5))
+        fig = self.plt.figure(figId, facecolor='white', figsize=(12, 6))
         fig.subplots_adjust(hspace=0.45, wspace=0.35)
 
         trainMD = md["train"]
@@ -350,7 +350,7 @@ class Plotter(PlotterBackbone):
         shared_norm = colors.TwoSlopeNorm(vmin=vmin, vcenter=0.0, vmax=vmax)
         return A_true, N, num_exc, n_diag, n_off, shared_norm
 
-    def _scatter_true_vs_cmp(self, ax, x_true, y_cmp, title, color):
+    def _scatter_true_vs_cmp(self, ax, x_true, y_cmp, title, color, split_by_true_sign=False):
         x_true = np.asarray(x_true, dtype=np.float64).ravel()
         y_cmp = np.asarray(y_cmp, dtype=np.float64).ravel()
         n = min(x_true.size, y_cmp.size)
@@ -370,9 +370,21 @@ class Plotter(PlotterBackbone):
             ax.set_xlim(lo, hi)
             ax.set_ylim(lo, hi)
 
-            xm = float(np.mean(x))
-            ym = float(np.mean(y))
-            ax.plot([xm], [ym], marker='+', markersize=14, markeredgewidth=2.5, color='k')
+            if split_by_true_sign:
+                m_neg = x < 0.0
+                m_pos = x > 0.0
+                if np.any(m_neg):
+                    xm = float(np.mean(x[m_neg]))
+                    ym = float(np.mean(y[m_neg]))
+                    ax.plot([xm], [ym], marker='+', markersize=14, markeredgewidth=2.5, color='k')
+                if np.any(m_pos):
+                    xm = float(np.mean(x[m_pos]))
+                    ym = float(np.mean(y[m_pos]))
+                    ax.plot([xm], [ym], marker='+', markersize=14, markeredgewidth=2.5, color='k')
+            else:
+                xm = float(np.mean(x))
+                ym = float(np.mean(y))
+                ax.plot([xm], [ym], marker='+', markersize=14, markeredgewidth=2.5, color='k')
 
         ax.set_aspect('equal', adjustable='box')
         ax.grid(True, alpha=0.4)
@@ -458,6 +470,7 @@ class Plotter(PlotterBackbone):
             A_cmp[diag_mask],
             f"{cmp_label} :diag",
             color='salmon',
+            split_by_true_sign=True,
         )
 
         fig.suptitle(f"A_true  vs. {cmp_label}  comparison: {md['short_name']}", fontsize=13)
@@ -542,6 +555,145 @@ class Plotter(PlotterBackbone):
             fontsize=12)
         fig.tight_layout()
 
+    def _add_x45_lins(self, ax, only45=False):
+        lims = [
+            np.min([ax.get_xlim(), ax.get_ylim()]),
+            np.max([ax.get_xlim(), ax.get_ylim()]),
+        ]
+        ax.plot(lims, lims, '--', color='k', linewidth=0.8)
+        if only45:
+            return
+        ax.axvline(0, linestyle='--', color='k', linewidth=1)
+        ax.axhline(0, linestyle='--', color='k', linewidth=1)
+
+    def _corrcoef_safe(self, x, y):
+        x = np.asarray(x)
+        y = np.asarray(y)
+        if x.size == 0 or y.size == 0:
+            return np.nan
+        if np.std(x) == 0 or np.std(y) == 0:
+            return np.nan
+        return float(np.corrcoef(x, y)[0, 1])
+
+    def _find_bimodal_divider(self, xV):
+        x = np.asarray(xV, dtype=float).ravel()
+        assert x.size >= 2, f"Need >=2 samples for bimodal split, got {x.size}"
+        assert np.isfinite(x).all(), "xV contains non-finite values"
+        assert np.std(x) > 0.0, "xV must have non-zero variance for bimodal split"
+
+        q1, q3 = np.quantile(x, [0.25, 0.75])
+        c1, c2 = float(q1), float(q3)
+        if c1 == c2:
+            c1 = float(np.min(x))
+            c2 = float(np.max(x))
+        assert c1 != c2, "Failed to initialize two distinct mode centers"
+
+        for _ in range(32):
+            d1 = np.abs(x - c1)
+            d2 = np.abs(x - c2)
+            left = d1 <= d2
+            n_left = int(left.sum())
+            n_right = int((~left).sum())
+            assert n_left > 0 and n_right > 0, "Bimodal split produced empty cluster"
+            c1_new = float(np.mean(x[left]))
+            c2_new = float(np.mean(x[~left]))
+            if abs(c1_new - c1) < 1e-10 and abs(c2_new - c2) < 1e-10:
+                c1, c2 = c1_new, c2_new
+                break
+            c1, c2 = c1_new, c2_new
+
+        if c1 > c2:
+            c1, c2 = c2, c1
+        divide = 0.5 * (c1 + c2)
+        assert np.isfinite(divide), "Computed non-finite bimodal divider"
+        return float(divide)
+
+    def _plot_corr_A_regions(self, ax, xV, yV, minW, title, xlab, ylab, s=6, alpha=0.5, color=None):
+        x = np.asarray(xV)
+        y = np.asarray(yV)
+        ax.scatter(x, y, s=s, alpha=alpha, color=color)
+        self._add_x45_lins(ax, only45=True)
+        ax.axvline(-minW, color="red", linestyle="--", linewidth=1)
+        ax.axvline(minW, color="red", linestyle="--", linewidth=1)
+        ax.set(title=title, xlabel=xlab, ylabel=ylab)
+        ax.set_aspect("equal", adjustable="box")
+        ax.grid(True, alpha=0.4)
+
+        mask_left = x < -minW
+        mask_mid = (x >= -minW) & (x <= minW)
+        mask_right = x > minW
+        r_left = self._corrcoef_safe(x[mask_left], y[mask_left])
+        r_mid = self._corrcoef_safe(x[mask_mid], y[mask_mid])
+        r_right = self._corrcoef_safe(x[mask_right], y[mask_right])
+        n_left = int(mask_left.sum())
+        n_mid = int(mask_mid.sum())
+        n_right = int(mask_right.sum())
+
+        ax.text(0.20, 0.05, f"rL={r_left:.3f}\nnL={n_left}", transform=ax.transAxes)
+        ax.text(0.50, 0.40, f"rM={r_mid:.3f}\nnM={n_mid}", transform=ax.transAxes)
+        ax.text(0.65, 0.60, f"rR={r_right:.3f}\nnR={n_right}", transform=ax.transAxes)
+
+    def _plot_corr_B_divisor(self, ax, xV, yV, title, xlab, ylab, s=6, alpha=0.5, color=None):
+        x = np.asarray(xV)
+        y = np.asarray(yV)
+        assert x.shape == y.shape, f"x and y shape mismatch: {x.shape} vs {y.shape}"
+        divide = self._find_bimodal_divider(x)
+
+        ax.scatter(x, y, s=s, alpha=alpha, color=color)
+        self._add_x45_lins(ax, only45=True)
+        ax.axvline(divide, color="red", linestyle="--", linewidth=1)
+        ax.set(title=title, xlabel=xlab, ylabel=ylab)
+        ax.set_aspect("equal", adjustable="box")
+        ax.grid(True, alpha=0.4)
+
+        mask_left = x < divide
+        mask_right = x >= divide
+        r_left = self._corrcoef_safe(x[mask_left], y[mask_left])
+        r_right = self._corrcoef_safe(x[mask_right], y[mask_right])
+        n_left = int(mask_left.sum())
+        n_right = int(mask_right.sum())
+        ax.text(0.05, 0.45, f"rL={r_left:.3f}\nnL={n_left}", transform=ax.transAxes, va="top")
+        ax.text(0.65, 0.55, f"rR={r_right:.3f}\nnR={n_right}", transform=ax.transAxes, va="top")
+
+    def eval_ABcorr_prismEM(self, fitD, md, figId=6):
+        A_hat = np.asarray(fitD["A_hat"])
+        B_hat = np.asarray(fitD["B_hat"])
+        A_true = np.asarray(md["A_true"])
+        B_true = np.asarray(md["B_true"])
+        minW = float(self.args.minW)
+
+        assert A_true.ndim == 2, f"A_true must be 2D, got shape={A_true.shape}"
+        assert A_hat.ndim == 2, f"A_hat must be 2D, got shape={A_hat.shape}"
+
+        if B_hat.ndim == 1:
+            B_hat = B_hat[None, :]
+        if B_true.ndim == 1:
+            B_true = B_true[None, :]
+        n_states = min(B_hat.shape[0], B_true.shape[0])
+        assert n_states >= 1, "Need at least one B-state for correlation plot"
+
+        figId = self.smart_append(figId)
+        ncol = 1 + n_states
+        fig_w = max(10.0, 3.0 * ncol)
+        fig = self.plt.figure(figId, facecolor='white', figsize=(fig_w, 3.8))
+
+        ax = self.plt.subplot(1, ncol, 1)
+        self._plot_corr_A_regions(
+            ax, A_true.ravel(), A_hat.ravel(), minW,
+            "A corr,", "A_true", "A_hat", s=6, alpha=0.4, color="green"
+        )
+
+        for m in range(n_states):
+            ax = self.plt.subplot(1, ncol, 2 + m)
+            self._plot_corr_B_divisor(
+                ax, B_true[m], B_hat[m],
+                f"B corr, state {m}", "B_true", "B_hat",
+                s=8, alpha=0.5, color="blue"
+            )
+
+        fig.suptitle(f"2D correlations, minW={minW:g}: {md['short_name']}", fontsize=12)
+        fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.92])
+
     def state_seq_prismEM(self, fitD, md, figId=5, time_range_sec=None):
         """4-row state-sequence canvas in the style of prism_Estep_eval -p b."""
         trainMD = md["train"]
@@ -570,18 +722,16 @@ class Plotter(PlotterBackbone):
 
         nll_t = np.asarray(md["eval_f"]["loss_nll_time"])[p0:p1]
         l2_t = np.asarray(md["eval_f"]["loss_l2_time"])[p0:p1]
-        ll_gap = np.asarray(md["eval_f"]["ll_gap"])[p0:p1]
-
         t_bins = np.arange(b0, b1 + 1, dtype=np.float64) * dt
         t_pairs = np.arange(b0, b1, dtype=np.float64) * dt
         x0, x1 = float(t_bins[0]), float(t_bins[-1])
 
         figId = self.smart_append(figId)
         fig = self.plt.figure(figId, facecolor='white', figsize=(12, 9))
-        gs = fig.add_gridspec(4, 1, height_ratios=[1.0, 1.0, 0.55, 0.55], hspace=0.85)
+        gs = fig.add_gridspec(4, 3, height_ratios=[0.95, 1.0, 1.0, 0.55], hspace=0.9, wspace=0.35)
 
-        # Row 1: Fit
-        ax = fig.add_subplot(gs[0, 0])
+        # Row 2: Fit
+        ax = fig.add_subplot(gs[1, :])
         ax.plot(t_bins, S_hat, color="k", linewidth=1.0, label="S_hat")
         lo = np.clip(S_hat - S_hat_CL, 0.0, float(C_hat.shape[1] - 1))
         hi = np.clip(S_hat + S_hat_CL, 0.0, float(C_hat.shape[1] - 1))
@@ -597,8 +747,8 @@ class Plotter(PlotterBackbone):
         ax.legend(loc="lower left", bbox_to_anchor=(0.0, 1.02), fontsize=8)
         ax2.legend(loc="lower right", bbox_to_anchor=(1.0, 1.02), ncol=4, fontsize=8)
 
-        # Row 2: Truth
-        ax = fig.add_subplot(gs[1, 0])
+        # Row 3: Truth
+        ax = fig.add_subplot(gs[2, :])
         ax.plot(t_bins, S_true, color="k", linewidth=1.0, label="S_true")
         ax.set(title="Truth", xlabel="time (s)", ylabel="state")
         ax.set_xlim(x0, x1)
@@ -611,8 +761,49 @@ class Plotter(PlotterBackbone):
         ax.legend(loc="lower left", bbox_to_anchor=(0.0, 1.02), fontsize=8)
         ax2.legend(loc="lower right", bbox_to_anchor=(1.0, 1.02), ncol=4, fontsize=8)
 
-        # Row 3: Loss(time)
-        ax = fig.add_subplot(gs[2, 0])
+        # Row 1: diagnostics panels (occupancy, state accuracy, confidence)
+        srec = md["states_recovery_eval"]
+        acc_avg = float(srec["avg_acc"])
+        state_acc_cl = np.asarray(srec["state_acc_cl"], dtype=np.float64)
+        acc_ps = state_acc_cl[:, 0]
+        cl_ps = state_acc_cl[:, 1]
+
+        ax = fig.add_subplot(gs[0, 0])
+        occ = C_hat.mean(axis=0)
+        x = np.arange(C_hat.shape[1], dtype=np.int64)
+        ax.bar(x, occ, color="tab:blue", alpha=0.65)
+        ax.set(title="Mean occupancy", xlabel="state", ylabel="mean c")
+        ax.set_ylim(0.0, 1.0)
+        ax.set_xticks(x)
+        ax.grid(True, alpha=0.3)
+        ax.set_box_aspect(0.9)
+
+        ax = fig.add_subplot(gs[0, 1])
+        x = np.arange(acc_ps.size, dtype=np.int64)
+        ax.bar(x, acc_ps, color="tab:green", alpha=0.7)
+        ax.errorbar(x, acc_ps, yerr=cl_ps, fmt='o', color='k', capsize=5, markersize=4)
+        ax.axhline(1.0, color="green", linestyle="--", linewidth=1)
+        ymin = min(0.5, float(np.nanmin(acc_ps - cl_ps)) - 0.05)
+        ax.set_ylim(ymin, None)
+        ax.set(title=f"State accuracy, avr={acc_avg:.3f}", xlabel="state", ylabel="accuracy")
+        ax.set_xticks(x)
+        ax.grid(True, alpha=0.3, axis="y")
+        ylo, yhi = ax.get_ylim()
+        y_txt = ylo + 0.80 * (yhi - ylo)
+        for i, v in enumerate(acc_ps):
+            ax.text(i + 0.3, y_txt, f"{v:.2f}", ha="center", va="center", fontsize=9)
+        ax.set_box_aspect(0.9)
+
+        ax = fig.add_subplot(gs[0, 2])
+        cl = np.asarray(S_hat_CL, dtype=np.float64)
+        ax.hist(cl, bins=30, color="tab:purple", alpha=0.7)
+        ax.axvline(np.mean(cl), color="k", linestyle="--", linewidth=1.0)
+        ax.set(title=f"Confidence (acc={acc_avg:.3f})", xlabel="S_hat_CL", ylabel="count")
+        ax.grid(True, alpha=0.3)
+        ax.set_box_aspect(0.9)
+
+        # Row 4: Loss(time)
+        ax = fig.add_subplot(gs[3, :])
         ax.plot(t_pairs, nll_t, color="tab:blue", linewidth=0.9, label="nll")
         ax.plot(t_pairs, l2_t, color="tab:orange", linewidth=0.9, label="l2")
         ax.set_yscale("log")
@@ -626,15 +817,6 @@ class Plotter(PlotterBackbone):
         ax2.yaxis.set_major_locator(MaxNLocator(integer=True))
         ax2.legend(loc="lower right", bbox_to_anchor=(1.0, 1.02), fontsize=8)
 
-        # Row 4: LL gap
-        ax = fig.add_subplot(gs[3, 0])
-        ax.plot(t_pairs, ll_gap, color="tab:blue", linewidth=0.9, label="LL gap")
-        ax.set(title="LL gap (best - 2nd)", xlabel="time (s)", ylabel="value")
-        ax.set_xlim(x0, x1)
-        ax.grid(True, alpha=0.35)
-        ax.legend(loc="lower left", bbox_to_anchor=(0.0, 1.02), fontsize=8)
-
-        srec = md["states_recovery_eval"]
         fig.suptitle(
             f"Dataset: {md['short_name']} | λ₂={trainMD['lambda2']}, lr={trainMD['lr_estep']}, "
             f"pgd_iter={trainMD['pgd_iter']}, decode_dwell={srec['decode_dwell_sec']}s",

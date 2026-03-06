@@ -127,7 +127,7 @@ def main():
                         help="Head dir for input/output data")
     parser.add_argument("-p", "--showPlots", type=str, nargs='+',
                         default="a",
-                        help="Plot types: a=EM convergence summary, b=init-vs-truth states, c=A_init-vs-truth, d=A_hat-vs-truth, e=A_hat edge recovery, f=state sequence")
+                        help="Plot types: a=EM convergence summary, b=init-vs-truth states, c=A_init-vs-truth, d=A_hat-vs-truth, e=A_hat edge recovery, f=state sequence, g=2D correlations (A/B)")
     parser.add_argument("--minW", type=float, default=0.02,
                         help="Threshold for A-matrix edge eval")
     parser.add_argument("--timeReb", type=int, default=20,
@@ -218,6 +218,9 @@ def main():
         plot.state_seq_prismEM(
             fitD, MD, figId=5, time_range_sec=args.time_range_sec
         )
+
+    if 'g' in args.showPlots:
+        plot.eval_ABcorr_prismEM(fitD, MD, figId=6)
 
     plot.display_all()
 

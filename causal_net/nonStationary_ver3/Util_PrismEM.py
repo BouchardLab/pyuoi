@@ -247,7 +247,7 @@ def init_A_from_spikes(spikes, args):
 
     if args.verb > 0:
         print("A-init OLS diagnostics:")
-        print(f"  cond(YpYp) = {meta['cond_YpYp']:.2e}")
+        print(f"  cond(YpYp) = {meta['cond_YpYp']:.1f}")
         print(f"  rho(A_ols) = {meta['rho_A_init']:.3f}")
         print(f"  R2         = {meta['R2_1step']:.3f}")
         print(f"  ||A||_F    = {meta['fro_A_init']:.3f}")
