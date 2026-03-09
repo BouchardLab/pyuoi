@@ -411,7 +411,7 @@ def main():
 
     print("  ./fit_lassoPoisson3.py  --basePath $basePath  --dataName   %s   --num_epochs  300  " % args.dataName)
    
-    print("  ./fitLasso4GPU.sh   --basePath $basePath     --dataName %s  --num_epochs 100  " % args.dataName)
+    print("  ./fitPrismEM.sh   --basePath $basePath     --dataName %s  --num_states %d  --num_em_iters 4 --m_epochs 16  --time_range_sec 0 80 " % (args.dataName,n_states))
     print("  ./bigLassoBoots.sh    --basePath $basePath     --dataName %s  --num_epochs 100  --dropDataFrac 0.33  --num_bootstraps 2   --bootsTag b2   --desyncTime  " % args.dataName)
 
 

@@ -422,7 +422,7 @@ class Plotter(PlotterBackbone):
         conf_map[TP] = 3
         conf_map[FP] = 2
         conf_map[FN] = 1
-        cmap_conf = colors.ListedColormap(['white',  'magenta','red', 'green'])
+        cmap_conf = colors.ListedColormap(['white',  'red','blue' ,'green'])
         bounds = [-0.5,0.5,1.5,2.5,3.5]
         norm = colors.BoundaryNorm(bounds, cmap_conf.N)
         ax = self.plt.subplot(gs[2])
@@ -440,7 +440,7 @@ class Plotter(PlotterBackbone):
         ax = self.plt.subplot(gs[3])
         bar_names = ['TP','FP','FN']
         vals = [counts[k] for k in bar_names]
-        ax.bar(bar_names, vals, color=['green','red','magenta','grey'])
+        ax.bar(bar_names, vals, color=['green','royalblue','red','grey'])
         ax.set_ylabel('count')
         y_pos = 0.25 * max(1, max(vals))
         for name, val in zip(bar_names, vals):

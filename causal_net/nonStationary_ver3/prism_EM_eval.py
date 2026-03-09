@@ -127,7 +127,7 @@ def main():
                         help="Head dir for input/output data")
     parser.add_argument("-p", "--showPlots", type=str, nargs='+',
                         default="a",
-                        help="Plot types: a=EM convergence summary, b=init-vs-truth states, c=A_init-vs-truth, d=A_hat-vs-truth, e=A_hat edge recovery, f=state sequence, g=2D correlations (A/B)")
+                        help="Plot types: a=EM convergence summary, b=init-vs-truth states, c=A_init-vs-truth, d=A_hat-vs-truth, e=A_hat edge recovery, f=state sequence, g=2D correlations (A/B), h=A_init TP quality (E/I split)")
     parser.add_argument("--minW", type=float, default=0.02,
                         help="Threshold for A-matrix edge eval")
     parser.add_argument("--timeReb", type=int, default=20,
@@ -186,10 +186,10 @@ def main():
     MD["states_recovery_eval"]["state_acc_cl"] = reco["state_acc_cl"]
 
     print(f"state reco avr acc {reco['avg_acc']:.3f}, {args.dataName}")
-    print(f"  {'state':>5s}  {'CL':>6s}  {'acc':>5s}")
-    print(f"  {'-----':>5s}  {'------':>6s}  {'-----':>5s}")
+    print(f"  {'state':>5s}  {'acc':>5s}  {'CL':>6s}")
+    print(f"  {'-----':>5s}  {'-----':>5s}  {'------':>6s}")
     for m, (acc_m, cl_m) in enumerate(reco["state_acc_cl"]):
-        print(f"  {m:5d}  {cl_m:6.3f}  {acc_m:5.3f}")
+        print(f"  {m:5d}  {acc_m:5.3f}  {cl_m:6.3f}")
 
     MD["short_name"] = args.dataName
 
@@ -221,6 +221,9 @@ def main():
 
     if 'g' in args.showPlots:
         plot.eval_ABcorr_prismEM(fitD, MD, figId=6)
+
+    if 'h' in args.showPlots:
+        plot.initA_quality_prismEM(fitD, MD, minW=args.minW, figId=7)
 
     plot.display_all()
 

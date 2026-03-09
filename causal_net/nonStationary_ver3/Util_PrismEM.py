@@ -4,6 +4,7 @@ Utilities for prism EM initialization.
 """
 
 import numpy as np
+import time
 
 
 def _normalize_init_opt(opt):
@@ -180,8 +181,9 @@ def init_B_from_spikes(spikes, dt, args):
     return init_selfspikingB(spikes, dt, args)
 
 
-def init_edgesA(spikes, Tmax=10000, verbose=True):
+def init_edgesA(spikes, Tmax=50000, verbose=True):
     """OLS/covariance initialization of A from spike data Y (T x N)."""
+    t0 = time.perf_counter()
     Y = np.asarray(spikes, dtype=np.float64)
     if Y.ndim != 2:
         raise ValueError("spikes must be 2D array (T, N)")
@@ -205,6 +207,7 @@ def init_edgesA(spikes, Tmax=10000, verbose=True):
     else:
         R2 = float(1.0 - np.var(Y[1:] - Y_pred) / var_y)
     frob = float(np.linalg.norm(A_ols, ord="fro"))
+    elapsed_sec = float(time.perf_counter() - t0)
 
     if verbose:
         print("A-init OLS diagnostics:")
@@ -213,6 +216,7 @@ def init_edgesA(spikes, Tmax=10000, verbose=True):
         print(f"  R2         = {R2:.3f}")
         print(f"  ||A||_F    = {frob:.3f}")
         print(f"  bins_used  = {T_use}/{T_full}")
+        print(f"  elapsed_s  = {elapsed_sec:.3f}")
 
     meta = {
         "method": "cov_ols",
@@ -223,6 +227,7 @@ def init_edgesA(spikes, Tmax=10000, verbose=True):
         "rho_A_init": rho,
         "R2_1step": R2,
         "fro_A_init": frob,
+        "elapsed_init_edgesA_sec": elapsed_sec,
     }
     return A_ols.astype(np.float32), meta
 
@@ -252,6 +257,7 @@ def init_A_from_spikes(spikes, args):
         print(f"  R2         = {meta['R2_1step']:.3f}")
         print(f"  ||A||_F    = {meta['fro_A_init']:.3f}")
         print(f"  bins_used  = {meta['num_bins_used']}/{meta['num_bins_total']}")
+        print(f"  elapsed_s  = {meta['elapsed_init_edgesA_sec']:.3f}")
 
     return A_init, meta
 

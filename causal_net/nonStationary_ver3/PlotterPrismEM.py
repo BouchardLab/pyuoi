@@ -82,9 +82,10 @@ class Plotter(PlotterBackbone):
         prune_em = trainMD["L1_prune_em_iter"]
         prune_m_epoch = prune_em * m_per_em
 
+        jSkip=2
         # ── Row 1, Col 1: E-step NLL vs EM iteration ────────────────
         ax = self.plt.subplot(2, 3, 1)
-        ax.plot(em_iters, e_nll, 'o-', color='tab:blue', markersize=3,
+        ax.plot(em_iters[jSkip:], e_nll[jSkip:], 'o-', color='tab:blue', markersize=3,
                 linewidth=1.2)
         ax.set(title="E-step weighted NLL", xlabel="EM iteration",
                ylabel="NLL / bin")
@@ -98,14 +99,14 @@ class Plotter(PlotterBackbone):
 
         # ── Row 1, Col 2: M-step NLL + L1 vs M-epoch ────────────────
         ax = self.plt.subplot(2, 3, 2)
-        ax.plot(m_epochs, m_nll, color='tab:blue', linewidth=1, label='NLL')
+        ax.plot(m_epochs[jSkip:], m_nll[jSkip:], color='tab:blue', linewidth=1, label='NLL')
         ax.set_ylabel('NLL', color='tab:blue')
         ax.tick_params(axis='y', labelcolor='tab:blue')
         ax.set(title="M-step loss", xlabel="M-epoch (global)")
         ax.grid(True, alpha=0.3)
 
         ax2 = ax.twinx()
-        ax2.plot(m_epochs, m_l1, color='tab:red', linewidth=1,
+        ax2.plot(m_epochs[jSkip:], m_l1[jSkip:] , color='tab:red', linewidth=1,
                  linestyle='--', label='L1')
         ax2.set_ylabel('L1', color='tab:red')
         ax2.tick_params(axis='y', labelcolor='tab:red')
@@ -128,7 +129,7 @@ class Plotter(PlotterBackbone):
         # ── Row 1, Col 3: spectral radius vs M-epoch ────────────────
         ax = self.plt.subplot(2, 3, 3)
         rho_max = trainMD["rho_max"]
-        ax.plot(m_epochs, rho, color='tab:green', linewidth=1,
+        ax.plot(m_epochs[jSkip:], rho[jSkip:] , color='tab:green', linewidth=1,
                 label='ρ(A)')
         ax.axhline(rho_max, color='red', ls='--', lw=1,
                    label=f'ρ_max={rho_max}')
@@ -554,6 +555,225 @@ class Plotter(PlotterBackbone):
             f"A-matrix edge recovery, minW={float(minW):g} (off-diag only): {md['short_name']}",
             fontsize=12)
         fig.tight_layout()
+
+    def _scatter_tp_true_vs_est(self, ax, a_true_tp, a_est_tp, title, color):
+        x_true = np.asarray(a_true_tp, dtype=np.float64).ravel()
+        y_init = np.asarray(a_est_tp, dtype=np.float64).ravel()
+        n = min(x_true.size, y_init.size)
+        if n <= 0:
+            ax.set(title=f"{title}\n(no TP points)", xlabel="A_init", ylabel="A_true")
+            ax.grid(True, alpha=0.35)
+            return
+        x_true = x_true[:n]
+        y_init = y_init[:n]
+        ax.scatter(y_init, x_true, s=10, marker='.', alpha=0.70, color=color, zorder=4)
+        self._add_x45_lins(ax, only45=True)
+        ax.axvline(0.0, linestyle='--', color='0.35', linewidth=0.9, alpha=0.7, zorder=1)
+        ax.axhline(0.0, linestyle='--', color='0.35', linewidth=0.9, alpha=0.7, zorder=1)
+
+        lo = float(min(np.min(x_true), np.min(y_init)))
+        hi = float(max(np.max(x_true), np.max(y_init)))
+        span = max(1e-6, hi - lo)
+        pad = 0.05 * span
+        ax.set_xlim(lo - pad, hi + pad)
+        ax.set_ylim(lo - pad, hi + pad)
+        ax.set_aspect("equal", adjustable="box")
+        ax.grid(True, alpha=0.35)
+        ax.set(title=f"{title} (n={n})", xlabel="A_init", ylabel="A_true")
+
+    def _hist_tp_residuals(self, ax, a_true_tp, a_est_tp, title, color):
+        x = np.asarray(a_true_tp, dtype=np.float64).ravel()
+        y = np.asarray(a_est_tp, dtype=np.float64).ravel()
+        n = min(x.size, y.size)
+        if n <= 0:
+            ax.set(title=f"{title}\n(no TP points)", xlabel="A_init - A_true", ylabel="count")
+            ax.grid(True, alpha=0.35)
+            return
+        resid = y[:n] - x[:n]
+        bins = min(80, max(15, int(np.sqrt(n))))
+        ax.hist(resid, bins=bins, color=color, alpha=0.8)
+        ax.axvline(0.0, color='k', linestyle='--', linewidth=1.0, alpha=0.8)
+        ax.grid(True, alpha=0.35)
+        ax.set(title=f"{title} (n={n})", xlabel="A_init - A_true", ylabel="count")
+
+        mae = float(np.mean(np.abs(resid)))
+        rmse = float(np.sqrt(np.mean(resid ** 2)))
+        ax.text(
+            0.04, 0.96,
+            f"MAE={mae:.3f}\nRMSE={rmse:.3f}",
+            transform=ax.transAxes, va="top", ha="left", fontsize=9,
+            bbox=dict(facecolor="white", alpha=0.75, edgecolor="none"),
+        )
+
+    def _hist_all_values(self, ax, vals, title, color, tp_vals=None):
+        v = np.asarray(vals, dtype=np.float64).ravel()
+        if v.size == 0:
+            ax.set(title=f"{title}\n(no values)", xlabel="A_init", ylabel="count")
+            ax.grid(True, alpha=0.35)
+            return
+        bins = min(120, max(25, int(np.sqrt(v.size))))
+        counts, edges, _ = ax.hist(v, bins=bins, color=color, alpha=0.8, label="all")
+        if tp_vals is not None:
+            tp = np.asarray(tp_vals, dtype=np.float64).ravel()
+            if tp.size > 0:
+                ax.hist(
+                    tp, bins=edges, histtype='step', color='k', linewidth=1.8,
+                    label=f"TP (n={tp.size})"
+                )
+        ax.axvline(0.0, color='k', linestyle='--', linewidth=1.0, alpha=0.9)
+        ax.grid(True, alpha=0.35)
+        ax.set(title=f"{title} (n={v.size})", xlabel="A_init", ylabel="count")
+        ax.text(
+            0.04, 0.96,
+            f"mean={float(np.mean(v)):.3f}\nstd={float(np.std(v)):.3f}",
+            transform=ax.transAxes, va="top", ha="left", fontsize=9,
+            bbox=dict(facecolor="white", alpha=0.75, edgecolor="none"),
+        )
+        if tp_vals is not None:
+            ax.legend(loc="upper right", fontsize=8, framealpha=0.8)
+
+    def _hist2d_values_vs_row(self, ax, A, row_lo, row_hi, title, cmap="bwr"):
+        A = np.asarray(A, dtype=np.float64)
+        n_rows = int(A.shape[0])
+        n_cols = int(A.shape[1])
+        r0 = max(0, int(row_lo))
+        r1 = min(n_rows, int(row_hi))
+        if r1 <= r0:
+            ax.set(title=f"{title}\n(empty row range)", xlabel="A_init", ylabel="row neuron index")
+            ax.grid(True, alpha=0.35)
+            return
+
+        sub = A[r0:r1, :]
+        xx = sub.ravel()
+        yy = np.repeat(np.arange(r0, r1, dtype=np.float64), n_cols)
+        xbins = min(140, max(40, int(np.sqrt(xx.size))))
+        ybins = max(12, min(80, r1 - r0))
+
+        x_lo = float(np.min(xx))
+        x_hi = float(np.max(xx))
+        if np.isclose(x_lo, x_hi):
+            x_hi = x_lo + 1e-9
+        x_edges = np.linspace(x_lo, x_hi, xbins + 1)
+        y_edges = np.linspace(r0 - 0.5, r1 - 0.5, ybins + 1)
+
+        H, _, _ = np.histogram2d(xx, yy, bins=[x_edges, y_edges])
+        x_cent = 0.5 * (x_edges[:-1] + x_edges[1:])
+        sign_x = np.sign(x_cent)
+        # Normalize by neuron count (N columns) per user request.
+        H_signed = (H * sign_x[:, None]) / float(n_cols)
+
+        vmin = float(np.min(H_signed))
+        vmax = float(np.max(H_signed))
+        if vmin >= 0.0:
+            vmin = -1e-9
+        if vmax <= 0.0:
+            vmax = 1e-9
+        norm = colors.TwoSlopeNorm(vmin=vmin, vcenter=0.0, vmax=vmax)
+
+        im = ax.pcolormesh(x_edges, y_edges, H_signed.T, shading='auto', cmap=cmap, norm=norm)
+        ax.axvline(0.0, color='k', linestyle='--', linewidth=1.0, alpha=0.8)
+        ax.set(title=title, xlabel="A_init", ylabel="row neuron index")
+        ax.set_ylim(r0 - 0.5, r1 - 0.5)
+        ax.grid(False)
+        self.plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+    def initA_quality_prismEM(self, fitD, md, minW=0.02, figId=7):
+        """Two-row TP diagnostics for A_init vs A_true, split by E/I presyn subsets."""
+        A_true, N, num_exc, n_diag, n_off, shared_norm = self._get_A_true_info(md)
+        A_init = np.asarray(fitD["A_init"], dtype=np.float64)
+        assert A_init.ndim == 2 and A_init.shape == A_true.shape, "A_init must match A_true"
+
+        E_true = np.asarray(md["E_true"]).astype(bool)
+        if E_true.ndim == 3:
+            E_true = E_true[0]
+        assert E_true.shape == A_true.shape, "E_true shape must match A_true"
+
+        off_diag = ~np.eye(N, dtype=bool)
+        E_t = E_true & off_diag
+        E_hat = (np.abs(A_init) > float(minW)) & off_diag
+        TP = E_t & E_hat
+        FP = (~E_t) & E_hat
+        FN = E_t & (~E_hat)
+
+        # Split by Dale E/I using row index convention used by A_true canvas.
+        presyn_is_exc = (np.arange(N, dtype=np.int64)[:, None] < int(num_exc))
+        tp_exc = TP & presyn_is_exc
+        tp_inh = TP & (~presyn_is_exc)
+
+        figId = self.smart_append(figId)
+        fig = self.plt.figure(figId, facecolor='white', figsize=(15.0, 11.0))
+        gs = fig.add_gridspec(3, 3, hspace=0.42, wspace=0.38)
+
+        # Top-left: A_true matrix in the same style as -p c.
+        ax = fig.add_subplot(gs[0, 0])
+        self._draw_A_matrix(
+            ax, A_true, f"True Dale, N{N}, nEdges={n_diag}+{n_off}",
+            num_exc=num_exc, norm_map=shared_norm
+        )
+
+        ax = fig.add_subplot(gs[0, 1])
+        self._scatter_tp_true_vs_est(
+            ax, A_true[tp_exc], A_init[tp_exc],
+            "Top: excitatory TP scatter", color="tab:orange"
+        )
+        x0, x1 = ax.get_xlim()
+        ax.set_xlim(min(x0, 0.0), max(x1, 0.0))
+
+        ax = fig.add_subplot(gs[0, 2])
+        self._scatter_tp_true_vs_est(
+            ax, A_true[tp_inh], A_init[tp_inh],
+            "Top: inhibitory TP scatter", color="tab:blue"
+        )
+        x0, x1 = ax.get_xlim()
+        ax.set_xlim(min(x0, 0.0), max(x1, 0.0))
+
+        # Middle-left: A_init matrix in the same style as A_true.
+        ax = fig.add_subplot(gs[1, 0])
+        self._draw_A_matrix(
+            ax, A_init, "A_init", num_exc=num_exc, norm_map=shared_norm
+        )
+
+        ax = fig.add_subplot(gs[1, 1])
+        self._hist_all_values(
+            ax, A_init[:int(num_exc), :],
+            "Bottom: A_init all values (excit rows)", color="tab:orange",
+            tp_vals=A_init[tp_exc]
+        )
+
+        ax = fig.add_subplot(gs[1, 2])
+        self._hist_all_values(
+            ax, A_init[int(num_exc):, :],
+            "Bottom: A_init all values (inhib rows)", color="tab:blue",
+            tp_vals=A_init[tp_inh]
+        )
+
+        # Third row: 2D histograms of A_init value vs presyn neuron index.
+        ax = fig.add_subplot(gs[2, 0])
+        self._hist2d_values_vs_row(
+            ax, A_init, 0, N, "Row3: A_init value vs row idx (all)", cmap="bwr"
+        )
+
+        ax = fig.add_subplot(gs[2, 1])
+        self._hist2d_values_vs_row(
+            ax, A_init, 0, int(num_exc), "Row3: excit rows", cmap="bwr"
+        )
+
+        ax = fig.add_subplot(gs[2, 2])
+        self._hist2d_values_vs_row(
+            ax, A_init, int(num_exc), N, "Row3: inhib rows", cmap="bwr"
+        )
+
+        tp = int(TP.sum())
+        fp = int(FP.sum())
+        fn = int(FN.sum())
+        tp_e = int(tp_exc.sum())
+        tp_i = int(tp_inh.sum())
+        fig.suptitle(
+            f"A_init TP quality vs A_true, minW={float(minW):g}: {md['short_name']}\n"
+            f"TP={tp} (exc={tp_e}, inh={tp_i}), FP={fp}, FN={fn}",
+            fontsize=12,
+        )
+        fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.93])
 
     def _add_x45_lins(self, ax, only45=False):
         lims = [

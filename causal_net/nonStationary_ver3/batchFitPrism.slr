@@ -1,0 +1,119 @@
+#!/bin/bash 
+#SBATCH  -N 1  -C gpu  -A m2043 
+# SBATCH  --time=30:00 -q debug
+#SBATCH --time 8:28:00  -q regular 
+#SBATCH --output=out/%j.out
+#SBATCH  --licenses=scratch
+# - - - E N D    O F    SLURM    C O M M A N D S
+set -u ;  # exit  if you try to use an uninitialized variable
+
+basePath=/pscratch/sd/b/balewski/2026_causalNet_tmp3/
+
+dataName=daleN100_b6ce1e_2ce4d2  ; num_states=2  # N100 16/30 Hz
+#dataName=daleN100_e89fd7_12caaa  ; num_states=2  # N100 16/17 Hz
+#dataName=daleN100_0ddd7b_f96a32  ; num_states=3  # N100 15/31/49 Hz
+#dataName=daleN200_54a712_caf072   ; num_states=3  # N200 13/27/43 Hz
+
+miscArgs="--lr_estep 0.03  --lr_mstep 1e-3 --lr_end_factor 0.1 --L1_alpha 0.02 "  # good
+#miscArgs="--lr_estep 0.02  --lr_mstep 6e-4 --lr_end_factor 0.1 --L1_alpha 0.02"  # try
+
+# spare   --noFreqWeight
+
+# Optional overrides passed to this script
+num_em_iters=2
+m_epochs=16
+time_range_sec="0 80" 
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --num_em_iters)
+            if [[ $# -lt 2 ]]; then
+                echo "ERROR: --num_em_iters requires a value" >&2
+                exit 1
+            fi
+            num_em_iters="$2"
+            shift 2
+            ;;
+        --num_em_iters=*)
+            num_em_iters="${1#*=}"
+            shift
+            ;;
+        --m_epochs)
+            if [[ $# -lt 2 ]]; then
+                echo "ERROR: --m_epochs requires a value" >&2
+                exit 1
+            fi
+            m_epochs="$2"
+            shift 2
+            ;;
+        --m_epochs=*)
+            m_epochs="${1#*=}"
+            shift
+            ;;
+        --time_range_sec)
+            if [[ $# -lt 3 ]]; then
+                echo "ERROR: --time_range_sec requires 2 values: <t0> <t1>" >&2
+                exit 1
+            fi
+            time_range_sec="$2 $3"
+            shift 3
+            ;;
+        --time_range_sec=*)
+            range_val="${1#*=}"
+            if [[ "$range_val" == *,* ]]; then
+                time_range_sec="${range_val/,/ }"
+            else
+                time_range_sec="$range_val"
+            fi
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [--num_em_iters N] [--m_epochs N] [--time_range_sec t0 t1]"
+            exit 0
+            ;;
+        *)
+            echo "ERROR: Unknown argument: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
+if ! [[ "$num_em_iters" =~ ^[0-9]+$ ]] || [ "$num_em_iters" -lt 1 ]; then
+    echo "ERROR: --num_em_iters must be a positive integer, got: $num_em_iters" >&2
+    exit 1
+fi
+if ! [[ "$m_epochs" =~ ^[0-9]+$ ]] || [ "$m_epochs" -lt 1 ]; then
+    echo "ERROR: --m_epochs must be a positive integer, got: $m_epochs" >&2
+    exit 1
+fi
+read -r t0_sec t1_sec extra <<< "$time_range_sec"
+if [ -n "${extra:-}" ] || [ -z "${t0_sec:-}" ] || [ -z "${t1_sec:-}" ]; then
+    echo "ERROR: --time_range_sec must contain exactly 2 values, got: $time_range_sec" >&2
+    exit 1
+fi
+num_re='^-?[0-9]+([.][0-9]+)?$'
+if ! [[ "$t0_sec" =~ $num_re ]] || ! [[ "$t1_sec" =~ $num_re ]]; then
+    echo "ERROR: --time_range_sec values must be numeric, got: $time_range_sec" >&2
+    exit 1
+fi
+
+
+N=${SLURM_NNODES}
+jobId=${SLURM_JOBID}
+
+echo S: job dataName=$dataName time_range_sec=$time_range_sec   jobId=$jobId    
+echo S: num_em_iters=$num_em_iters m_epochs=$m_epochs
+module load pytorch
+
+last_four=${jobId: -4}  # Extract last 4 characters
+fitName=${dataName}_nsn${last_four}
+
+time  ./fitPrismEM.sh --basePath $basePath  --dataName   $dataName  --num_states $num_states  $miscArgs --num_em_iters $num_em_iters --m_epochs $m_epochs --time_range_sec $time_range_sec --fitName $fitName
+echo
+echo 'S:fit done'
+echo
+./prism_EM_eval.py --basePath $basePath --dataName   $fitName  -p a b c d e f g -X
+
+echo
+echo 'S:eval done'
+echo

@@ -83,7 +83,7 @@ class PlotterBackbone(object):
             figName=self.outPath+self.figId2name(fid)
             if png: figName+='.png'
             else: figName+='.pdf'
-            print('Graphics saving to ',figName)
+            print('Graphics  display ',figName)
             self.plt.savefig(figName)
         self.plt.show()
 
