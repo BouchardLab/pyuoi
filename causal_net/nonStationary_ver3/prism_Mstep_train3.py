@@ -182,14 +182,14 @@ def train_switching_mstep_model(
     use_scheduler=True,
     lr_end_factor=0.03,
     rho_max=0.97,
-    rho_enforce_every_batch=20,
+    prescale_m_step_4_ArhoMax=20,
     L1_prune_epoch=0,
     minW=1e-6,
 ):
     if L1_prune_epoch < 0:
         raise ValueError(f"L1_prune_epoch must be >= 0, got {L1_prune_epoch}")
-    if rho_enforce_every_batch < 1:
-        raise ValueError(f"rho_enforce_every_batch must be >= 1, got {rho_enforce_every_batch}")
+    if prescale_m_step_4_ArhoMax < 1:
+        raise ValueError(f"prescale_m_step_4_ArhoMax must be >= 1, got {prescale_m_step_4_ArhoMax}")
     use_fused = isinstance(device, torch.device) and device.type == "cuda" and torch.cuda.is_available()
     assert use_fused, "This trainer expects CUDA fused Adam"
 
@@ -243,7 +243,7 @@ def train_switching_mstep_model(
 
             if apply_prune and (L1_alpha > 0):
                 offdiag_soft_threshold_(model.A, optimizer.param_groups[0]["lr"], L1_alpha)
-            if batch_idx % rho_enforce_every_batch == 0:
+            if batch_idx % prescale_m_step_4_ArhoMax == 0:
                 enforce_spectral_radius_(model.A, rho_max)
 
             sum_tot += float(total_loss.item())
@@ -312,7 +312,7 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--L1_alpha", type=float, default=0.02, help="L1 regularization strength, higher=more sparse (0: disable soft-thresholding)")
     parser.add_argument("--rho_max", type=float, default=0.92, help="Maximum allowed spectral radius of A; projection applied after each batch")
-    parser.add_argument("--rho_enforce_every_batch", type=int, default=20, help="Apply spectral-radius projection every N batches")
+    parser.add_argument("--prescale_m_step_4_ArhoMax", type=int, default=20, help="Apply spectral-radius projection every N batches")
     parser.add_argument("--L1_prune_epoch", type=int, default=None, help="Delay L1 edge-pruning only; spectral-radius correction starts immediately")
     parser.add_argument("--minW", type=float, default=0.01, help="Threshold for A-matrix eval, not for fitting")
     parser.add_argument("--fitName", type=str, default=None)
@@ -405,7 +405,7 @@ def main():
         L1_alpha=args.L1_alpha,
         use_scheduler=True,
         rho_max=args.rho_max,
-        rho_enforce_every_batch=args.rho_enforce_every_batch,
+        prescale_m_step_4_ArhoMax=args.prescale_m_step_4_ArhoMax,
         L1_prune_epoch=args.L1_prune_epoch,
         minW=args.minW,
     )
@@ -444,7 +444,7 @@ def main():
         "L1_alpha": float(args.L1_alpha),
         "lambda3": float(args.L1_alpha),
         "rho_max": float(args.rho_max),
-        "rho_enforce_every_batch": int(args.rho_enforce_every_batch),
+        "prescale_m_step_4_ArhoMax": int(args.prescale_m_step_4_ArhoMax),
         "L1_prune_epoch": int(args.L1_prune_epoch),
         "minW": float(args.minW),
         "dropDataFrac": float(args.dropDataFrac),

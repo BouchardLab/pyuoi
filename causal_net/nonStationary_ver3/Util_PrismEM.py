@@ -242,8 +242,12 @@ def init_A_from_spikes(spikes, args):
         raise ValueError(f"Unsupported --init_A option: {opt}")
     A_init, meta = init_edgesA(spikes, verbose=False)
 
-    if 0:  # thresholded off-diagonal renormalization
+    if 1:  # rescale A 
         offDiagFact = 3
+        meta["offDiag_A_init_fact"] = offDiagFact
+        A_init = A_init * offDiagFact
+
+    if 0:  # thresholded off-diagonal renormalization        
         off_diag = ~np.eye(A_init.shape[0], A_init.shape[1], dtype=bool)
         above_thr = (np.abs(A_init) > float(args.minW))
         below_thr = (np.abs(A_init) < float(args.minW))
@@ -251,16 +255,16 @@ def init_A_from_spikes(spikes, args):
         weak_off_diag = off_diag & below_thr
         A_init[strong_off_diag] *= offDiagFact
         A_init[weak_off_diag] = 0.0
-        meta["offDiag_A_init_fact"] = offDiagFact
+        
 
     rho_max = float(args.rho_max)
-    rho_before = float(np.max(np.abs(np.linalg.eigvals(A_init))))
-    if rho_before > rho_max:
-        A_init = A_init * (rho_max / rho_before)
-    rho_after = float(np.max(np.abs(np.linalg.eigvals(A_init))))
-    
-    meta["rho_A_init_raw"] = rho_before
-    meta["rho_A_init"] = rho_after
+    if 0: # global spectral radius rescaling
+        rho_before = float(np.max(np.abs(np.linalg.eigvals(A_init))))
+        if rho_before > rho_max:
+            A_init = A_init * (rho_max / rho_before)
+        rho_after = float(np.max(np.abs(np.linalg.eigvals(A_init)))) 
+        meta["rho_A_init_raw"] = rho_before
+        meta["rho_A_init"] = rho_after
     meta["rho_max_target"] = rho_max
 
     if args.verb > 0:

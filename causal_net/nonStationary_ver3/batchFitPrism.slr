@@ -16,7 +16,7 @@ dataName=daleN100_7b0374_5150ad  ; num_states=2  # N100 15/30 Hz exc/inh=4/1
 #dataName=daleN100_0ddd7b_f96a32  ; num_states=3  # N100 15/31/49 Hz
 #dataName=daleN200_54a712_caf072   ; num_states=3  # N200 13/27/43 Hz
 
-miscArgs="--lr_estep 0.03  --lr_mstep 1e-3 --lr_end_factor 0.1 --L1_alpha 0.02 "  # good
+miscArgs="--lr_estep 0.03  --lr_mstep 1e-3 --lr_end_factor 0.1 --L1_alpha 0.02 --rho_sync_mode broadcast"  # good
 #miscArgs="--lr_estep 0.02  --lr_mstep 6e-4 --lr_end_factor 0.1 --L1_alpha 0.02"  # try
 
 # spare   --noFreqWeight

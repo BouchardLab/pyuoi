@@ -16,5 +16,5 @@ If you want, next I can add a toggle to choose serial vs segmented E-step (--est
 
 time OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1  time torchrun --standalone --nnodes=1 --nproc_per_node=4 \
   nonStationary_ver3/prism_EM_train.py \
-  --num_states 3 --dataName <your_data> --num_em_iters 4 --m_epochs 2 --time_range_sec 0 10 --rho_enforce_every_batch 50 --pgd_iter 5
+  --num_states 3 --dataName <your_data> --num_em_iters 4 --m_epochs 2 --time_range_sec 0 10 --prescale_m_step_4_ArhoMax 50 --pgd_iter 5
 

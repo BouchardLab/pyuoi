@@ -101,11 +101,11 @@ def preprocess_data(Y, args):
 
 def train_Poisson_model(model, device, train_loader, n_epochs, lr, L1_alpha=0.0, use_scheduler=False,
                         firing_rates=None, train_sampler=None, print_every=20, apply_prox=False,
-                        lr_end_factor=0.03, minW=1e-6, rho_max=0.99, rho_enforce_every_batch=10, L1_prune_epoch=0):
+                        lr_end_factor=0.03, minW=1e-6, rho_max=0.99, prescale_m_step_4_ArhoMax=10, L1_prune_epoch=0):
     if L1_prune_epoch < 0:
         raise ValueError(f"L1_prune_epoch must be >= 0, got {L1_prune_epoch}")
-    if rho_enforce_every_batch < 1:
-        raise ValueError(f"rho_enforce_every_batch must be >= 1, got {rho_enforce_every_batch}")
+    if prescale_m_step_4_ArhoMax < 1:
+        raise ValueError(f"prescale_m_step_4_ArhoMax must be >= 1, got {prescale_m_step_4_ArhoMax}")
     use_fused = (isinstance(device, torch.device) and device.type=='cuda' and torch.cuda.is_available())
     assert use_fused
     optimizer = optim.Adam(model.parameters(), lr=lr, fused=True)
@@ -145,7 +145,7 @@ def train_Poisson_model(model, device, train_loader, n_epochs, lr, L1_alpha=0.0,
             optimizer.step()
             if apply_prune and apply_prox and L1_alpha > 0:
                 offdiag_soft_threshold_(mdl.A, optimizer.param_groups[0]['lr'], L1_alpha)
-            if apply_rho and (batch_idx % rho_enforce_every_batch == 0):
+            if apply_rho and (batch_idx % prescale_m_step_4_ArhoMax == 0):
                 enforce_spectral_radius_(mdl.A, rho_max)
             train_loss_w_L1 += loss_with_L1.item()
             train_loss_wo_L1 += base_loss.item()

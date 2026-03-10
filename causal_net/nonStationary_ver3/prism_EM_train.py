@@ -296,9 +296,36 @@ def enforce_spectral_radius_(A, rho_max):
     return rho
 
 
+def sync_AB_via_rank0_avg_then_broadcast_(mdl, rho_max):
+    """Rank-0 averages A/B, enforces rho on averaged A, then broadcasts A/B."""
+    if not (dist.is_available() and dist.is_initialized()):
+        enforce_spectral_radius_(mdl.A, rho_max)
+        return
+
+    rank = dist.get_rank()
+    world = float(dist.get_world_size())
+    with torch.no_grad():
+        A_buf = mdl.A.data.clone()
+        B_buf = mdl.B.data.clone()
+
+        dist.reduce(A_buf, dst=0, op=dist.ReduceOp.SUM)
+        dist.reduce(B_buf, dst=0, op=dist.ReduceOp.SUM)
+
+        if rank == 0:
+            A_buf.div_(world)
+            B_buf.div_(world)
+            enforce_spectral_radius_(A_buf, rho_max)
+
+        dist.broadcast(A_buf, src=0)
+        dist.broadcast(B_buf, src=0)
+        mdl.A.data.copy_(A_buf)
+        mdl.B.data.copy_(B_buf)
+
+
 def run_mstep_epoch(model, loader, optimizer, device, dt,
                     l1_wt, L1_alpha, rho_max,
-                    rho_every, apply_prune, off_mask, minW):
+                    rho_every, apply_prune, apply_rho, off_mask, minW,
+                    rho_sync_mode):
     """One DataLoader pass updating A and B.  Returns metrics dict.
 
     Per-sample weights ww (batch, N) come from the DataLoader (4th element),
@@ -330,8 +357,13 @@ def run_mstep_epoch(model, loader, optimizer, device, dt,
 
         if apply_prune and L1_alpha > 0:
             offdiag_soft_threshold_(mdl.A, optimizer.param_groups[0]["lr"], L1_alpha)
-        if bi % rho_every == 0:
-            enforce_spectral_radius_(mdl.A, rho_max)
+        if apply_rho and (bi % rho_every == 0):
+            if rho_sync_mode == "broadcast":
+                sync_AB_via_rank0_avg_then_broadcast_(mdl, rho_max)
+            elif rho_sync_mode == "none":
+                enforce_spectral_radius_(mdl.A, rho_max)
+            else:
+                raise ValueError(f"unknown rho_sync_mode={rho_sync_mode}")
 
         s_tot += loss.item()
         s_nll += nll.item()
@@ -422,17 +454,28 @@ def parse_args():
                    help="L1 penalty on off-diagonal A")
     g.add_argument("--rho_max", type=float, default=0.92,
                    help="Hard spectral radius ceiling for A")
-    g.add_argument("--rho_enforce_every_batch", type=int, default=50,
+    g.add_argument("--prescale_m_step_4_ArhoMax", type=int, default=50,
                    help="Spectral projection frequency (batches)")
-    g.add_argument("--L1_prune_em_iter", type=int, default=None,
+    g.add_argument("--delay_em_iter_4_ArhoMax", type=int, default=None,
+                   help="EM iter to start rho_max enforcement "
+                        "(default: int(num_em_iters * 0.6))")
+    g.add_argument("--rho_sync_mode", type=str, default="none",
+                   choices=["none", "broadcast"],
+                   help="rho-trigger behavior: none (current) or "
+                        "broadcast (rank0 average+project+broadcast). "
+                        "'breadcast' is accepted as an alias.")
+    g.add_argument("--dealy_em_iter_4_lrDecay", type=int, default=None,
+                   help="EM iter to start LR decay "
+                        "(default: int(num_em_iters * 0.7))")
+    g.add_argument("--dealy_em_iter_4_Aprune", type=int, default=None,
                    help="EM iter to start L1 pruning "
                         "(default: num_em_iters // 3)")
     g.add_argument("--batch_size", type=int, default=2048)
     g.add_argument("--minW", type=float, default=0.01,
                    help="Threshold for edge counting (reporting only)")
-    g.add_argument("--dynamic_weight_em_iter", type=int, default=None,
+    g.add_argument("--dealy_em_iter_4_dynWeight", type=int, default=None,
                    help="EM iter to switch from global to adaptive per-time-bin "
-                        "neuron weights (default: num_em_iters // 2)")
+                        "neuron weights (default: int(num_em_iters * 0.8))")
     g.add_argument("--noFreqWeight", action="store_true", default=False,
                    help="If True, disable frequency-based neuron weights "
                         "(all neuron weights = 1).")
@@ -486,11 +529,15 @@ def main():
     if not out_ok:
         raise FileNotFoundError(out_err)
 
-    if args.L1_prune_em_iter is None:
-        args.L1_prune_em_iter = args.num_em_iters // 3
-    if args.dynamic_weight_em_iter is None:
-        args.dynamic_weight_em_iter = args.num_em_iters // 3
-
+    if args.dealy_em_iter_4_Aprune is None:
+        args.dealy_em_iter_4_Aprune = int(args.num_em_iters * 0.3)
+    if args.dealy_em_iter_4_dynWeight is None:
+        args.dealy_em_iter_4_dynWeight = int(args.num_em_iters * 0.5)
+    if args.delay_em_iter_4_ArhoMax is None:
+        args.delay_em_iter_4_ArhoMax = int(args.num_em_iters * 0.6)
+    if args.dealy_em_iter_4_lrDecay is None:
+        args.dealy_em_iter_4_lrDecay = int(args.num_em_iters * 0.7)
+    
     if rank == 0:
         print("\nEM-train args:", vars(args), "\n")
         print(f"world_size={world_size}")
@@ -676,10 +723,12 @@ def main():
         model = DDP(model, device_ids=[local_rank])
 
     total_m_epochs = args.num_em_iters * args.m_epochs
+    decay_start_m_epoch = args.dealy_em_iter_4_lrDecay * args.m_epochs
+    decay_m_epochs = max(1, total_m_epochs - decay_start_m_epoch)
     optimizer = optim.Adam(model.parameters(), lr=args.lr_mstep, fused=True)
     scheduler = optim.lr_scheduler.LinearLR(
         optimizer, start_factor=1.0, end_factor=args.lr_end_factor,
-        total_iters=total_m_epochs, last_epoch=-1
+        total_iters=decay_m_epochs, last_epoch=-1
     )
     scheduler._step_count = 1
 
@@ -700,7 +749,17 @@ def main():
     #  EM loop
     # ══════════════════════════════════════════════════════════════
     for em in range(1, args.num_em_iters + 1):
-        apply_prune = em > args.L1_prune_em_iter
+        if rank == 0:
+            if em == args.delay_em_iter_4_ArhoMax + 1:
+                print(f"threshold passed: 'delay_em_iter_4_ArhoMax': {args.delay_em_iter_4_ArhoMax} (em={em})")
+            if em == args.dealy_em_iter_4_lrDecay + 1:
+                print(f"threshold passed: 'dealy_em_iter_4_lrDecay': {args.dealy_em_iter_4_lrDecay} (em={em})")
+            if em == args.dealy_em_iter_4_Aprune + 1:
+                print(f"threshold passed: 'dealy_em_iter_4_Aprune': {args.dealy_em_iter_4_Aprune} (em={em})")
+            if em == args.dealy_em_iter_4_dynWeight + 1:
+                print(f"threshold passed: 'dealy_em_iter_4_dynWeight': {args.dealy_em_iter_4_dynWeight} (em={em})")
+        apply_prune = em > args.dealy_em_iter_4_Aprune
+        apply_rho = em > args.delay_em_iter_4_ArhoMax
 
         # ── E-step ───────────────────────────────────────────────
         te0 = time.time()
@@ -746,7 +805,7 @@ def main():
         np.copyto(c_pairs_np, c_hat_gpu[1:].cpu().numpy())
 
         # ── adaptive neuron weights (time-varying, smoothed) ─────
-        if (not args.noFreqWeight) and em >= args.dynamic_weight_em_iter:
+        if (not args.noFreqWeight) and em >= args.dealy_em_iter_4_dynWeight:
             w_new = compute_adaptive_weights(
                 c_hat_gpu.cpu().numpy(), yc_np, n_smooth)   # (T, N) float32
             weights_gpu = torch.tensor(w_new, device=device)
@@ -761,10 +820,11 @@ def main():
             met = run_mstep_epoch(
                 model, loader, optimizer, device, dt,
                 l1_wt, args.L1_alpha, args.rho_max,
-                args.rho_enforce_every_batch, apply_prune,
-                off_mask, args.minW
+                args.prescale_m_step_4_ArhoMax, apply_prune, apply_rho,
+                off_mask, args.minW, args.rho_sync_mode
             )
-            scheduler.step()
+            if em > args.dealy_em_iter_4_lrDecay:
+                scheduler.step()
 
             h_m_loss.append(met["loss"])
             h_m_nll.append(met["nll"])
@@ -841,9 +901,12 @@ def main():
             "lambda2":                  args.lambda2,
             "L1_alpha":                 args.L1_alpha,
             "rho_max":                  args.rho_max,
-            "rho_enforce_every_batch":  args.rho_enforce_every_batch,
-            "L1_prune_em_iter":         args.L1_prune_em_iter,
-            "dynamic_weight_em_iter":   args.dynamic_weight_em_iter,
+            "prescale_m_step_4_ArhoMax":  args.prescale_m_step_4_ArhoMax,
+            "delay_em_iter_4_ArhoMax":    args.delay_em_iter_4_ArhoMax,
+            "rho_sync_mode":            args.rho_sync_mode,
+            "dealy_em_iter_4_lrDecay":    args.dealy_em_iter_4_lrDecay,
+            "dealy_em_iter_4_Aprune":         args.dealy_em_iter_4_Aprune,
+            "dealy_em_iter_4_dynWeight":   args.dealy_em_iter_4_dynWeight,
             "noFreqWeight":             bool(args.noFreqWeight),
             "weight_smooth_bins":       n_smooth,
             "batch_size":               args.batch_size,

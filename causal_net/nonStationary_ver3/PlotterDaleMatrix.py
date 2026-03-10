@@ -151,8 +151,9 @@ class Plotter(PlotterBackbone):
         EnegT=get_offdiag_triplets(A,isPos=False)
         print('True0 num edges  pos=%d  neg=%d'%(EposT.shape[0],EnegT.shape[0]))
 
-        wMin=np.min(EnegT[:,2])
-        wMax=np.max(EposT[:,2])
+        A_diag = np.diag(A)
+        wMin = min(np.min(EnegT[:,2]), np.min(A_diag))
+        wMax = max(np.max(EposT[:,2]), np.max(A_diag))
                 
         def count_elements(E, Nn=numNeur):
             i_indices = E[:, 0].astype(int)
@@ -166,6 +167,8 @@ class Plotter(PlotterBackbone):
         binX= np.linspace(wMin, wMax, 100)
         ax.hist(EnegT[:,2], bins=binX, color='blue', alpha=0.7, edgecolor=None,label='neg:%d'%EnegT.shape[0])
         ax.hist(EposT[:,2], bins=binX, color='red', alpha=0.7, edgecolor=None,label='pos:%d'%EposT.shape[0])
+        ax.hist(A_diag,   bins=binX, color='magenta', alpha=0.65, edgecolor=None,
+                label='diag:%d'%A_diag.shape[0])
 
         ax.legend(loc='upper left')
         tit='True Dale, N%d%s, %s'%(A.shape[0], R_tag, md['short_name'])
