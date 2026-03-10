@@ -127,7 +127,7 @@ def main():
                         help="Head dir for input/output data")
     parser.add_argument("-p", "--showPlots", type=str, nargs='+',
                         default="a",
-                        help="Plot types: a=EM convergence summary, b=init-vs-truth states, c=A_init-vs-truth, d=A_hat-vs-truth, e=A_hat edge recovery, f=state sequence, g=2D correlations (A/B), h=A_init TP quality (E/I split)")
+                        help="Plot types: a=EM convergence summary, b=init-vs-truth states, c=A_init-vs-truth, d=A_hat-vs-truth, e=A_hat edge recovery, f=state sequence, g=2D correlations (A/B), h=A_init TP quality (diag/exc/inh)")
     parser.add_argument("--minW", type=float, default=0.02,
                         help="Threshold for A-matrix edge eval")
     parser.add_argument("--timeReb", type=int, default=20,

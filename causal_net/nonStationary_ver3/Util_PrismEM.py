@@ -234,6 +234,7 @@ def init_edgesA(spikes, Tmax=50000, verbose=True):
 
 def init_A_from_spikes(spikes, args):
     """Select A initialization mode based on args.init_A."""
+
     opt = _normalize_init_opt(args.init_A)
     if opt == "rand":
         return None, None
@@ -241,11 +242,23 @@ def init_A_from_spikes(spikes, args):
         raise ValueError(f"Unsupported --init_A option: {opt}")
     A_init, meta = init_edgesA(spikes, verbose=False)
 
+    if 0:  # thresholded off-diagonal renormalization
+        offDiagFact = 3
+        off_diag = ~np.eye(A_init.shape[0], A_init.shape[1], dtype=bool)
+        above_thr = (np.abs(A_init) > float(args.minW))
+        below_thr = (np.abs(A_init) < float(args.minW))
+        strong_off_diag = off_diag & above_thr
+        weak_off_diag = off_diag & below_thr
+        A_init[strong_off_diag] *= offDiagFact
+        A_init[weak_off_diag] = 0.0
+        meta["offDiag_A_init_fact"] = offDiagFact
+
     rho_max = float(args.rho_max)
     rho_before = float(np.max(np.abs(np.linalg.eigvals(A_init))))
     if rho_before > rho_max:
         A_init = A_init * (rho_max / rho_before)
     rho_after = float(np.max(np.abs(np.linalg.eigvals(A_init))))
+    
     meta["rho_A_init_raw"] = rho_before
     meta["rho_A_init"] = rho_after
     meta["rho_max_target"] = rho_max

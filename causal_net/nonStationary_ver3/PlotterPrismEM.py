@@ -677,8 +677,53 @@ class Plotter(PlotterBackbone):
         ax.grid(False)
         self.plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
+    def _hist2d_values_vs_row_mask(self, ax, A, mask, title, cmap="bwr"):
+        A = np.asarray(A, dtype=np.float64)
+        M = np.asarray(mask, dtype=bool)
+        assert A.shape == M.shape, "A/mask shape mismatch"
+        n_rows = int(A.shape[0])
+        n_cols = int(A.shape[1])
+
+        rr, cc = np.nonzero(M)
+        if rr.size <= 0:
+            ax.set(title=f"{title}\n(no values)", xlabel="A_init", ylabel="row neuron index")
+            ax.grid(True, alpha=0.35)
+            return
+
+        xx = A[rr, cc]
+        yy = rr.astype(np.float64, copy=False)
+        xbins = min(140, max(40, int(np.sqrt(xx.size))))
+        ybins = max(12, min(80, n_rows))
+
+        x_lo = float(np.min(xx))
+        x_hi = float(np.max(xx))
+        if np.isclose(x_lo, x_hi):
+            x_hi = x_lo + 1e-9
+        x_edges = np.linspace(x_lo, x_hi, xbins + 1)
+        y_edges = np.linspace(-0.5, n_rows - 0.5, ybins + 1)
+
+        H, _, _ = np.histogram2d(xx, yy, bins=[x_edges, y_edges])
+        x_cent = 0.5 * (x_edges[:-1] + x_edges[1:])
+        sign_x = np.sign(x_cent)
+        H_signed = (H * sign_x[:, None]) / float(max(1, n_cols))
+
+        vmin = float(np.min(H_signed))
+        vmax = float(np.max(H_signed))
+        if vmin >= 0.0:
+            vmin = -1e-9
+        if vmax <= 0.0:
+            vmax = 1e-9
+        norm = colors.TwoSlopeNorm(vmin=vmin, vcenter=0.0, vmax=vmax)
+
+        im = ax.pcolormesh(x_edges, y_edges, H_signed.T, shading='auto', cmap=cmap, norm=norm)
+        ax.axvline(0.0, color='k', linestyle='--', linewidth=1.0, alpha=0.8)
+        ax.set(title=f"{title} (n={xx.size})", xlabel="A_init", ylabel="row neuron index")
+        ax.set_ylim(-0.5, n_rows - 0.5)
+        ax.grid(False)
+        self.plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
     def initA_quality_prismEM(self, fitD, md, minW=0.02, figId=7):
-        """Two-row TP diagnostics for A_init vs A_true, split by E/I presyn subsets."""
+        """Three-row diagnostics for A_init vs A_true with diag/exc/inh categories."""
         A_true, N, num_exc, n_diag, n_off, shared_norm = self._get_A_true_info(md)
         A_init = np.asarray(fitD["A_init"], dtype=np.float64)
         assert A_init.ndim == 2 and A_init.shape == A_true.shape, "A_init must match A_true"
@@ -688,21 +733,25 @@ class Plotter(PlotterBackbone):
             E_true = E_true[0]
         assert E_true.shape == A_true.shape, "E_true shape must match A_true"
 
-        off_diag = ~np.eye(N, dtype=bool)
+        diag_mask = np.eye(N, dtype=bool)
+        off_diag = ~diag_mask
         E_t = E_true & off_diag
         E_hat = (np.abs(A_init) > float(minW)) & off_diag
         TP = E_t & E_hat
         FP = (~E_t) & E_hat
         FN = E_t & (~E_hat)
 
-        # Split by Dale E/I using row index convention used by A_true canvas.
+        # Exclusive categories: diagonal | excitatory off-diagonal rows | inhibitory off-diagonal rows.
         presyn_is_exc = (np.arange(N, dtype=np.int64)[:, None] < int(num_exc))
-        tp_exc = TP & presyn_is_exc
-        tp_inh = TP & (~presyn_is_exc)
+        cat_exc = off_diag & presyn_is_exc
+        cat_inh = off_diag & (~presyn_is_exc)
+        cat_diag = diag_mask
+        tp_exc = TP & cat_exc
+        tp_inh = TP & cat_inh
 
         figId = self.smart_append(figId)
-        fig = self.plt.figure(figId, facecolor='white', figsize=(15.0, 11.0))
-        gs = fig.add_gridspec(3, 3, hspace=0.42, wspace=0.38)
+        fig = self.plt.figure(figId, facecolor='white', figsize=(19.0, 11.0))
+        gs = fig.add_gridspec(3, 4, hspace=0.42, wspace=0.38)
 
         # Top-left: A_true matrix in the same style as -p c.
         ax = fig.add_subplot(gs[0, 0])
@@ -714,7 +763,7 @@ class Plotter(PlotterBackbone):
         ax = fig.add_subplot(gs[0, 1])
         self._scatter_tp_true_vs_est(
             ax, A_true[tp_exc], A_init[tp_exc],
-            "Top: excitatory TP scatter", color="tab:orange"
+            "excitatory TP scatter", color="red"
         )
         x0, x1 = ax.get_xlim()
         ax.set_xlim(min(x0, 0.0), max(x1, 0.0))
@@ -722,7 +771,15 @@ class Plotter(PlotterBackbone):
         ax = fig.add_subplot(gs[0, 2])
         self._scatter_tp_true_vs_est(
             ax, A_true[tp_inh], A_init[tp_inh],
-            "Top: inhibitory TP scatter", color="tab:blue"
+            "inhibitory TP scatter", color="tab:blue"
+        )
+        x0, x1 = ax.get_xlim()
+        ax.set_xlim(min(x0, 0.0), max(x1, 0.0))
+
+        ax = fig.add_subplot(gs[0, 3])
+        self._scatter_tp_true_vs_est(
+            ax, A_true[cat_diag], A_init[cat_diag],
+            "diagonal scatter", color="magenta"
         )
         x0, x1 = ax.get_xlim()
         ax.set_xlim(min(x0, 0.0), max(x1, 0.0))
@@ -735,32 +792,44 @@ class Plotter(PlotterBackbone):
 
         ax = fig.add_subplot(gs[1, 1])
         self._hist_all_values(
-            ax, A_init[:int(num_exc), :],
-            "Bottom: A_init all values (excit rows)", color="tab:orange",
+            ax, A_init[cat_exc],
+            "A_init: excit off-diag", color="red",
             tp_vals=A_init[tp_exc]
         )
 
         ax = fig.add_subplot(gs[1, 2])
         self._hist_all_values(
-            ax, A_init[int(num_exc):, :],
-            "Bottom: A_init all values (inhib rows)", color="tab:blue",
+            ax, A_init[cat_inh],
+            "A_init: inhib off-diag", color="tab:blue",
             tp_vals=A_init[tp_inh]
         )
 
-        # Third row: 2D histograms of A_init value vs presyn neuron index.
+        ax = fig.add_subplot(gs[1, 3])
+        self._hist_all_values(
+            ax, A_init[cat_diag],
+            "A_init: all diag", color="magenta",
+            tp_vals=None
+        )
+
+        # Third row: A_init value vs presyn neuron index.
         ax = fig.add_subplot(gs[2, 0])
         self._hist2d_values_vs_row(
-            ax, A_init, 0, N, "Row3: A_init value vs row idx (all)", cmap="bwr"
+            ax, A_init, 0, N, "A_init value vs row idx (all)", cmap="bwr"
         )
 
         ax = fig.add_subplot(gs[2, 1])
-        self._hist2d_values_vs_row(
-            ax, A_init, 0, int(num_exc), "Row3: excit rows", cmap="bwr"
+        self._hist2d_values_vs_row_mask(
+            ax, A_init, cat_exc, "excit off-diag", cmap="bwr"
         )
 
         ax = fig.add_subplot(gs[2, 2])
-        self._hist2d_values_vs_row(
-            ax, A_init, int(num_exc), N, "Row3: inhib rows", cmap="bwr"
+        self._hist2d_values_vs_row_mask(
+            ax, A_init, cat_inh, "inhib off-diag", cmap="bwr"
+        )
+
+        ax = fig.add_subplot(gs[2, 3])
+        self._hist2d_values_vs_row_mask(
+            ax, A_init, cat_diag, "diagonal", cmap="bwr"
         )
 
         tp = int(TP.sum())
@@ -768,9 +837,10 @@ class Plotter(PlotterBackbone):
         fn = int(FN.sum())
         tp_e = int(tp_exc.sum())
         tp_i = int(tp_inh.sum())
+        n_d = int(cat_diag.sum())
         fig.suptitle(
             f"A_init TP quality vs A_true, minW={float(minW):g}: {md['short_name']}\n"
-            f"TP={tp} (exc={tp_e}, inh={tp_i}), FP={fp}, FN={fn}",
+            f"off-diag TP={tp} (exc={tp_e}, inh={tp_i}), FP={fp}, FN={fn}; diag n={n_d}",
             fontsize=12,
         )
         fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.93])
