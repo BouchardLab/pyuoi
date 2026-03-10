@@ -98,6 +98,10 @@ def init_W(n_units, n_excite, E_true, R, varyW, verb=1):
     
     # 6. Apply the connectivity mask (Topology)
     W = W * E_true
+
+    # 7. Enforce negative diagonal: flip sign of any positive self-loop.
+    d_idx = np.diag_indices(n_units)
+    W[d_idx] = np.where(W[d_idx] > 0.0, -W[d_idx], W[d_idx])
         
     # 8. Spectral Normalization to ensure Stability
     # This scales the entire cloud of eigenvalues to fit within radius R
@@ -136,12 +140,9 @@ def set_flat_selfSpiking(Nn, idleRate, spect_radius, num_excite, boffsets):
         Ri_scaled = idle_eff * R
         Bi = np.log(Ri_scaled)
         B_all[ib] = np.random.uniform(Bi[0], Bi[1], size=(Nn,))
-        if 0:  # for ver 3
-            B_all[ib, :num_excite] +=-0.3  - R*1.5 - sizeScale# reduce excitatory rate
-            B_all[ib, num_excite:] += 1.7  # reduce  inhibitory rate  
-        if 1:  # for ver 3b
+        if 1:  # for ver Mar 9
             B_all[ib, :num_excite] +=0.8  - R*1.5 - sizeScale # reduce excitatory rate
-            #B_all[ib, num_excite:] += 0.5  # reduce  inhibitory rate  
+            B_all[ib, num_excite:] += 0.5  # reduce  inhibitory rate  
     return B_all
 
 def gen_stationary_lag1_poisson(num_steps, dt, A, B_intercept, num_excite, eta_clip,verb=0):
@@ -214,7 +215,7 @@ def main():
     
     parser = argparse.ArgumentParser(description="Simulate a recurrent neural network with Dale's principle.")
     parser.add_argument("--num_neurons", type=int, default=50, help="Total number of neurons in the network.")
-    parser.add_argument("--num_excite", type=int, default=30, help="Number of excitatory neurons.")
+    parser.add_argument("--num_excite", type=int, default=None, help="Number of excitatory neurons.")
     parser.add_argument("--edge_prob", type=float, nargs=2, default=[0.05, 0.2], help="Range of edge probability [min, max]; mean is used as mask connectivity.")
     parser.add_argument("--num_steps", type=int, default=10_001, help="Number of time steps for simulation.")
     parser.add_argument("--step_size", type=float, default=0.01, help="Integration time step size (dt) in seconds.")
@@ -234,9 +235,10 @@ def main():
         args.dataName='daleN%d_'%args.num_neurons+hashlib.md5(os.urandom(32)).hexdigest()[:6]
 
     outPath=os.path.join(args.basePath, 'truthDale')
-    
+    if args.num_excite==None :   # per Roy & Kris wisdom
+        args.num_excite=int(0.8*args.num_neurons)
     print('gen dale matrices args:', vars(args), '\n')
-   
+
     # Validation checks
     Nn = args.num_neurons
     assert Nn >= 10
@@ -356,7 +358,7 @@ def main():
     print("     basePath="+args.basePath)
     print("  ./view_daleMatrix3.py  --basePath $basePath   --dataName %s  -p b -m 0   -X  -p a c d  " % args.dataName)
     print("  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --time_range_sec 0 20 -p b -m 0   -X " % args.dataName)
-    print("  ./gen_nonStationarySpikes3.py  --basePath $basePath   --inputStates %s     --true_dwell_steps 30 " % args.dataName)
+    print("  ./gen_nonStationarySpikes3.py  --basePath $basePath   --inputStates %s     --true_dwell_sec 1.0 " % args.dataName)
     print("  ./fit_lassoPoisson.py  --basePath $basePath  --inpPath ${basePath}/truthDale --dataName   %s   --num_epochs  50  " % args.dataName)
    
 

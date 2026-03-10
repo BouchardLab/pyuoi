@@ -38,7 +38,7 @@ def get_parser():
     parser.add_argument('-m', '--idxState', type=int, default=0, help="Index into state list; if idxState<0 read spikes from spikesData/")
 
     parser.add_argument('-T','--time_range_sec' , default=[0., 50],  nargs=2,   type=float, help='display data time range in seconds')
-    parser.add_argument('-r','--time_rebin2', default=5, type=int, help='rebin current time axis')
+    parser.add_argument('-r','--time_rebin2', default=10, type=int, help='rebin current time axis')
    
     args = parser.parse_args()
     # make arguments more flexible
@@ -77,9 +77,13 @@ def rebin_spike_rates(spikeYield, md, tReb2):
     #print('rr1',time_step2,spikeYieldR.shape,spikeYield.shape)
 
     rate2D=spikeYieldR/time_step2
+    pop_spike_count = np.sum(spikeYieldR, axis=1)
+    pop_rate_hz = pop_spike_count / time_step2
 
     rebD={'time_step2':time_step2}
     rebD['rate2D']=rate2D
+    rebD['pop_spike_count'] = pop_spike_count
+    rebD['pop_rate_hz'] = pop_rate_hz
     ntime//=tReb2
     rebD['timeV']= np.linspace(0, (ntime - 1) * time_step2, ntime)
 

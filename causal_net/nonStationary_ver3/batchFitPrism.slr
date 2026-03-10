@@ -9,7 +9,9 @@ set -u ;  # exit  if you try to use an uninitialized variable
 
 basePath=/pscratch/sd/b/balewski/2026_causalNet_tmp3/
 
-dataName=daleN100_b6ce1e_2ce4d2  ; num_states=2  # N100 16/30 Hz
+dataName=daleN100_7b0374_5150ad  ; num_states=2  # N100 15/30 Hz exc/inh=4/1
+# OLD, before Mar 9
+#dataName=daleN100_b6ce1e_2ce4d2  ; num_states=2  # N100 16/30 Hz
 #dataName=daleN100_e89fd7_12caaa  ; num_states=2  # N100 16/17 Hz
 #dataName=daleN100_0ddd7b_f96a32  ; num_states=3  # N100 15/31/49 Hz
 #dataName=daleN200_54a712_caf072   ; num_states=3  # N200 13/27/43 Hz

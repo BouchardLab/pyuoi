@@ -121,35 +121,28 @@ class Plotter(PlotterBackbone):
         Tbin = time_step
         xL = float(timeV[0])
         xR = float(timeV[-1] + Tbin)
-        medRate1D = np.median(rate2D, axis=1)
+        if isinstance(rebD, dict) and 'pop_rate_hz' in rebD:
+            pop_rate_hz = np.asarray(rebD['pop_rate_hz'][itL:itR], dtype=np.float64)
+        else:
+            pop_rate_hz = np.sum(rate2D, axis=1)
         medRateDisp = float(np.median(rate2D))
         cntAboveMed = np.sum(rate2D > medRateDisp, axis=1)
            
         tit0='dataset: %s  state=%d  R=%.3f    nchan=%d  Tbin=%.2f sec'%(md['short_name'], state_tag, R_sel, nchan, time_step)
         
-        # Create gridspec with top/middle traces, heatmap, and optional state trace
-        #gs = fig.add_gridspec(5, 1, height_ratios=[0.15,0.15,0.59,0.01,0.09], hspace=0.10)
-        #gs = fig.add_gridspec(4, 1, height_ratios=[0.20,0.20, 0.59,0.01])
-        gs = fig.add_gridspec(6, 1, height_ratios=[0.15,0.15, 0.50,0.01,0.10,0.10]) 
-        # ..... top plot
-        ax = fig.add_subplot(gs[1, 0])
-        ax.bar(timeV+Tbin*.5, medRate1D, width=Tbin, color='orange', align='center', alpha=0.7)
-        ax.set(ylabel='median rate (Hz)', title=f'median rate per neuron from {nchan} neurons')
-        ax.set_xlim(xL,xR)
-        ax.tick_params(axis='x', labelbottom=False)
-        ax.grid()
+        # Layout: top-count trace, heatmap, synchronicity trace, target-state, oracle-state.
+        gs = fig.add_gridspec(5, 1, height_ratios=[0.14, 0.52, 0.14, 0.10, 0.10], hspace=0.36)
 
-        # ..... middle plot
+        # ..... top plot
         ax = fig.add_subplot(gs[0, 0])
         ax.bar(timeV+Tbin*.5, cntAboveMed, width=Tbin, color='teal', align='center', alpha=0.7)
         ax.set(ylabel='neurons > median', title=f'neurons above displayed-time median rate ({medRateDisp:.2f} Hz)')
         ax.set_xlim(xL,xR)
-        ax.tick_params(axis='x', labelbottom=True)
-        ax.set_xlabel('Time (s)')
+        ax.tick_params(axis='x', labelbottom=False)
         ax.grid()
         
-        # ....... bottom row: 2D histogram
-        ax = fig.add_subplot(gs[2, 0])
+        # ....... main heatmap
+        ax = fig.add_subplot(gs[1, 0])
         #cmap='tab20c', 'Oranges'
         # - - -  Get the colormap and modify it ---
         original_cmap = self.plt.get_cmap('tab20c')
@@ -168,12 +161,20 @@ class Plotter(PlotterBackbone):
         ax.set_ylabel('Neuron index')
         ax.set_title(tit0   )
         ax.tick_params(axis='x', labelbottom=False)
-        cbar = fig.colorbar(cax, ax=ax, orientation='horizontal', pad=0.05, label=f'Instantanous freq  (Hz) per neuron over Tbin={time_step:.1f} sec', shrink=0.5)
+        cbar = fig.colorbar(cax, ax=ax, orientation='horizontal', pad=0.02, label=f'Instantanous freq  (Hz) per neuron over Tbin={time_step:.1f} sec', shrink=0.55)
         cbar.ax.tick_params(labelsize=10)  
         ax.grid()
 
-        # ..... bot-bot
-        ax = fig.add_subplot(gs[4, 0])
+        # ..... synchronicity (yellow) below heatmap
+        ax = fig.add_subplot(gs[2, 0])
+        ax.bar(timeV+Tbin*.5, pop_rate_hz, width=Tbin, color='gold', align='center', alpha=0.8)
+        ax.set(ylabel='synchronicity (Hz)', title=f'Network synchronicity from {nchan} neurons, Tbin={Tbin:.2f} sec')
+        ax.set_xlim(xL,xR)
+        ax.tick_params(axis='x', labelbottom=True)
+        ax.grid()
+
+        # ..... target state
+        ax = fig.add_subplot(gs[3, 0])
         ax.set_xlim(xL, xR)
         if S_true is not None:
             assert S_true.ndim == 1, f"S_true must be 1D, got shape={S_true.shape}"
@@ -196,7 +197,8 @@ class Plotter(PlotterBackbone):
             ax.set_axis_off()
         ax.tick_params(axis='x', labelbottom=False)
 
-        ax = fig.add_subplot(gs[5, 0])
+        # ..... oracle state
+        ax = fig.add_subplot(gs[4, 0])
         ax.set_xlim(xL, xR)
         if S_oracle is not None:
             assert S_oracle.ndim == 1, f"S_oracle must be 1D, got shape={S_oracle.shape}"

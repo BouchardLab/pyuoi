@@ -9,10 +9,10 @@ combination  B_eff = sum_m c_mt * B_m,  where c_t tracks a slowly-moving
 target that aims at the one-hot vector of the current target state S_true[t].
 
 State-sequence schedules (--schedule):
-  mc  — Markov chain with geometric dwell (mean = true_dwell_steps),
-        minimum dwell = ceil(0.3 * true_dwell_steps).
-  rr  — Round-robin: states cycle 0,1,...,M-1 with exactly true_dwell_steps
-        bins per visit.
+  mc  — Markov chain with geometric dwell (mean = true_dwell_sec / dt bins),
+        minimum dwell = ceil(0.3 * true_dwell_sec / dt).
+  rr  — Round-robin: states cycle 0,1,...,M-1 with exactly
+        true_dwell_sec / dt bins per visit.
 
 Smooth coefficient update at each bin (state_change_speed = nu):
   c_t  <- Simplex_project( c_{t-1} + clip(e_{S_t} - c_{t-1}, -nu, nu) )
@@ -60,7 +60,8 @@ def get_parser():
 
     parser.add_argument("-t", "--num_steps", type=int, default=None, help="Number of time steps (default: from input evol_conf)")
     parser.add_argument("--state_change_speed", type=float, default=0.33, help="Max coefficient change per step.")
-    parser.add_argument("--true_dwell_steps", type=int, default=30, help="Mean number of steps to stay in a target state.")
+    parser.add_argument("--true_dwell_sec", type=float, default=1.0,
+                        help="Mean dwell time in seconds to stay in a target state.")
     parser.add_argument("--seed", type=int, default=42, help="Optional random seed.")
     parser.add_argument("--schedule", choices=["mc", "rr"], default="mc",
                         help="State schedule: 'mc' = random Markov chain (default), "
@@ -281,9 +282,11 @@ def main():
     assert args.num_steps >= 100
     assert step_size > 0
     assert args.state_change_speed > 0
-    assert args.true_dwell_steps >= 1
+    assert args.true_dwell_sec > 0.0
     assert max_samples >= 100
     assert var_time_window_sec > 0
+
+    true_dwell_steps = max(1, int(np.ceil(float(args.true_dwell_sec) / float(step_size))))
 
     A_atoms, B_atoms = ensure_state_atoms(daleD["A_true"], daleD["B_true"])
     n_states, n_neurons = B_atoms.shape
@@ -294,7 +297,7 @@ def main():
 
     schedule_fn = {"mc": build_target_states_mc,
                    "rr": build_target_states_rr}[args.schedule]
-    S_true, transition_matrix = schedule_fn(args.num_steps, n_states, args.true_dwell_steps, rng)
+    S_true, transition_matrix = schedule_fn(args.num_steps, n_states, true_dwell_steps, rng)
 
     spikes, C_true = simulate_switching_poisson(
         n_steps=args.num_steps,
@@ -326,15 +329,18 @@ def main():
         spect_radius=None,
     )
     oracle_score, oracle_score_per_state = compute_oracle_score(S_true, S_oracle, n_states)
-    true_dwell_time_sec = float(args.true_dwell_steps * step_size)
+    true_dwell_sec_req = float(args.true_dwell_sec)
+    true_dwell_sec_eff = float(true_dwell_steps * step_size)
 
     evol_conf = {
         "num_steps": int(args.num_steps),
         "step_size": float(step_size),
         "evol_time": float(args.num_steps * step_size),
         "state_change_speed": float(args.state_change_speed),
-        "true_dwell_steps": int(args.true_dwell_steps),
-        "true_dwell_time_sec": true_dwell_time_sec,
+        "true_dwell_sec": true_dwell_sec_req,
+        "true_dwell_sec_eff": true_dwell_sec_eff,
+        "true_dwell_steps": int(true_dwell_steps),
+        "true_dwell_time_sec": true_dwell_sec_eff,  # legacy alias
         "num_states": int(n_states),
         "seed": args.seed,
         "state_schedule": args.schedule,
@@ -405,7 +411,7 @@ def main():
         for m, sc in enumerate(oracle_score_per_state):
             print(f"  {m:5d}  {sc:5.3f}")
 
-    print("\n  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --idxState -1 --time_range_sec 0 6   -p b    " % args.dataName)
+    print("\n  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --idxState -1 --time_range_sec 0 15   -p b    " % args.dataName)
     print("\n  ./prism_Estep_train.py --basePath $basePath   --dataName %s      " % args.dataName)
     print("\n  ./prism_Mstep_train3.py --basePath $basePath   --dataName %s      " % args.dataName)
 
