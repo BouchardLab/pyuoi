@@ -79,34 +79,31 @@ class Plotter(PlotterBackbone):
         m_epochs = np.arange(1, n_m_total + 1)
         em_iters = np.arange(1, len(e_nll) + 1)
 
-        prune_em = int(trainMD.get("dealy_em_iter_4_Aprune", 0))
+        prune_em = int(trainMD.get("delay_em_iter_4_Aprune", 0))
         rho_start_em = int(trainMD.get("delay_em_iter_4_ArhoMax", 0))
-        lr_drop_em = int(trainMD.get("dealy_em_iter_4_lrDecay", int(n_em * 0.7)))
-        dyn_weight_em = int(trainMD.get(
-            "dealy_em_iter_4_dynWeight",
-            trainMD.get("dynamic_weight_em_iter", int(n_em * 0.8))
-        ))
+        lr_drop_em = int(trainMD.get("delay_em_iter_4_lrDecay", int(n_em * 0.7)))
+        dyn_weight_em = int(trainMD.get("delay_em_iter_4_dynWeight", int(n_em * 0.8)))
         show_dyn_weight_marker = not bool(trainMD.get("noFreqWeight", False))
         prune_m_epoch = prune_em * m_per_em
         rho_start_m_epoch = rho_start_em * m_per_em
         lr_drop_m_epoch = lr_drop_em * m_per_em
         dyn_weight_m_epoch = dyn_weight_em * m_per_em
 
-        def draw_threshold_marker(ax, x_pos, x_max, txt, color):
+        def draw_threshold_marker(ax, x_pos, x_max, txt, color,yFac=0.02):
             if not (0 < x_pos <= x_max):
                 return
             ax.axvline(x_pos, color=color, ls='--', lw=0.9, alpha=0.95)
             y0, y1 = ax.get_ylim()
             x0, x1 = ax.get_xlim()
             x_off = 0.01 * max(1e-9, x1 - x0)
-            y_txt = y1 - 0.02 * (y1 - y0)
+            y_txt = y1 - yFac * (y1 - y0)
             ax.text(
                 x_pos + x_off, y_txt, txt, rotation=90, color=color, fontsize=7,
                 ha='left', va='top',
                 bbox=dict(facecolor='white', alpha=0.55, edgecolor='none', pad=0.2)
             )
 
-        jSkipEM = 5
+        jSkipEM = 0
         jSkipM = int(jSkipEM * m_per_em)
         # ── Row 1, Col 1: E-step NLL vs EM iteration ────────────────
         ax = self.plt.subplot(2, 3, 1)
@@ -117,7 +114,7 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.3)
         draw_threshold_marker(ax, prune_em, len(e_nll), "start Aprune", "k")
         draw_threshold_marker(ax, rho_start_em, len(e_nll), "start rhoMax", "tab:brown")
-        draw_threshold_marker(ax, lr_drop_em, len(e_nll), "start_lrDrop", "tab:gray")
+        draw_threshold_marker(ax, lr_drop_em, len(e_nll), "start_lrDrop", "tab:gray", yFac=0.6)
         if show_dyn_weight_marker:
             draw_threshold_marker(ax, dyn_weight_em, len(e_nll), "start dynWeight", "tab:pink")
         txt = (f"pgd_iter={trainMD['pgd_iter']}\n"
@@ -146,7 +143,7 @@ class Plotter(PlotterBackbone):
         ax.legend(lines1 + lines2, lab1 + lab2, fontsize=7, loc='upper right')
         draw_threshold_marker(ax, prune_m_epoch, n_m_total, "start Aprune", "k")
         draw_threshold_marker(ax, rho_start_m_epoch, n_m_total, "start rhoMax", "tab:brown")
-        draw_threshold_marker(ax, lr_drop_m_epoch, n_m_total, "start_lrDrop", "tab:gray")
+        draw_threshold_marker(ax, lr_drop_m_epoch, n_m_total, "start_lrDrop", "tab:gray", yFac=0.4)
         if show_dyn_weight_marker:
             draw_threshold_marker(ax, dyn_weight_m_epoch, n_m_total, "start dynWeight", "tab:pink")
 
@@ -169,7 +166,7 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.3)
         draw_threshold_marker(ax, prune_m_epoch, n_m_total, "start Aprune", "k")
         draw_threshold_marker(ax, rho_start_m_epoch, n_m_total, "start rhoMax", "tab:brown")
-        draw_threshold_marker(ax, lr_drop_m_epoch, n_m_total, "start_lrDrop", "tab:gray")
+        draw_threshold_marker(ax, lr_drop_m_epoch, n_m_total, "start_lrDrop", "tab:gray", yFac=0.4)
         if show_dyn_weight_marker:
             draw_threshold_marker(ax, dyn_weight_m_epoch, n_m_total, "start dynWeight", "tab:pink")
         ax.legend(fontsize=8)
@@ -182,7 +179,7 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.3)
         draw_threshold_marker(ax, prune_m_epoch, n_m_total, "start Aprune", "k")
         draw_threshold_marker(ax, rho_start_m_epoch, n_m_total, "start rhoMax", "tab:brown")
-        draw_threshold_marker(ax, lr_drop_m_epoch, n_m_total, "start_lrDrop", "tab:gray")
+        draw_threshold_marker(ax, lr_drop_m_epoch, n_m_total, "start_lrDrop", "tab:gray", yFac=0.4)
         if show_dyn_weight_marker:
             draw_threshold_marker(ax, dyn_weight_m_epoch, n_m_total, "start dynWeight", "tab:pink")
 
@@ -1009,14 +1006,14 @@ class Plotter(PlotterBackbone):
         ax = self.plt.subplot(1, ncol, 1)
         self._plot_corr_A_regions(
             ax, A_true.ravel(), A_hat.ravel(), minW,
-            "A corr,", "A_true", "A_hat", s=6, alpha=0.4, color="green"
+            "A fit, non-zero ,", "A_true", "A_hat", s=6, alpha=0.4, color="green"
         )
 
         for m in range(n_states):
             ax = self.plt.subplot(1, ncol, 2 + m)
             self._plot_corr_B_divisor(
                 ax, B_true[m], B_hat[m],
-                f"B corr, state {m}", "B_true", "B_hat",
+                f"B fit, state {m}", "B_true", "B_hat",
                 s=8, alpha=0.5, color="blue"
             )
 
@@ -1061,8 +1058,8 @@ class Plotter(PlotterBackbone):
 
         # Row 2: Fit
         ax = fig.add_subplot(gs[1, :])
-        ax.plot(t_bins, S_hat, color="k", linewidth=1.0, label="S_hat")
-        ax.plot(t_bins, S_true, color="magenta", linestyle="--", linewidth=1.0, label="S_true")
+        ax.plot(t_bins, S_hat, color="k", linewidth=2.0, label="S_hat")
+        ax.plot(t_bins, S_true, color="lime", linestyle="--", linewidth=1.5, label="S_true")
         lo = np.clip(S_hat - S_hat_CL, 0.0, float(C_hat.shape[1] - 1))
         hi = np.clip(S_hat + S_hat_CL, 0.0, float(C_hat.shape[1] - 1))
         ax.fill_between(t_bins, lo, hi, color="gray", alpha=0.3, label="S_hat_CL")
@@ -1079,7 +1076,7 @@ class Plotter(PlotterBackbone):
 
         # Row 3: Truth
         ax = fig.add_subplot(gs[2, :])
-        ax.plot(t_bins, S_true, color="k", linewidth=1.0, label="S_true")
+        ax.plot(t_bins, S_true, color="lime",  linestyle="--",linewidth=1.5, label="S_true")
         ax.set(title="Truth", xlabel="time (s)", ylabel="state")
         ax.set_xlim(x0, x1)
         ax.yaxis.set_major_locator(MaxNLocator(integer=True))

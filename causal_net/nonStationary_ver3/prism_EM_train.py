@@ -464,16 +464,16 @@ def parse_args():
                    help="rho-trigger behavior: none (current) or "
                         "broadcast (rank0 average+project+broadcast). "
                         "'breadcast' is accepted as an alias.")
-    g.add_argument("--dealy_em_iter_4_lrDecay", type=int, default=None,
+    g.add_argument("--delay_em_iter_4_lrDecay", type=int, default=None,
                    help="EM iter to start LR decay "
                         "(default: int(num_em_iters * 0.7))")
-    g.add_argument("--dealy_em_iter_4_Aprune", type=int, default=None,
+    g.add_argument("--delay_em_iter_4_Aprune", type=int, default=None,
                    help="EM iter to start L1 pruning "
                         "(default: num_em_iters // 3)")
     g.add_argument("--batch_size", type=int, default=2048)
     g.add_argument("--minW", type=float, default=0.01,
                    help="Threshold for edge counting (reporting only)")
-    g.add_argument("--dealy_em_iter_4_dynWeight", type=int, default=None,
+    g.add_argument("--delay_em_iter_4_dynWeight", type=int, default=None,
                    help="EM iter to switch from global to adaptive per-time-bin "
                         "neuron weights (default: int(num_em_iters * 0.8))")
     g.add_argument("--noFreqWeight", action="store_true", default=False,
@@ -529,14 +529,14 @@ def main():
     if not out_ok:
         raise FileNotFoundError(out_err)
 
-    if args.dealy_em_iter_4_Aprune is None:
-        args.dealy_em_iter_4_Aprune = int(args.num_em_iters * 0.3)
-    if args.dealy_em_iter_4_dynWeight is None:
-        args.dealy_em_iter_4_dynWeight = int(args.num_em_iters * 0.5)
+    if args.delay_em_iter_4_Aprune is None:
+        args.delay_em_iter_4_Aprune = int(args.num_em_iters * 0.3)
+    if args.delay_em_iter_4_dynWeight is None:
+        args.delay_em_iter_4_dynWeight = int(args.num_em_iters * 0.5)
     if args.delay_em_iter_4_ArhoMax is None:
         args.delay_em_iter_4_ArhoMax = int(args.num_em_iters * 0.6)
-    if args.dealy_em_iter_4_lrDecay is None:
-        args.dealy_em_iter_4_lrDecay = int(args.num_em_iters * 0.7)
+    if args.delay_em_iter_4_lrDecay is None:
+        args.delay_em_iter_4_lrDecay = int(args.num_em_iters * 0.7)
     
     if rank == 0:
         print("\nEM-train args:", vars(args), "\n")
@@ -723,7 +723,7 @@ def main():
         model = DDP(model, device_ids=[local_rank])
 
     total_m_epochs = args.num_em_iters * args.m_epochs
-    decay_start_m_epoch = args.dealy_em_iter_4_lrDecay * args.m_epochs
+    decay_start_m_epoch = args.delay_em_iter_4_lrDecay * args.m_epochs
     decay_m_epochs = max(1, total_m_epochs - decay_start_m_epoch)
     optimizer = optim.Adam(model.parameters(), lr=args.lr_mstep, fused=True)
     scheduler = optim.lr_scheduler.LinearLR(
@@ -744,6 +744,8 @@ def main():
 
     t_start = time.time()
     m_epoch_global = 0
+    p_stay = math.exp(-dt / args.decode_dwell_sec)
+    onehot_states = np.eye(M, dtype=np.float32)
 
     # ══════════════════════════════════════════════════════════════
     #  EM loop
@@ -752,13 +754,13 @@ def main():
         if rank == 0:
             if em == args.delay_em_iter_4_ArhoMax + 1:
                 print(f"threshold passed: 'delay_em_iter_4_ArhoMax': {args.delay_em_iter_4_ArhoMax} (em={em})")
-            if em == args.dealy_em_iter_4_lrDecay + 1:
-                print(f"threshold passed: 'dealy_em_iter_4_lrDecay': {args.dealy_em_iter_4_lrDecay} (em={em})")
-            if em == args.dealy_em_iter_4_Aprune + 1:
-                print(f"threshold passed: 'dealy_em_iter_4_Aprune': {args.dealy_em_iter_4_Aprune} (em={em})")
-            if em == args.dealy_em_iter_4_dynWeight + 1:
-                print(f"threshold passed: 'dealy_em_iter_4_dynWeight': {args.dealy_em_iter_4_dynWeight} (em={em})")
-        apply_prune = em > args.dealy_em_iter_4_Aprune
+            if em == args.delay_em_iter_4_lrDecay + 1:
+                print(f"threshold passed: 'delay_em_iter_4_lrDecay': {args.delay_em_iter_4_lrDecay} (em={em})")
+            if em == args.delay_em_iter_4_Aprune + 1:
+                print(f"threshold passed: 'delay_em_iter_4_Aprune': {args.delay_em_iter_4_Aprune} (em={em})")
+            if em == args.delay_em_iter_4_dynWeight + 1:
+                print(f"threshold passed: 'delay_em_iter_4_dynWeight': {args.delay_em_iter_4_dynWeight} (em={em})")
+        apply_prune = em > args.delay_em_iter_4_Aprune
         apply_rho = em > args.delay_em_iter_4_ArhoMax
 
         # ── E-step ───────────────────────────────────────────────
@@ -801,11 +803,23 @@ def main():
         te = time.time() - te0
         h_e_nll.append(e_nll)
 
-        # sync c_hat GPU → CPU dataset (in-place update)
-        np.copyto(c_pairs_np, c_hat_gpu[1:].cpu().numpy())
+        # sync E-step states to CPU dataset (in-place update) for M-step:
+        # Viterbi decode -> one-hot rows (classification-style M-step).
+        c_hat_np_iter = c_hat_gpu.cpu().numpy()
+        if is_dist:
+            if rank == 0:
+                s_iter_np = viterbi_decode(c_hat_np_iter, p_stay).astype(np.int64, copy=False)
+                s_iter_t = torch.as_tensor(s_iter_np, dtype=torch.int64, device=device)
+            else:
+                s_iter_t = torch.empty((T_full,), dtype=torch.int64, device=device)
+            dist.broadcast(s_iter_t, src=0)
+            s_iter_np = s_iter_t.cpu().numpy()
+        else:
+            s_iter_np = viterbi_decode(c_hat_np_iter, p_stay).astype(np.int64, copy=False)
+        np.copyto(c_pairs_np, onehot_states[s_iter_np[1:]])
 
         # ── adaptive neuron weights (time-varying, smoothed) ─────
-        if (not args.noFreqWeight) and em >= args.dealy_em_iter_4_dynWeight:
+        if (not args.noFreqWeight) and em >= args.delay_em_iter_4_dynWeight:
             w_new = compute_adaptive_weights(
                 c_hat_gpu.cpu().numpy(), yc_np, n_smooth)   # (T, N) float32
             weights_gpu = torch.tensor(w_new, device=device)
@@ -823,7 +837,7 @@ def main():
                 args.prescale_m_step_4_ArhoMax, apply_prune, apply_rho,
                 off_mask, args.minW, args.rho_sync_mode
             )
-            if em > args.dealy_em_iter_4_lrDecay:
+            if em > args.delay_em_iter_4_lrDecay:
                 scheduler.step()
 
             h_m_loss.append(met["loss"])
@@ -851,7 +865,6 @@ def main():
 
         # ── Final Viterbi decode ─────────────────────────────────
         c_hat_np = c_hat_gpu.cpu().numpy()
-        p_stay = math.exp(-dt / args.decode_dwell_sec)
         S_hat = viterbi_decode(c_hat_np, p_stay)
         S_hat_CL = (1.0 - c_hat_np.max(axis=1)).astype(np.float32)
 
@@ -904,10 +917,11 @@ def main():
             "prescale_m_step_4_ArhoMax":  args.prescale_m_step_4_ArhoMax,
             "delay_em_iter_4_ArhoMax":    args.delay_em_iter_4_ArhoMax,
             "rho_sync_mode":            args.rho_sync_mode,
-            "dealy_em_iter_4_lrDecay":    args.dealy_em_iter_4_lrDecay,
-            "dealy_em_iter_4_Aprune":         args.dealy_em_iter_4_Aprune,
-            "dealy_em_iter_4_dynWeight":   args.dealy_em_iter_4_dynWeight,
+            "delay_em_iter_4_lrDecay":    args.delay_em_iter_4_lrDecay,
+            "delay_em_iter_4_Aprune":         args.delay_em_iter_4_Aprune,
+            "delay_em_iter_4_dynWeight":   args.delay_em_iter_4_dynWeight,
             "noFreqWeight":             bool(args.noFreqWeight),
+            "mstep_state_mode":         "viterbi_onehot",
             "weight_smooth_bins":       n_smooth,
             "batch_size":               args.batch_size,
             "minW":                     args.minW,
