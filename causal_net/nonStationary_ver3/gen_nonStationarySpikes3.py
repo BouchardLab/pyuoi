@@ -405,11 +405,22 @@ def main():
         print('\nprismTruth MD:'); pprint(prismTruthMD)
 
     if oracle_score is not None:
+        target_bins_per_state = np.bincount(S_true, minlength=n_states)
+        switches_to_per_state = np.zeros(n_states, dtype=np.int64)
+        if S_true.shape[0] > 1:
+            switch_idx = np.where(S_true[1:] != S_true[:-1])[0] + 1
+            if switch_idx.size > 0:
+                switches_to_per_state = np.bincount(
+                    S_true[switch_idx], minlength=n_states
+                ).astype(np.int64)
         print(f"gen, oracle avr score {oracle_score:.3f}, {args.dataName}")
-        print(f"  {'state':>5s}  {'score':>5s}")
-        print(f"  {'-----':>5s}  {'-----':>5s}")
+        print(f"  {'state':>5s}  {'score':>5s}  {'bins':>7s}  {'switches_to':>11s}")
+        print(f"  {'-----':>5s}  {'-----':>5s}  {'-------':>7s}  {'-----------':>11s}")
         for m, sc in enumerate(oracle_score_per_state):
-            print(f"  {m:5d}  {sc:5.3f}")
+            print(
+                f"  {m:5d}  {sc:5.3f}  {int(target_bins_per_state[m]):7d}  "
+                f"{int(switches_to_per_state[m]):11d}"
+            )
 
     print("\n  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --idxState -1 --time_range_sec 0 15   -p b    " % args.dataName)
     print("\n  ./prism_Estep_train.py --basePath $basePath   --dataName %s      " % args.dataName)

@@ -100,6 +100,17 @@ def eval_state_recovery(fitD, md):
 
     avg_acc = float((s_true == s_hat).mean())
     state_acc_cl = []
+    bins_hat = np.bincount(s_hat, minlength=m_states).astype(np.int64)
+    enter_hat = np.zeros(m_states, dtype=np.int64)
+    if s_hat.shape[0] > 1:
+        enter_idx = np.where(s_hat[1:] != s_hat[:-1])[0] + 1
+        if enter_idx.size > 0:
+            enter_hat = np.bincount(s_hat[enter_idx], minlength=m_states).astype(np.int64)
+
+    trans_hat = np.zeros((m_states, m_states), dtype=np.int64)
+    if s_hat.shape[0] > 1:
+        np.add.at(trans_hat, (s_hat[:-1], s_hat[1:]), 1)
+
     for m in range(m_states):
         mask = (s_hat == m)
         cnt = int(mask.sum())
@@ -109,11 +120,12 @@ def eval_state_recovery(fitD, md):
         else:
             acc_m = float("nan")
             cl_m = float("nan")
-        state_acc_cl.append([acc_m, cl_m])  # [acc, CL]
+        state_acc_cl.append([acc_m, cl_m, int(bins_hat[m]), int(enter_hat[m])])  # [acc, CL, bins_hat, enter_hat]
 
     return {
         "avg_acc": avg_acc,
         "state_acc_cl": state_acc_cl,
+        "trans_hat": trans_hat,
     }
 
 
@@ -186,10 +198,20 @@ def main():
     MD["states_recovery_eval"]["state_acc_cl"] = reco["state_acc_cl"]
 
     print(f"state reco avr acc {reco['avg_acc']:.3f}, {args.dataName}")
-    print(f"  {'state':>5s}  {'acc':>5s}  {'CL':>6s}")
-    print(f"  {'-----':>5s}  {'-----':>5s}  {'------':>6s}")
-    for m, (acc_m, cl_m) in enumerate(reco["state_acc_cl"]):
-        print(f"  {m:5d}  {acc_m:5.3f}  {cl_m:6.3f}")
+    print(f"  {'state':>5s}  {'acc':>5s}  {'CL':>6s}  {'bins_hat':>8s}  {'enter_hat':>9s}")
+    print(f"  {'-----':>5s}  {'-----':>5s}  {'------':>6s}  {'--------':>8s}  {'---------':>9s}")
+    for m, (acc_m, cl_m, bins_m, enter_m) in enumerate(reco["state_acc_cl"]):
+        print(f"  {m:5d}  {acc_m:5.3f}  {cl_m:6.3f}  {bins_m:8d}  {enter_m:9d}")
+
+    trans_hat = np.asarray(reco["trans_hat"], dtype=np.int64)
+    n_states = trans_hat.shape[0]
+    print("\nS_hat transition counts (from row -> to col):")
+    hdr = " from\\to" + "".join(f"{j:8d}" for j in range(n_states))
+    print(hdr)
+    print(" " + "-" * (len(hdr) - 1))
+    for i in range(n_states):
+        row = f"{i:8d}" + "".join(f"{int(trans_hat[i, j]):8d}" for j in range(n_states))
+        print(row)
 
     MD["short_name"] = args.dataName
 

@@ -127,6 +127,25 @@ def gen_dale_matrics(conf, E_true, verb=1):
     A=init_W(num_neurons, num_excite, E_true, Rmax, varyW, verb=verb)
     return A
 
+def spectral_radius_scaling(A, factors):
+    n = A.shape[0]
+    off_diag_mask = ~np.eye(n, dtype=bool)
+    
+    print(f"{'factor':>8s}  {'ρ(all)':>10s}  {'ρ(off-diag)':>12s}")
+    print("-" * 34)
+    
+    for c in factors:
+        # a) scale all elements
+        rho_all = np.max(np.abs(np.linalg.eigvals(c * A)))
+        
+        # b) scale only off-diagonal
+        A_off = A.copy()
+        A_off[off_diag_mask] *= c
+        rho_off = np.max(np.abs(np.linalg.eigvals(A_off)))
+        
+        print(f"{c:8.3f}  {rho_all:10.4f}  {rho_off:12.4f}")
+
+
 #################### Simulation ##################
 
 def set_flat_selfSpiking(Nn, idleRate, spect_radius, num_excite, boffsets):
@@ -136,13 +155,14 @@ def set_flat_selfSpiking(Nn, idleRate, spect_radius, num_excite, boffsets):
     B_all = np.zeros((len(boffsets), Nn))
     R = float(spect_radius)
     for ib, offset in enumerate(boffsets):
-        idle_eff = np.array(idleRate, dtype=float) + float(offset)
+        idle_eff = np.array(idleRate, dtype=float) 
         Ri_scaled = idle_eff * R
         Bi = np.log(Ri_scaled)
         B_all[ib] = np.random.uniform(Bi[0], Bi[1], size=(Nn,))
-        if 1:  # for ver Mar 9
-            B_all[ib, :num_excite] +=0.8  - R*1.5 - sizeScale # reduce excitatory rate
-            B_all[ib, num_excite:] += 0.5  # reduce  inhibitory rate  
+        #B_all+= + float(offset)
+        if 1:  # for ver Mar 11
+            B_all[ib, :num_excite] +=1+offset  - R*1.5 - sizeScale # reduce excitatory rate
+            B_all[ib, num_excite:] += offset  # reduce  inhibitory rate  
     return B_all
 
 def gen_stationary_lag1_poisson(num_steps, dt, A, B_intercept, num_excite, eta_clip,verb=0):
@@ -290,6 +310,11 @@ def main():
     dale_conf_r['spect_radius'] = args.spectral_radius
 
     A_dale = gen_dale_matrics(dale_conf_r, E_true, verb=verb_r)
+
+    if 0:  # test scaling behavior of spectral radius when scaling A by different factors
+        factors = [0.2, 0.4, 0.6, 0.8, 0.9, ]
+        spectral_radius_scaling(A_dale, factors)
+        exit(1)
 
     if verb_r > 0:
         total_connections = A_dale.size

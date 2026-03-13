@@ -148,7 +148,7 @@ class Plotter(PlotterBackbone):
             draw_threshold_marker(ax, dyn_weight_m_epoch, n_m_total, "start dynWeight", "tab:pink")
 
         txt = (f"lr_M={trainMD['lr_mstep']}\n"
-               f"L1α={trainMD['L1_alpha']}\n"
+               f"L1 λ3={trainMD['lambda3']}\n"
                f"batch={trainMD['batch_size']}")
         ax.text(0.03, 0.03, txt, transform=ax.transAxes,
                 va="bottom", ha="left", fontsize=8,
@@ -1058,7 +1058,7 @@ class Plotter(PlotterBackbone):
 
         # Row 2: Fit
         ax = fig.add_subplot(gs[1, :])
-        ax.plot(t_bins, S_hat, color="k", linewidth=2.0, label="S_hat")
+        ax.plot(t_bins, S_hat, color="k", linewidth=2.5, label="S_hat")
         ax.plot(t_bins, S_true, color="lime", linestyle="--", linewidth=1.5, label="S_true")
         lo = np.clip(S_hat - S_hat_CL, 0.0, float(C_hat.shape[1] - 1))
         hi = np.clip(S_hat + S_hat_CL, 0.0, float(C_hat.shape[1] - 1))

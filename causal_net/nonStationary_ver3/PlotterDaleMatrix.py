@@ -167,7 +167,7 @@ class Plotter(PlotterBackbone):
         binX= np.linspace(wMin, wMax, 100)
         ax.hist(EnegT[:,2], bins=binX, color='blue', alpha=0.7, edgecolor=None,label='neg:%d'%EnegT.shape[0])
         ax.hist(EposT[:,2], bins=binX, color='red', alpha=0.7, edgecolor=None,label='pos:%d'%EposT.shape[0])
-        ax.hist(A_diag,   bins=binX, color='magenta', alpha=0.65, edgecolor=None,
+        ax.hist(A_diag,   bins=binX, color='cyan', alpha=0.65, edgecolor=None,
                 label='diag:%d'%A_diag.shape[0])
 
         ax.legend(loc='upper left')
@@ -271,12 +271,21 @@ class Plotter(PlotterBackbone):
         ax.plot(bx, by, linestyle='--', color='black', linewidth=0.8, label='y=exp(x)')
         ax.legend()
 
-        # 2) Keep this panel intentionally empty (SNR plot removed)
-        ax = self.plt.subplot(nrow,ncol,4)
-        ax.set_axis_off()
+        # 2) Histogram: true B_idle (all neurons)
+        ax2 = self.plt.subplot(nrow,ncol,2)
+        b_bins = min(60, max(20, int(np.sqrt(numNeur) * 3)))
+        ax2.hist(B_idle, bins=b_bins, color='dimgray', alpha=0.8, edgecolor=None)
+        ax2.set_xlabel('true B_idle')
+        ax2.set_ylabel('num neurons')
+        ax2.grid(True, alpha=0.3)
+        state_tag = md.get('sel_state', None)
+        if state_tag is None:
+            ax2.set_title('true B_idle')
+        else:
+            ax2.set_title(f'true B_idle, state={state_tag}')
         
         # 3) Histogram: single_rates for excitatory
-        ax3 = self.plt.subplot(nrow,ncol,2)
+        ax3 = self.plt.subplot(nrow,ncol,3)
         exc_vals = single_rates[exc_mask]
         inh_vals = single_rates[inh_mask]
         # compute common bins and range (start at 0)
@@ -293,7 +302,7 @@ class Plotter(PlotterBackbone):
         ax3.set_title('Rates: Excitatory (N=%d)' % (numExc))
         
         # 4) Histogram: single_rates for inhibitory
-        ax4 = self.plt.subplot(nrow,ncol,3)
+        ax4 = self.plt.subplot(nrow,ncol,4)
         ax4.hist(inh_vals, bins=common_bins, color='blue', alpha=0.7, edgecolor=None)
         ax4.set_xlabel('single_rates (Hz)')
         ax4.set_ylabel('num neurons')

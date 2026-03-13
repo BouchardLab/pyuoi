@@ -323,9 +323,8 @@ def sync_AB_via_rank0_avg_then_broadcast_(mdl, rho_max):
 
 
 def run_mstep_epoch(model, loader, optimizer, device, dt,
-                    l1_wt, L1_alpha, rho_max,
-                    rho_every, apply_prune, apply_rho, off_mask, minW,
-                    rho_sync_mode):
+                    l1_wt, lambda3, rho_max,
+                    rho_every, apply_prune, apply_rho, off_mask, minW):
     """One DataLoader pass updating A and B.  Returns metrics dict.
 
     Per-sample weights ww (batch, N) come from the DataLoader (4th element),
@@ -345,25 +344,20 @@ def run_mstep_epoch(model, loader, optimizer, device, dt,
         optimizer.zero_grad(set_to_none=True)
         pred = model(yp, cc, dt)
         nll = (-ww * yc * torch.log(pred + eps) + ww * pred).mean()
-        if L1_alpha > 0:
+        if lambda3 > 0:
             n = mdl.A.shape[0]
             off_abs_mean = (mdl.A.abs() * l1_wt).sum() / float(n * (n - 1))
-            l1 = L1_alpha * off_abs_mean
+            l1 = lambda3 * off_abs_mean
         else:
             l1 = torch.tensor(0.0, device=device)
         loss = nll + l1
         loss.backward()
         optimizer.step()
 
-        if apply_prune and L1_alpha > 0:
-            offdiag_soft_threshold_(mdl.A, optimizer.param_groups[0]["lr"], L1_alpha)
+        if apply_prune and lambda3 > 0:
+            offdiag_soft_threshold_(mdl.A, optimizer.param_groups[0]["lr"], lambda3)
         if apply_rho and (bi % rho_every == 0):
-            if rho_sync_mode == "broadcast":
-                sync_AB_via_rank0_avg_then_broadcast_(mdl, rho_max)
-            elif rho_sync_mode == "none":
-                enforce_spectral_radius_(mdl.A, rho_max)
-            else:
-                raise ValueError(f"unknown rho_sync_mode={rho_sync_mode}")
+            sync_AB_via_rank0_avg_then_broadcast_(mdl, rho_max)
 
         s_tot += loss.item()
         s_nll += nll.item()
@@ -446,34 +440,29 @@ def parse_args():
                    help="Temporal smoothness weight")
 
     g = p.add_argument_group("M-step")
-    g.add_argument("--lr_mstep", type=float, default=1e-3,
+    g.add_argument("--lr_mstep", type=float, default=0.003,
                    help="Adam learning rate (initial)")
     g.add_argument("--lr_end_factor", type=float, default=0.1,
                    help="LR decays to lr_mstep * lr_end_factor")
-    g.add_argument("--L1_alpha", type=float, default=0.02,
+    g.add_argument("--lambda3", type=float, default=0.02,
                    help="L1 penalty on off-diagonal A")
-    g.add_argument("--rho_max", type=float, default=0.92,
+    g.add_argument("--rho_max", type=float, default=0.95,
                    help="Hard spectral radius ceiling for A")
     g.add_argument("--prescale_m_step_4_ArhoMax", type=int, default=50,
                    help="Spectral projection frequency (batches)")
-    g.add_argument("--delay_em_iter_4_ArhoMax", type=int, default=None,
+    g.add_argument("--delay_em_iter_4_ArhoMax", type=int, default=3,
                    help="EM iter to start rho_max enforcement "
                         "(default: int(num_em_iters * 0.6))")
-    g.add_argument("--rho_sync_mode", type=str, default="none",
-                   choices=["none", "broadcast"],
-                   help="rho-trigger behavior: none (current) or "
-                        "broadcast (rank0 average+project+broadcast). "
-                        "'breadcast' is accepted as an alias.")
-    g.add_argument("--delay_em_iter_4_lrDecay", type=int, default=None,
+    g.add_argument("--delay_em_iter_4_lrDecay", type=int, default=1,
                    help="EM iter to start LR decay "
                         "(default: int(num_em_iters * 0.7))")
-    g.add_argument("--delay_em_iter_4_Aprune", type=int, default=None,
+    g.add_argument("--delay_em_iter_4_Aprune", type=int, default=1,
                    help="EM iter to start L1 pruning "
                         "(default: num_em_iters // 3)")
     g.add_argument("--batch_size", type=int, default=2048)
     g.add_argument("--minW", type=float, default=0.01,
                    help="Threshold for edge counting (reporting only)")
-    g.add_argument("--delay_em_iter_4_dynWeight", type=int, default=None,
+    g.add_argument("--delay_em_iter_4_dynWeight", type=int, default=2,
                    help="EM iter to switch from global to adaptive per-time-bin "
                         "neuron weights (default: int(num_em_iters * 0.8))")
     g.add_argument("--noFreqWeight", action="store_true", default=False,
@@ -486,7 +475,7 @@ def parse_args():
                    help="Time window [t0, t1] in seconds")
 
     g = p.add_argument_group("decode")
-    g.add_argument("--decode_dwell_sec", type=float, default=0.1,
+    g.add_argument("--decode_dwell_sec", type=float, default=0.3,
                    help="Viterbi dwell prior τ_dwell")
 
     g = p.add_argument_group("misc")
@@ -833,9 +822,9 @@ def main():
                 sampler.set_epoch(m_epoch_global)
             met = run_mstep_epoch(
                 model, loader, optimizer, device, dt,
-                l1_wt, args.L1_alpha, args.rho_max,
+                l1_wt, args.lambda3, args.rho_max,
                 args.prescale_m_step_4_ArhoMax, apply_prune, apply_rho,
-                off_mask, args.minW, args.rho_sync_mode
+                off_mask, args.minW
             )
             if em > args.delay_em_iter_4_lrDecay:
                 scheduler.step()
@@ -912,11 +901,11 @@ def main():
             "lr_mstep":                 args.lr_mstep,
             "lr_end_factor":            args.lr_end_factor,
             "lambda2":                  args.lambda2,
-            "L1_alpha":                 args.L1_alpha,
+            "lambda3":                  args.lambda3,
             "rho_max":                  args.rho_max,
             "prescale_m_step_4_ArhoMax":  args.prescale_m_step_4_ArhoMax,
             "delay_em_iter_4_ArhoMax":    args.delay_em_iter_4_ArhoMax,
-            "rho_sync_mode":            args.rho_sync_mode,
+            "rho_sync_mode":            "broadcast",
             "delay_em_iter_4_lrDecay":    args.delay_em_iter_4_lrDecay,
             "delay_em_iter_4_Aprune":         args.delay_em_iter_4_Aprune,
             "delay_em_iter_4_dynWeight":   args.delay_em_iter_4_dynWeight,
