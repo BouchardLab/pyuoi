@@ -11,7 +11,7 @@ Algorithm: Block Coordinate Descent
   E-step: single forward sweep PGD over time bins → update c_hat
   M-step: m_epochs of Adam with DataLoader        → update (A, B)
 
-Uses firing-rate-weighted Poisson NLL in both steps, L1 off-diagonal
+Uses uniformly weighted Poisson NLL in both steps, L1 off-diagonal
 soft-thresholding, and hard spectral radius projection on A.
 Numerical tricks and defaults follow prism_Mstep_train3.py (M-step)
 and prism_Estep_train.py (E-step).
@@ -65,17 +65,15 @@ class SwitchingPoissonGLM(nn.Module):
 # ═══════════════════════════════════════════════════════════════════════
 
 class PairDataset(Dataset):
-    """(y_prev, y_curr, c, w) quadruplets.
+    """(y_prev, y_curr, c) triplets.
 
-    self.c and self.w are mutable numpy arrays updated in-place after each E-step.
-    w has shape (T-1, N): per-time-bin per-neuron weights.
+    self.c is a mutable numpy array updated in-place after each E-step.
     """
 
-    def __init__(self, y_prev, y_curr, c, w):
+    def __init__(self, y_prev, y_curr, c):
         self.y_prev = y_prev
         self.y_curr = y_curr
         self.c = c
-        self.w = w          # (T-1, N) float32, updated in-place
 
     def __len__(self):
         return self.y_prev.shape[0]
@@ -85,47 +83,7 @@ class PairDataset(Dataset):
             torch.from_numpy(self.y_prev[idx]).float(),
             torch.from_numpy(self.y_curr[idx]).float(),
             torch.from_numpy(self.c[idx]).float(),
-            torch.from_numpy(self.w[idx]).float(),
         )
-
-
-def compute_adaptive_weights(c_np, yc_np, n_smooth, floor=0.1):
-    """Compute time-varying per-neuron weights (T, N) from current soft assignments.
-
-    Uses c_hat as soft state assignments to estimate state-specific firing rates,
-    then reconstructs a per-time-bin expected rate and smooths over n_smooth bins.
-
-    Args:
-        c_np:     (T, M)  soft assignments (full time, including t=0)
-        yc_np:    (T-1, N) spike counts for bins t=1..T (pairs)
-        n_smooth: int, uniform smoothing window in bins
-        floor:    minimum rate before inversion (prevents huge weights)
-
-    Returns:
-        w (T, N) float32, normalized so mean weight = 1
-    """
-    T, M = c_np.shape
-    N = yc_np.shape[1]
-    c_pairs = c_np[1:].astype(np.float64)       # (T-1, M) aligned with yc_np
-    yc_d = yc_np.astype(np.float64)
-
-    # state-specific mean spike count per bin: (M, N)
-    denom = np.maximum(c_pairs.sum(axis=0), 1e-6)   # (M,)
-    state_rates = (c_pairs.T @ yc_d) / denom[:, None]   # (M, N)
-
-    # soft-reconstructed rate per time bin: (T, N)
-    eff_rate = c_np.astype(np.float64) @ state_rates    # (T, N)
-
-    # uniform running average over n_smooth bins (causal, edge-padded)
-    if n_smooth > 1:
-        pad = np.concatenate([eff_rate[:1]] * (n_smooth - 1) + [eff_rate], axis=0)
-        cs = np.zeros((pad.shape[0] + 1, N), dtype=np.float64)
-        cs[1:] = np.cumsum(pad, axis=0)
-        eff_rate = (cs[n_smooth : n_smooth + T] - cs[:T]) / n_smooth
-
-    w = 1.0 / np.maximum(eff_rate, floor)
-    w = w / w.mean(axis=0, keepdims=True)   # per-neuron: mean over time = 1 for each n
-    return w.astype(np.float32)
 
 
 def init_distributed():
@@ -162,7 +120,7 @@ def pair_range_for_rank(t_pairs, world_size, rank):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  E-step: simplex PGD  (from prism_Estep_train.py, with neuron weights)
+#  E-step: simplex PGD  (from prism_Estep_train.py)
 # ═══════════════════════════════════════════════════════════════════════
 
 def project_to_simplex(v):
@@ -181,7 +139,7 @@ def project_to_simplex(v):
     return torch.clamp(v - theta, min=0.0)
 
 
-def run_estep(Y_prev, Y_curr, A, B, c_hat, weights,
+def run_estep(Y_prev, Y_curr, A, B, c_hat,
               dt, eta_clip, lambda2, lr, pgd_iter):
     """Single forward sweep E-step.  Updates c_hat in-place on GPU.
 
@@ -190,10 +148,9 @@ def run_estep(Y_prev, Y_curr, A, B, c_hat, weights,
         A: (N, N)  detached parameter tensor
         B: (M, N)  detached parameter tensor
         c_hat: (T_full, M) GPU tensor, modified in-place
-        weights: (T_full, N) per-time-bin per-neuron weights (GPU tensor)
 
     Returns:
-        mean weighted NLL over all time pairs
+        mean NLL over all time pairs
     """
     T_eff = c_hat.shape[0]
     log_dt = math.log(dt)
@@ -203,7 +160,6 @@ def run_estep(Y_prev, Y_curr, A, B, c_hat, weights,
     for t in range(1, T_eff):
         y_p = Y_prev[t - 1]
         y_c = Y_curr[t - 1]
-        w_t = weights[t]                      # (N,)
 
         Z = (A @ y_p)[None, :] + B           # (M, N)
 
@@ -212,13 +168,13 @@ def run_estep(Y_prev, Y_curr, A, B, c_hat, weights,
             eta = c_t @ Z                     # (N,)
             eta_c = torch.clamp(eta, max=eta_clip)
             lam = torch.exp(eta_c) * dt
-            g = Z @ ((lam - y_c) * w_t) + 2.0 * lambda2 * (c_t - c_prev)
+            g = Z @ (lam - y_c) + 2.0 * lambda2 * (c_t - c_prev)
             c_t = project_to_simplex(c_t - lr * g)
 
         eta = c_t @ Z
         eta_c = torch.clamp(eta, max=eta_clip)
         lam = torch.exp(eta_c) * dt
-        nll_sum += float((w_t * (lam - y_c * (eta_c + log_dt))).sum().item())
+        nll_sum += float((lam - y_c * (eta_c + log_dt)).sum().item())
 
         c_hat[t] = c_t
         c_prev = c_t
@@ -226,13 +182,10 @@ def run_estep(Y_prev, Y_curr, A, B, c_hat, weights,
     return nll_sum / max(1, T_eff - 1)
 
 
-def run_estep_shard(Y_prev, Y_curr, A, B, c_hat, weights,
+def run_estep_shard(Y_prev, Y_curr, A, B, c_hat,
                     dt, eta_clip, lambda2, lr, pgd_iter,
                     t0, t1):
     """E-step update on a shard of time bins t in [t0, t1], inclusive.
-
-    Args:
-        weights: (T_full, N) per-time-bin per-neuron weights (GPU tensor)
 
     Returns:
       nll_sum_local, n_pairs_local
@@ -247,7 +200,6 @@ def run_estep_shard(Y_prev, Y_curr, A, B, c_hat, weights,
     for t in range(t0, t1 + 1):
         y_p = Y_prev[t - 1]
         y_c = Y_curr[t - 1]
-        w_t = weights[t]                    # (N,)
 
         Z = (A @ y_p)[None, :] + B
 
@@ -256,13 +208,13 @@ def run_estep_shard(Y_prev, Y_curr, A, B, c_hat, weights,
             eta = c_t @ Z
             eta_c = torch.clamp(eta, max=eta_clip)
             lam = torch.exp(eta_c) * dt
-            g = Z @ ((lam - y_c) * w_t) + 2.0 * lambda2 * (c_t - c_prev)
+            g = Z @ (lam - y_c) + 2.0 * lambda2 * (c_t - c_prev)
             c_t = project_to_simplex(c_t - lr * g)
 
         eta = c_t @ Z
         eta_c = torch.clamp(eta, max=eta_clip)
         lam = torch.exp(eta_c) * dt
-        nll_sum += float((w_t * (lam - y_c * (eta_c + log_dt))).sum().item())
+        nll_sum += float((lam - y_c * (eta_c + log_dt)).sum().item())
 
         c_hat[t] = c_t
         c_prev = c_t
@@ -326,24 +278,20 @@ def run_mstep_epoch(model, loader, optimizer, device, dt,
                     l1_wt, lambda3, rho_max,
                     rho_every, apply_prune, apply_rho, off_mask, minW):
     """One DataLoader pass updating A and B.  Returns metrics dict.
-
-    Per-sample weights ww (batch, N) come from the DataLoader (4th element),
-    updated in-place in PairDataset after each E-step.
     """
     model.train()
     mdl = model.module if hasattr(model, "module") else model
     s_tot = s_nll = s_l1 = 0.0
     eps = 1e-8
 
-    for bi, (yp, yc, cc, ww) in enumerate(loader):
+    for bi, (yp, yc, cc) in enumerate(loader):
         yp = yp.to(device, non_blocking=True)
         yc = yc.to(device, non_blocking=True)
         cc = cc.to(device, non_blocking=True)
-        ww = ww.to(device, non_blocking=True)
 
         optimizer.zero_grad(set_to_none=True)
         pred = model(yp, cc, dt)
-        nll = (-ww * yc * torch.log(pred + eps) + ww * pred).mean()
+        nll = (-yc * torch.log(pred + eps) + pred).mean()
         if lambda3 > 0:
             n = mdl.A.shape[0]
             off_abs_mean = (mdl.A.abs() * l1_wt).sum() / float(n * (n - 1))
@@ -462,13 +410,6 @@ def parse_args():
     g.add_argument("--batch_size", type=int, default=2048)
     g.add_argument("--minW", type=float, default=0.01,
                    help="Threshold for edge counting (reporting only)")
-    g.add_argument("--delay_em_iter_4_dynWeight", type=int, default=2,
-                   help="EM iter to switch from global to adaptive per-time-bin "
-                        "neuron weights (default: int(num_em_iters * 0.8))")
-    g.add_argument("--noFreqWeight", action="store_true", default=False,
-                   help="If True, disable frequency-based neuron weights "
-                        "(all neuron weights = 1).")
-
     g = p.add_argument_group("data")
     g.add_argument("-T", "--time_range_sec", default=[0.0, 60.0],
                    nargs=2, type=float,
@@ -520,8 +461,6 @@ def main():
 
     if args.delay_em_iter_4_Aprune is None:
         args.delay_em_iter_4_Aprune = int(args.num_em_iters * 0.3)
-    if args.delay_em_iter_4_dynWeight is None:
-        args.delay_em_iter_4_dynWeight = int(args.num_em_iters * 0.5)
     if args.delay_em_iter_4_ArhoMax is None:
         args.delay_em_iter_4_ArhoMax = int(args.num_em_iters * 0.6)
     if args.delay_em_iter_4_lrDecay is None:
@@ -563,14 +502,10 @@ def main():
 
         if rank == 0:
             spikes_t = torch.as_tensor(spikes, dtype=torch.int32, device=device).contiguous()
-            rates_t = torch.as_tensor(single_rates, dtype=torch.float32, device=device).contiguous()
         else:
             spikes_t = torch.empty((T_raw, N), dtype=torch.int32, device=device)
-            rates_t = torch.empty((N,), dtype=torch.float32, device=device)
         dist.broadcast(spikes_t, src=0)
-        dist.broadcast(rates_t, src=0)
         spikes = spikes_t.cpu().numpy()
-        single_rates = rates_t.cpu().numpy()
     else:
         T_raw, N = spikes.shape
 
@@ -594,22 +529,6 @@ def main():
         print(f"N={N} EM={args.num_em_iters}  M={M}  T={T_full}  pairs={T_pairs}  "
               f"dt={dt}  eta_clip={eta_clip}  "
               f"time=[{t0_sec:.1f}, {t1_sec:.1f}]s  bins=[{start_bin}, {end_bin}]")
-
-    # ── neuron weights ───────────────────────────────────────────
-    # Default uses inverse-rate weights; optional noFreqWeight forces
-    # uniform weights so all neurons contribute equally.
-    if args.noFreqWeight:
-        w_full_np = np.ones((T_full, N), dtype=np.float32)
-    else:
-        # 1/rate, normalized to mean 1
-        # Broadcast to (T, N) so both E-step (per time bin) and M-step
-        # (via DataLoader) use the same shape; updated adaptively after E-steps.
-        w_np = (1.0 / np.maximum(single_rates, 0.1)).astype(np.float32)
-        w_np /= w_np.mean()
-        w_full_np = np.broadcast_to(w_np[None, :], (T_full, N)).astype(np.float32).copy()
-    weights_gpu = torch.tensor(w_full_np, device=device)  # (T, N)
-    w_pairs_np = w_full_np[1:].copy()                     # (T-1, N) for Dataset
-    n_smooth = max(1, int(round(args.decode_dwell_sec / dt)))
 
     # ── time pairs: GPU for E-step, CPU numpy for DataLoader ────
     yp_np = spikes[:-1].astype(np.float32)
@@ -680,7 +599,7 @@ def main():
     c_hat_gpu = torch.tensor(c_init_np, dtype=torch.float32, device=device)
     c_pairs_np = c_init_np[1:].copy()
 
-    dataset = PairDataset(yp_np, yc_np, c_pairs_np, w_pairs_np)
+    dataset = PairDataset(yp_np, yc_np, c_pairs_np)
     if is_dist:
         sampler = DistributedSampler(
             dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False
@@ -747,8 +666,6 @@ def main():
                 print(f"threshold passed: 'delay_em_iter_4_lrDecay': {args.delay_em_iter_4_lrDecay} (em={em})")
             if em == args.delay_em_iter_4_Aprune + 1:
                 print(f"threshold passed: 'delay_em_iter_4_Aprune': {args.delay_em_iter_4_Aprune} (em={em})")
-            if em == args.delay_em_iter_4_dynWeight + 1:
-                print(f"threshold passed: 'delay_em_iter_4_dynWeight': {args.delay_em_iter_4_dynWeight} (em={em})")
         apply_prune = em > args.delay_em_iter_4_Aprune
         apply_rho = em > args.delay_em_iter_4_ArhoMax
 
@@ -760,7 +677,7 @@ def main():
                 t0 = p0 + 1
                 t1 = p1 + 1
                 nll_local, n_pair_local = run_estep_shard(
-                    Yp_gpu, Yc_gpu, mdl.A.data, mdl.B.data, c_hat_gpu, weights_gpu,
+                    Yp_gpu, Yc_gpu, mdl.A.data, mdl.B.data, c_hat_gpu,
                     dt, eta_clip, args.lambda2, args.lr_estep, args.pgd_iter,
                     t0, t1
                 )
@@ -785,7 +702,7 @@ def main():
             else:
                 e_nll = run_estep(
                     Yp_gpu, Yc_gpu, mdl.A.data, mdl.B.data,
-                    c_hat_gpu, weights_gpu, dt, eta_clip,
+                    c_hat_gpu, dt, eta_clip,
                     args.lambda2, args.lr_estep, args.pgd_iter
                 )
 
@@ -806,13 +723,6 @@ def main():
         else:
             s_iter_np = viterbi_decode(c_hat_np_iter, p_stay).astype(np.int64, copy=False)
         np.copyto(c_pairs_np, onehot_states[s_iter_np[1:]])
-
-        # ── adaptive neuron weights (time-varying, smoothed) ─────
-        if (not args.noFreqWeight) and em >= args.delay_em_iter_4_dynWeight:
-            w_new = compute_adaptive_weights(
-                c_hat_gpu.cpu().numpy(), yc_np, n_smooth)   # (T, N) float32
-            weights_gpu = torch.tensor(w_new, device=device)
-            np.copyto(w_pairs_np, w_new[1:])                # in-place → DataLoader
 
         # ── M-step: m_epochs of Adam ─────────────────────────────
         tm0 = time.time()
@@ -908,10 +818,7 @@ def main():
             "rho_sync_mode":            "broadcast",
             "delay_em_iter_4_lrDecay":    args.delay_em_iter_4_lrDecay,
             "delay_em_iter_4_Aprune":         args.delay_em_iter_4_Aprune,
-            "delay_em_iter_4_dynWeight":   args.delay_em_iter_4_dynWeight,
-            "noFreqWeight":             bool(args.noFreqWeight),
             "mstep_state_mode":         "viterbi_onehot",
-            "weight_smooth_bins":       n_smooth,
             "batch_size":               args.batch_size,
             "minW":                     args.minW,
             "num_states":               M,

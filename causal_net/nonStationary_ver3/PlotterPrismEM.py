@@ -1054,10 +1054,17 @@ class Plotter(PlotterBackbone):
 
         figId = self.smart_append(figId)
         fig = self.plt.figure(figId, facecolor='white', figsize=(12, 9))
-        gs = fig.add_gridspec(4, 3, height_ratios=[0.95, 1.0, 1.0, 0.55], hspace=0.9, wspace=0.35)
+        # Add an explicit spacer row between diagnostics (top row) and Fit row
+        # so top-row x labels do not collide with Fit legends.
+        gs = fig.add_gridspec(
+            5, 3,
+            height_ratios=[0.95, 0.18, 1.0, 1.0, 0.55],
+            hspace=0.75,
+            wspace=0.35,
+        )
 
         # Row 2: Fit
-        ax = fig.add_subplot(gs[1, :])
+        ax = fig.add_subplot(gs[2, :])
         ax.plot(t_bins, S_hat, color="k", linewidth=2.5, label="S_hat")
         ax.plot(t_bins, S_true, color="lime", linestyle="--", linewidth=1.5, label="S_true")
         lo = np.clip(S_hat - S_hat_CL, 0.0, float(C_hat.shape[1] - 1))
@@ -1075,7 +1082,7 @@ class Plotter(PlotterBackbone):
         ax2.legend(loc="lower right", bbox_to_anchor=(1.0, 1.02), ncol=4, fontsize=8)
 
         # Row 3: Truth
-        ax = fig.add_subplot(gs[2, :])
+        ax = fig.add_subplot(gs[3, :])
         ax.plot(t_bins, S_true, color="lime",  linestyle="--",linewidth=1.5, label="S_true")
         ax.set(title="Truth", xlabel="time (s)", ylabel="state")
         ax.set_xlim(x0, x1)
@@ -1130,7 +1137,7 @@ class Plotter(PlotterBackbone):
         ax.set_box_aspect(0.9)
 
         # Row 4: Loss(time)
-        ax = fig.add_subplot(gs[3, :])
+        ax = fig.add_subplot(gs[4, :])
         ax.plot(t_pairs, nll_t, color="tab:blue", linewidth=0.9, label="nll")
         ax.plot(t_pairs, l2_t, color="tab:orange", linewidth=0.9, label="l2")
         ax.set_yscale("log")
