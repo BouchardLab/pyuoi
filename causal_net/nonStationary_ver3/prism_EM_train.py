@@ -376,7 +376,7 @@ def parse_args():
     g = p.add_argument_group("EM structure")
     g.add_argument("--num_em_iters", type=int, default=20,
                    help="Outer EM iterations")
-    g.add_argument("--m_epochs", type=int, default=5,
+    g.add_argument("--m_epochs", type=int, default=100,
                    help="M-step Adam epochs per EM iteration")
 
     g = p.add_argument_group("E-step")
