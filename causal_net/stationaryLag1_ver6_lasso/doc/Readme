@@ -1,0 +1,4 @@
+pdflatex ver6_dale_lasso.tex
+pdflatex ver6_dale_lasso
+
+open ver6_dale_lasso

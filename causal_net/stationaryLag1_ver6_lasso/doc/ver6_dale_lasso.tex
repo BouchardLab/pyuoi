@@ -1,0 +1,162 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+
+\geometry{margin=0.8in}
+
+\title{Stationary Lag-1 Poisson GLMs: Dale Simulation, LASSO Fit, and FDR Edge Selection (Ver6)}
+\author{Jan Balewski, NERSC}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This note documents the \texttt{stationaryLag1\_ver6\_lasso} pipeline: (1)~\texttt{sim\_daleLag1Poisson.py} generates Dale-law spike trains from a stationary lag-1 Poisson GLM; (2)~\texttt{fit\_lassoPoisson.py} fits a fully connected Poisson GLM with $L_1$ regularization on off-diagonal connectivity; (3)~\texttt{selectEdges\_FDR.py} combines bootstrap LASSO estimates with time-desynchronized (null) fits and applies row-wise Benjamini--Hochberg FDR to produce a sparse inferred matrix~$\widehat{A}$.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ---------------------------------------------------------------
+\section{Synthetic spikes: \texttt{sim\_daleLag1Poisson.py}}
+\label{sec:sim}
+% ---------------------------------------------------------------
+
+\subsection{Connectivity and Dale structure}
+
+For $N$ neurons with $N_{\mathrm{exc}}$ excitatory and $N_{\mathrm{inh}}=N-N_{\mathrm{exc}}$ inhibitory, target out-degrees $\rho_j$ are drawn uniformly from an interval set by \texttt{--edge\_prob} (fractions of $N$). An initial weight matrix is built in \texttt{gen\_init\_W}: for each presynaptic neuron $j$, $\rho_j$ distinct postsynaptic targets are chosen at random; excitatory rows receive positive weights drawn uniformly in a band, inhibitory rows receive negative weights scaled by a fixed ratio~$g$ (code default $g=2$). The diagonal is set to a negative value (default $-1$) to model self-inhibition.
+
+\subsection{Stabilization (continuous Lyapunov heuristic)}
+
+If the maximum real part of the eigenvalue spectrum of~$A$ is non-negative, \texttt{stabilize} iteratively adjusts \emph{inhibitory} entries using gradients derived from continuous Lyapunov equations (see SI of the referenced neuroscience paper in-code) until $\max_i \operatorname{Re}\lambda_i(A) < -\delta$ for a margin~$\delta$ (code uses \texttt{eigenGap}$=0.1$). Small inhibitory weights are zeroed to avoid numerical issues.
+
+\subsection{Lag-1 Poisson GLM simulation}
+
+Spike counts $Y_t \in \mathbb{Z}_{\ge 0}^N$ are generated for $t=0,\ldots,T-1$ with bin width $\Delta t$ (\texttt{--step\_size}). Let $A$ be the stabilized Dale matrix and $B$ the bias (log-rate scale). The code uses
+\begin{equation}
+  \eta_t = A\,Y_{t-1} + B,\qquad
+  \tilde{\eta}_t = \mathrm{clip}(\eta_t,\,-5,\,5),\qquad
+  \mu_t = \exp(\tilde{\eta}_t)\,\Delta t,\qquad
+  Y_t \sim \mathrm{Poisson}(\mu_t),
+\end{equation}
+with $Y_0 \sim \mathrm{Poisson}(\exp(B)\,\Delta t)$. Here $(A\,Y_{t-1})_i = \sum_j A_{ij} Y_{t-1,j}$ matches the implementation \texttt{eta = A @ Y[t-1] + B}.
+
+Biases $B$ are drawn either uniformly in $\log$ of an idle rate range (\texttt{--idleRate}, default mode) or from a more structured frequency generator (\texttt{--expRate}).
+
+\subsection{Frequency sorting and outputs}
+
+Firing-rate statistics are computed with \texttt{UtilDalePoisson.estimate\_rates}. Neurons are then \emph{reordered by decreasing estimated firing rate}. All saved tensors use this \textbf{frequency-sorted} order: the permutation is recorded as \texttt{neur\_freqIdx} (natural $\to$ sorted index) and \texttt{neur\_revFreqIdx} (sorted $\to$ natural). The ground-truth matrix is $A' = P A P^\top$ and $B' = P B$ for the same permutation~$P$.
+
+\paragraph{\texttt{<dataName>.simTruth.npz} (arrays).}
+\texttt{A\_true}, \texttt{B\_true}, \texttt{neur\_freqIdx}, \texttt{neur\_revFreqIdx}.
+
+\paragraph{\texttt{<dataName>.spikes.npz} (arrays).}
+\texttt{spikes} (uint8, $T\times N$, frequency-sorted columns), \texttt{single\_rates}, \texttt{sigle\_rates\_var}, \texttt{sigle\_rates\_snr} (note spelling), \texttt{single\_fano\_fact}.
+
+\paragraph{Metadata.}
+\texttt{dale\_conf} (network parameters), \texttt{evol\_conf} (steps, $\Delta t$, rate options), \texttt{short\_name}, \texttt{dale\_simu\_stats}; spike file includes \texttt{time\_step\_sec}, \texttt{data\_type}=\texttt{simDale}, \texttt{var\_time\_window\_sec}.
+
+% ---------------------------------------------------------------
+\section{LASSO Poisson fitting: \texttt{fit\_lassoPoisson.py}}
+\label{sec:lasso}
+% ---------------------------------------------------------------
+
+\subsection{Input and design matrix}
+
+The script reads \texttt{<inpPath>/<dataName>.spikes.npz}. Let $Y\in\mathbb{R}^{T\times N}$ be the spike matrix (already frequency-sorted). Training pairs are consecutive bins:
+\begin{equation}
+  (x^{(t)}, y^{(t)}) = (Y_t,\, Y_{t+1}),\qquad t=0,\ldots,T-2,
+\end{equation}
+optionally truncated to \texttt{--num\_samples} pairs. Optional \texttt{--dropDataFrac} randomly subsamples pairs.
+
+\paragraph{Time desynchronization (null data for later FDR).}
+If \texttt{--desyncTime} is used when fitting \emph{separate} runs, each neuron's time series is circularly shifted by an independent random amount, destroying cross-neuron temporal alignment while preserving marginal statistics. Those fits are saved with distinct filenames for use as nulls in Section~\ref{sec:fdr}.
+
+\subsection{Model and loss}
+
+\texttt{PoissonGLModel} parameterizes full $A\in\mathbb{R}^{N\times N}$ and $B\in\mathbb{R}^N$. For a batch of previous spikes $Y_{\mathrm{prev}}$ (rows = samples), predicted rates are
+\begin{equation}
+  \mu = \exp\bigl( B^\top + Y_{\mathrm{prev}} A^\top \bigr)\,\Delta t,
+\end{equation}
+with the linear term clamped to $[-10,10]$ before the exponential (implementation uses \texttt{addmm} with $A^\top$).
+
+The training loss is a \emph{rate-weighted} Poisson negative log-likelihood (see \texttt{poisson\_nll\_loss}): weights are inversely proportional to per-neuron estimated firing rates (clipped to $[0.1,40]$~Hz from \texttt{single\_rates}), then normalized to mean~1. This down-weights very active neurons relative to a uniform NLL.
+
+With scalar \texttt{--L1\_alpha} $=\alpha_{\mathrm{L1}}$, the total objective adds mean absolute value of \emph{off-diagonal} entries of~$A$:
+\begin{equation}
+  \mathcal{L} = \mathcal{L}_{\mathrm{NLL}} + \alpha_{\mathrm{L1}}\cdot \frac{1}{N(N-1)}\sum_{i\neq j}|A_{ij}|.
+\end{equation}
+Optimization uses Adam on all entries of $A$ and~$B$, with optional linear learning-rate decay (\texttt{train\_Poisson\_model}). Multi-GPU training uses PyTorch \texttt{DistributedDataParallel}.
+
+\subsection{Output file}
+
+Rank~0 writes \texttt{<outPath>/<fitName>.lassoFit.npz} (default \texttt{fitName} is \texttt{<dataName>-<randomhash>}). Arrays include \texttt{A\_lasso}, \texttt{B\_lasso}, loss curves, and learning rates. Metadata embeds the spike file name/path, hyperparameters (\texttt{batch\_size}, \texttt{num\_epochs}, \texttt{L1\_alpha}, \texttt{step\_size}, etc.) and augments the spike metadata with \texttt{fit\_type}=\texttt{lasso}.
+
+% ---------------------------------------------------------------
+\section{FDR edge selection: \texttt{selectEdges\_FDR.py}}
+\label{sec:fdr}
+% ---------------------------------------------------------------
+
+\subsection{Bootstrap inputs}
+
+The script expects a set of LASSO fits produced offline (e.g.\ bootstrap resamples of the spike train or repeated random seeds). Filenames follow:
+\begin{itemize}
+  \item Real (aligned-time) bootstraps: \texttt{<dataName>-boots\{k\}.lassoFit.npz} for $k=0,\ldots,K_{\mathrm{real}}-1$.
+  \item Null / desynchronized-time bootstraps: \texttt{<dataName>-desync\{k\}.lassoFit.npz} for $k=0,\ldots,K_{\mathrm{desync}}-1$.
+\end{itemize}
+The counts $K_{\mathrm{real}}$ and $K_{\mathrm{desync}}$ are set by \texttt{--num\_bootstraps} (one integer duplicated for both, or two integers).
+
+\subsection{Test statistic and null}
+
+For each edge $(i,j)$, $i\neq j$, the observed statistic is the median of $|A^{(k)}_{ij}|$ across real bootstraps~$k$. For the null, all magnitudes $|\tilde{A}^{(k)}_{i' j}|$ from desync fits for fixed postsynaptic row~$i$ are pooled (all columns~$j$, all~$k$). An empirical $p$-value is
+\begin{equation}
+  p_{ij} = \frac{\#\{\text{null values} \ge \text{observed median}\}}{\#\text{null values}}.
+\end{equation}
+
+\subsection{Row-wise Benjamini--Hochberg and masked estimate}
+
+For each row~$i$, Benjamini--Hochberg FDR at level $\alpha$ (\texttt{--alphaFDR}, default $0.002$) is applied to $\{p_{ij}\}_{j\neq i}$. This yields a binary mask $M_{ij}$ on off-diagonals. Diagonal entries are always kept in the mask for downstream averaging.
+
+Across real bootstraps, the script computes elementwise means $\bar{A}$, $\bar{B}$ and standard deviations. The \textbf{reported} connectivity is $\bar{A}$ with non-selected off-diagonal entries zeroed:
+\begin{equation}
+  \widehat{A}_{ij} = \bar{A}_{ij}\, M_{ij},\qquad i\neq j,
+\end{equation}
+with diagonal unmasked.
+
+\subsection{Output}
+
+\texttt{<inpPath>/<dataName>.FDRselected.npz} contains \texttt{E\_mask}, \texttt{A\_avr}, \texttt{A\_std}, \texttt{B\_avr}, \texttt{B\_std}, \texttt{E\_pval}, \texttt{summary}, and loss arrays copied from the first bootstrap for convenience. Metadata records \texttt{edge\_selector}=\{FDR, $\alpha$\}.
+
+% ---------------------------------------------------------------
+\section{Default hyperparameters (reference)}
+\label{sec:defaults}
+% ---------------------------------------------------------------
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Script & Parameter & Typical default \\
+\midrule
+\texttt{sim\_daleLag1Poisson} & \texttt{--step\_size} & $0.01$ s \\
+ & \texttt{--spectralR} & $1.0$ \\
+ & \texttt{--edge\_prob} & $[0.05,\,0.2]$ \\
+\texttt{fit\_lassoPoisson} & \texttt{--lr} & $10^{-3}$ \\
+ & \texttt{--L1\_alpha} & $10^{-3}$ \\
+ & \texttt{--batch\_size} & $2048$ \\
+ & \texttt{--num\_epochs} & $7$ \\
+\texttt{selectEdges\_FDR} & \texttt{--alphaFDR} & $0.002$ \\
+\bottomrule
+\end{tabular}
+\caption{Illustrative defaults; see each script's \texttt{argparse} for authoritative values.}
+\end{table}
+
+\end{document}
