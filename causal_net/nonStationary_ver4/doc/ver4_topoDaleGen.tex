@@ -1,0 +1,712 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+
+\geometry{margin=0.8in}
+
+\title{Synthetic Neuronal Network Topology Generation:\\
+Distance-Dependent Sparse Connectivity with Dale's Law}
+\author{Jan Balewski, NERSC}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We describe the pipeline implemented in \texttt{gen\_daleMatrices4.py}:
+(1)~build a spatially embedded, Dale-law-compliant sparse network
+$A_{\text{true}}$ with target spectral radius $R<1$ and a bias vector $B$;
+(2)~simulate spike counts under a Poisson GLM, either
+\textbf{Model~A} (lag-1, no off-diagonal memory) or
+\textbf{Model~B} (lag-$M$: diagonal lag-1 drive plus an off-diagonal
+history filtered by a damped-oscillator kernel $\kappa_\ell$).
+A third variant (Model~C: additional diagonal adaptation kernel) is
+discussed separately but is \emph{not} implemented in this script.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ===============================================================
+\section{Overview of the Method}
+\label{sec:overview}
+% ===============================================================
+
+The objective is to produce synthetic spike-count time series
+$Y_t\in\mathbb{Z}_{\geq 0}^{N}$ ($t=1,\dots,T$) with configurable
+spatial connectivity and Poisson GLM dynamics.
+
+\paragraph{Stage 1 --- Network construction (Section~\ref{sec:generation_AB}).}
+$N$ neurons are sampled from a regular grid on $[0,L]\times[0,H]$ and
+connected by distance-dependent out-degree sampling with Dale's law.
+Outputs: $A_{\text{true}}$ with $\rho(A_{\text{true}})=R$ and bias $B$.
+
+\paragraph{Stage 2 --- Spike generation (Section~\ref{sec:spike_gen}).}
+\textbf{Model~A:} lag-1 recurrence on all couplings.
+\textbf{Model~B:} diagonal term uses $Y_{t-1}$ only; off-diagonal
+block uses lags $1,\dots,M$ with kernel $\kappa_\ell$ (Section~\ref{sec:lagM_single}).
+Model~C (Section~\ref{sec:lagM_two}) is not implemented in code.
+
+\paragraph{Notation conventions.}
+$A_{\text{true}}$ denotes the connectivity matrix throughout.\\
+$A_{\text{true}}^{\mathrm{diag}}=\operatorname{diag}
+((A_{\text{true}})_{11},\dots,(A_{\text{true}})_{NN})$ is its diagonal
+and $A_{\text{true}}^{\mathrm{off}}=A_{\text{true}}-
+A_{\text{true}}^{\mathrm{diag}}$ its off-diagonal part.
+In Model~B (Section~\ref{sec:lagM_single}), $A^{\mathrm{diag}}\in\mathbb{R}^N$
+denotes the \emph{vector} of diagonal entries $(A_{\text{true}})_{ii}$,
+parallel to the matrix shorthand $A^{\mathrm{off}}$.
+$Y_t\in\mathbb{Z}_{\geq 0}^{N}$ is the vector of spike counts in
+time bin $t$, where each bin has width $\Delta t$ seconds.
+$B\in\mathbb{R}^{N}$ is the bias (log-baseline-rate) vector.
+$\eta_{\mathrm{clip}}=5$ is a saturation threshold that prevents
+numerical overflow in the exponential link function.
+Column convention: $({A_{\text{true}}})_{ij}$ is the weight from
+presynaptic neuron $j$ to postsynaptic neuron $i$.
+
+
+% ===============================================================
+\section{Generation of $A_{\text{true}}$ and $B$}
+\label{sec:generation_AB}
+% ===============================================================
+
+\subsection{Parameters}
+
+The script takes (among others): $N$ and $N_{\text{exc}}$ (default
+$0.8\,N$); rectangular domain $[0,L]\times[0,H]$; grid spacing
+$d_{\text{min}}>0$ (\texttt{--placement\_min\_dist}); distance-kernel
+exponent $\delta_{\mathrm{ker}}\in\{1,2\}$ (third entry of
+\texttt{--placement\_H\_L\_delta}); out-degree range from two fractions
+$p_{\text{lo}}<p_{\text{hi}}$ via
+$k_{\text{min}}=\max(1,\lfloor p_{\text{lo}}N\rfloor)$,
+$k_{\text{max}}=\min(N-1,\lfloor p_{\text{hi}}N\rfloor)$ (defaults
+$0.05$, $0.2$); weight spread $v\in(0,1)$; target spectral radius
+$R\in(0,1)$.
+
+\medskip\noindent
+\textbf{Variables.}
+$\mathbf{P}\in\mathbb{R}^{N\times 2}$: neuron spatial positions, row
+$i=(x_i,y_i)$, sorted by $(x_i,y_i)$ lexicographically after placement.
+$\mathbf{D}\in\mathbb{R}^{N\times N}$: pairwise Euclidean distances.
+$\mathbf{V}\in\mathbb{R}^{N\times N}$: distance-kernel affinity matrix.
+$\mathbf{E}\in\{-1,0,+1\}^{N\times N}$: signed topology matrix;
+$E_{ij}\neq 0$ means neuron $j$ drives neuron $i$.
+$\tau_j\in\{E,I\}$: type of neuron $j$;
+$\sigma_j=+1$ (exc) or $-1$ (inh).
+$k_j$: out-degree of neuron $j$.
+$r=N_{\text{exc}}/N_{\text{inh}}=4$: E-I ratio.
+
+\subsection{Algorithm}
+
+\begin{algorithm}[H]
+\caption{Synthetic Neuronal Network Topology}
+\begin{algorithmic}[1]
+\STATE \textbf{Phase 1:} Construct placement grid; sample $N$ nodes;
+       assign types E/I and signs $\sigma_j$
+\STATE \textbf{Phase 2:} Compute distance matrix $\mathbf{D}$ and affinity
+       matrix $\mathbf{V}$
+\STATE \textbf{Phase 3:} Sample sparse signed topology $\mathbf{E}$
+\STATE \textbf{Phase 4:} Assign edge weights; enforce E-I ratio and
+       rescale to spectral radius $R$
+\STATE \textbf{Phase 5:} Generate bias vector $B$
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Phase 1: Grid-Based Neuron Placement and Type
+               Assignment}
+
+\paragraph{Step 1.1 --- Construct placement grid.}
+Tile $[0,L]\times[0,H]$ with spacing $d_{\text{min}}$:
+\begin{equation}
+  \mathcal{G} =
+  \bigl\{(m\,d_{\text{min}},\;n\,d_{\text{min}}):\;
+  m=0,\dots,\lfloor L/d_{\text{min}}\rfloor,\quad
+  n=0,\dots,\lfloor H/d_{\text{min}}\rfloor\bigr\}.
+\end{equation}
+\begin{equation}
+  N_{\mathcal{G}} =
+  \bigl(\lfloor L/d_{\text{min}}\rfloor+1\bigr)
+  \bigl(\lfloor H/d_{\text{min}}\rfloor+1\bigr).
+\end{equation}
+A valid configuration requires $N_{\mathcal{G}}\geq N$; if not
+satisfied, $d_{\text{min}}$ must be reduced or $L$ increased.
+
+\paragraph{Step 1.2 --- Sample neuron positions.}
+Draw $N$ nodes uniformly at random \emph{without replacement} from
+$\mathcal{G}$ and discard the remaining $N_{\mathcal{G}}-N$ nodes.
+Store accepted positions as rows of $\mathbf{P}$, sorted by
+$(x,y)$ (lexicographic).
+
+\paragraph{Step 1.3 --- Assign neuron types.}
+Sample $N_{\text{exc}}$ neuron indices without replacement as
+excitatory; the remainder are inhibitory. Define:
+\begin{equation}
+  \sigma_j =
+  \begin{cases} +1 & \tau_j=E,\\ -1 & \tau_j=I.\end{cases}
+\end{equation}
+
+\subsubsection{Phase 2: Distance $D$ and Affinity Matrix $V$}
+
+Pairwise distances use Euclidean geometry; for the affinity, the
+code sets $D_{ii}=\infty$ on the diagonal so self-entries are excluded
+before
+\begin{equation}
+  V_{ij}=D_{ij}^{-\delta_{\mathrm{ker}}},\quad i\neq j;\qquad
+  V_{ii}=0.
+  \label{eq:dist_kernel}
+\end{equation}
+The saved distance matrix in \texttt{.simTruth.npz} uses zeros on the
+diagonal.
+$\delta_{\mathrm{ker}}\in\{1,2\}$ controls decay steepness; sampled
+grid nodes satisfy spacing $\ge d_{\text{min}}$ so pairwise distances
+among distinct neurons need not hit~$0$.
+
+\subsubsection{Phase 3: Sparse Topology Sampling}
+
+For each presynaptic neuron $j=1,\dots,N$ independently:
+\begin{enumerate}
+  \item Sample out-degree
+        $k_j\sim\mathrm{Uniform\_int}(k_{\text{min}},k_{\text{max}})$.
+  \item Normalize affinity over valid targets:
+  \begin{equation}
+    p_{ij}=\frac{V_{ij}}{\sum_{i'\neq j}V_{i'j}},\qquad i\neq j.
+  \end{equation}
+  \item Draw $k_j$ distinct postsynaptic targets
+        $\mathcal{T}_j\subset\{1,\dots,N\}\setminus\{j\}$ without
+        replacement according to $\{p_{ij}\}$.
+\end{enumerate}
+Build the signed topology matrix $E$ with negative self-loops:
+\begin{equation}
+  E_{ij}=
+  \begin{cases}
+    \sigma_j & i\in\mathcal{T}_j,\;i\neq j,\\
+    -1       & i=j,\\
+    0        & \text{otherwise.}
+  \end{cases}
+  \label{eq:topology}
+\end{equation}
+
+\subsubsection{Phase 4: Weight Assignment and Spectral Normalization}
+
+\paragraph{Raw weights.}
+Draw unsigned weights magnitudes
+$U_{ij}\sim\mathrm{Uniform}(1-v,1+v)$ independently for each
+non-zero entry of $\mathbf{E}$, then scale by neuron type:
+\begin{equation}
+  W_{ij}=
+  \begin{cases}
+    +U_{ij}    & E_{ij}=+1,\\
+    -r\,U_{ij} & E_{ij}=-1,\;i\neq j,\\
+    -U_{ii}    & i=j,\\
+    0           & E_{ij}=0.
+  \end{cases}
+  \label{eq:weights}
+\end{equation}
+
+\paragraph{Spectral normalization.}
+A single global rescaling sets $\rho(A_{\text{true}})$ to exactly $R$:
+\begin{equation}
+  \rho_0=\max_k|\lambda_k(W)|,\qquad
+  A_{\text{true}}\leftarrow\frac{R}{\rho_0}\,W,
+  \label{eq:spectral}
+\end{equation}
+where $\lambda_k(W)$ are the (possibly complex) eigenvalues of $W$.
+Assume $\rho_0>0$.
+Rescaling preserves all signs and the zero pattern, so Dale's law,
+E-I ratio, and negative self-loops are all maintained.
+For $R<1$, contractivity of $A_{\text{true}}$ is a sufficient
+condition for stationarity of the Poisson GLM.
+
+\subsubsection{Phase 5: Bias Vector Generation}
+
+Let $f_{\mathrm{idle}}\in[f_{\min},f_{\max}]$ be a \emph{target idle
+firing-rate band} in Hz (argument \texttt{idleRate}, default
+$[15,30]$).  Independent draws
+\begin{equation}
+  B_i \sim \mathrm{Uniform}\bigl(\ln(R f_{\min}),\,\ln(R f_{\max})\bigr),
+  \label{eq:bias}
+\end{equation}
+then all excitatory indices receive a fixed downward shift
+$B_i\leftarrow B_i-2$ (hard-coded in the script).  Inhibitory
+components are unchanged.  This matches \texttt{set\_flat\_selfSpiking}
+in code.
+
+\subsection{Output Summary}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{llll}
+\toprule
+Array & Shape & Type & Description \\
+\midrule
+$\mathbf{P}$          & $N\times 2$ & float
+  & Neuron positions $(x_i,y_i)$, sorted by $(x,y)$ \\
+$\mathbf{D}$          & $N\times N$ & float
+  & Pairwise distances; diagonal $0$ in output \\
+$\tau$                & $N$         & int
+  & Type labels: $0$=exc, $1$=inh \\
+$\sigma$              & $N$         & $\pm1$
+  & Synaptic signs \\
+$\mathbf{E}$          & $N\times N$ & $\{-1,0,+1\}$
+  & Signed topology (Eq.~\ref{eq:topology}) \\
+$k$                   & $N$         & int
+  & Out-degree, $k_j\in[k_{\text{min}},k_{\text{max}}]$ \\
+$A_{\text{true}}$     & $N\times N$ & float
+  & Weighted connectivity, $\rho(A_{\text{true}})=R$ \\
+$B$                   & $N$         & float
+  & Bias vector (Eq.~\ref{eq:bias}) \\
+\bottomrule
+\end{tabular}
+\caption{Output arrays of Stage~1.
+$A_{\text{true}}$ and $B$ are passed to the spike generator
+(Section~\ref{sec:spike_gen}).}
+\label{tab:output}
+\end{table}
+
+% ===============================================================
+\section{Generation of Spike Trains}
+\label{sec:spike_gen}
+% ===============================================================
+
+Given $A_{\text{true}}$, $B$, time-bin width $\Delta t$, horizon
+$T$, and $\eta_{\mathrm{clip}}=5$ (hard-coded), Models~A and~B are
+implemented.  Bin $t$ indexes rows $Y_t$ (code uses $t=0,\dots,T-1$).
+\textbf{Model~A:} $Y_0\sim\mathrm{Poisson}(\exp(B)\Delta t)$, then
+Eq.~\eqref{eq:lag1} for $t\ge 1$.
+\textbf{Model~B:} the first $M=\texttt{mem\_lag\_steps}$ rows are set
+to zero (pre-history); dynamics follow Section~\ref{sec:lagM_single}
+for $t\ge 1$.
+
+% ---------------------------------------------------------------
+\subsection{Model A: Lag-1, No Memory, Not Bursting}
+\label{sec:lag1}
+% ---------------------------------------------------------------
+
+The simplest model conditions only on the immediately preceding bin:
+\begin{equation}
+  \eta_t = A_{\text{true}}\,Y_{t-1}+B,
+  \qquad
+  \tilde{\eta}_t = \min(\eta_t,\;\eta_{\mathrm{clip}}),
+  \qquad
+  \mu_t = \exp(\tilde{\eta}_t)\,\Delta t,
+  \qquad
+  Y_t \sim \mathrm{Poisson}(\mu_t).
+  \label{eq:lag1}
+\end{equation}
+Here $\min(\cdot)$ and $\exp(\cdot)$ act element-wise. 
+Because $\rho(A_{\text{true}})<1$, the process admits a stationary
+distribution.
+
+% ---------------------------------------------------------------
+\subsection{Model B: Lag-$M$, Single Off-Diagonal Kernel, Bursting}
+\label{sec:lagM_single}
+% ---------------------------------------------------------------
+
+\subsubsection{Off-diagonal kernel $\kappa_\ell$ (damped oscillator)}
+
+Let $\tau_{\mathrm{mem}}>0$ be the oscillation period in \textbf{seconds}
+(\texttt{time\_kernel\_a\_q\_tau}; if $\tau_{\mathrm{mem}}\le 0$, the
+code sets $\tau_{\mathrm{mem}}=\tfrac{4}{3}M\Delta t$).
+Superscript ${}^{(s)}$ marks quantities expressed in \textbf{discrete steps}
+(bins), as distinct from the same quantity measured in seconds.
+Define $\tau^{(s)}=\mathrm{round}(\tau_{\mathrm{mem}}/\Delta t)\ge 1$, the oscillation period in bins.
+Let $Q>0$ and $a_{\mathrm{mem}}>0$ (quality factor and amplitude).
+Set $\omega=2\pi/\tau^{(s)}$ and $\gamma=\pi/(Q\,\tau^{(s)})$.
+For lags $\ell=1,\dots,M$ with $M=\texttt{mem\_lag\_steps}$,
+\begin{equation}
+  \kappa_\ell =
+  \begin{cases}
+    a_{\mathrm{mem}}\,
+    \exp(-\gamma \ell)\,\cos(\omega \ell),
+    & 4\ell \le 3\tau^{(s)},\\[0.35em]
+    0, & \text{otherwise.}
+  \end{cases}
+  \label{eq:kappa_offdiag_gen4}
+\end{equation}
+There is \emph{no} $\ell=0$ term and \emph{no} normalization of
+$\kappa$ to unit $\ell^1$ mass; amplitude is set solely by
+$a_{\mathrm{mem}}$.
+
+\subsubsection{Evolution}
+
+Write $A^{\mathrm{diag}}\in\mathbb{R}^N$ with
+$(A^{\mathrm{diag}})_i=(A_{\text{true}})_{ii}$, and let
+$A^{\mathrm{off}}=A_{\text{true}}$ with zero diagonal.
+The off-diagonal spike-history vector is
+$S_t=\sum_{\ell=1}^{M}\kappa_\ell\,Y_{t-\ell}$ (vector sum).
+For $t\ge 1$,
+\begin{equation}
+  \eta_t
+  = A^{\mathrm{diag}}\odot Y_{t-1} + A^{\mathrm{off}} S_t + B,
+  \label{eq:modelB_drive}
+\end{equation}
+then $\tilde\eta_t=\min(\eta_t,\eta_{\mathrm{clip}})$,
+$\mu_t=\exp(\tilde\eta_t)\,\Delta t$, and
+$Y_t\sim\mathrm{Poisson}(\mu_t)$ element-wise as in
+Eq.~\eqref{eq:lag1}.
+The first $M$ rows $Y_0,\dots,Y_{M-1}$ are held at~$0$ (pre-history).
+
+\paragraph{Relation to Model~A.}
+Model~A is a separate code path (\texttt{--spike\_model A}); it is
+\textbf{not} recovered by formally setting $M=1$ in Model~B.
+
+\subsubsection{Stability}
+
+\texttt{gen\_daleMatrices4.py} does not impose an extra analytic
+stability test for Model~B beyond rescaling $A_{\text{true}}$ to
+spectral radius $R<1$ (Eq.~\ref{eq:spectral}).  A sufficient
+condition for a two-kernel extension appears in
+Section~\ref{sec:lagM_two} (Model~C).
+
+
+% ---------------------------------------------------------------
+\subsection{Model C: Lag-$M$, Two Kernels, Bursting - not implemented}
+\label{sec:lagM_two}
+% ---------------------------------------------------------------
+
+\subsubsection{Adaptation kernel for the diagonal}
+
+Spike-frequency adaptation is modeled as a purely inhibitory,
+exponentially decaying self-history kernel with time constant
+$\tau_{\mathrm{adapt}}$ (in time bins) and amplitude
+$\alpha_{\mathrm{adapt}}>0$.
+Let $M_{\mathrm{d}}$ denote the number of lags retained for the
+diagonal kernel (which may differ from $M$).
+The unnormalized weights are:
+\begin{equation}
+  \tilde{h}^{\mathrm{diag}}_\ell 
+  = \exp\!\left(-\frac{\ell}{\tau_{\mathrm{adapt}}}\right),
+  \qquad \ell = 1,\dots,M_{\mathrm{d}}.
+  \label{eq:adapt_kernel_raw}
+\end{equation}
+Normalizing and attaching the inhibitory sign:
+\begin{equation}
+  h^{\mathrm{diag}}_\ell 
+  = -\,\alpha_{\mathrm{adapt}}\;
+    \frac{\tilde{h}^{\mathrm{diag}}_\ell} 
+         {\sum_{k=1}^{M_{\mathrm{d}}}
+          \tilde{h}^{\mathrm{diag}}_k}, 
+  \qquad \ell = 1,\dots,M_{\mathrm{d}}.
+  \label{eq:adapt_kernel}
+\end{equation}
+All weights are negative, ensuring that a neuron's own past
+activity is always suppressive.
+The dimensionless amplitude $\alpha_{\mathrm{adapt}}$ controls the
+overall strength of adaptation relative to the diagonal entries of
+$A_{\text{true}}$.
+
+\subsubsection{Evolution equations}
+
+The history drive now has two kernel-filtered components:
+\begin{equation}
+  H_t
+  = A_{\text{true}}^{\mathrm{diag}}
+    \!\left(\sum_{\ell=1}^{M_{\mathrm{d}}}
+    h^{\mathrm{diag}}_\ell\,Y_{t-\ell}\right) 
+  + A_{\text{true}}^{\mathrm{off}}
+    \!\left(\sum_{\ell=1}^{M}
+    h^{\mathrm{off}}_\ell\,Y_{t-\ell}\right). 
+  \label{eq:histC}
+\end{equation}
+Note that, unlike Model~B, the diagonal term now integrates over
+$M_{\mathrm{d}}$ lags rather than using only $Y_{t-1}$.
+Spike generation proceeds identically:
+\begin{equation}
+  \eta_t = H_t + B,
+  \qquad
+  \tilde{\eta}_t = \min(\eta_t,\;\eta_{\mathrm{clip}}),
+  \qquad
+  \mu_t = \exp(\tilde{\eta}_t)\,\Delta t,
+  \qquad
+  Y_t \sim \mathrm{Poisson}(\mu_t).
+  \label{eq:lagM_gen_C}
+\end{equation}
+
+\subsubsection{Reduction to Model B}
+
+Setting $M_{\mathrm{d}}=1$ and $\alpha_{\mathrm{adapt}}=1$ gives
+$h^{\mathrm{diag}}_1=-1$, so the diagonal term becomes 
+$-A_{\text{true}}^{\mathrm{diag}}Y_{t-1}$.
+Since $(A_{\text{true}})_{ii}<0$ by construction
+(negative self-loops), the product
+$-A_{\text{true}}^{\mathrm{diag}}Y_{t-1}
+ =|A_{\text{true}}^{\mathrm{diag}}|Y_{t-1}$
+has the wrong sign.
+To recover Model~B exactly, one must instead set
+$\alpha_{\mathrm{adapt}}=-1$ (i.e.\ disable the adaptation sign
+flip) or, equivalently, simply bypass the diagonal kernel and use
+$A_{\text{true}}^{\mathrm{diag}}Y_{t-1}$ directly.
+In practice, Model~C is not intended to reduce to Model~B; rather,
+Model~B is the appropriate choice when adaptation is not modeled.
+
+\subsubsection{Stability}
+
+A sufficient condition for stability of Model~C is:
+\begin{equation}
+  \rho\!\bigl(A_{\text{true}}^{\mathrm{off}}\bigr)
+  \cdot\sum_{\ell=1}^{M}|h^{\mathrm{off}}_\ell| 
+  \;+\;
+  \max_i\bigl|(A_{\text{true}})_{ii}\bigr|
+  \cdot\sum_{\ell=1}^{M_{\mathrm{d}}}
+        |h^{\mathrm{diag}}_\ell| 
+  \;<\; 1.
+  \label{eq:stabilityC}
+\end{equation}
+The first term equals
+$\rho(A_{\text{true}}^{\mathrm{off}})$ by the off-diagonal kernel
+normalization.
+The second term equals
+$\alpha_{\mathrm{adapt}}\max_i|(A_{\text{true}})_{ii}|$ by the
+diagonal kernel normalization.
+Both contributions must be kept small enough that their sum remains
+below unity.
+
+% ---------------------------------------------------------------
+\subsection{Parameter Choices}
+\label{sec:params}
+% ---------------------------------------------------------------
+
+The script defaults include $\Delta t=0.01$\,s and
+\texttt{time\_kernel\_a\_q\_tau} $=(a_{\mathrm{mem}},Q,\tau_{\mathrm{mem}})=(1,3,0)$
+(the third value $0$ triggers
+$\tau_{\mathrm{mem}}=\tfrac{4}{3}M\Delta t$ in seconds when
+\texttt{mem\_lag\_steps} $=M$ is set).
+Choose $M$ large enough that non-zero $\kappa_\ell$ out to
+$\ell\le \lfloor 3\tau^{(s)}/4\rfloor$ are retained
+(Eq.~\ref{eq:kappa_offdiag_gen4}); the code prints the minimum
+$M$ needed for full support.
+
+Model~C-specific parameter guidance remains in
+Section~\ref{sec:lagM_two}.
+
+\newpage
+% ---------------------------------------------------------------
+\subsection{Notation Summary}
+\label{sec:notation}
+% ---------------------------------------------------------------
+
+For reference, all symbols used in the spike generation models are
+collected here.
+
+\begin{table}[h]
+\centering
+\begingroup
+\renewcommand{\arraystretch}{1.22}
+\begin{tabular}{lll}
+\toprule
+Symbol & Domain & Description \\
+\midrule
+$N$    & $\mathbb{Z}_{>0}$ & Number of neurons \\
+$T$    & $\mathbb{Z}_{>0}$ & Number of time bins \\
+$\Delta t$ & $\mathbb{R}_{>0}$ &
+  Time-bin width (seconds); default $0.01$\,s \\
+$Y_t$  & $\mathbb{Z}_{\geq 0}^{N}$ &
+  Spike-count vector in bin $t$ \\
+$A_{\text{true}}$ & $\mathbb{R}^{N\times N}$ &
+  Connectivity matrix from Section~\ref{sec:generation_AB} \\
+$A_{\text{true}}^{\mathrm{diag}}$ & $\mathbb{R}^{N\times N}$ &
+  Diagonal of $A_{\text{true}}$ (self-coupling) \\
+$A_{\text{true}}^{\mathrm{off}}$ & $\mathbb{R}^{N\times N}$ &
+  Off-diagonal of $A_{\text{true}}$ (cross-neuron coupling) \\
+$A^{\mathrm{diag}}$ & $\mathbb{R}^{N}$ &
+  Vector $(A_{\text{true}})_{ii}$; Model~B shorthand (Eq.~\ref{eq:modelB_drive}) \\
+$B$    & $\mathbb{R}^{N}$ &
+  Bias vector (log-baseline rate) \\
+$\eta_{\mathrm{clip}}$ & $\mathbb{R}_{>0}$ &
+  Clipping threshold; default $5$ \\
+\midrule
+\multicolumn{3}{l}{\textit{Off-diagonal kernel (Model~B; Model~C off-part)}} \\
+$\tau_{\mathrm{mem}}$ & $\mathbb{R}_{>0}$ &
+  Oscillation period (\textbf{seconds}); $\tau^{(s)}=\mathrm{round}(\tau_{\mathrm{mem}}/\Delta t)$ \\
+$Q$    & $\mathbb{R}_{>0}$ &
+  Quality factor (\texttt{Q\_mem}) \\
+$\omega$ & $\mathbb{R}_{>0}$ &
+  $2\pi/\tau^{(s)}$ \\
+$\gamma$ & $\mathbb{R}_{>0}$ &
+  $\pi/(Q\,\tau^{(s)})$ \\
+$M$    & $\mathbb{Z}_{>0}$ &
+  \texttt{mem\_lag\_steps}; history lags $\ell=1,\dots,M$ \\
+$a_{\mathrm{mem}}$ & $\mathbb{R}_{>0}$ &
+  Kernel amplitude (\texttt{amp\_mem}) \\
+$\kappa_\ell$ & $\mathbb{R}$ &
+  Eq.~\ref{eq:kappa_offdiag_gen4} \\
+\midrule
+\multicolumn{3}{l}{\textit{Diagonal adaptation kernel
+  (Model~C only)}} \\
+$\tau_{\mathrm{adapt}}$ & $\mathbb{R}_{>0}$ &
+  Adaptation time constant (time bins); default $10$ \\
+$\alpha_{\mathrm{adapt}}$ & $\mathbb{R}_{>0}$ &
+  Adaptation amplitude; default $0.5$ \\
+$M_{\mathrm{d}}$ & $\mathbb{Z}_{>0}$ &
+  Number of diagonal history lags \\
+$h^{\mathrm{diag}}_\ell$ & $\mathbb{R}_{\leq 0}$ & 
+  Diagonal kernel weight at lag $\ell$
+  (Eq.~\ref{eq:adapt_kernel}) \\
+\bottomrule
+\end{tabular}
+\endgroup
+\caption{Complete notation for the spike generation models
+  (Section~\ref{sec:spike_gen}).
+  All symbols from Section~\ref{sec:generation_AB}
+  ($\mathbf{P}$, $\mathbf{E}$, $\sigma$, $\tau_j$, $r$, $R$,
+  $\delta_{\mathrm{ker}}$, etc.)\ retain their definitions
+  from that section.}
+\label{tab:notation}
+\end{table}
+
+% = = = = = = = = = ==== 
+% = = = = = = = = = ==== 
+\appendix
+\section*{\Huge Appendix}
+\addcontentsline{toc}{section}{Appendix}
+\vspace{1cm}
+
+\subsubsection{Excitable memory kernel}
+
+Experimental organoid recordings show brief synchronous bursts
+separated by long, irregular quiescent intervals.  This pattern is
+characteristic of an excitable system rather than an oscillator:
+recent activity first promotes further firing (burst build-up)
+and then strongly suppresses it (post-burst refractoriness).
+We model this with a difference-of-exponentials kernel:
+\begin{equation}
+  h(\tau) = e^{-\tau/\tau_{\mathrm{exc}}}
+          - \beta\,e^{-\tau/\tau_{\mathrm{inh}}},
+  \qquad \tau>0,
+\end{equation}
+where $\tau_{\mathrm{exc}}\ll\tau_{\mathrm{inh}}$ and
+$\beta\in(0,1)$.
+The fast excitatory lobe ($\tau_{\mathrm{exc}}$, a few tens of
+milliseconds) creates the burst; the slow inhibitory lobe
+($\tau_{\mathrm{inh}}$, several hundred milliseconds) enforces a
+prolonged refractory period.
+The kernel crosses zero at
+$\tau^{*}=\frac{\tau_{\mathrm{exc}}\,\tau_{\mathrm{inh}}}
+               {\tau_{\mathrm{inh}}-\tau_{\mathrm{exc}}}
+ \ln(1/\beta)$.
+Because the inhibitory tail decays slowly, the network remains
+quiescent until the suppression wears off and a noise fluctuation
+triggers the next burst, producing irregular inter-burst intervals
+without a fixed oscillation period.
+
+Sampling at integer lags and normalizing gives the discrete
+weights:
+\begin{equation}
+  \tilde{h}^{\mathrm{off}}_\ell
+  = \exp(-\ell/\tau_{\mathrm{exc}})
+  - \beta\,\exp(-\ell/\tau_{\mathrm{inh}}),
+  \qquad
+  h^{\mathrm{off}}_\ell
+  = \frac{\tilde{h}^{\mathrm{off}}_\ell}
+         {\sum_{k=1}^{M}|\tilde{h}^{\mathrm{off}}_k|},
+  \qquad \ell=1,\dots,M.
+  \label{eq:mem_kernel}
+\end{equation}
+A kernel support of $M\geq 3\tau_{\mathrm{inh}}$ suffices to
+capture the exponential tail.
+
+
+\subsubsection{Asymmetric damped-oscillator memory kernel}
+
+Experimental organoid recordings show brief synchronous bursts
+separated by long, irregular quiescent intervals.  The standard
+damped-cosine kernel $h(\tau)=e^{-\gamma\tau}\cos(\omega\tau)$
+produces symmetric positive and negative lobes, so the excitatory
+and suppressive phases of each cycle have equal duration.  To
+obtain short bursts followed by prolonged silences we introduce a
+smooth, single-parameter frequency modulation that compresses the
+positive (excitatory) lobe and stretches the negative
+(suppressive) lobe.
+
+Define the phase-modulated kernel
+\begin{equation}
+  h(\tau) = e^{-\gamma\tau}
+            \cos\!\bigl(\omega\tau + \delta\sin(\omega\tau)\bigr),
+  \qquad \tau>0,
+  \label{eq:asym_kernel}
+\end{equation}
+with
+\begin{equation}
+  \omega = \frac{2\pi}{\tau_{\mathrm{mem}}},
+  \qquad
+  \gamma = \frac{\pi}{Q\,\tau_{\mathrm{mem}}},
+  \label{eq:asym_params}
+\end{equation}
+exactly as in the symmetric case.  The new dimensionless parameter
+$\delta\in[0,1)$ controls the asymmetry between the two lobes.
+
+The instantaneous frequency of the argument is
+$\dot\Phi(\tau)=\omega\bigl(1+\delta\cos(\omega\tau)\bigr)$.
+Near the positive peak of the cosine
+($\cos(\omega\tau)\approx+1$) the phase advances at rate
+$\omega(1+\delta)$, compressing the positive lobe; near the
+negative trough ($\cos(\omega\tau)\approx-1$) it advances at rate
+$\omega(1-\delta)$, stretching the negative lobe.  The ratio of
+time spent in the negative versus positive half-cycle is
+approximately $(1+\delta)/(1-\delta)$.  Setting $\delta=0$
+recovers the original symmetric kernel; $\delta=0.6$ makes the
+negative lobe roughly four times longer than the positive one.
+
+Sampling at integer lags and normalizing by the sum of absolute
+values gives the discrete weights:
+\begin{equation}
+  \tilde{h}^{\mathrm{off}}_\ell
+  = \exp(-\gamma\,\ell)\,
+    \cos\!\bigl(\omega\,\ell+\delta\sin(\omega\,\ell)\bigr),
+  \qquad
+  h^{\mathrm{off}}_\ell
+  = \frac{\tilde{h}^{\mathrm{off}}_\ell}
+         {\sum_{k=1}^{M}|\tilde{h}^{\mathrm{off}}_k|},
+  \qquad \ell=1,\dots,M.
+  \label{eq:asym_mem_kernel}
+\end{equation}
+A kernel support of $M\geq 2\tau_{\mathrm{mem}}$ suffices to
+capture the full tail.  Typical parameter choices are
+$\tau_{\mathrm{mem}}=40$--$60$ bins, $Q=2$--$3$, and
+$\delta=0.5$--$0.7$. 
+\subsubsection{Evolution equations}
+
+Decompose $A_{\text{true}}$ into diagonal and off-diagonal parts:
+\begin{equation}
+  A_{\text{true}}^{\mathrm{diag}}
+  = \operatorname{diag}\!\bigl((A_{\text{true}})_{11},\dots,
+    (A_{\text{true}})_{NN}\bigr),
+  \qquad
+  A_{\text{true}}^{\mathrm{off}}
+  = A_{\text{true}} - A_{\text{true}}^{\mathrm{diag}}.
+\end{equation}
+The history drive depending on the past $M$ time bins is: 
+\begin{equation}
+  H_t
+  = A_{\text{true}}^{\mathrm{diag}}\,Y_{t-1}
+  + A_{\text{true}}^{\mathrm{off}}
+    \!\left(\sum_{\ell=1}^{M}
+    h^{\mathrm{off}}_\ell\,Y_{t-\ell}\right). 
+  \label{eq:histB}
+\end{equation}
+The diagonal term uses only the most recent time bin (lag-1 self-coupling),
+while the off-diagonal term integrates kernel-weighted spike history
+over $M$ lags.
+Spikes are then generated as in Model~A:
+\begin{equation}
+  \eta_t = H_t + B,
+  \qquad
+  \tilde{\eta}_t = \min(\eta_t,\;\eta_{\mathrm{clip}}),
+  \qquad
+  \mu_t = \exp(\tilde{\eta}_t)\,\Delta t,
+  \qquad
+  Y_t \sim \mathrm{Poisson}(\mu_t).
+  \label{eq:lagM_gen}
+\end{equation}
+
+\end{document}
