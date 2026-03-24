@@ -14,7 +14,7 @@ Available plots (-p flag):
   c  B_idle vs firing rate / SNR scatter, plus excitatory and
      inhibitory rate histograms (rates_study)
   d  Pseudospectral contour plot with eigenvalue overlay
-  e  2D neuron placement: circles=excitatory, triangles=inhibitory;
+  e  2D neuron placement: triangles=excitatory, squares=inhibitory;
      red=outgoing excitatory edges, blue=outgoing inhibitory edges (presynaptic)
   f  Off-diagonal distance histogram, offdiag_kernel histogram, empty panel
 

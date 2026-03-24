@@ -54,7 +54,9 @@ Outputs: $A_{\text{true}}$ with $\rho(A_{\text{true}})=R$ and bias $B$.
 \paragraph{Stage 2 --- Spike generation (Section~\ref{sec:spike_gen}).}
 \textbf{Model~A:} lag-1 recurrence on all couplings.
 \textbf{Model~B:} diagonal term uses $Y_{t-1}$ only; off-diagonal
-block uses lags $1,\dots,M$ with kernel $\kappa_\ell$ (Section~\ref{sec:lagM_single}).
+block uses lags $1,\dots,M$ with kernel $\kappa_\ell$
+(Section~\ref{sec:lagM_single}). The number of lags $M$ is computed from
+the oscillation period (not a separate CLI flag).
 Model~C (Section~\ref{sec:lagM_two}) is not implemented in code.
 
 \paragraph{Notation conventions.}
@@ -283,9 +285,9 @@ $T$, and $\eta_{\mathrm{clip}}=5$ (hard-coded), Models~A and~B are
 implemented.  Bin $t$ indexes rows $Y_t$ (code uses $t=0,\dots,T-1$).
 \textbf{Model~A:} $Y_0\sim\mathrm{Poisson}(\exp(B)\Delta t)$, then
 Eq.~\eqref{eq:lag1} for $t\ge 1$.
-\textbf{Model~B:} the first $M=\texttt{mem\_lag\_steps}$ rows are set
-to zero (pre-history); dynamics follow Section~\ref{sec:lagM_single}
-for $t\ge 1$.
+\textbf{Model~B:} the first $M$ rows are set to zero (pre-history),
+with $M=\texttt{mem\_lag\_steps}$ computed from $\tau_{\mathrm{mem}}$
+(Section~\ref{sec:lagM_single}); dynamics follow that section for $t\ge 1$.
 
 % ---------------------------------------------------------------
 \subsection{Model A: Lag-1, No Memory, Not Bursting}
@@ -314,28 +316,31 @@ distribution.
 
 \subsubsection{Off-diagonal kernel $\kappa_\ell$ (damped oscillator)}
 
+
 Let $\tau_{\mathrm{mem}}>0$ be the oscillation period in \textbf{seconds}
-(\texttt{time\_kernel\_a\_q\_tau}; if $\tau_{\mathrm{mem}}\le 0$, the
-code sets $\tau_{\mathrm{mem}}=\tfrac{4}{3}M\Delta t$).
+(required; the code asserts $\tau_{\mathrm{mem}}>0$).
 Superscript ${}^{(s)}$ marks quantities expressed in \textbf{discrete steps}
-(bins), as distinct from the same quantity measured in seconds.
+(time bins).
 Define $\tau^{(s)}=\mathrm{round}(\tau_{\mathrm{mem}}/\Delta t)\ge 1$, the oscillation period in bins.
-Let $Q>0$ and $a_{\mathrm{mem}}>0$ (quality factor and amplitude).
+Let $Q>0$ (quality factor); the CLI passes \texttt{mem\_Q} and \texttt{mem\_tau}
+(\texttt{--time\_kernel\_q\_tau}).
 Set $\omega=2\pi/\tau^{(s)}$ and $\gamma=\pi/(Q\,\tau^{(s)})$.
-For lags $\ell=1,\dots,M$ with $M=\texttt{mem\_lag\_steps}$,
+The off-diagonal history uses only lags $\ell=1,\dots,M$ with
 \begin{equation}
-  \kappa_\ell =
-  \begin{cases}
-    a_{\mathrm{mem}}\,
-    \exp(-\gamma \ell)\,\cos(\omega \ell),
-    & 4\ell \le 3\tau^{(s)},\\[0.35em]
-    0, & \text{otherwise.}
-  \end{cases}
+  M = \max\!\left(1,\;\bigl\lfloor 3\tau^{(s)}/4\bigr\rfloor\right)
+\end{equation}
+This choice sets the \emph{truncation depth} $M\approx \tfrac{3}{4}\tau^{(s)}$,
+so $\omega M\approx \tfrac{3\pi}{2}$ (about $1.5\pi$ radians of oscillation phase
+across the retained lags). 
+For $\ell=1,\dots,M$, define raw weights
+\begin{equation}
+  \tilde{\kappa}_\ell = \exp(-\gamma \ell)\,\cos(\omega \ell).
   \label{eq:kappa_offdiag_gen4}
 \end{equation}
-There is \emph{no} $\ell=0$ term and \emph{no} normalization of
-$\kappa$ to unit $\ell^1$ mass; amplitude is set solely by
-$a_{\mathrm{mem}}$.
+There is \emph{no} $\ell=0$ term.
+The implementation then fixes the scale by normalizing to the first lag:
+$\kappa_\ell = \tilde{\kappa}_\ell / \tilde{\kappa}_1=1.0$
+
 
 \subsubsection{Evolution}
 
@@ -477,14 +482,12 @@ below unity.
 % ---------------------------------------------------------------
 
 The script defaults include $\Delta t=0.01$\,s and
-\texttt{time\_kernel\_a\_q\_tau} $=(a_{\mathrm{mem}},Q,\tau_{\mathrm{mem}})=(1,3,0)$
-(the third value $0$ triggers
-$\tau_{\mathrm{mem}}=\tfrac{4}{3}M\Delta t$ in seconds when
-\texttt{mem\_lag\_steps} $=M$ is set).
-Choose $M$ large enough that non-zero $\kappa_\ell$ out to
-$\ell\le \lfloor 3\tau^{(s)}/4\rfloor$ are retained
-(Eq.~\ref{eq:kappa_offdiag_gen4}); the code prints the minimum
-$M$ needed for full support.
+\texttt{--time\_kernel\_q\_tau} $=(Q,\tau_{\mathrm{mem}})=(3,\,0.4)$
+in code (two floats: \texttt{mem\_Q}, \texttt{mem\_tau} in seconds).
+The lag count $M=\texttt{mem\_lag\_steps}$ equals the length of
+\texttt{\_offdiag\_time\_kernel} (computed from $\tau^{(s)}$ as above), not passed
+separately.  For typical simulations choose $T=\texttt{num\_steps}$ well above
+$M$ so the trajectory spends most bins outside the initial zero pre-history.
 
 Model~C-specific parameter guidance remains in
 Section~\ref{sec:lagM_two}.
@@ -527,19 +530,17 @@ $\eta_{\mathrm{clip}}$ & $\mathbb{R}_{>0}$ &
 \midrule
 \multicolumn{3}{l}{\textit{Off-diagonal kernel (Model~B; Model~C off-part)}} \\
 $\tau_{\mathrm{mem}}$ & $\mathbb{R}_{>0}$ &
-  Oscillation period (\textbf{seconds}); $\tau^{(s)}=\mathrm{round}(\tau_{\mathrm{mem}}/\Delta t)$ \\
+  Oscillation period (\textbf{seconds}); stored as \texttt{mem\_tau}; $\tau^{(s)}=\mathrm{round}(\tau_{\mathrm{mem}}/\Delta t)$ \\
 $Q$    & $\mathbb{R}_{>0}$ &
-  Quality factor (\texttt{Q\_mem}) \\
+  Quality factor; stored as \texttt{mem\_Q} \\
 $\omega$ & $\mathbb{R}_{>0}$ &
   $2\pi/\tau^{(s)}$ \\
 $\gamma$ & $\mathbb{R}_{>0}$ &
   $\pi/(Q\,\tau^{(s)})$ \\
 $M$    & $\mathbb{Z}_{>0}$ &
-  \texttt{mem\_lag\_steps}; history lags $\ell=1,\dots,M$ \\
-$a_{\mathrm{mem}}$ & $\mathbb{R}_{>0}$ &
-  Kernel amplitude (\texttt{amp\_mem}) \\
+  \texttt{mem\_lag\_steps}$=\max(1,\lfloor 3\tau^{(s)}/4\rfloor)$; history lags $\ell=1,\dots,M$ \\
 $\kappa_\ell$ & $\mathbb{R}$ &
-  Eq.~\ref{eq:kappa_offdiag_gen4} \\
+  Eq.~\ref{eq:kappa_offdiag_gen4}, $\kappa_\ell=\tilde{\kappa}_\ell/\tilde{\kappa}_1$ \\
 \midrule
 \multicolumn{3}{l}{\textit{Diagonal adaptation kernel
   (Model~C only)}} \\

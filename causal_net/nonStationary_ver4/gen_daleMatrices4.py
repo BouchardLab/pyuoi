@@ -41,8 +41,9 @@ Output shapes (N = num_neurons, T = num_steps):
   spikes        (T, N)    uint8  — spike counts
 
 Spike GLM (--spike_model): A = lag-1 (baseline Y[0] Poisson); B = lag-M
-off-diagonal kernel (--mem_lag_steps required for B, --time_kernel_a_q_tau); τ_mem in seconds;
-tau_mem_steps = round(τ_mem/dt) (int); default τ_mem=(4/3)*mem_lag_steps*dt if τ_mem<=0; for each lag ℓ use damped oscillator only if ℓ≤(3/4)τ_mem_steps, else κ_ℓ=0; first mem_lag_steps bins zero for B.
+off-diagonal kernel (--time_kernel_q_tau); mem_tau in seconds; mem_tau_steps = round(mem_tau/dt);
+mem_lag_steps = max(1, (3·mem_tau_steps)//4) so active lags reach ~1.5π phase.
+Require mem_tau>0 (seconds). First mem_lag_steps bins zero for B.
 """
 
 import numpy as np
@@ -313,80 +314,57 @@ def gen_stationary_lag1_poisson(num_steps, dt, A, B_intercept, tau, eta_clip, ve
     return Y
 
 
-def _offdiag_memory_kernel(mem_lag_steps, tau_mem_steps, Q_mem, amp_mem):
+def _offdiag_time_kernel( mem_tau_steps, mem_Q):
     """
-    Off-diagonal damped-oscillator: κ_ℓ = amp_mem * exp(-γℓ) cos(ωℓ) for ℓ ≤ (3/4)*τ_mem_steps; else κ_ℓ = 0.
-    tau_mem_steps: period in bins (int).
+    Off-diagonal damped-oscillator: κ_ℓ = ~ exp(-γℓ) cos(ωℓ) for ℓ ≤ (3/4)*mem_tau_steps; else κ_ℓ = 0.
+    mem_tau_steps: period in bins (int).
     Returns kappa shape (mem_lag_steps,).
     """
-    mem_lag_steps = int(mem_lag_steps)
+    mem_lag_steps = max(1, (3 * mem_tau_steps) // 4)
     if mem_lag_steps < 1:
         raise ValueError("mem_lag_steps must be >= 1")
-    tau_mem_steps = int(tau_mem_steps)
-    if tau_mem_steps < 1:
-        raise ValueError("tau_mem_steps must be >= 1")
-    Q_mem = float(Q_mem)
-    amp_mem = float(amp_mem)
-    if Q_mem <= 0:
-        raise ValueError("Q_mem must be positive")
-    if amp_mem <= 0:
-        raise ValueError("amp_mem must be positive")
-    tau_f = float(tau_mem_steps)
+    mem_tau_steps = int(mem_tau_steps)
+    if mem_tau_steps < 1:
+        raise ValueError("mem_tau_steps must be >= 1")
+    mem_Q = float(mem_Q)
+    if mem_Q <= 0:
+        raise ValueError("mem_Q must be positive")
+    tau_f = float(mem_tau_steps)
     omega = 2.0 * np.pi / tau_f
-    gamma = np.pi / (Q_mem * tau_f)
-    # ℓ active iff ℓ·4 ≤ 3·τ_mem_steps (same as ℓ ≤ (3/4)·τ_mem_steps). Max such ℓ:
-    ell_max_active = (3 * tau_mem_steps) // 4
-    if ell_max_active < 1:
-        print(
-            "  minimal mem_lag_steps for non-zero κ: impossible — "
-            "need τ_mem_steps ≥ 2 so that lag ℓ=1 can satisfy ℓ·4 ≤ 3·τ_mem_steps"
-        )
-    else:
-        print(
-            "  minimal mem_lag_steps for any non-zero κ: 1; "
-            "minimal to include full oscillator support (all ℓ with κ≠0): %d"
-            % ell_max_active
-        )
-    ell_i = np.arange(1, mem_lag_steps + 1, dtype=np.int64)
-    active = ell_i * 4 <= 3 * tau_mem_steps
-    ell_f = ell_i.astype(np.float64)
-    kappa = np.zeros(mem_lag_steps, dtype=np.float64)
-    kappa[active] = amp_mem * np.exp(-gamma * ell_f[active]) * np.cos(omega * ell_f[active])
+    gamma = np.pi / (mem_Q * tau_f)
+   
+    ell = np.arange(1, mem_lag_steps+1 , dtype=np.float64)
+    kappa = np.exp(-gamma * ell) * np.cos(omega * ell)
+    kappa/=kappa[0]  # sets 1st amplitude to 1
     m = kappa.shape[0]
-    n_act = int(np.sum(active))
-    print(f"  κ (len={m}, oscillator lags ℓ≤(3/4)τ_mem_steps: {n_act}): {kappa}")
+    print(f"  κ (len={m}, oscillator lags ℓ≤(3/4) mem_lag_steps : mem_tau_steps: {mem_tau_steps}): {kappa}")
     sum_abs = float(np.sum(np.abs(kappa)))
     print(f"  sum_k |κ_k| = {sum_abs:.12g}")
-    if sum_abs <= 0:
-        print("  κ: all lags clipped — zero off-diagonal kernel")
     return kappa
 
 
 
-def gen_stationary_lagM_modelB_poisson(
+def gen_nonstationary_lagM_modelB_poisson(
     num_steps,
     dt,
     A,
     B_intercept,
     tau,
-    mem_lag_steps,
-    tau_mem_steps,
-    Q_mem,
-    amp_mem,
+    mem_tau_steps,
+    mem_Q,
     eta_clip,
+    h_off,
     verb=0,
-    h_off=None,
 ):
     """
     Model B: H_t = diag(A) Y_{t-1} + A_off (sum_l h_l Y_{t-l}), then Poisson as Model A.
     First mem_lag_steps bins are zero (pre-history).
-    tau_mem_steps: oscillation period in bins (int).     If h_off is None, κ from (mem_lag_steps, tau_mem_steps, Q_mem, amp_mem)
-    with κ_ℓ = 0 for lag ℓ > (3/4)*tau_mem_steps.
+    mem_tau_steps: oscillation period in bins (int). Uses h_off (κ) from _offdiag_time_kernel; κ_ℓ = 0 for lag ℓ > (3/4)*mem_tau_steps.
     """
     if A is None:
         raise ValueError("Connectivity matrix A cannot be None.")
     d = A.shape[0]
-    mem_lag_steps = int(mem_lag_steps)
+    mem_lag_steps=h_off.shape[0]
     tau = np.asarray(tau).reshape(-1)
     if tau.shape[0] != d:
         raise ValueError("tau length %d != A.shape[0] %d" % (tau.shape[0], d))
@@ -399,12 +377,6 @@ def gen_stationary_lagM_modelB_poisson(
     inh_idx = np.where(tau_i == 1)[0]
     n_exc = len(exc_idx)
 
-    if h_off is None:
-        h_off = _offdiag_memory_kernel(mem_lag_steps, tau_mem_steps, Q_mem, amp_mem)
-    else:
-        h_off = np.asarray(h_off, dtype=np.float64).reshape(-1)
-        if h_off.shape[0] != mem_lag_steps:
-            raise ValueError("h_off length %d != mem_lag_steps %d" % (h_off.shape[0], mem_lag_steps))
     A_off = A.copy()
     np.fill_diagonal(A_off, 0.0)
     a_diag = np.diag(A).astype(np.float64, copy=False)
@@ -412,15 +384,13 @@ def gen_stationary_lagM_modelB_poisson(
     if verb > 0:
         print(f"\n=== Generating Model B (lag-M) Poisson ===")
         print(
-            f"steps={num_steps}, dt={dt:.3f}, neurons={d}, excit={n_exc}, mem_lag_steps={mem_lag_steps}, tau_mem_steps={tau_mem_steps}, Q_mem={Q_mem}, amp_mem={amp_mem}"
+            f"steps={num_steps}, dt={dt:.3f}, neurons={d}, excit={n_exc}, mem_lag_steps={mem_lag_steps}, mem_tau_steps={mem_tau_steps}, mem_Q={mem_Q}"
         )
         print(f"Matrix A stats: min={np.min(A):.3f}, max={np.max(A):.3f}, mean={np.mean(A):.3f}")
         print(f"Bias B stats: min={np.min(B_intercept):.3f}, max={np.max(B_intercept):.3f}, mean={np.mean(B_intercept):.3f}")
 
     Y = np.zeros((num_steps, d), dtype=int)
-    if mem_lag_steps > 0:
-        Y[:mem_lag_steps] = 0
-
+ 
     kk = min(5, n_exc, len(inh_idx))
     if verb > 0:
         print("Initial Y[0:%d] set to zero (pre-history)." % min(mem_lag_steps, num_steps))
@@ -474,18 +444,12 @@ def main():
         help="Spike GLM: A = lag-1 stationary; B = lag-M off-diagonal damped-oscillator kernel.",
     )
     parser.add_argument(
-        "--mem_lag_steps",
-        type=int,
-        default=None,
-        help="Model B (required): number of off-diagonal history lags M (time steps). Ignored for model A.",
-    )
-    parser.add_argument(
-        "--time_kernel_a_q_tau",
+        "--time_kernel_q_tau",
         type=float,
-        nargs=3,
-        default=[1.0, 3.0, 0.0],
-        metavar=("amp_mem", "Q_mem", "tau_mem"),
-        help="Model B: [amp_mem, Q_mem, tau_mem] — kernel amplitude, quality factor, period (s). If tau_mem<=0, use (4/3)*mem_lag_steps*step_size.",
+        nargs=2,
+        default=[3.0, 0.4],
+        metavar=("mem_Q", "mem_tau"),
+        help="Model B: [mem_Q, mem_tau] — quality factor, period mem_tau>0 (s); mem_lag_steps=(3*mem_tau_steps)//4 (~1.5π phase).",
     )
     parser.add_argument("--num_neurons", type=int, default=50, help="Total number of neurons in the network.")
     parser.add_argument("--num_excite", type=int, default=None, help="Number of excitatory neurons.")
@@ -532,16 +496,17 @@ def main():
     placement_min_dist = float(args.placement_min_dist)
     if placement_min_dist <= 0:
         raise ValueError("placement_min_dist must be positive")
-    if args.spike_model == "B" and args.mem_lag_steps is None:
-        raise ValueError("--mem_lag_steps is required for spike_model B")
-    amp_mem, Q_mem, tau_mem_arg = args.time_kernel_a_q_tau
-    if tau_mem_arg <= 0:
-        if args.mem_lag_steps is None:
-            tau_mem = None
-        else:
-            tau_mem = (4.0 / 3.0) * float(args.mem_lag_steps) * float(args.step_size)
-    else:
-        tau_mem = float(tau_mem_arg)
+    mem_Q, mem_tau_arg = args.time_kernel_q_tau
+    mem_tau = None
+    mem_tau_steps = None
+    
+    if args.spike_model == "B":
+        mem_tau = float(mem_tau_arg)
+        if mem_Q <= 0:
+            raise ValueError("mem_Q must be positive for spike_model B")
+        assert mem_tau > 0, "mem_tau must be positive for spike_model B"
+        mem_tau_steps = max(1, int(round(float(mem_tau) / float(args.step_size))))
+ 
     args.varTwindow = 5  # (sec)
     args.poisson_eta_clip = 5  # ~ [1e-3Hz , 1e+3Hz]
     if args.dataName is None:
@@ -577,16 +542,6 @@ def main():
     assert args.idleRate[0] >= 0.5
     assert args.idleRate[1] > args.idleRate[0]
 
-    tau_mem_steps = None
-    if args.spike_model == "B":
-        if args.mem_lag_steps is None or args.mem_lag_steps < 1:
-            raise ValueError("mem_lag_steps must be >= 1 for spike_model B")
-        if tau_mem <= 0 or Q_mem <= 0 or amp_mem <= 0:
-            raise ValueError("tau_mem, Q_mem, and amp_mem must be positive for spike_model B")
-        if args.mem_lag_steps > args.num_steps:
-            raise ValueError("mem_lag_steps cannot exceed num_steps")
-        tau_mem_steps = max(1, int(round(float(tau_mem) / float(args.step_size))))
-
     verb_r = args.verb
     print(f"\n{'='*60}")
     print(f"  Spectral radius: R={args.spectral_radius:.3f}")
@@ -609,11 +564,6 @@ def main():
 
     if verb_r > 0:
         summarize_pairwise_distances(D_mat, verb=verb_r)
-
-    if 0:
-        factors = [0.2, 0.4, 0.6, 0.8, 0.9]
-        spectral_radius_scaling(A_dale, factors)
-        sys.exit(1)
 
     if verb_r > 0:
         total_connections = A_dale.size
@@ -640,11 +590,9 @@ def main():
         "spike_model": args.spike_model,
     }
     if args.spike_model == "B":
-        dale_conf["mem_lag_steps"] = args.mem_lag_steps
-        dale_conf["tau_mem"] = tau_mem
-        dale_conf["tau_mem_steps"] = tau_mem_steps
-        dale_conf["Q_mem"] = Q_mem
-        dale_conf["amp_mem"] = amp_mem
+        dale_conf["mem_tau"] = mem_tau
+        dale_conf["mem_tau_steps"] = mem_tau_steps
+        dale_conf["mem_Q"] = mem_Q
     if args.seed is not None:
         dale_conf["seed"] = args.seed
 
@@ -655,16 +603,8 @@ def main():
         "poisson_eta_clip": args.poisson_eta_clip,
         "spike_model": args.spike_model,
     }
-    if args.spike_model == "B":
-        evol_conf["mem_lag_steps"] = args.mem_lag_steps
-        evol_conf["tau_mem"] = tau_mem
-        evol_conf["tau_mem_steps"] = tau_mem_steps
-        evol_conf["Q_mem"] = Q_mem
-        evol_conf["amp_mem"] = amp_mem
-
-    print("Dale configuration:")
-    pprint(dale_conf)
-
+   
+ 
     B_true = set_flat_selfSpiking(Nn, args.idleRate, args.spectral_radius, tau)
 
     max_samples = 100_000
@@ -673,12 +613,13 @@ def main():
     print("  Poisson evaluation spike generation (model %s)" % args.spike_model)
     print(f"{'='*60}")
 
-    offdiag_kernel = None
     if args.spike_model == "B":
-        offdiag_kernel = _offdiag_memory_kernel(
-            args.mem_lag_steps, tau_mem_steps, Q_mem, amp_mem
-        )
-        
+        offdiag_kernel = _offdiag_time_kernel(mem_tau_steps, mem_Q)
+        dale_conf["mem_lag_steps"] = offdiag_kernel.shape[0]
+
+    print("Dale configuration:")
+    pprint(dale_conf)
+
     start_time = time.time()
     if args.spike_model == "A":
         Y = gen_stationary_lag1_poisson(
@@ -691,19 +632,18 @@ def main():
             verb=verb_r,
         )
     else:
-        Y = gen_stationary_lagM_modelB_poisson(
+        Y = gen_nonstationary_lagM_modelB_poisson(
             num_steps=args.num_steps,
             dt=args.step_size,
             A=A_dale,
             B_intercept=B_true,
             tau=tau,
-            mem_lag_steps=args.mem_lag_steps,
-            tau_mem_steps=tau_mem_steps,
-            Q_mem=Q_mem,
-            amp_mem=amp_mem,
+            mem_tau_steps=mem_tau_steps,
+            mem_Q=mem_Q,
             eta_clip=args.poisson_eta_clip,
-            verb=verb_r,
             h_off=offdiag_kernel,
+            verb=verb_r,
+
         )
     sim_time = time.time() - start_time
     print("Spike generation completed in %.1f seconds" % sim_time)
@@ -757,13 +697,7 @@ def main():
         "placement_H": float(placement_H),
         "placement_min_dist": float(placement_min_dist),
     }
-    if args.spike_model == "B":
-        spikeMD["mem_lag_steps"] = args.mem_lag_steps
-        spikeMD["tau_mem"] = tau_mem
-        spikeMD["tau_mem_steps"] = tau_mem_steps
-        spikeMD["Q_mem"] = Q_mem
-        spikeMD["amp_mem"] = amp_mem
-
+  
     outFt = os.path.join(outPath, args.dataName + ".simTruth.npz")
     write_data_npz(trueD, outFt, metaD=trueMD)
     if args.verb > 1:
@@ -783,7 +717,7 @@ def main():
     print("     basePath=" + args.basePath)
     print("  ./view_daleMatrix4.py  --basePath $basePath   --dataName %s  -p a e b  c d f -X  " % args.dataName)
     print("  ./view_spikesTrain4.py  --basePath $basePath   --dataName %s  --time_range_sec 1 8 -p b --time_rebin2 2   -X " % args.dataName)
-    print("  ./movie_spikesTrain4.py  --basePath $basePath   --dataName %s  --time_range_sec 1 8    " % args.dataName)
+    print("  ./movie_spikesTrain4.py  --basePath $basePath   --dataName %s  --time_range_sec 1 8  --flushSize .2  " % args.dataName)
     print("  ./view_spikesTrain4.py  --basePath $basePath   --dataName %s  --time_range_sec 0 20 -p b   -X " % args.dataName)
     print("  ./gen_nonStationarySpikes3.py  --basePath $basePath   --inputStates %s     --true_dwell_sec 1.0 " % args.dataName)
     print("  ./fit_lassoPoisson.py  --basePath $basePath  --inpPath ${basePath}/truthDale --dataName   %s   --num_epochs  50  " % args.dataName)

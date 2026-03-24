@@ -133,14 +133,12 @@ class Plotter(PlotterBackbone):
         )
         if (
             md.get('spike_model') == 'B'
-            and 'amp_mem' in md
-            and 'Q_mem' in md
-            and 'tau_mem' in md
+            and 'mem_Q' in md
+            and 'mem_tau' in md
         ):
-            tit0 += '  amp=%.4g  Q=%.4g  tau/sec=%.4g' % (
-                float(md['amp_mem']),
-                float(md['Q_mem']),
-                float(md['tau_mem']),
+            tit0 += '  Q=%.4g  tau/sec=%.4g' % (
+                float(md['mem_Q']),
+                float(md['mem_tau']),
             )
         tit0 += '  placement HxL=(%gx%g)' % (
             float(md['placement_H']),

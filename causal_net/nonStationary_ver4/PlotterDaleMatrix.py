@@ -42,7 +42,7 @@ def _placement_ker_delta(dmd):
 
 
 def _kernel_figure_canvas_title(md):
-    """One-line caption: dataset, N, and (model B) amp, Q, tau, placement H×L."""
+    """One-line caption: dataset, N, and (model B) Q, tau, placement H×L."""
     dmd = md.get("dale_conf", {})
     parts = []
     sn = md.get("short_name", "")
@@ -52,12 +52,10 @@ def _kernel_figure_canvas_title(md):
     if n is not None:
         parts.append("N=%d" % int(n))
     if dmd.get("spike_model") == "B":
-        if "amp_mem" in dmd:
-            parts.append("amp=%.4g" % float(dmd["amp_mem"]))
-        if "Q_mem" in dmd:
-            parts.append("Q=%.4g" % float(dmd["Q_mem"]))
-        if "tau_mem" in dmd:
-            parts.append("tau/sec=%.4g" % float(dmd["tau_mem"]))
+        if "mem_Q" in dmd:
+            parts.append("Q=%.4g" % float(dmd["mem_Q"]))
+        if "mem_tau" in dmd:
+            parts.append("tau/sec=%.4g" % float(dmd["mem_tau"]))
     ph = dmd.get("placement_H")
     pl = dmd.get("placement_L")
     if ph is not None and pl is not None:
@@ -371,7 +369,7 @@ class Plotter(PlotterBackbone):
 
     def plot_placement_topology(self, trueD, md, figId=6):
         """
-        2D placement: circles = excitatory, triangles = inhibitory;
+        2D placement: triangles = excitatory, squares = inhibitory;
         outgoing edges from j→i: red if j is excitatory, blue if inhibitory (presynaptic type).
         """
         figId = self.smart_append(figId)
@@ -381,12 +379,8 @@ class Plotter(PlotterBackbone):
         if not (L > 0 and H > 0):
             raise ValueError("placement_L and placement_H must be positive")
         placement_ker_delta = _placement_ker_delta(dmd)
-        # Canvas aspect ratio matches physical domain [0,L]×[0,H] (inches); cap longer side
-        max_in = 6.0
-        scale_in = max_in / max(L, H)
-        fig_w = scale_in * L
-        fig_h = scale_in * H
-        fig = self.plt.figure(figId, facecolor="white", figsize=(fig_w, fig_h))
+        # Figure aspect width:height = 2:1
+        fig = self.plt.figure(figId, facecolor="white", figsize=(10, 5))
         ax = fig.add_subplot(1, 1, 1)
 
         P = np.asarray(trueD["node_positions"], dtype=float)
@@ -426,8 +420,8 @@ class Plotter(PlotterBackbone):
         ax.scatter(
             P[exc_m, 0],
             P[exc_m, 1],
-            s=55,
-            marker="o",
+            s=65,
+            marker="^",
             facecolors="none",
             edgecolors="darkred",
             linewidths=1.2,
@@ -436,8 +430,8 @@ class Plotter(PlotterBackbone):
         ax.scatter(
             P[inh_m, 0],
             P[inh_m, 1],
-            s=65,
-            marker="^",
+            s=55,
+            marker="s",
             facecolors="none",
             edgecolors="darkblue",
             linewidths=1.2,
@@ -453,7 +447,7 @@ class Plotter(PlotterBackbone):
             Line2D(
                 [0],
                 [0],
-                marker="o",
+                marker="^",
                 color="w",
                 markerfacecolor="none",
                 markeredgecolor="darkred",
@@ -465,11 +459,11 @@ class Plotter(PlotterBackbone):
             Line2D(
                 [0],
                 [0],
-                marker="^",
+                marker="s",
                 color="w",
                 markerfacecolor="none",
                 markeredgecolor="darkblue",
-                markersize=9,
+                markersize=8,
                 label="Inhibitory",
             )
         )
@@ -491,11 +485,14 @@ class Plotter(PlotterBackbone):
             frameon=True,
         )
 
-        # Axes span placement domain [0,L]×[0,H] with 5% margin on each extent.
-        ax.set_xlim(0.0, L * 1.05)
-        ax.set_ylim(0.0, H * 1.05)
-        # 'box': keep xlim/ylim; scale subplot so 1 data unit x == 1 data unit y (no ignored-limits warnings)
-        ax.set_aspect("equal", adjustable="box")
+        mx, my = 0.5, 0.05
+        ax.set_xlim(0.0 - mx, L + mx)
+        ax.set_ylim(0.0 - my, H + my)
+
+        ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+        ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+        ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: "%d" % int(round(x))))
+        ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: "%d" % int(round(x))))
 
     def offdiag_distance_kernel_hist(self, trueD, md, figId=6):
         """

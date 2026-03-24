@@ -114,10 +114,9 @@ def movie_title_header(spikeMD, trueMD, nchan, tbin_sec):
     sn = spikeMD["short_name"]
     tit0 = "dataset: %s  R=%.3f    nchan=%d  Tbin=%.2f sec" % (sn, R_sel, nchan, tbin_sec)
     if spikeMD["spike_model"] == "B":
-        tit0 += "  amp=%.4g  Q=%.4g  tau/sec=%.4g" % (
-            float(spikeMD["amp_mem"]),
-            float(spikeMD["Q_mem"]),
-            float(spikeMD["tau_mem"]),
+        tit0 += "  Q=%.4g  tau/sec=%.4g" % (
+            float(spikeMD["mem_Q"]),
+            float(spikeMD["mem_tau"]),
         )
     tit0 += "  placement HxL=(%gx%g)" % (
         float(spikeMD["placement_H"]),
