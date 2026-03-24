@@ -88,33 +88,6 @@ def rebin_spike_rates(spikeYield, md, tReb2):
     print('rebinned rates: nchan=%d  dt=%.3f sec  rebin=%d' % (nchan, time_step2, tReb2))
     return rebD
 
-#...!...!....................
-def XXXselect_radius_slice(spikeD, data_path, data_name, idxState, verb=1):
-    """Select one spectral-radius slice from stacked spikes arrays if present."""
-    spikes = spikeD['spikes']
-    if spikes.ndim == 2:
-        return spikeD, None
-    assert spikes.ndim == 3, f"Expected spikes ndim 2 or 3, got shape={spikes.shape}"
-
-    nR = spikes.shape[0]
-    assert 0 <= idxState < nR, f"idxState={idxState} out of range for spikes with nR={nR}"
-
-    truthFF = os.path.join(data_path, f"{data_name}.simTruth.npz")
-    assert os.path.exists(truthFF), f"missing simTruth file: {truthFF}"
-    _, trueMD = read_data_npz(truthFF, verb=verb>0)
-    spect_radii = trueMD['dale_conf']['spect_radius']
-    assert idxState < len(spect_radii), f"idxState={idxState} out of range, only {len(spect_radii)} states available"
-    R_sel = spect_radii[idxState]
-    print(f"\nSelected spectral radius [{idxState}]: R={R_sel:.3f}  (out of {spect_radii})")
-
-    spikeD_r = {}
-    for key, arr in spikeD.items():
-        if isinstance(arr, np.ndarray) and arr.ndim > 0 and arr.shape[0] == nR:
-            spikeD_r[key] = arr[idxState]
-        else:
-            spikeD_r[key] = arr
-    return spikeD_r, R_sel
-
 
   
 #=================================
@@ -154,23 +127,7 @@ if __name__=="__main__":
         spikeMD["sel_spect_radius"] = trueMD["dale_conf"]["spectral_radius"]
         S_true = None
         
-    if 0:  #  multi-state simulations
-        prismFF = os.path.join(args.inpPath, f"{args.dataName}.prismTruth.npz")
-        assert os.path.exists(prismFF), f"missing prismTruth file: {prismFF}"
-        prismD, prismMD = read_data_npz(prismFF, verb=args.verb>0)
-        S_true = prismD['S_true']
-        S_oracle = prismD['S_oracle']
-        if args.verb > 0:  print('loaded prismTruth S_true:', S_true.shape);
-        if args.verb > 1:  pprint(prismMD)
-        spikeMD['sel_spect_radius'] =-77
-        oraE = prismMD['oracle_eval']
-        spikeMD['oracle_score'] = oraE['avr_score']
-        print(f"gen, oracle avr score {oraE['avr_score']:.3f}, {args.dataName}")
-        print(f"  {'state':>5s}  {'score':>5s}")
-        print(f"  {'-----':>5s}  {'-----':>5s}")
-        for m, sc in enumerate(oraE['score_per_state']):
-            print(f"  {m:5d}  {sc:5.3f}")
-
+ 
     #--------------------------------
     # ....  plotting ........
     spikeMD["short_name"] = args.dataName
