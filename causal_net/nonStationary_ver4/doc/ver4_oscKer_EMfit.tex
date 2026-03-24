@@ -1,0 +1,163 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+
+\geometry{margin=0.8in}
+
+\title{Sparse Poisson GLM with Off-Diagonal Memory Kernel:\\Model, Inference, and Training}
+\author{Balewski, NERSC}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Two-block inference scheme for a Poisson GLM with a lagged off-diagonal memory kernel on a non-stationary neuronal population. The model uses a diagonal lag-1 drive plus a shared history kernel on off-diagonal inputs. Alternating optimization yields tractable convex subproblems for the kernel (\(\lambda_2\) smoothness) and network parameters (\(\lambda_3\) off-diagonal sparsity).
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ===============================================================
+\section{Generative Model}
+\label{sec:gen}
+% ===============================================================
+
+Population of \(N\) neurons, \(T\) time bins of width \(\Delta t\). Spike counts \(Y_t \in \mathbb{N}_0^{N}\), \(t=0,\dots,T-1\).
+
+\paragraph{Parameters.}
+Diagonal: \(A^{\mathrm{diag}} \in \mathbb{R}^{N}\) with \((A^{\mathrm{diag}})_i = (A_{\text{true}})_{ii}\).
+Off-diagonal: \(A^{\mathrm{off}} \in \mathbb{R}^{N\times N}\), zeros on diagonal.
+Kernel: \(\kappa \in \mathbb{R}^{M}\), 0-based indexing, anchor \(\kappa_0=1\), learnable entries \(\kappa_1,\dots,\kappa_{M-1}\).
+Bias: \(B \in \mathbb{R}^{N}\).
+Clipping threshold: \(\eta_{\mathrm{clip}}=5\).
+
+\paragraph{Off-diagonal history.}
+\[
+S_t \;=\; \sum_{\ell=0}^{M-1} \kappa_\ell \, Y_{t-1-\ell} \;\in\; \mathbb{R}^{N},
+\qquad t-1-\ell \ge 0.
+\]
+
+\paragraph{State equation.}
+\[
+\eta_{t,i} \;=\; (A^{\mathrm{diag}})_i \, Y_{t-1,i}
+\;+\; \big(A^{\mathrm{off}} S_t\big)_i
+\;+\; B_i,
+\]
+\[
+\mu_{t,i} \;=\; \exp\!\big(\tilde{\eta}_{t,i}\big)\,\Delta t,\quad
+\tilde{\eta}_{t,i} \;=\; \min\big(\eta_{t,i},\,\eta_{\mathrm{clip}}\big).
+\]
+
+\paragraph{Observation model.}
+\[
+Y_{t,i} \sim \mathrm{Poisson}(\mu_{t,i}), \quad i=1,\dots,N,\; t=0,\dots,T-1.
+\]
+
+% ===============================================================
+\section{Objective and Identifiability}
+\label{sec:objective}
+% ===============================================================
+
+\paragraph{Log-likelihood.}
+Dropping the constant \(\log(Y_{t,i}!)\) terms:
+\[
+\mathcal{L} = \sum_{i=1}^N \sum_{t=0}^{T-1}
+\left[ Y_{t,i}\,\tilde{\eta}_{t,i} - \exp(\tilde{\eta}_{t,i})\,\Delta t \right].
+\]
+
+\paragraph{Objective function.}
+\begin{equation}
+\mathcal{J}
+\;=\;
+\underbrace{\sum_{t=2}^{T}\sum_{i=1}^{N}
+\left[\mu_{t,i}-Y_{t,i}\left(\tilde{\eta}_{t,i}+\log\Delta t\right)\right]}_{\text{Poisson NLL}}
+\;+\;
+\underbrace{\lambda_2 \sum_{\ell=2}^{M-1} \big(\kappa_\ell-\kappa_{\ell-1}\big)^2}_{\text{kernel smoothness (Block~1)}}
+\;+\;
+\underbrace{\lambda_3\,\overline{|A_{\mathrm{off}}|}}_{\text{off-diagonal sparsity (Block~2)}},
+\label{eq:objective}
+\end{equation}
+where
+\begin{equation}
+\overline{|A_{\mathrm{off}}|}
+\;=\;
+\frac{1}{N(N-1)}
+\sum_{\substack{i,j=1\\i\neq j}}^{N}|A_{ij}^{\mathrm{off}}|.
+\label{eq:l1_offdiag}
+\end{equation}
+
+\paragraph{Identifiability.}
+The product \(A^{\mathrm{off}}_{ij}\,\kappa_\ell\) has a scaling degeneracy, removed by the anchor \(\kappa_0=1\).
+If clipping activates frequently, a censored Poisson likelihood should replace the standard one.
+
+% ===============================================================
+\section{Inference: Two-Block Alternating Scheme}
+\label{sec:inference}
+% ===============================================================
+
+The bilinear structure \(A^{\mathrm{off}}_{ij}\,\kappa_\ell\) precludes joint convexity. We use block coordinate descent: each block is convex given the other fixed, guaranteeing a non-increasing objective sequence converging to a stationary point.
+
+\subsection{Initialization}
+Initialize \(A^{\mathrm{diag}}\) and \(B\) from mean firing rates and lag-1 covariances.
+Initialize \(\kappa\) with a damped-oscillator profile or simply \(\kappa_0=1\) with small subsequent entries.
+
+\subsection{Block~1 (kernel update)}
+Fix \((A^{\mathrm{diag}}, A^{\mathrm{off}}, B)\). Update \(\kappa_1,\dots,\kappa_{M-1}\) by minimizing \(\mathcal{J}\) with the \(\lambda_2\) smoothness penalty. The problem is convex in \(\kappa\) since \(S_t\) is linear in \(\kappa\).
+
+\subsection{Block~2 (network update)}
+Fix \(\kappa\). Update \((A^{\mathrm{diag}}, A^{\mathrm{off}}, B)\) by minimizing the Poisson NLL plus the \(\lambda_3\) L1 penalty~\eqref{eq:l1_offdiag}. Dale's law sign constraints on columns of \(A^{\mathrm{off}}\) can be added as linear inequalities.
+
+% ===============================================================
+\section{Training Samples}
+\label{sec:training}
+% ===============================================================
+
+Input: spike counts \(Y_t \in \mathbb{N}_0^{N}\), \(t=0,\dots,T-1\).
+Let \(M_{\mathrm{cut}} \ge 2\) be the history cutoff.
+
+\paragraph{Sample construction.}
+Each sample at output time \(t_{\mathrm{out}} \in [M_{\mathrm{cut}},\, T-1]\):
+\[
+X^{(t_{\mathrm{out}})} = \big\{Y_{t_{\mathrm{out}}-1},\, Y_{t_{\mathrm{out}}-2},\, \dots,\, Y_{t_{\mathrm{out}}-M_{\mathrm{cut}}}\big\} \in \mathbb{N}_0^{N \times M_{\mathrm{cut}}},
+\qquad
+y^{(t_{\mathrm{out}})} = Y_{t_{\mathrm{out}}} \in \mathbb{N}_0^{N}.
+\]
+
+\paragraph{Sampling strategy.}
+Draw \(t_{\mathrm{out}}\) densely from \([M_{\mathrm{cut}},\, T-1]\) with stride \(s\); optionally enforce a minimum separation to reduce autocorrelation. Total samples:
+\[
+N_{\mathrm{samples}} \approx \left\lfloor \frac{T - M_{\mathrm{cut}}}{s} \right\rfloor.
+\]
+For validation, sample windows within random non-overlapping blocks of length \(L \gg M_{\mathrm{cut}}\) to obtain a temporally separated hold-out set.
+
+% ===============================================================
+\section{Kernel Normalization}
+\label{sec:lags}
+% ===============================================================
+
+We use 0-based lag indexing \(\ell \in \{0,\dots,M-1\}\) with anchor \(\kappa_0=1\). An alternative \(\|\kappa\|_1=1\) constraint was tested but significantly reduced non-stationarity in simulations, so the ground truth \(\kappa_{\mathrm{true}}\) does not obey it.
+
+The \(\lambda_2\) smoothness penalty imposes no parametric form on \(\kappa\). If prior knowledge constrains the kernel shape, one can reparametrize \(\kappa\) with fewer parameters while keeping \(\kappa_0=1\).
+
+% ===============================================================
+\section{Implementation Notes}
+\label{sec:practical}
+% ===============================================================
+
+\paragraph{Sparsity and sign constraints.}
+The \(\lambda_3\) penalty~\eqref{eq:l1_offdiag} promotes sparsity; normalization by \(N(N-1)\) makes the penalty strength network-size invariant. Column sign constraints (Dale's law) can be imposed if neuron types are known.
+
+\paragraph{Regularization tuning.}
+Start \(\lambda_2\) small; increase if the kernel estimate oscillates. Tune \(\lambda_3\) to match expected connectivity density (e.g., 5--20\%).
+
+
+
+\end{document}
