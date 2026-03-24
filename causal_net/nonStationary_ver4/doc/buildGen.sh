@@ -1,3 +1,4 @@
+#!/bin/bash 
 pdflatex ver4_topoDaleGen
 pdflatex ver4_topoDaleGen
 

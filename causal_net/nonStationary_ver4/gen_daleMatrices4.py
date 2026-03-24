@@ -783,6 +783,7 @@ def main():
     print("     basePath=" + args.basePath)
     print("  ./view_daleMatrix4.py  --basePath $basePath   --dataName %s  -p a e b  c d f -X  " % args.dataName)
     print("  ./view_spikesTrain4.py  --basePath $basePath   --dataName %s  --time_range_sec 1 8 -p b --time_rebin2 2   -X " % args.dataName)
+    print("  ./movie_spikesTrain4.py  --basePath $basePath   --dataName %s  --time_range_sec 1 8    " % args.dataName)
     print("  ./view_spikesTrain4.py  --basePath $basePath   --dataName %s  --time_range_sec 0 20 -p b   -X " % args.dataName)
     print("  ./gen_nonStationarySpikes3.py  --basePath $basePath   --inputStates %s     --true_dwell_sec 1.0 " % args.dataName)
     print("  ./fit_lassoPoisson.py  --basePath $basePath  --inpPath ${basePath}/truthDale --dataName   %s   --num_epochs  50  " % args.dataName)
