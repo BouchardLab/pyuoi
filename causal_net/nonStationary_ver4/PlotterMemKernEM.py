@@ -204,12 +204,15 @@ class Plotter(PlotterBackbone):
         fig.tight_layout(rect=[0, 0, 1, 0.95])
 
     def correl_fit_truth(self, fitD, md, figId=2):
-        """Correlation plots for A_off, A_diag, B, and kappa compared to truth."""
+        """Four-panel correlation plot (top) + Residual Histograms (bottom)."""
         figId = self.smart_append(figId)
-        fig = self.plt.figure(figId, facecolor='white', figsize=(18.0, 4.5))
-        fig.subplots_adjust(wspace=0.35, bottom=0.15, top=0.85)
+        # 2x8 grid: Top row 4 plots (2cols each), Bottom row 6 plots (1col each, centered)
+        # Use height_ratios to make diagnostic histograms 1/2 of correlation plots
+        fig = self.plt.figure(figId, facecolor='white', figsize=(20.0, 7.5))
+        gs = fig.add_gridspec(2, 8, height_ratios=[2.0, 1.0], hspace=0.35, wspace=0.45, 
+                               left=0.05, right=0.95, top=0.9, bottom=0.08)
 
-        short_name = md["short_name"]
+        short_name = md.get("short_name", "unknown")
         A_off_true = md.get("A_off_true")
         A_diag_true = md.get("A_diag_true")
         
@@ -217,132 +220,155 @@ class Plotter(PlotterBackbone):
              print("correl_fit_truth: missing truth A_off_true, skipping")
              return
 
-        # If it was saved as (N,N), we still need to mask it
+        # Prepare connectivity data
         if A_off_true.ndim == 2:
-            N = A_off_true.shape[0]
-            diag_mask = np.eye(N, dtype=bool)
+            diag_mask = np.eye(A_off_true.shape[0], dtype=bool)
             A_off_true = A_off_true[~diag_mask]
         
         A_off_hat_full = np.asarray(fitD.get("A_off_hat"))
-        N = A_off_hat_full.shape[0]
-        diag_mask = np.eye(N, dtype=bool)
+        diag_mask = np.eye(A_off_hat_full.shape[0], dtype=bool)
         A_off_hat = A_off_hat_full[~diag_mask]
         A_diag_hat = np.asarray(fitD.get("A_diag_hat"))
         B_true = md.get("B_true")
         B_hat = np.asarray(fitD.get("B_hat"))
 
         minW = md["train"].get("minW", 0.01)
+        B_div = 2.0  # Common dividing line for B groups
 
         def get_corr_stats(x, y):
             if len(x) < 2: return 0.0, len(x)
             r = np.corrcoef(x, y)[0, 1]
             return float(r), len(x)
 
-        def add_corr_ax(ax, x, y, labels, title, x_split=0, min_w=None, split_color='red', dot_color='blue', show_split=True):
+        def add_corr_ax(ax, x, y, labels, title, x_split=0, min_w=None, show_split=True, dot_color='blue'):
             ax.scatter(x, y, s=10, alpha=0.3, color=dot_color, edgecolors='none')
             ax.axhline(0, color='k', lw=0.6, alpha=0.3)
             if show_split:
-                ax.axvline(x_split, color=split_color, lw=1.0, ls='--')
+                ax.axvline(x_split, color='red', lw=1.0, ls='--')
             
-            x_min, x_max = x.min(), x.max()
-            y_min, y_max = y.min(), y.max()
-            low = min(x_min, y_min)
-            high = max(x_max, y_max)
+            low, high = min(x.min(), y.min()), max(x.max(), y.max())
             ax.plot([low, high], [low, high], 'k--', lw=0.8, alpha=0.7)
             
-            maskL = (x < x_split)
-            maskR = (x > x_split)
+            maskL, maskR = (x < x_split), (x > x_split)
             rL, nL = get_corr_stats(x[maskL], y[maskL])
             rR, nR = get_corr_stats(x[maskR], y[maskR])
 
-            # Center of gravity (black crosses)
-            if nL > 0:
-                ax.plot(np.mean(x[maskL]), np.mean(y[maskL]), 'k+', ms=12, mew=2)
-            if nR > 0:
-                ax.plot(np.mean(x[maskR]), np.mean(y[maskR]), 'k+', ms=12, mew=2)
+            if nL > 0: ax.plot(np.mean(x[maskL]), np.mean(y[maskL]), 'k+', ms=12, mew=2)
+            if nR > 0: ax.plot(np.mean(x[maskR]), np.mean(y[maskR]), 'k+', ms=12, mew=2)
             
-            # Left/Right stats
-            txtL = "rL=%.3f\nnL=%d" % (rL, nL)
-            ax.text(0.05, 0.5, txtL, transform=ax.transAxes, va='center', ha='left', fontsize=9)
-            txtR = "rR=%.3f\nnR=%d" % (rR, nR)
-            ax.text(0.95, 0.4, txtR, transform=ax.transAxes, va='center', ha='right', fontsize=9)
-            
+            ax.text(0.05, 0.5, f"rL={rL:.3f}\nnL={nL}", transform=ax.transAxes, va='center', ha='left', fontsize=11)
+            ax.text(0.95, 0.4, f"rR={rR:.3f}\nnR={nR}", transform=ax.transAxes, va='center', ha='right', fontsize=11)
             ax.set(title=title, xlabel=labels[0], ylabel=labels[1])
-            ax.grid(True, alpha=0.3)
+            ax.grid(True, alpha=0.2)
             
             if min_w is not None:
-                ax.axvline(-min_w, color='red', ls='--', lw=0.8, alpha=0.6)
-                ax.axvline(min_w, color='red', ls='--', lw=0.8, alpha=0.6)
-                mask0 = np.abs(x) <= min_w
-                n0 = np.sum(mask0)
-                # Plot n0 vertically shifted to left of red lines
+                for side in [-1, 1]: ax.axvline(side*min_w, color='red', ls='--', lw=0.8, alpha=0.6)
+                n0 = np.sum(np.abs(x) <= min_w)
                 ax.text(-4*min_w, 0.1, f"n0={n0}", color='red', transform=ax.get_xaxis_transform(),
-                        rotation='vertical', va='bottom', ha='center', fontsize=9)
+                        rotation='vertical', va='bottom', ha='center', fontsize=11)
 
-        # ── Panel 1: A_off correlation ────────────
-        ax = fig.add_subplot(1, 4, 1)
+        def add_resid_hist(ax, resid, title, color):
+            if len(resid) == 0:
+                ax.text(0.5, 0.5, "Empty", ha='center', va='center', transform=ax.transAxes)
+                return
+            med, std = np.median(resid), np.std(resid)
+            q25, q75 = np.percentile(resid, [25, 75])
+            ax.hist(resid, bins=30, color=color, alpha=0.5, density=True)
+            ax.axvline(0, color='k', ls='--', lw=1.0, alpha=0.8)
+            ax.axvline(q25, color='k', ls=':', lw=0.8, alpha=0.6)
+            ax.axvline(q75, color='k', ls=':', lw=0.8, alpha=0.6)
+            y_lim = ax.get_ylim()
+            y0 = (y_lim[0] + y_lim[1]) * 0.5
+            ax.errorbar(med, y0, xerr=std, fmt='ko', ms=8, elinewidth=2, capsize=4)
+            ax.text(0.05, 0.95, f"med={med:.3f}\nstd={std:.3f}", transform=ax.transAxes, fontsize=8, 
+                    va='top', bbox=dict(facecolor='white', alpha=0.7))
+            ax.set(title=title, xlabel="Residual (fit-true)")
+            ax.grid(True, alpha=0.2)
+
+        # ── Row 1: Correlations (span 2 columns each) ─────────────────
+        ax1 = fig.add_subplot(gs[0, 0:2])
         valid = np.abs(A_off_hat) >= minW
-        add_corr_ax(ax, A_off_true[valid], A_off_hat[valid],
-                    ["A_off_true", "A_off_hat"], f"$A_{{off}}$ fit, minW={minW:.2f}",
-                    min_w=minW, show_split=False, dot_color='green')
+        add_corr_ax(ax1, A_off_true[valid], A_off_hat[valid], ["A_off_true", "A_off_hat"], 
+                    f"$A_{{off}}$ fit, minW={minW:.2f}", min_w=minW, show_split=False, dot_color='green')
 
-        # ── Panel 2: A_diag correlation ───────────
-        ax = fig.add_subplot(1, 4, 2)
-        ax.scatter(A_diag_true, A_diag_hat, s=12, alpha=0.6, color='salmon', edgecolors='none')
-        # Center of gravity for A_diag
-        ax.plot(np.mean(A_diag_true), np.mean(A_diag_hat), 'k+', ms=12, mew=2)
-
+        ax2 = fig.add_subplot(gs[0, 2:4])
+        ax2.scatter(A_diag_true, A_diag_hat, s=12, alpha=0.6, color='salmon', edgecolors='none')
+        ax2.plot(np.mean(A_diag_true), np.mean(A_diag_hat), 'k+', ms=12, mew=2)
         r, n = get_corr_stats(A_diag_true, A_diag_hat)
         l, h = A_diag_true.min(), A_diag_true.max()
-        ax.plot([l, h], [l, h], 'k--', lw=0.8, alpha=0.7)
-        ax.set(title=f"A_diag fit, r={r:.3f}, n={n}", xlabel="A_diag_true", ylabel="A_diag_hat")
-        ax.grid(True, alpha=0.3)
+        ax2.plot([l, h], [l, h], 'k--', lw=0.8, alpha=0.7)
+        ax2.set(title=f"A_diag fit, r={r:.3f}, n={n}", xlabel="A_diag_true", ylabel="A_diag_hat")
+        ax2.grid(True, alpha=0.2)
 
-        # ── Panel 3: B correlation ─────────────────
-        ax = fig.add_subplot(1, 4, 3)
-        add_corr_ax(ax, B_true, B_hat, ["B_true", "B_hat"], "B fit", x_split=2.0, split_color='red', dot_color='blue')
+        ax3 = fig.add_subplot(gs[0, 4:6])
+        add_corr_ax(ax3, B_true, B_hat, ["B_true", "B_hat"], "B fit", x_split=B_div, show_split=True, dot_color='blue')
 
-        # ── Panel 4: Kappa comparison ──────────────
-        ax = fig.add_subplot(1, 4, 4)
+        ax4 = fig.add_subplot(gs[0, 6:8])
         kappa_hat = fitD.get("kappa_hat")
+        kappa_true = md.get("offdiag_kernel")
         if kappa_hat is not None:
             kappa_hat = np.asarray(kappa_hat)
             lags = np.arange(1, len(kappa_hat) + 1)
-            ax.step(lags, kappa_hat, where='post', color='tab:blue', label='kappa_fit', lw=2)
-            
-            # Truth kernel
-            kappa_true = md.get("offdiag_kernel")
+            ax4.step(lags, kappa_hat, where='post', color='tab:blue', label='kappa_fit', lw=2)
             if kappa_true is not None:
                 kappa_true = np.asarray(kappa_true)
                 lags_true = np.arange(1, len(kappa_true) + 1)
-                ax.step(lags_true, kappa_true, where='post', color='tab:red', linestyle='--', alpha=0.8, label='kappa_true', lw=1.5)
-
-                # Compute errors on overlapping part
+                ax4.step(lags_true, kappa_true, where='post', color='tab:red', linestyle='--', alpha=0.8, label='kappa_true', lw=1.5)
                 n_overlap = min(len(kappa_hat), len(kappa_true))
                 diff = np.abs(kappa_hat[:n_overlap] - kappa_true[:n_overlap])
-                sae = np.sum(diff)
-                mae = np.max(diff)
-                err_txt = f"sum abs err={sae:.3f}\nmax abs err={mae:.3f}"
-                ax.text(0.5, 0.98, err_txt, transform=ax.transAxes, fontsize=9, 
-                        fontweight='bold', color='tab:red', ha='center', va='top')
-                # Re-do legend to avoid overlap if needed, but 'best' should handle it
-
-            # Initial kernel
+                ax4.text(0.5, 0.98, f"sum abs err={np.sum(diff):.3f}\nmax abs err={np.max(diff):.3f}", 
+                         transform=ax4.transAxes, fontsize=9, fontweight='bold', color='tab:red', ha='center', va='top')
             kappa_init = fitD.get("kappa_init")
             if kappa_init is not None:
-                kappa_init = np.asarray(kappa_init)
-                ax.step(lags, kappa_init, where='post', color='black', linestyle=':', alpha=0.5, label='kappa_init')
-            
-            ax.legend(fontsize=8, loc='best')
-            ax.set(title=r"Temporal kernel $\kappa(\ell)$", xlabel=r"lag $\ell$", ylabel="weight")
-            ax.grid(True, alpha=0.3)
-            ax.axhline(0, color='k', lw=0.8, alpha=0.5)
-        else:
-            ax.text(0.5, 0.5, "No kappa data", ha='center', va='center', transform=ax.transAxes)
-            ax.axis('off')
+                ax4.step(lags, np.asarray(kappa_init), where='post', color='black', linestyle=':', alpha=0.5, label='kappa_init')
+            ax4.legend(fontsize=8, loc='best')
+            ax4.set(title=r"Temporal kernel $\kappa(\ell)$", xlabel=r"lag $\ell$", ylabel="weight")
+            ax4.grid(True, alpha=0.2)
+            ax4.axhline(0, color='k', lw=0.8, alpha=0.5)
 
-        fig.suptitle(f"Prism EM: {short_name}", fontsize=12)
-        fig.tight_layout(rect=[0, 0, 1, 0.95])
+        # ── Row 2: Diagnostic Row (8 cells total) ──────────────────────
+        # 1-3: Connectivity Residuals (A_off x2, A_diag) shifted left to col 0-2
+        resids_left = [
+            (A_off_hat[A_off_true < -minW] - A_off_true[A_off_true < -minW], "A_off (Inhib) resid", 'tab:blue'),
+            (A_off_hat[A_off_true > minW] - A_off_true[A_off_true > minW], "A_off (Excit) resid", 'tab:red'),
+            (A_diag_hat - A_diag_true, "A_diag residual", 'salmon'),
+        ]
+        for i, (res, tit, col) in enumerate(resids_left):
+            add_resid_hist(fig.add_subplot(gs[1, i]), res, tit, col)
+
+        # 4: Correctness plot (TP/FP/FN) for A_off
+        ax_acc = fig.add_subplot(gs[1, 3])
+        # Compute TP, FP, FN based on threshold minW for A_off
+        truth_mask = np.abs(A_off_true) > 1e-6    # True edges
+        fit_mask = np.abs(A_off_hat) >= minW      # Detected edges
+        TP = np.sum(truth_mask & fit_mask)
+        FP = np.sum(~truth_mask & fit_mask)
+        FN = np.sum(truth_mask & ~fit_mask)
+        
+        bars = ax_acc.bar(['TP', 'FP', 'FN'], [TP, FP, FN], color=['tab:green', 'tab:red', 'tab:gray'], alpha=0.7)
+        # Place counts at exactly half-height of the plot area, independent of bar height
+        ax_acc.set_ylim(bottom=0)
+        y_mid = 0.5 * (ax_acc.get_ylim()[0] + ax_acc.get_ylim()[1])
+        for i, val in enumerate([TP, FP, FN]):
+            ax_acc.text(i, y_mid, f"{val:d}", ha='center', va='center', fontsize=11, fontweight='bold', color='black')
+        ax_acc.set(title="A_off Edge Accuracy", ylabel="count")
+        ax_acc.grid(True, axis='y', alpha=0.2)
+
+        # 5-7: Remaining residuals (B x2, Kappa) shifted to col 4-6
+        resids_right = [
+            (B_hat[B_true < B_div] - B_true[B_true < B_div], f"B (Low < {B_div}) resid", 'tab:blue'),
+            (B_hat[B_true > B_div] - B_true[B_true > B_div], f"B (High > {B_div}) resid", 'tab:red'),
+        ]
+        for i, (res, tit, col) in enumerate(resids_right):
+            add_resid_hist(fig.add_subplot(gs[1, i+4]), res, tit, col)
+
+        if kappa_hat is not None and kappa_true is not None:
+            n_overlap = min(len(kappa_hat), len(kappa_true))
+            k_res = kappa_hat[:n_overlap] - kappa_true[:n_overlap]
+            add_resid_hist(fig.add_subplot(gs[1, 6]), k_res, "Kappa residual", 'tab:green')
+        
+        fig.suptitle(f"Prism EM Diagnostics: {short_name}", fontsize=14)
+
 
     def state_init_prismEM(self, fitD, md, figId=2, time_reb=20):
         """Two-panel plot: initialization vs truth state trajectories."""
