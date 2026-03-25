@@ -28,6 +28,11 @@ import time
 import math
 import secrets
 import argparse
+import logging # Added by user instruction
+
+# Suppress annoying torch.compile profiler warnings
+logging.getLogger('torch._logging').setLevel(logging.ERROR) # Added by user instruction
+
 from pprint import pprint
 
 import numpy as np
@@ -119,7 +124,7 @@ def compute_S(Y_hist, kappa):
     return (Y_hist * kappa[None, :, None]).sum(dim=1)  # (batch, N)
 
 
-def compute_eta(Y_prev, S, A_diag, A_off, B, mu_Y=None):
+def compute_eta(Y_prev, S, A_diag, A_off, B):
     """Compute log-rate eta for all samples.
 
     Args:
@@ -128,15 +133,12 @@ def compute_eta(Y_prev, S, A_diag, A_off, B, mu_Y=None):
         A_diag: (N,)
         A_off:  (N, N) — zeros on diagonal
         B:      (N,)
-        mu_Y:   (N,) optional — per-neuron mean for centering Y_prev
 
     Returns:
         eta: (batch, N)
     """
-    # Center Y_prev if mu_Y provided (breaks A_diag <-> B coupling)
-    Y_c = (Y_prev - mu_Y[None, :]) if mu_Y is not None else Y_prev
-    # diagonal contribution: A_diag_i * (Y_{t-1,i} - mu_i)
-    diag_term = Y_c * A_diag[None, :]  # (batch, N)
+    # diagonal contribution: A_diag_i * Y_{t-1,i}
+    diag_term = Y_prev * A_diag[None, :]  # (batch, N)
     # off-diagonal contribution: (A_off @ S^T)^T = S @ A_off^T
     off_term = S @ A_off.t()  # (batch, N)
     return diag_term + off_term + B[None, :]
@@ -193,7 +195,7 @@ def build_spike_history(spikes_np, M_cut, stride=1, offset=0):
 def run_block1_kernel_update(
     Y_hist_gpu, Y_curr_gpu, A_diag, A_off, B,
     kappa, dt, eta_clip, lambda2, lr_kappa, n_iter, M_cut,
-    rank, world_size, mu_Y=None
+    rank, world_size
 ):
     """Update kappa[1:] by gradient descent on Poisson NLL + smoothness penalty.
 
@@ -236,7 +238,7 @@ def run_block1_kernel_update(
         # Forward pass
         S = compute_S(Y_hist_gpu, kappa_full)
         Y_prev = Y_hist_gpu[:, 0, :]  # most recent frame
-        eta = compute_eta(Y_prev, S, A_diag, A_off, B, mu_Y=mu_Y)
+        eta = compute_eta(Y_prev, S, A_diag, A_off, B)
         mu, eta_c = compute_mu(eta, eta_clip, dt)
 
         # Poisson NLL (local, unnormalized)
@@ -281,19 +283,14 @@ def run_block1_kernel_update(
 # ═══════════════════════════════════════════════════════════════════════
 
 class NetworkModel(torch.nn.Module):
-    """Wraps A_diag, A_off, B as learnable parameters for Adam.
+    """Wraps A_diag, A_off, B as learnable parameters for Adam."""
 
-    Stores mu_Y (per-neuron mean of Y_prev) as a buffer for centering,
-    which breaks the A_diag <-> B coupling.
-    """
-
-    def __init__(self, N, A_diag_init, A_off_init, B_init, mu_Y):
+    def __init__(self, N, A_diag_init, A_off_init, B_init):
         super().__init__()
         self.N = N
         self.A_diag = torch.nn.Parameter(A_diag_init.clone())
         self.A_off = torch.nn.Parameter(A_off_init.clone())
         self.B = torch.nn.Parameter(B_init.clone())
-        self.register_buffer('mu_Y', mu_Y.clone())  # not trainable
 
     def forward(self, Y_prev, S, dt, eta_clip):
         """
@@ -308,8 +305,7 @@ class NetworkModel(torch.nn.Module):
         """
         # Zero out diagonal of A_off during forward
         A_off_masked = self.A_off * (1.0 - torch.eye(self.N, device=self.A_off.device))
-        eta = compute_eta(Y_prev, S, self.A_diag, A_off_masked, self.B,
-                          mu_Y=self.mu_Y)
+        eta = compute_eta(Y_prev, S, self.A_diag, A_off_masked, self.B)
         mu, eta_c = compute_mu(eta, eta_clip, dt)
         return mu, eta_c
 
@@ -640,6 +636,7 @@ def main():
 
     t_start = time.time()
     b2_epoch_global = 0
+    curr_lr_kappa = args.lr_kappa
 
     # ══════════════════════════════════════════════════════════════
     #  EM loop
@@ -647,6 +644,20 @@ def main():
     for em in range(1, args.num_em_iters + 1):
         apply_prune = em > args.delay_em_iter_4_Aprune
         apply_rho = em > args.delay_em_iter_4_ArhoMax
+
+        # Update lr_kappa using same LinearLR schedule logic
+        if em > args.delay_em_iter_4_lrDecay:
+            # Fraction into the decay period (0 to 1)
+            total_decay_steps = args.num_em_iters - args.delay_em_iter_4_lrDecay
+            step_in_decay = em - args.delay_em_iter_4_lrDecay
+            factor = 1.0 - (1.0 - args.lr_end_factor) * (step_in_decay / total_decay_steps)
+            curr_lr_kappa = args.lr_kappa * factor
+
+        if is_rank0(rank):
+            print(f"\nEM {em:3d}/{args.num_em_iters:d}  "
+                  f"lr_kappa={curr_lr_kappa:.2e}  "
+                  f"lr_net={optimizer.param_groups[0]['lr']:.2e}  "
+                  f"prune={apply_prune}  rho={apply_rho}")
 
         # ── Block 1: kernel update ───────────────────────────────
         tb1_start = time.time()
@@ -663,7 +674,7 @@ def main():
             Y_hist_gpu, Y_curr_gpu,
             A_diag_fixed, A_off_fixed, B_fixed,
             kappa, dt, eta_clip, args.lambda2,
-            args.lr_kappa, args.block1_iter, M_cut,
+            curr_lr_kappa, args.block1_iter, M_cut,
             rank, world_size
         )
         tb1 = time.time() - tb1_start
@@ -854,7 +865,7 @@ def main():
         write_data_npz(outD, outFF, metaD=outMD)
         print(f"\nSaved: {outFF}")
         print(f"  basePath={args.basePath}")
-        print(f"  ./memKern_EM_eval4.py --basePath {args.basePath} --dataName {outF} -p a b \n")
+        print(f"  ./memKern_EM_eval4.py --basePath {args.basePath} --dataName {outF} -p  b a \n")
 
     cleanup_distributed()
 

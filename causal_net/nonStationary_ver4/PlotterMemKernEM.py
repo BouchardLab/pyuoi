@@ -204,9 +204,9 @@ class Plotter(PlotterBackbone):
         fig.tight_layout(rect=[0, 0, 1, 0.95])
 
     def correl_fit_truth(self, fitD, md, figId=2):
-        """Correlation plots for A_off, A_diag, and B compared to truth."""
+        """Correlation plots for A_off, A_diag, B, and kappa compared to truth."""
         figId = self.smart_append(figId)
-        fig = self.plt.figure(figId, facecolor='white', figsize=(13.5, 4.5))
+        fig = self.plt.figure(figId, facecolor='white', figsize=(18.0, 4.5))
         fig.subplots_adjust(wspace=0.35, bottom=0.15, top=0.85)
 
         short_name = md["short_name"]
@@ -254,6 +254,12 @@ class Plotter(PlotterBackbone):
             maskR = (x > x_split)
             rL, nL = get_corr_stats(x[maskL], y[maskL])
             rR, nR = get_corr_stats(x[maskR], y[maskR])
+
+            # Center of gravity (black crosses)
+            if nL > 0:
+                ax.plot(np.mean(x[maskL]), np.mean(y[maskL]), 'k+', ms=12, mew=2)
+            if nR > 0:
+                ax.plot(np.mean(x[maskR]), np.mean(y[maskR]), 'k+', ms=12, mew=2)
             
             # Left/Right stats
             txtL = "rL=%.3f\nnL=%d" % (rL, nL)
@@ -274,15 +280,18 @@ class Plotter(PlotterBackbone):
                         rotation='vertical', va='bottom', ha='center', fontsize=9)
 
         # ── Panel 1: A_off correlation ────────────
-        ax = fig.add_subplot(1, 3, 1)
+        ax = fig.add_subplot(1, 4, 1)
         valid = np.abs(A_off_hat) >= minW
         add_corr_ax(ax, A_off_true[valid], A_off_hat[valid],
-                    ["A_off_true", "A_off_hat"], f"$A_{{off}}$ fit, minW={minW:.2f}", 
+                    ["A_off_true", "A_off_hat"], f"$A_{{off}}$ fit, minW={minW:.2f}",
                     min_w=minW, show_split=False, dot_color='green')
 
         # ── Panel 2: A_diag correlation ───────────
-        ax = fig.add_subplot(1, 3, 2)
+        ax = fig.add_subplot(1, 4, 2)
         ax.scatter(A_diag_true, A_diag_hat, s=12, alpha=0.6, color='salmon', edgecolors='none')
+        # Center of gravity for A_diag
+        ax.plot(np.mean(A_diag_true), np.mean(A_diag_hat), 'k+', ms=12, mew=2)
+
         r, n = get_corr_stats(A_diag_true, A_diag_hat)
         l, h = A_diag_true.min(), A_diag_true.max()
         ax.plot([l, h], [l, h], 'k--', lw=0.8, alpha=0.7)
@@ -290,8 +299,47 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.3)
 
         # ── Panel 3: B correlation ─────────────────
-        ax = fig.add_subplot(1, 3, 3)
+        ax = fig.add_subplot(1, 4, 3)
         add_corr_ax(ax, B_true, B_hat, ["B_true", "B_hat"], "B fit", x_split=2.0, split_color='red', dot_color='blue')
+
+        # ── Panel 4: Kappa comparison ──────────────
+        ax = fig.add_subplot(1, 4, 4)
+        kappa_hat = fitD.get("kappa_hat")
+        if kappa_hat is not None:
+            kappa_hat = np.asarray(kappa_hat)
+            lags = np.arange(1, len(kappa_hat) + 1)
+            ax.step(lags, kappa_hat, where='post', color='tab:blue', label='kappa_fit', lw=2)
+            
+            # Truth kernel
+            kappa_true = md.get("offdiag_kernel")
+            if kappa_true is not None:
+                kappa_true = np.asarray(kappa_true)
+                lags_true = np.arange(1, len(kappa_true) + 1)
+                ax.step(lags_true, kappa_true, where='post', color='tab:red', linestyle='--', alpha=0.8, label='kappa_true', lw=1.5)
+
+                # Compute errors on overlapping part
+                n_overlap = min(len(kappa_hat), len(kappa_true))
+                diff = np.abs(kappa_hat[:n_overlap] - kappa_true[:n_overlap])
+                sae = np.sum(diff)
+                mae = np.max(diff)
+                err_txt = f"sum abs err={sae:.3f}\nmax abs err={mae:.3f}"
+                ax.text(0.5, 0.98, err_txt, transform=ax.transAxes, fontsize=9, 
+                        fontweight='bold', color='tab:red', ha='center', va='top')
+                # Re-do legend to avoid overlap if needed, but 'best' should handle it
+
+            # Initial kernel
+            kappa_init = fitD.get("kappa_init")
+            if kappa_init is not None:
+                kappa_init = np.asarray(kappa_init)
+                ax.step(lags, kappa_init, where='post', color='black', linestyle=':', alpha=0.5, label='kappa_init')
+            
+            ax.legend(fontsize=8, loc='best')
+            ax.set(title=r"Temporal kernel $\kappa(\ell)$", xlabel=r"lag $\ell$", ylabel="weight")
+            ax.grid(True, alpha=0.3)
+            ax.axhline(0, color='k', lw=0.8, alpha=0.5)
+        else:
+            ax.text(0.5, 0.5, "No kappa data", ha='center', va='center', transform=ax.transAxes)
+            ax.axis('off')
 
         fig.suptitle(f"Prism EM: {short_name}", fontsize=12)
         fig.tight_layout(rect=[0, 0, 1, 0.95])

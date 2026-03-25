@@ -397,6 +397,7 @@ def gen_nonstationary_lagM_modelB_poisson(
 
     if verb > 0:
         print("Starting main simulation loop...")
+    t_start = time.time()
     for t in range(1, num_steps):
         S = np.zeros(d, dtype=np.float64)
         for ell in range(1, mem_lag_steps + 1):
@@ -416,7 +417,8 @@ def gen_nonstationary_lagM_modelB_poisson(
             )
 
         if verb > 0 and t % (num_steps // 4) == 0:
-            print(f"  Progress: {t}/{num_steps} steps ({t/num_steps*100:.1f}%) -  total spikes in this step: {np.sum(Y[t])}")
+            ela_t = time.time() - t_start
+            print(f"  Progress: {t}/{num_steps} steps ({t/num_steps*100:.1f}%) -  total spikes in this step: {np.sum(Y[t])}  elaT={ela_t:.1f}s")
 
     if verb > 0:
         print(f"Simulation complete. Final state: total spikes={np.sum(Y[-1])}")

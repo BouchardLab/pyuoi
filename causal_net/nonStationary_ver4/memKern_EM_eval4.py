@@ -207,6 +207,7 @@ def main():
     MD["A_diag_true"] = trueD["A_diag_true"]
     MD["B_true"] = trueD["B_true"]
     MD["E_true"] = trueD["E_true"]
+    MD["offdiag_kernel"] = trueD["offdiag_kernel"]
     MD["A_true"] = MD["A_off_true"] + np.diag(MD["A_diag_true"])
     MD["eval_f"] = eval_em_metrics_time(fitD, MD, spikes)
     
