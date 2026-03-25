@@ -210,17 +210,22 @@ class Plotter(PlotterBackbone):
         fig.subplots_adjust(wspace=0.35, bottom=0.15, top=0.85)
 
         short_name = md["short_name"]
-        A_true = md.get("A_true")
-        if A_true is None:
-             print("correl_fit_truth: missing A_true, skipping")
-             return
+        A_off_true = md.get("A_off_true")
+        A_diag_true = md.get("A_diag_true")
         
-        N = A_true.shape[0]
-        diag_mask = np.eye(N, dtype=bool)
-        A_diag_true = A_true[diag_mask]
-        A_off_true = A_true[~diag_mask]
+        if A_off_true is None:
+             print("correl_fit_truth: missing truth A_off_true, skipping")
+             return
 
+        # If it was saved as (N,N), we still need to mask it
+        if A_off_true.ndim == 2:
+            N = A_off_true.shape[0]
+            diag_mask = np.eye(N, dtype=bool)
+            A_off_true = A_off_true[~diag_mask]
+        
         A_off_hat_full = np.asarray(fitD.get("A_off_hat"))
+        N = A_off_hat_full.shape[0]
+        diag_mask = np.eye(N, dtype=bool)
         A_off_hat = A_off_hat_full[~diag_mask]
         A_diag_hat = np.asarray(fitD.get("A_diag_hat"))
         B_true = md.get("B_true")
@@ -264,14 +269,15 @@ class Plotter(PlotterBackbone):
                 ax.axvline(min_w, color='red', ls='--', lw=0.8, alpha=0.6)
                 mask0 = np.abs(x) <= min_w
                 n0 = np.sum(mask0)
-                # Plot n0 vertically between the red lines at 10% height
-                ax.text(0, 0.1, f"n0={n0}", color='red', transform=ax.get_xaxis_transform(),
+                # Plot n0 vertically shifted to left of red lines
+                ax.text(-4*min_w, 0.1, f"n0={n0}", color='red', transform=ax.get_xaxis_transform(),
                         rotation='vertical', va='bottom', ha='center', fontsize=9)
 
         # ── Panel 1: A_off correlation ────────────
         ax = fig.add_subplot(1, 3, 1)
-        add_corr_ax(ax, A_off_true, A_off_hat,
-                    ["A_off_true", "A_off_hat"], "$A_{off}$ fit", 
+        valid = np.abs(A_off_hat) >= minW
+        add_corr_ax(ax, A_off_true[valid], A_off_hat[valid],
+                    ["A_off_true", "A_off_hat"], f"$A_{{off}}$ fit, minW={minW:.2f}", 
                     min_w=minW, show_split=False, dot_color='green')
 
         # ── Panel 2: A_diag correlation ───────────

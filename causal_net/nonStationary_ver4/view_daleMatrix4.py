@@ -84,7 +84,7 @@ if __name__ == "__main__":
     print(f"\nSpectral radius: R={R_sel:.3f}")
 
     trueD_r = {
-        "A_true": trueD["A_true"],
+        "A_true": trueD["A_off_true"] + np.diag(trueD["A_diag_true"]),
         "B_true": trueD["B_true"],
         "E_true": trueD["E_true"],
         "node_is_inhibitory": trueD["node_is_inhibitory"],

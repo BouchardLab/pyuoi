@@ -515,7 +515,6 @@ def main():
     assert args.idleRate[0] >= 0.5
     assert args.idleRate[1] > args.idleRate[0]
 
-    verb = args.verb
     print(f"\n{'='*60}")
     print(f"  Spectral radius: R={args.spectral_radius:.3f}")
     print(f"{'='*60}")
@@ -532,13 +531,13 @@ def main():
         weight_var=args.weight_var,
         R=args.spectral_radius,
         rng=rng,
-        verb=verb,
+        verb=args.verb,
     )
 
-    if verb > 0:
-        summarize_pairwise_distances(D_mat, verb=verb)
+    if args.verb > 0:
+        summarize_pairwise_distances(D_mat, verb=1)
 
-    if verb > 0:
+    if args.verb > 0:
         total_connections = A_dale.size
         zero_connections = np.sum(np.abs(A_dale) < 1e-10)
         non_zero_connections = total_connections - zero_connections
@@ -602,7 +601,7 @@ def main():
             B_intercept=B_true,
             tau=tau,
             eta_clip=args.poisson_eta_clip,
-            verb=verb,
+            verb=args.verb,
         )
     else:
         Y = gen_nonstationary_lagM_modelB_poisson(
@@ -615,7 +614,7 @@ def main():
             mem_Q=mem_Q,
             eta_clip=args.poisson_eta_clip,
             h_off=offdiag_kernel,
-            verb=verb,
+            verb=args.verb,
 
         )
     sim_time = time.time() - start_time
@@ -635,9 +634,13 @@ def main():
     stats_dict["max_samples"] = int(max_samples)
 
     Y_u8 = np.clip(Y, 0, 255).astype(np.uint8)
+    A_off_true = A_dale.copy()
+    np.fill_diagonal(A_off_true, 0.0)
+    A_diag_true = np.diag(A_dale).copy()
 
     trueD = {
-        "A_true": A_dale,
+        "A_diag_true": A_diag_true,
+        "A_off_true": A_off_true,
         "B_true": B_true,
         "E_true": E_true,
         "node_positions": P_pos,
@@ -647,11 +650,26 @@ def main():
     if args.spike_model == "B":
         trueD["offdiag_kernel"] = offdiag_kernel
 
+    # Compute max spikes per neuron across all bins
+    max_spikes_per_neuron = Y.max(axis=0)
+    sp_min = float(max_spikes_per_neuron.min())
+    sp_avg = float(max_spikes_per_neuron.mean())
+    sp_max = float(max_spikes_per_neuron.max())
+    sp_pc = np.percentile(max_spikes_per_neuron, [25, 50, 75]).tolist()
+
+    if args.verb > 0:
+        print(f"\nSpike count statistics (max per neuron over all bins):")
+        print(f"  min: {sp_min:.1f}, avg: {sp_avg:.1f}, max: {sp_max:.1f}")
+        print(f"  percentiles [25, 50, 75]: {sp_pc}")
+
     trueMD = {
         "dale_conf": dale_conf,
         "evol_conf": evol_conf,
         "short_name": args.dataName,
         "provenance": {"state_model_file": args.dataName},
+        "max_spike_stats": {
+            "min": sp_min, "avg": sp_avg, "max": sp_max, "percentiles": sp_pc
+        }
     }
 
     spikeD = {

@@ -197,13 +197,18 @@ def main():
     trueFF = os.path.join(args.basePath, "truthDale", f"{trueF}.simTruth.npz")
     trueD, trueMD = read_data_npz(trueFF, verb=args.verb > 1)
     if args.verb > 1:  pprint(trueMD)
+    
+    has_truth = False
     for xx in [ 'dale_conf', 'evol_conf']:
         MD[xx]=trueMD[xx]
-    MD["A_true"] = trueD["A_true"]
+    
+    
+    MD["A_off_true"] = trueD["A_off_true"]
+    MD["A_diag_true"] = trueD["A_diag_true"]
     MD["B_true"] = trueD["B_true"]
     MD["E_true"] = trueD["E_true"]
-  
-    #MD["eval_f"] = eval_em_metrics_time(fitD, MD, spikes)
+    MD["A_true"] = MD["A_off_true"] + np.diag(MD["A_diag_true"])
+    MD["eval_f"] = eval_em_metrics_time(fitD, MD, spikes)
     
     #MD["short_name"] = args.dataName
 
