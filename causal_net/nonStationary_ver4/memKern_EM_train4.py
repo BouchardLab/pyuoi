@@ -35,7 +35,6 @@ import torch
 import torch.optim as optim
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data import Dataset, DataLoader
 
 from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
 
@@ -120,7 +119,7 @@ def compute_S(Y_hist, kappa):
     return (Y_hist * kappa[None, :, None]).sum(dim=1)  # (batch, N)
 
 
-def compute_eta(Y_prev, S, A_diag, A_off, B):
+def compute_eta(Y_prev, S, A_diag, A_off, B, mu_Y=None):
     """Compute log-rate eta for all samples.
 
     Args:
@@ -129,12 +128,15 @@ def compute_eta(Y_prev, S, A_diag, A_off, B):
         A_diag: (N,)
         A_off:  (N, N) — zeros on diagonal
         B:      (N,)
+        mu_Y:   (N,) optional — per-neuron mean for centering Y_prev
 
     Returns:
         eta: (batch, N)
     """
-    # diagonal contribution: A_diag_i * Y_{t-1,i}
-    diag_term = Y_prev * A_diag[None, :]  # (batch, N)
+    # Center Y_prev if mu_Y provided (breaks A_diag <-> B coupling)
+    Y_c = (Y_prev - mu_Y[None, :]) if mu_Y is not None else Y_prev
+    # diagonal contribution: A_diag_i * (Y_{t-1,i} - mu_i)
+    diag_term = Y_c * A_diag[None, :]  # (batch, N)
     # off-diagonal contribution: (A_off @ S^T)^T = S @ A_off^T
     off_term = S @ A_off.t()  # (batch, N)
     return diag_term + off_term + B[None, :]
@@ -155,44 +157,33 @@ def poisson_nll(mu, eta_c, Y_curr, log_dt):
 #  Dataset: (Y_hist, Y_curr) pairs
 # ═══════════════════════════════════════════════════════════════════════
 
-class SpikeHistoryDataset(Dataset):
-    """Each sample: M_cut history frames + 1 target frame.
+def build_spike_history(spikes_np, M_cut, stride=1, offset=0):
+    """Build (Y_hist, Y_curr) arrays from spike data — fully vectorized.
 
-    self.Y_hist: (N_samples, M_cut, N) — history window
-    self.Y_curr: (N_samples, N) — target spike counts
+    Args:
+        spikes_np: (T, N) int array of spike counts
+        M_cut: history depth
+        stride: sliding window step
+        offset: starting offset for this rank's samples
+
+    Returns:
+        Y_hist: (N_samples, M_cut, N) float32
+        Y_curr: (N_samples, N) float32
     """
+    T, N = spikes_np.shape
+    # indices of the 'current' time bin for each sample
+    t_indices = np.arange(M_cut + offset, T, stride)
+    n_samples = len(t_indices)
 
-    def __init__(self, spikes_np, M_cut, stride=1, offset=0):
-        """
-        Args:
-            spikes_np: (T, N) int array of spike counts
-            M_cut: history depth
-            stride: sliding window step
-            offset: starting offset for this rank's samples
-        """
-        T, N = spikes_np.shape
-        # indices of the 'current' time bin for each sample
-        t_indices = np.arange(M_cut + offset, T, stride)
-        n_samples = len(t_indices)
+    # Vectorized: build lag indices (n_samples, M_cut)
+    # lag_indices[i, ell] = t_indices[i] - 1 - ell
+    lag_offsets = np.arange(M_cut)  # [0, 1, ..., M_cut-1]
+    lag_indices = t_indices[:, None] - 1 - lag_offsets[None, :]  # (n_samples, M_cut)
 
-        # Build history windows
-        self.Y_hist = np.zeros((n_samples, M_cut, N), dtype=np.float32)
-        self.Y_curr = np.zeros((n_samples, N), dtype=np.float32)
-
-        for i, t_out in enumerate(t_indices):
-            # history is [Y_{t_out-1}, Y_{t_out-2}, ..., Y_{t_out-M_cut}]
-            for ell in range(M_cut):
-                self.Y_hist[i, ell, :] = spikes_np[t_out - 1 - ell, :]
-            self.Y_curr[i, :] = spikes_np[t_out, :]
-
-    def __len__(self):
-        return self.Y_hist.shape[0]
-
-    def __getitem__(self, idx):
-        return (
-            torch.from_numpy(self.Y_hist[idx]),
-            torch.from_numpy(self.Y_curr[idx]),
-        )
+    # Advanced indexing: gather all history windows at once
+    Y_hist = spikes_np[lag_indices].astype(np.float32)  # (n_samples, M_cut, N)
+    Y_curr = spikes_np[t_indices].astype(np.float32)    # (n_samples, N)
+    return Y_hist, Y_curr
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -202,7 +193,7 @@ class SpikeHistoryDataset(Dataset):
 def run_block1_kernel_update(
     Y_hist_gpu, Y_curr_gpu, A_diag, A_off, B,
     kappa, dt, eta_clip, lambda2, lr_kappa, n_iter, M_cut,
-    rank, world_size
+    rank, world_size, mu_Y=None
 ):
     """Update kappa[1:] by gradient descent on Poisson NLL + smoothness penalty.
 
@@ -245,7 +236,7 @@ def run_block1_kernel_update(
         # Forward pass
         S = compute_S(Y_hist_gpu, kappa_full)
         Y_prev = Y_hist_gpu[:, 0, :]  # most recent frame
-        eta = compute_eta(Y_prev, S, A_diag, A_off, B)
+        eta = compute_eta(Y_prev, S, A_diag, A_off, B, mu_Y=mu_Y)
         mu, eta_c = compute_mu(eta, eta_clip, dt)
 
         # Poisson NLL (local, unnormalized)
@@ -290,14 +281,19 @@ def run_block1_kernel_update(
 # ═══════════════════════════════════════════════════════════════════════
 
 class NetworkModel(torch.nn.Module):
-    """Wraps A_diag, A_off, B as learnable parameters for Adam."""
+    """Wraps A_diag, A_off, B as learnable parameters for Adam.
 
-    def __init__(self, N, A_diag_init, A_off_init, B_init):
+    Stores mu_Y (per-neuron mean of Y_prev) as a buffer for centering,
+    which breaks the A_diag <-> B coupling.
+    """
+
+    def __init__(self, N, A_diag_init, A_off_init, B_init, mu_Y):
         super().__init__()
         self.N = N
         self.A_diag = torch.nn.Parameter(A_diag_init.clone())
         self.A_off = torch.nn.Parameter(A_off_init.clone())
         self.B = torch.nn.Parameter(B_init.clone())
+        self.register_buffer('mu_Y', mu_Y.clone())  # not trainable
 
     def forward(self, Y_prev, S, dt, eta_clip):
         """
@@ -312,7 +308,8 @@ class NetworkModel(torch.nn.Module):
         """
         # Zero out diagonal of A_off during forward
         A_off_masked = self.A_off * (1.0 - torch.eye(self.N, device=self.A_off.device))
-        eta = compute_eta(Y_prev, S, self.A_diag, A_off_masked, self.B)
+        eta = compute_eta(Y_prev, S, self.A_diag, A_off_masked, self.B,
+                          mu_Y=self.mu_Y)
         mu, eta_c = compute_mu(eta, eta_clip, dt)
         return mu, eta_c
 
@@ -354,36 +351,34 @@ def offdiag_soft_threshold_(A_off, lr, lam, N):
 #  Initialization helpers
 # ═══════════════════════════════════════════════════════════════════════
 
-def init_A_diag_from_spikes(spikes, dt):
+def init_A_diag_from_spikes(N, dt):
     """Initialize A_diag with random values in range [-0.5, -0.15]."""
-    T, N = spikes.shape
     return np.random.uniform(-0.5, -0.15, size=N).astype(np.float32)
 
 
-def init_A_off_from_spikes(spikes, dt):
-    """Initialize A_off from lag-1 cross-correlations, zeros on diagonal."""
-    T, N = spikes.shape
-    Y0 = spikes[:-1].astype(np.float64)
-    Y1 = spikes[1:].astype(np.float64)
-    # Standardize
-    m0 = Y0.mean(axis=0, keepdims=True)
-    s0 = Y0.std(axis=0, keepdims=True) + 1e-8
-    m1 = Y1.mean(axis=0, keepdims=True)
-    s1 = Y1.std(axis=0, keepdims=True) + 1e-8
+def init_A_off_from_spikes(Y_hist_gpu, Y_curr_gpu):
+    """Initialize A_off from lag-1 cross-correlations on GPU, zeros on diagonal."""
+    # Y_hist_gpu[:, 0, :] is Y_{t-1}, Y_curr_gpu is Y_t
+    Y0 = Y_hist_gpu[:, 0, :].double()  # (n_samples, N)
+    Y1 = Y_curr_gpu.double()
+    n = Y0.shape[0]
+    m0 = Y0.mean(dim=0, keepdim=True)
+    s0 = Y0.std(dim=0, keepdim=True) + 1e-8
+    m1 = Y1.mean(dim=0, keepdim=True)
+    s1 = Y1.std(dim=0, keepdim=True) + 1e-8
     Z0 = (Y0 - m0) / s0
     Z1 = (Y1 - m1) / s1
-    C = (Z0.T @ Z1) / (T - 1)  # (N, N)
-    A_off = (C * 0.1).astype(np.float32)
+    C = (Z0.t() @ Z1) / n  # (N, N) on GPU
+    A_off = (C * 0.1).float().cpu().numpy()
     np.fill_diagonal(A_off, 0.0)
     return A_off
 
 
-def init_B_from_spikes(spikes, dt):
-    """Initialize B from mean log firing rates."""
-    T, N = spikes.shape
-    mean_rate = spikes.mean(axis=0).astype(np.float64) / dt
-    mean_rate = np.clip(mean_rate, 1e-6, None)
-    B = np.log(mean_rate).astype(np.float32)
+def init_B_from_spikes(Y_curr_gpu, dt):
+    """Initialize B from mean log firing rates using GPU data."""
+    mean_rate = Y_curr_gpu.double().mean(dim=0) / dt
+    mean_rate = mean_rate.clamp(min=1e-6)
+    B = mean_rate.log().float().cpu().numpy()
     return B
 
 
@@ -548,18 +543,18 @@ def main():
               f"dt={dt}  eta_clip={eta_clip}")
         print(f"time=[{t0_sec:.1f}, {t1_sec:.1f}]s  bins=[{start_bin}, {end_bin}]")
 
-    # ── Build dataset and DataLoader ─────────────────────────────
+    # ── Build dataset (vectorized, GPU-resident) ─────────────────
     # Each rank gets non-overlapping samples:
     # rank r sees samples at t_indices starting at M_cut + r*stride,
     # stepping by stride*world_size
     effective_stride = args.sample_stride * world_size
     rank_offset = rank * args.sample_stride
-    dataset = SpikeHistoryDataset(spikes, M_cut,
-                                  stride=effective_stride,
-                                  offset=rank_offset)
-    N_samples_local = len(dataset)
+    t_build = time.time()
+    Y_hist_np, Y_curr_np = build_spike_history(
+        spikes, M_cut, stride=effective_stride, offset=rank_offset
+    )
+    N_samples_local = Y_hist_np.shape[0]
 
-    # Clip to make divisible by world_size (approximately equal across ranks)
     # All ranks compute total
     n_total_t = torch.tensor(float(N_samples_local), device=device)
     if dist.is_initialized():
@@ -569,21 +564,18 @@ def main():
     if is_rank0(rank):
         print(f"N_samples_total={N_samples_total}  per_rank={N_samples_local}  "
               f"stride={args.sample_stride}  world_size={world_size}  "
-              f"effective_stride={effective_stride}")
+              f"effective_stride={effective_stride}  build={time.time()-t_build:.1f}s")
 
-    loader = DataLoader(
-        dataset, batch_size=args.batch_size, shuffle=True,
-        drop_last=False, pin_memory=True, num_workers=0
-    )
-
-    # Preload full dataset to GPU for Block 1 (kernel update uses all data)
-    Y_hist_full_gpu = torch.tensor(dataset.Y_hist, dtype=torch.float32, device=device)
-    Y_curr_full_gpu = torch.tensor(dataset.Y_curr, dtype=torch.float32, device=device)
+    # Move entire dataset to GPU — no DataLoader needed
+    Y_hist_gpu = torch.tensor(Y_hist_np, dtype=torch.float32, device=device)
+    Y_curr_gpu = torch.tensor(Y_curr_np, dtype=torch.float32, device=device)
+    del Y_hist_np, Y_curr_np  # free CPU memory
 
     # ── Initialize parameters (same on all ranks via same np seed) ─
-    A_diag_init = init_A_diag_from_spikes(spikes, dt)
-    A_off_init = init_A_off_from_spikes(spikes, dt)
-    B_init = init_B_from_spikes(spikes, dt)
+    del spikes  # free CPU memory, no longer needed
+    A_diag_init = init_A_diag_from_spikes(N, dt)
+    A_off_init = init_A_off_from_spikes(Y_hist_gpu, Y_curr_gpu)
+    B_init = init_B_from_spikes(Y_curr_gpu, dt)
     kappa_init = init_kappa_damped_oscillator(M_cut)
 
     if is_rank0(rank):
@@ -615,6 +607,9 @@ def main():
         ddp_model = net_model
     # Access underlying model for parameter projections
     raw_model = ddp_model.module if world_size > 1 else ddp_model
+
+    # Compile for kernel fusion (reduces launch overhead for small ops)
+    ddp_model = torch.compile(ddp_model)
 
     # Optimizer and scheduler for Block 2
     total_b2_epochs = args.num_em_iters * args.block2_epochs
@@ -665,7 +660,7 @@ def main():
             B_fixed = raw_model.B.data.clone()
 
         kappa, b1_nll = run_block1_kernel_update(
-            Y_hist_full_gpu, Y_curr_full_gpu,
+            Y_hist_gpu, Y_curr_gpu,
             A_diag_fixed, A_off_fixed, B_fixed,
             kappa, dt, eta_clip, args.lambda2,
             args.lr_kappa, args.block1_iter, M_cut,
@@ -678,27 +673,38 @@ def main():
         # ── Block 2: network update ──────────────────────────────
         tb2_start = time.time()
 
-        # Fix kappa for this block
+        # Fix kappa for this block — precompute S and Y_prev ONCE
         kappa_fixed = kappa.detach().clone()
+        with torch.no_grad():
+            S_full = compute_S(Y_hist_gpu, kappa_fixed)       # (N_local, N)
+            Y_prev_full = Y_hist_gpu[:, 0, :].contiguous()    # (N_local, N)
+
+        BS = args.batch_size
+        n_batches = (N_samples_local + BS - 1) // BS
+        log_dt = math.log(dt)
 
         for ep in range(args.block2_epochs):
             b2_epoch_global += 1
-            s_nll = 0.0
-            s_l1 = 0.0
-            s_loss = 0.0
-            n_batches = 0
-            log_dt = math.log(dt)
+            # Accumulate losses on GPU to avoid CPU-GPU sync per batch
+            acc_nll = torch.tensor(0.0, device=device)
+            acc_l1 = torch.tensor(0.0, device=device)
+            acc_loss = torch.tensor(0.0, device=device)
 
-            for bi, (Y_hist_batch, Y_curr_batch) in enumerate(loader):
-                Y_hist_batch = Y_hist_batch.to(device, non_blocking=True)
-                Y_curr_batch = Y_curr_batch.to(device, non_blocking=True)
+            # Shuffle indices on GPU
+            perm = torch.randperm(N_samples_local, device=device)
 
-                S = compute_S(Y_hist_batch, kappa_fixed)
-                Y_prev = Y_hist_batch[:, 0, :]
+            for bi in range(n_batches):
+                i0 = bi * BS
+                i1 = min(i0 + BS, N_samples_local)
+                idx = perm[i0:i1]
+
+                Y_prev_b = Y_prev_full[idx]
+                S_b = S_full[idx]
+                Y_curr_b = Y_curr_gpu[idx]
 
                 optimizer.zero_grad(set_to_none=True)
-                mu, eta_c = ddp_model(Y_prev, S, dt, eta_clip)
-                nll = poisson_nll(mu, eta_c, Y_curr_batch, log_dt) / Y_curr_batch.shape[0]
+                mu, eta_c = ddp_model(Y_prev_b, S_b, dt, eta_clip)
+                nll = poisson_nll(mu, eta_c, Y_curr_b, log_dt) / Y_curr_b.shape[0]
 
                 if args.lambda3 > 0:
                     l1_term = args.lambda3 * offdiag_l1_mean(raw_model.A_off, N)
@@ -720,26 +726,30 @@ def main():
                 if apply_rho and (bi % args.rho_every == 0):
                     enforce_spectral_radius_(raw_model.A_off.data, args.rho_max, N)
 
-                s_nll += nll.item()
-                s_l1 += l1_term.item()
-                s_loss += loss.item()
-                n_batches += 1
-
-            # Record metrics per epoch (rank 0 only for reporting)
-            nb = max(1, n_batches)
-            with torch.no_grad():
-                rho = float(torch.linalg.eigvals(raw_model.A_off.data).abs().max().item())
-                nz = int((raw_model.A_off.abs() > args.minW).sum().item())
-
-            h_m_loss.append(s_loss / nb)
-            h_m_nll.append(s_nll / nb)
-            h_m_l1.append(s_l1 / nb)
-            h_rho.append(rho)
-            h_nz.append(nz)
-            h_lr.append(float(optimizer.param_groups[0]["lr"]))
+                # Accumulate on GPU — no .item() sync
+                with torch.no_grad():
+                    acc_nll += nll.detach()
+                    acc_l1 += l1_term.detach()
+                    acc_loss += loss.detach()
 
             if em > args.delay_em_iter_4_lrDecay:
                 scheduler.step()
+
+        # Record metrics ONCE per EM iteration (not per epoch) — single sync
+        nb = max(1, n_batches)
+        with torch.no_grad():
+            rho = float(torch.linalg.eigvals(raw_model.A_off.data).abs().max().item())
+            nz = int((raw_model.A_off.abs() > args.minW).sum().item())
+            last_nll = float(acc_nll.item()) / nb
+            last_l1 = float(acc_l1.item()) / nb
+            last_loss = float(acc_loss.item()) / nb
+
+        h_m_loss.append(last_loss)
+        h_m_nll.append(last_nll)
+        h_m_l1.append(last_l1)
+        h_rho.append(rho)
+        h_nz.append(nz)
+        h_lr.append(float(optimizer.param_groups[0]["lr"]))
 
         tb2 = time.time() - tb2_start
         met = dict(nll=h_m_nll[-1], l1=h_m_l1[-1], rho=h_rho[-1], nz=h_nz[-1])
@@ -837,6 +847,7 @@ def main():
             "time_range_sec":         [t0_sec, t1_sec],
             "time_range_bins":        [start_bin, end_bin],
             "seed":                   args.seed,
+            "training_time_sec":      round(time.time() - t_start, 1),
         }
 
         if args.verb > 1: pprint(outMD)
