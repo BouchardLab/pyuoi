@@ -337,7 +337,7 @@ def _offdiag_time_kernel( mem_tau_steps, mem_Q):
     kappa = np.exp(-gamma * ell) * np.cos(omega * ell)
     kappa/=kappa[0]  # sets 1st amplitude to 1
     m = kappa.shape[0]
-    print(f"  κ (len={m}, oscillator lags ℓ≤(3/4) mem_lag_steps : mem_tau_steps: {mem_tau_steps}): {kappa}")
+    print(f"  κ (len={m}, oscillator lags ℓ≤(3/4) mem_lag_steps : mem_tau_steps: {mem_tau_steps}): \n {kappa}")
     sum_abs = float(np.sum(np.abs(kappa)))
     print(f"  sum_k |κ_k| = {sum_abs:.12g}")
     return kappa
@@ -436,40 +436,13 @@ def main():
     print("=" * 60)
 
     parser = argparse.ArgumentParser(description="Simulate a recurrent neural network with Dale's principle.")
-    parser.add_argument(
-        "--spike_model",
-        type=str,
-        default="A",
-        choices=["A", "B"],
-        help="Spike GLM: A = lag-1 stationary; B = lag-M off-diagonal damped-oscillator kernel.",
-    )
-    parser.add_argument(
-        "--time_kernel_q_tau",
-        type=float,
-        nargs=2,
-        default=[3.0, 0.4],
-        metavar=("mem_Q", "mem_tau"),
-        help="Model B: [mem_Q, mem_tau] — quality factor, period mem_tau>0 (s); mem_lag_steps=(3*mem_tau_steps)//4 (~1.5π phase).",
-    )
+    parser.add_argument("--spike_model", type=str, default="A", choices=["A", "B"], help="Spike GLM: A = lag-1 stationary; B = lag-M off-diagonal damped-oscillator kernel.")
+    parser.add_argument("--time_kernel_q_tau", type=float, nargs=2, default=[3.0, 0.4], metavar=("mem_Q", "mem_tau"), help="Model B: [mem_Q, mem_tau] — quality factor, period mem_tau>0 (s); mem_lag_steps=(3*mem_tau_steps)//4 (~1.5π phase).")
     parser.add_argument("--num_neurons", type=int, default=50, help="Total number of neurons in the network.")
     parser.add_argument("--num_excite", type=int, default=None, help="Number of excitatory neurons.")
-    parser.add_argument(
-        "--placement_H_L_delta",
-        type=float,
-        nargs=3,
-        default=[1.0, 2.0, 2.0],
-        metavar=("placement_H", "placement_L", "placement_ker_delta"),
-        help="Placement: [0,H] height, [0,L] width, distance-kernel exponent δ in V_ij ∝ D_ij^{-δ} (1 or 2).",
-    )
-    parser.add_argument(
-        "--placement_min_dist",
-        type=float,
-        default=0.01,
-        help="Grid spacing d_min; minimum inter-neuron distance.",
-    )
-    parser.add_argument(    "--edge_prob",  type=float,   nargs=2,   default=[0.05, 0.2],
-                            help="Out-degree range as fractions of N: k_min=max(1,floor(lo*N)), k_max=min(N-1,floor(hi*N)).",
-                        )
+    parser.add_argument("--placement_H_L_delta", type=float, nargs=3, default=[1.0, 2.0, 2.0], metavar=("placement_H", "placement_L", "placement_ker_delta"), help="Placement: [0,H] height, [0,L] width, distance-kernel exponent δ in V_ij ∝ D_ij^{-δ} (1 or 2).")
+    parser.add_argument("--placement_min_dist", type=float, default=0.01, help="Grid spacing d_min; minimum inter-neuron distance.")
+    parser.add_argument("--edge_prob", type=float, nargs=2, default=[0.05, 0.2], help="Out-degree range as fractions of N: k_min=max(1,floor(lo*N)), k_max=min(N-1,floor(hi*N)).")
     parser.add_argument("--weight_var", type=float, default=0.2, help="Fractional weight variation v for Uniform(1-v,1+v).")
     parser.add_argument("--num_steps", type=int, default=10_001, help="Number of time steps for simulation.")
     parser.add_argument("--step_size", type=float, default=0.01, help="Integration time step size (dt) in seconds.")
@@ -542,7 +515,7 @@ def main():
     assert args.idleRate[0] >= 0.5
     assert args.idleRate[1] > args.idleRate[0]
 
-    verb_r = args.verb
+    verb = args.verb
     print(f"\n{'='*60}")
     print(f"  Spectral radius: R={args.spectral_radius:.3f}")
     print(f"{'='*60}")
@@ -559,13 +532,13 @@ def main():
         weight_var=args.weight_var,
         R=args.spectral_radius,
         rng=rng,
-        verb=verb_r,
+        verb=verb,
     )
 
-    if verb_r > 0:
-        summarize_pairwise_distances(D_mat, verb=verb_r)
+    if verb > 0:
+        summarize_pairwise_distances(D_mat, verb=verb)
 
-    if verb_r > 0:
+    if verb > 0:
         total_connections = A_dale.size
         zero_connections = np.sum(np.abs(A_dale) < 1e-10)
         non_zero_connections = total_connections - zero_connections
@@ -629,7 +602,7 @@ def main():
             B_intercept=B_true,
             tau=tau,
             eta_clip=args.poisson_eta_clip,
-            verb=verb_r,
+            verb=verb,
         )
     else:
         Y = gen_nonstationary_lagM_modelB_poisson(
@@ -642,7 +615,7 @@ def main():
             mem_Q=mem_Q,
             eta_clip=args.poisson_eta_clip,
             h_off=offdiag_kernel,
-            verb=verb_r,
+            verb=verb,
 
         )
     sim_time = time.time() - start_time
@@ -690,7 +663,7 @@ def main():
     spikeMD = {
         "short_name": args.dataName,
         "time_step_sec": args.step_size,
-        "data_type": "simDaleStates",
+        "data_type": "simDaleMemKer",
         "poisson_eta_clip": args.poisson_eta_clip,
         "spike_model": args.spike_model,
         "placement_L": float(placement_L),
@@ -719,9 +692,8 @@ def main():
     print("  ./view_spikesTrain4.py  --basePath $basePath   --dataName %s  --time_range_sec 1 8 -p b --time_rebin2 2   -X " % args.dataName)
     print("  ./movie_spikesTrain4.py  --basePath $basePath   --dataName %s  --time_range_sec 1 8  --flushSize .2  " % args.dataName)
     print("  ./view_spikesTrain4.py  --basePath $basePath   --dataName %s  --time_range_sec 0 20 -p b   -X " % args.dataName)
-    print("  ./gen_nonStationarySpikes3.py  --basePath $basePath   --inputStates %s     --true_dwell_sec 1.0 " % args.dataName)
-    print("  ./fit_lassoPoisson.py  --basePath $basePath  --inpPath ${basePath}/truthDale --dataName   %s   --num_epochs  50  " % args.dataName)
-
+    print(" ./memKern_EM_train4.py  --basePath $basePath   --dataName %s  --time_range_sec 1 20 " % args.dataName)
+ 
 
 if __name__ == "__main__":
     main()

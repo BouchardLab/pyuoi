@@ -95,23 +95,27 @@ class SpikeHistoryDataset(Dataset):
     self.Y_curr: (N_samples, N) — target spike counts
     """
 
-    def __init__(self, spikes_np, M_cut):
+    def __init__(self, spikes_np, M_cut, stride=1):
         """
         Args:
             spikes_np: (T, N) int array of spike counts
             M_cut: history depth
+            stride: sliding window step
         """
         T, N = spikes_np.shape
-        N_samples = T - M_cut
-        # Build history windows: for t_out in [M_cut, T-1],
-        # history is [Y_{t_out-1}, Y_{t_out-2}, ..., Y_{t_out-M_cut}]
-        Y_hist = np.zeros((N_samples, M_cut, N), dtype=np.float32)
-        for s in range(N_samples):
-            t_out = s + M_cut
+        # indices of the 'current' time bin for each sample
+        t_indices = np.arange(M_cut, T, stride)
+        n_samples = len(t_indices)
+        
+        # Build history windows
+        self.Y_hist = np.zeros((n_samples, M_cut, N), dtype=np.float32)
+        self.Y_curr = np.zeros((n_samples, N), dtype=np.float32)
+        
+        for i, t_out in enumerate(t_indices):
+            # history is [Y_{t_out-1}, Y_{t_out-2}, ..., Y_{t_out-M_cut}]
             for ell in range(M_cut):
-                Y_hist[s, ell, :] = spikes_np[t_out - 1 - ell, :]
-        self.Y_hist = Y_hist
-        self.Y_curr = spikes_np[M_cut:].astype(np.float32)
+                self.Y_hist[i, ell, :] = spikes_np[t_out - 1 - ell, :]
+            self.Y_curr[i, :] = spikes_np[t_out, :]
 
     def __len__(self):
         return self.Y_hist.shape[0]
@@ -352,15 +356,9 @@ def run_block2_network_update(
 # ═══════════════════════════════════════════════════════════════════════
 
 def init_A_diag_from_spikes(spikes, dt):
-    """Initialize A_diag from lag-1 autocorrelation of each neuron."""
+    """Initialize A_diag with random values in range [-0.5, -0.15]."""
     T, N = spikes.shape
-    A_diag = np.zeros(N, dtype=np.float32)
-    for i in range(N):
-        y = spikes[:, i].astype(np.float64)
-        if y.std() > 0:
-            c1 = np.corrcoef(y[:-1], y[1:])[0, 1]
-            A_diag[i] = float(np.clip(c1, -0.5, 0.5))
-    return A_diag
+    return np.random.uniform(-0.5, -0.15, size=N).astype(np.float32)
 
 
 def init_A_off_from_spikes(spikes, dt):
@@ -390,11 +388,21 @@ def init_B_from_spikes(spikes, dt):
     return B
 
 
-def init_kappa_damped_oscillator(M_cut, decay=0.8, freq=0.0):
-    """Initialize kappa as damped exponential, kappa[0]=1."""
+def init_kappa_damped_oscillator(M_cut):
+    """Initialize kappa as a damped oscillator, kappa[0]=1.
+    Functional form: kappa(ell) = exp(-alpha*ell) * cos(omega*ell)
+    where:
+      omega = 1.5 * pi / M_cut  (1.5 pi phase over M_cut steps)
+      alpha = omega / (2 * Q)
+      Q = 1.5                   (quality factor)
+    """
+    Q = 1.5
+    omega = 1.5 * np.pi / M_cut
+    alpha = omega / (2.0 * Q)
+    
     kappa = np.zeros(M_cut, dtype=np.float32)
     for ell in range(M_cut):
-        kappa[ell] = (decay ** ell) * np.cos(2 * np.pi * freq * ell)
+        kappa[ell] = np.exp(-alpha * ell) * np.cos(omega * ell)
     kappa[0] = 1.0  # enforce anchor
     return kappa
 
@@ -456,10 +464,10 @@ def parse_args():
     g.add_argument("-T", "--time_range_sec", default=[0.0, 60.0],
                    nargs=2, type=float,
                    help="Time window [t0, t1] in seconds")
+    g.add_argument("--sample_stride", type=int, default=1,
+                   help="Stride for sliding window in data preparation")
 
     g = p.add_argument_group("init")
-    g.add_argument("--kappa_decay", type=float, default=0.8,
-                   help="Decay rate for initial damped-oscillator kernel")
 
     g = p.add_argument_group("misc")
     g.add_argument("--seed", type=int, default=42)
@@ -525,14 +533,14 @@ def main():
         f"Time range too short: need at least {M_cut + 2} bins, got {end_bin - start_bin + 1}"
     spikes = spikes[start_bin: end_bin + 1]
     T_full = spikes.shape[0]
-    N_samples = T_full - M_cut
-
-    print(f"\nN={N}  M_cut={M_cut}  T={T_full}  N_samples={N_samples}  "
+    print(f"\nN={N}  M_cut={M_cut}  T={T_full}  "
           f"dt={dt}  eta_clip={eta_clip}")
     print(f"time=[{t0_sec:.1f}, {t1_sec:.1f}]s  bins=[{start_bin}, {end_bin}]")
 
     # ── Build dataset and DataLoader ─────────────────────────────
-    dataset = SpikeHistoryDataset(spikes, M_cut)
+    dataset = SpikeHistoryDataset(spikes, M_cut, stride=args.sample_stride)
+    N_samples = len(dataset)
+    print(f"N_samples={N_samples}  stride={args.sample_stride}")
     loader = DataLoader(
         dataset, batch_size=args.batch_size, shuffle=True,
         drop_last=False, pin_memory=True, num_workers=0
@@ -546,7 +554,7 @@ def main():
     A_diag_init = init_A_diag_from_spikes(spikes, dt)
     A_off_init = init_A_off_from_spikes(spikes, dt)
     B_init = init_B_from_spikes(spikes, dt)
-    kappa_init = init_kappa_damped_oscillator(M_cut, decay=args.kappa_decay)
+    kappa_init = init_kappa_damped_oscillator(M_cut)
 
     print(f"\nInitialization:")
     print(f"  A_diag range: [{A_diag_init.min():.4f}, {A_diag_init.max():.4f}]")
@@ -580,11 +588,19 @@ def main():
     )
     scheduler._step_count = 1
 
-    # ── History tracking ─────────────────────────────────────────
+    # ── History tracking ─────────────────────────────────────────    # Monitoring histories (per EM iteration)
     h_b1_nll = []
-    h_b2_loss, h_b2_nll, h_b2_l1 = [], [], []
-    h_rho, h_nz, h_lr = [], [], []
-    h_kappa = [kappa_init.copy()]
+    h_kappa = []
+    
+    # Monitoring histories (per global M-epoch)
+    h_m_loss = []
+    h_m_nll = []
+    h_m_l1 = []
+    h_rho = []
+    h_nz = []
+    h_lr = []
+    
+    h_kappa.append(kappa_init.copy())
 
     off_mask = ~torch.eye(N, dtype=torch.bool, device=device)
 
@@ -616,7 +632,7 @@ def main():
             args.lr_kappa, args.block1_iter, M_cut
         )
         tb1 = time.time() - tb1_start
-        h_b1_nll.append(b1_nll)
+        h_b1_nll.append(float(b1_nll))
         h_kappa.append(kappa.cpu().numpy().copy())
 
         # ── Block 2: network update ──────────────────────────────
@@ -669,24 +685,24 @@ def main():
                 s_loss += loss.item()
                 n_batches += 1
 
+            # Record metrics per epoch
+            nb = max(1, n_batches)
+            with torch.no_grad():
+                rho = float(torch.linalg.eigvals(net_model.A_off.data).abs().max().item())
+                nz = int((net_model.A_off.abs() > args.minW).sum().item())
+            
+            h_m_loss.append(s_loss / nb)
+            h_m_nll.append(s_nll / nb)
+            h_m_l1.append(s_l1 / nb)
+            h_rho.append(rho)
+            h_nz.append(nz)
+            h_lr.append(float(optimizer.param_groups[0]["lr"]))
+
             if em > args.delay_em_iter_4_lrDecay:
                 scheduler.step()
 
         tb2 = time.time() - tb2_start
-
-        # End-of-EM-iter metrics (from last epoch of Block 2)
-        nb = max(1, n_batches)
-        with torch.no_grad():
-            nz = int((net_model.A_off[off_mask].abs() > args.minW).sum().item())
-            rho = float(torch.linalg.eigvals(net_model.A_off.data).abs().max().item())
-
-        met = dict(loss=s_loss / nb, nll=s_nll / nb, l1=s_l1 / nb, rho=rho, nz=nz)
-        h_b2_loss.append(met["loss"])
-        h_b2_nll.append(met["nll"])
-        h_b2_l1.append(met["l1"])
-        h_rho.append(met["rho"])
-        h_nz.append(met["nz"])
-        h_lr.append(float(optimizer.param_groups[0]["lr"]))
+        met = dict(nll=h_m_nll[-1], l1=h_m_l1[-1], rho=h_rho[-1], nz=h_nz[-1])
 
         if args.verb > 0:
             n_off = int(off_mask.sum().item())
@@ -730,19 +746,25 @@ def main():
         "kappa_hat":      kappa_hat.astype(np.float32),
         "kappa_history":  np.array(h_kappa, dtype=np.float32),
         "single_rates":   single_rates.astype(np.float32),
-        "b1_nll_em":      np.array(h_b1_nll, dtype=np.float64),
-        "b2_loss_em":     np.array(h_b2_loss, dtype=np.float64),
-        "b2_nll_em":      np.array(h_b2_nll, dtype=np.float64),
-        "b2_l1_em":       np.array(h_b2_l1, dtype=np.float64),
-        "rho_em":         np.array(h_rho, dtype=np.float64),
-        "nz_edges_em":    np.array(h_nz, dtype=np.int64),
+        "e_nll_em":       np.array(h_b1_nll, dtype=np.float64),
+        "m_loss_epoch":   np.array(h_m_loss, dtype=np.float64),
+        "m_nll_epoch":    np.array(h_m_nll, dtype=np.float64),
+        "m_l1_epoch":     np.array(h_m_l1, dtype=np.float64),
+        "rho_epoch":      np.array(h_rho, dtype=np.float64),
+        "nz_edges_epoch": np.array(h_nz, dtype=np.int64),
         "learning_rates": np.array(h_lr, dtype=np.float64),
     }
 
-    outMD = dict(spikeMD)
+    spikeMD.pop('short_name')
+    outMD = {'spike_gen':spikeMD}
+    outMD["provenance"]={"memKernEM_file": outF, "spiksData_file": args.dataName}
+    outMD['short_name']=outF
+
     outMD["fit_type"] = "memKernEM"
     outMD["train"] = {
-        "num_em_iters":           args.num_em_iters,
+        "num_em_iters":           args.num_em_iters, 
+        "sample_stride":          args.sample_stride,
+        "m_epochs":               args.block2_epochs,
         "block1_iter":            args.block1_iter,
         "block2_epochs":          args.block2_epochs,
         "lr_kappa":               args.lr_kappa,
@@ -765,15 +787,14 @@ def main():
         "eta_clip":               eta_clip,
         "time_range_sec":         [t0_sec, t1_sec],
         "time_range_bins":        [start_bin, end_bin],
-        "kappa_decay_init":       args.kappa_decay,
         "seed":                   args.seed,
     }
-    outMD["provenance"] = dict(spikeMD.get("provenance", {}))
-    outMD["provenance"]["memKernEM_file"] = outF
-
+    
+    if args.verb>1: pprint(outMD)
     write_data_npz(outD, outFF, metaD=outMD)
     print(f"\nSaved: {outFF}")
     print(f"  basePath={args.basePath}")
+    print(f"  ./memKern_EM_eval4.py --basePath {args.basePath} --dataName {outF} -p a b \n")
 
 
 if __name__ == "__main__":
