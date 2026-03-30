@@ -133,4 +133,4 @@ result/
 .lesshst
 *.aux
 *.toc
-
+*.out

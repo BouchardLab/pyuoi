@@ -1,5 +1,5 @@
 #!/bin/bash 
-pdflatex ver4_topoDaleGen
-pdflatex ver4_topoDaleGen
+pdflatex nonStationary-ver4_topoDaleGen
+pdflatex nonStationary-ver4_topoDaleGen
 
-open ver4_topoDaleGen.pdf
+open nonStationary-ver4_topoDaleGen.pdf

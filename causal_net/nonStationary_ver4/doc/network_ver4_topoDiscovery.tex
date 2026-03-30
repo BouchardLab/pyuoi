@@ -1,0 +1,523 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{hyperref}
+
+\geometry{margin=1.0in}
+
+\title{Inferring Spatial Connectivity Decay Exponent\\
+from Graph Topology Alone}
+\author{Jan Balewski, NERSC}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+A spatially embedded neuronal network is constructed by sampling
+connections with probability proportional to
+$D_{ij}^{-\delta_{\mathrm{ker}}}$, where $D_{ij}$ is the Euclidean
+distance between neurons $i$ and $j$ and
+$\delta_{\mathrm{ker}}\in[0,3]$ is a real-valued decay exponent.
+The limiting cases interpolate between uniform random connectivity
+($\delta_{\mathrm{ker}}=0$) and strongly local, lattice-like wiring
+($\delta_{\mathrm{ker}}\to 3$).  We ask: given only the binary
+adjacency matrix~$G$ --- without access to neuron positions or
+distances --- can one estimate~$\delta_{\mathrm{ker}}$?
+We present five purely graph-theoretic diagnostics, each producing a
+single scalar that varies monotonically with $\delta_{\mathrm{ker}}$
+and therefore serves as a proxy for the hidden spatial decay.
+The common principle is that large $\delta_{\mathrm{ker}}$ yields a
+lattice-like graph (high local clustering, assortative degrees, low
+spectral dimension), while small $\delta_{\mathrm{ker}}$ yields a
+small-world or Erd\H{o}s--R\'enyi-like graph (diffuse neighborhoods,
+weaker clustering, higher effective dimensionality).
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ===============================================================
+\section{Setup and Notation}
+\label{sec:setup}
+% ===============================================================
+
+\subsection{The Generative Model}
+\label{sec:gen_model}
+
+Consider $N$ neurons placed on a regular two-dimensional grid within a
+rectangular domain $[0,L]\times[0,H]$ with minimum spacing
+$d_{\min}>0$.  After random subsampling of grid sites and
+lexicographic sorting, each neuron~$j$ occupies a position
+$\mathbf{P}_j=(x_j,y_j)$.  The pairwise Euclidean distance matrix is
+$D_{ij}=\|\mathbf{P}_i-\mathbf{P}_j\|_2$.
+
+Connections are drawn according to a distance-dependent affinity
+kernel.  For every ordered pair $(i,j)$ with $i\neq j$, define the
+affinity
+\begin{equation}
+  V_{ij} = D_{ij}^{-\delta_{\mathrm{ker}}},
+  \qquad i\neq j;\qquad V_{ii}=0,
+  \label{eq:affinity}
+\end{equation}
+where $\delta_{\mathrm{ker}}\in[0,3]$ is a real-valued \emph{decay
+exponent} that controls how sharply connection probability falls off
+with distance.  Because grid nodes are separated by at least
+$d_{\min}>0$, the affinity is everywhere finite.
+
+The exponent $\delta_{\mathrm{ker}}$ interpolates continuously between
+qualitatively distinct connectivity regimes:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{cl}
+\toprule
+$\delta_{\mathrm{ker}}$ & Character of the resulting graph \\
+\midrule
+$0$   & Erd\H{o}s--R\'enyi: connection probability independent of
+        distance \\
+$\lesssim 1$ & Weak spatial bias; long-range edges abundant;
+        small-world-like \\
+$\approx 1$  & Moderate locality; intermediate clustering \\
+$\approx 2$  & Strong locality; neighborhood structure clearly visible \\
+$\gtrsim 2$  & Very tight spatial coupling; lattice-like communities \\
+$3$   & Extreme locality; connections almost exclusively between
+        nearest neighbors \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+Each presynaptic neuron~$j$ independently samples an integer
+out-degree $k_j\sim\mathrm{Uniform}(k_{\min},k_{\max})$ and draws
+$k_j$ distinct postsynaptic targets $\mathcal{T}_j\subset
+\{1,\dots,N\}\setminus\{j\}$ without replacement from the normalized
+distribution
+\begin{equation}
+  p_{ij}
+  = \frac{V_{ij}}{\displaystyle\sum_{i'\neq j}V_{i'j}}
+  = \frac{D_{ij}^{-\delta_{\mathrm{ker}}}}
+         {\displaystyle\sum_{i'\neq j}D_{i'j}^{-\delta_{\mathrm{ker}}}},
+  \qquad i\neq j.
+  \label{eq:conn_prob}
+\end{equation}
+
+\subsection{The Inference Problem}
+\label{sec:inference_problem}
+
+We are given only the weighted connectivity matrix
+$A_{\mathrm{true}}\in\mathbb{R}^{N\times N}$. Since $A$-matrix represents interaction between  neurons  which can be either excitatory or inhibitory, the values of $A_{ij}$ can be either positive or negative.
+
+Neuron positions
+$\mathbf{P}$, pairwise distances~$D$, and the value of
+$\delta_{\mathrm{ker}}$ are all \emph{unknown}.  From
+$A_{\mathrm{true}}$ we extract the binary adjacency matrix
+\begin{equation}
+  G_{ij} =
+  \begin{cases}
+    1 & A_{\mathrm{true},ij}^{\mathrm{off}}\neq 0,\;i\neq j,\\
+    0 & \text{otherwise},
+  \end{cases}
+  \label{eq:adjacency}
+\end{equation}
+where $A^{\mathrm{off}}$ denotes the off-diagonal part of
+$A_{\mathrm{true}}$ (self-loops are excluded).  The goal is to
+estimate the decay exponent $\delta_{\mathrm{ker}}$ from~$G$ alone, or
+at minimum to construct scalar diagnostics that vary monotonically
+with $\delta_{\mathrm{ker}}$ and therefore distinguish, e.g.,
+$\delta_{\mathrm{ker}}=1$ from $\delta_{\mathrm{ker}}=2$.
+
+The key qualitative insight is that as $\delta_{\mathrm{ker}}$
+increases, the graph becomes more spatially clustered: edges are
+shorter, neighborhoods overlap more, the graph looks more like a
+lattice.  Conversely, as $\delta_{\mathrm{ker}}$ decreases toward
+zero, edges span the full domain, neighborhoods are diffuse, and the
+graph approaches an Erd\H{o}s--R\'enyi random graph.  Each of the five
+methods below detects a different combinatorial or spectral
+consequence of this transition.
+
+\subsection{Additional Notation}
+
+Throughout, we use the following derived quantities from $G$:
+\begin{equation}
+  k_i^{\mathrm{in}}  = \sum_{j} G_{ij}, \qquad
+  k_j^{\mathrm{out}} = \sum_{i} G_{ij}, \qquad
+  |\mathcal{E}| = \sum_{i,j} G_{ij},
+\end{equation}
+denoting the in-degree and out-degree of each neuron and the total
+number of directed edges.  The symmetrized adjacency is
+$\tilde{G}=(G+G^{\!\top})/2$ with degree matrix
+$\tilde{D}_{ii}=\sum_j\tilde{G}_{ij}$.  Neighborhoods are defined as
+$\mathcal{N}_{\mathrm{in}}(i)=\{j:G_{ij}=1\}$ and
+$\mathcal{N}_{\mathrm{out}}(j)=\{i:G_{ij}=1\}$.
+
+
+% ===============================================================
+\section{Method 1: Degree Assortativity}
+\label{sec:assortativity}
+% ===============================================================
+
+\subsection{Definition}
+
+The Newman assortativity coefficient measures the Pearson correlation
+between the degrees at either end of an edge.  For the directed graph
+$G$, define the in-degree of the target and the out-degree of the
+source for each edge $(i,j)\in\mathcal{E}$ (meaning $G_{ij}=1$,
+i.e., neuron~$j$ drives neuron~$i$):
+\begin{equation}
+  r = \frac{
+    |\mathcal{E}|^{-1}\!\displaystyle\sum_{(i,j)\in\mathcal{E}}
+    k_i^{\mathrm{in}}\,k_j^{\mathrm{out}}
+    \;-\;
+    \left[|\mathcal{E}|^{-1}\!\displaystyle\sum_{(i,j)\in\mathcal{E}}
+    k_i^{\mathrm{in}}\right]
+    \left[|\mathcal{E}|^{-1}\!\displaystyle\sum_{(i,j)\in\mathcal{E}}
+    k_j^{\mathrm{out}}\right]
+  }{
+    \sigma_{\mathrm{in}}\;\sigma_{\mathrm{out}}
+  },
+  \label{eq:assortativity}
+\end{equation}
+where $\sigma_{\mathrm{in}}$ and $\sigma_{\mathrm{out}}$ are the
+standard deviations of $\{k_i^{\mathrm{in}}\}_{(i,j)\in\mathcal{E}}$
+and $\{k_j^{\mathrm{out}}\}_{(i,j)\in\mathcal{E}}$ over all edges.
+
+\subsection{Dependence on $\delta_{\mathrm{ker}}$}
+
+When $\delta_{\mathrm{ker}}$ is large, each neuron's targets are
+concentrated in a tight spatial neighborhood.  A neuron with high
+in-degree sits in a locally dense region and receives input
+predominantly from nearby neurons, which themselves receive input from
+the same dense region --- hence they too have high in-degree.
+High-degree nodes connect to high-degree nodes, producing
+\emph{assortative} mixing ($r>0$).
+
+As $\delta_{\mathrm{ker}}$ decreases, edges reach farther, a neuron's
+targets span diverse spatial neighborhoods with diverse degree
+profiles, and the degree--degree correlation weakens.  In the limit
+$\delta_{\mathrm{ker}}\to 0$ (Erd\H{o}s--R\'enyi), degrees are
+independent of position and $r\to 0$.
+
+The assortativity coefficient thus increases monotonically with
+$\delta_{\mathrm{ker}}$:
+\begin{equation}
+  \delta_{\mathrm{ker}}^{(1)} < \delta_{\mathrm{ker}}^{(2)}
+  \quad\Longrightarrow\quad
+  r^{(1)} \lesssim r^{(2)}.
+  \label{eq:r_monotone}
+\end{equation}
+
+
+% ===============================================================
+\section{Method 2: Common-Neighbor Overlap (Jaccard Index)}
+\label{sec:jaccard}
+% ===============================================================
+
+\subsection{Definition}
+
+For each directed edge $j\to i$ (i.e.\ $G_{ij}=1$), the Jaccard
+overlap between the in-neighborhood of the target and the
+out-neighborhood of the source is
+\begin{equation}
+  J_{ij}
+  = \frac{|\mathcal{N}_{\mathrm{in}}(i)
+          \cap \mathcal{N}_{\mathrm{out}}(j)|}
+         {|\mathcal{N}_{\mathrm{in}}(i)
+          \cup \mathcal{N}_{\mathrm{out}}(j)|}.
+  \label{eq:jaccard}
+\end{equation}
+This answers a purely combinatorial question: \emph{if $j$ drives $i$,
+how many of $j$'s other targets also drive~$i$?}  The mean Jaccard
+index over all edges is
+\begin{equation}
+  \bar{J}
+  = \frac{1}{|\mathcal{E}|}
+    \sum_{(i,j)\in\mathcal{E}} J_{ij}.
+  \label{eq:jaccard_mean}
+\end{equation}
+
+\subsection{Dependence on $\delta_{\mathrm{ker}}$}
+
+The Jaccard index is the graph-theoretic analog of spatial locality
+without ever defining locality explicitly.  When
+$\delta_{\mathrm{ker}}$ is large, each neuron's fan-out lands in a
+compact spatial neighborhood; two neurons connected by an edge are
+necessarily close, so their neighborhoods overlap substantially and
+$J_{ij}$ is large.  When $\delta_{\mathrm{ker}}$ is small, fan-out is
+diffuse, common neighbors between any linked pair become rare, and
+$\bar{J}$ shrinks.  In the Erd\H{o}s--R\'enyi limit
+($\delta_{\mathrm{ker}}=0$) with edge density $p$, the expected
+Jaccard index scales as $\bar{J}\sim p/(2-p)$, independent of
+spatial structure.
+
+The mean Jaccard index therefore increases monotonically with
+$\delta_{\mathrm{ker}}$:
+\begin{equation}
+  \delta_{\mathrm{ker}}^{(1)} < \delta_{\mathrm{ker}}^{(2)}
+  \quad\Longrightarrow\quad
+  \bar{J}^{(1)} \lesssim \bar{J}^{(2)}.
+  \label{eq:J_monotone}
+\end{equation}
+
+% ===============================================================
+\section{Method 3: Spectral Dimension from the Random Walk}
+\label{sec:spectral_dim}
+% ===============================================================
+
+Consider a random walker on the symmetrized graph $\tilde{G}$ with
+transition matrix $P = \tilde{D}^{-1}\tilde{G}$, where
+$\tilde{D}_{ii}=\sum_j\tilde{G}_{ij}$.  The average return
+probability after $t$ steps is
+\begin{equation}
+  p_{\mathrm{ret}}(t)
+  = \frac{1}{N}\operatorname{tr}(P^t)
+  = \frac{1}{N}\sum_{k=1}^{N}\mu_k^{\,t},
+  \label{eq:return_prob}
+\end{equation}
+where $1=\mu_1\geq\mu_2\geq\cdots\geq\mu_N$ are the eigenvalues
+of~$P$.  For graphs embedded in $d$-dimensional space,
+$p_{\mathrm{ret}}(t)\sim t^{-d_s/2}$ at intermediate times, defining
+the \emph{spectral dimension}~$d_s$.
+
+Rather than fitting a single slope over an arbitrary window, we
+compute the \emph{scale-dependent spectral dimension}
+\begin{equation}
+  d_s(t)
+  = -2\,\frac{d\log p_{\mathrm{ret}}}{d\log t},
+  \label{eq:local_ds}
+\end{equation}
+evaluated via symmetric finite differences at integer~$t$.  We then
+extract two scalar diagnostics: the \emph{plateau value}
+$\bar{d}_s$, obtained by averaging $d_s(t)$ over the interval where
+it exceeds $80\%$ of its maximum, and the \emph{plateau width}~$W$,
+the length of that interval.
+
+As $\delta_{\mathrm{ker}}$ increases, $\bar{d}_s$ decreases
+monotonically toward~$2$ (the embedding dimension) while $W$ grows,
+reflecting clean power-law scaling over a widening range of diffusion
+times.  In the Erd\H{o}s--R\'enyi limit ($\delta_{\mathrm{ker}}=0$),
+long-range shortcuts cause $d_s(t)$ to rise without settling, and no
+plateau forms.  The pair $(\bar{d}_s, W)$ therefore provides a
+complementary diagnostic to the combinatorial methods of
+Sections~\ref{sec:assortativity} and~\ref{sec:jaccard}.
+
+% ===============================================================
+\section{Method 4: Cycle Closure Decay Rate}
+\label{sec:cycles}
+% ===============================================================
+
+\subsection{Definition}
+
+Powers of the adjacency matrix count directed walks: $(G^k)_{ij}$ is
+the number of distinct walks of length~$k$ from~$j$ to~$i$.  In
+particular, $\operatorname{tr}(G^{k+1})$ counts closed walks
+(directed cycles) of length $k{+}1$, while
+$\mathbf{1}^{\!\top}G^k\mathbf{1}=\sum_{i,j}(G^k)_{ij}$ counts all
+walks of length~$k$.  Define the \emph{$k$-step transitivity} as the
+fraction of length-$k$ walks whose endpoints are connected by a
+direct edge (thus closing into a $(k{+}1)$-cycle):
+\begin{equation}
+  \mathcal{T}_k
+  = \frac{\operatorname{tr}(G^{k+1})}
+         {\mathbf{1}^{\!\top}G^k\,\mathbf{1}},
+  \qquad k=1,2,\dots
+  \label{eq:transitivity_k}
+\end{equation}
+At $k=1$ this reduces (up to normalization) to the directed
+clustering coefficient.  The \emph{cycle closure decay rate} is the
+log-slope of $\mathcal{T}_k$ over a short range:
+\begin{equation}
+  \xi
+  = -\frac{d\log\mathcal{T}_k}{dk}
+  \bigg|_{k=2,\dots,K},
+  \label{eq:xi}
+\end{equation}
+estimated by linear regression of $\log\mathcal{T}_k$ on~$k$ for
+$k=2,\dots,K$ (typically $K=5$ or $6$).
+
+\subsection{Dependence on $\delta_{\mathrm{ker}}$}
+
+For a graph embedded in two dimensions, the existence of short cycles
+is a signature of spatial locality: a walk that stays in a compact
+region is far more likely to return to its origin than one that
+wanders across the domain.  When $\delta_{\mathrm{ker}}$ is large,
+neighborhoods are tight and densely interconnected, so walks of
+moderate length close into cycles readily --- $\mathcal{T}_k$ remains
+high across $k$ and $\xi$ is small.
+
+When $\delta_{\mathrm{ker}}$ is small, long-range edges carry walks
+far from their starting point.  A two-step walk $j\to i\to i'$ may
+traverse the full domain, and the probability that $i'$ connects back
+to~$j$ is no higher than the background edge density.  Cycle closure
+becomes increasingly unlikely with each additional step, so
+$\mathcal{T}_k$ drops steeply and $\xi$ is large.
+
+The cycle closure decay rate therefore increases monotonically as
+$\delta_{\mathrm{ker}}$ decreases:
+\begin{equation}
+  \delta_{\mathrm{ker}}^{(1)} < \delta_{\mathrm{ker}}^{(2)}
+  \quad\Longrightarrow\quad
+  \xi^{(1)} \gtrsim \xi^{(2)}.
+  \label{eq:xi_monotone}
+\end{equation}
+
+% ===============================================================
+\section{Method 5: Persistent Homology}
+\label{sec:persistent_homology}
+% ===============================================================
+
+We probe the topological complexity of the graph by computing its
+persistent homology.  The symmetrized adjacency matrix
+$\tilde{G}_{ij}=\tfrac{1}{2}(G_{ij}+G_{ji})$ removes any
+directionality inherited from the original interaction matrix.  From
+$\tilde{G}$ we define edge weights $w_{ij}=|\tilde{G}_{ij}|$
+(interaction strength, irrespective of sign) and construct a filtered
+Vietoris--Rips complex $\mathcal{R}(\epsilon)$: a simplex
+$[v_0,\dots,v_k]$ is included whenever every pairwise weight exceeds
+the threshold,
+\begin{equation}
+  [v_0,\dots,v_k]\in\mathcal{R}(\epsilon)
+  \quad\Longleftrightarrow\quad
+  w_{v_i v_j}\geq\epsilon
+  \;\;\forall\;0\leq i<j\leq k.
+  \label{eq:rips}
+\end{equation}
+Sweeping $\epsilon$ from $\max_{ij}w_{ij}$ down to zero produces a
+nested filtration; the persistence diagram records the birth--death
+pairs $(b_i,d_i)$ for each homological feature that appears and
+subsequently merges or closes.
+
+Two scalar summaries are extracted.  The \emph{total persistence} in
+dimension~$k$,
+\begin{equation}
+  \Pi_k = \sum_{i}\,(d_i - b_i),
+  \label{eq:total_persistence}
+\end{equation}
+measures the cumulative lifetime of all $k$-dimensional features.
+The \emph{persistent Betti curve} $\beta_k(\epsilon)$ counts the
+number of features alive at filtration value~$\epsilon$; its integral
+$B_k = \int \beta_k(\epsilon)\,d\epsilon$ gives a single-number
+summary of topological richness.
+
+For graphs embedded in two dimensions, only $k=0$ (connected
+components) and $k=1$ (loops) carry meaningful geometric information;
+higher-dimensional features such as enclosed cavities ($k=2$) are not
+expected in a planar embedding, and their computation requires
+enumerating $(k{+}1)$-cliques, which becomes prohibitively expensive
+for large graphs.  We therefore restrict attention to the pair
+$(\Pi_0,\Pi_1)$.
+
+For lattice-like graphs ($\delta_{\mathrm{ker}}\geq 2$), the
+dimension-$0$ barcode consists of a single long bar and many short
+bars, yielding small~$\Pi_0$, while the dimension-$1$ barcode shows
+persistent loops reflecting the regular mesh, giving
+moderate~$\Pi_1$.  In the Erd\H{o}s--R\'enyi limit
+($\delta_{\mathrm{ker}}=0$), random long-range edges create many
+short-lived components and loops, inflating~$\Pi_0$ and producing a
+cloud of short bars in~$\Pi_1$ with no dominant persistent features.
+
+The pair $(\Pi_0,\Pi_1)$ thus offers a purely topological diagnostic
+of the lattice-to-random transition, complementing the combinatorial
+and spectral methods of
+Sections~\ref{sec:assortativity}--\ref{sec:spectral_dim}.
+
+
+% ===============================================================
+\section{Summary and Comparison}
+\label{sec:summary}
+% ===============================================================
+
+The five diagnostics are collected in
+Table~\ref{tab:summary}.  Each uses only the adjacency
+matrix~$G$ (or equivalently the zero pattern of
+$A_{\mathrm{true}}^{\mathrm{off}}$) unless otherwise noted.  None
+requires neuron positions, pairwise distances, or spike data.
+
+\begin{table}[h]
+\centering
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{clcccc}
+\toprule
+\S & Method & Scalar & $\delta_{\mathrm{ker}}\!\uparrow$
+  & Weights & Computational cost \\
+\midrule
+\ref{sec:assortativity}
+  & Degree assortativity & $r$ & $\uparrow$
+  & no & $O(|\mathcal{E}|)$ \\
+\ref{sec:jaccard}
+  & Jaccard overlap & $\bar{J}$ & $\uparrow$
+  & no & $O(|\mathcal{E}|\,k_{\max})$ \\
+\ref{sec:spectral_dim}
+  & Spectral dimension & $d_s$ & $\downarrow$
+  & no & $O(N^3)$ eigendecomp \\
+\ref{sec:cycles}
+  & Cycle closure decay & $\xi$ & $\downarrow$
+  & no & $O(K\,N^3)$ or eigendecomp \\
+\ref{sec:persistent_homology}
+  & Persistent homology & $(\Pi_0,\Pi_1)$ & $\Pi_0\!\downarrow,\;
+    \Pi_1\!\uparrow$ & optional & $O(n_{\mathrm{simp}}^3)$ reduction \\
+\bottomrule
+\end{tabular}
+\caption{Summary of the five topological diagnostics for the decay
+  exponent $\delta_{\mathrm{ker}}$.
+  The arrow in the fifth column indicates the direction of change as
+  $\delta_{\mathrm{ker}}$ increases (graph becomes more spatially
+  local).  The ``Weights'' column indicates whether the method uses
+  the magnitudes $|A_{\mathrm{true},ij}|$ beyond the binary
+  connectivity pattern.
+  For persistent homology, $n_{\mathrm{simp}}$ denotes the number of
+  simplices in the filtered complex.}
+\label{tab:summary}
+\end{table}
+
+Methods~1--4 operate exclusively on the binary adjacency matrix~$G$
+and are entirely insensitive to the magnitudes of the interaction
+weights $A_{\mathrm{true},ij}$.  Degree assortativity and Jaccard
+overlap count edges and shared neighbors; spectral dimension and cycle
+closure decay work with powers of~$G$ or its symmetrization, both of
+which depend only on which entries are nonzero.
+
+Persistent homology (Method~5) is the only diagnostic that can
+optionally exploit weight magnitudes.  As formulated in
+Section~\ref{sec:persistent_homology}, the filtration is built from
+$w_{ij}=|\tilde{G}_{ij}|$, where $\tilde{G}$ is the binary
+symmetrized adjacency.  Because $\tilde{G}_{ij}\in\{0,\tfrac{1}{2},1\}$,
+this filtration has only two nontrivial thresholds and is
+effectively binary.  A richer filtration is obtained by replacing the
+edge weights with the actual interaction strengths,
+$w_{ij}=\tfrac{1}{2}(|A_{\mathrm{true},ij}|+|A_{\mathrm{true},ji}|)$,
+so that strongly coupled pairs enter the complex before weakly coupled
+ones.  This weighted variant introduces a continuous filtration
+parameter and may sharpen the topological signatures, at the cost of
+depending on weight magnitudes that the other four methods ignore.
+
+The five methods probe complementary facets of the same underlying
+phenomenon.  Degree assortativity (Method~1) detects correlations at
+the scale of single edges.  Jaccard overlap (Method~2) examines
+two-hop neighborhood structure.  Spectral dimension (Method~3) probes
+the global diffusion geometry.  Cycle closure decay (Method~4)
+interpolates between local and global scales through the
+parameter~$k$.  Persistent homology (Method~5) captures the
+topological skeleton of the graph --- its connected components and
+loop structure --- as a function of interaction strength, providing a
+diagnostic that is invariant under graph isomorphism and insensitive
+to node labeling.
+
+For practical estimation of $\delta_{\mathrm{ker}}\in[0,3]$, one may
+generate a calibration family of synthetic graphs at a grid of
+$\delta_{\mathrm{ker}}$ values (with the same $N$, $k_{\min}$,
+$k_{\max}$, and E/I ratio as the target network), compute all five
+scalars for each, and fit monotone calibration curves.  Given an
+observed graph, the five diagnostics are evaluated and mapped through
+the calibration curves to produce five independent estimates of
+$\delta_{\mathrm{ker}}$, which can be combined (e.g., by averaging or
+by inverse-variance weighting) into a single consensus estimate.
+
+\end{document}
