@@ -34,16 +34,20 @@ from UtilDalePoisson4 import get_offdiag_triplets
 
 
 def _placement_ker_delta(dmd):
-    if "placement_ker_delta" in dmd:
-        return int(dmd["placement_ker_delta"])
-    if "delta_ker" in dmd:
-        return int(dmd["delta_ker"])
-    raise KeyError("dale_conf must contain placement_ker_delta (or legacy delta_ker)")
+    return float(dmd["placement_ker_delta"])
+
+
+def _format_ker_delta_latex(delta):
+    """Matplotlib title fragment: δ_ker value (integers without .0)."""
+    x = float(delta)
+    if abs(x - round(x)) < 1e-9:
+        return str(int(round(x)))
+    return "%.4g" % x
 
 
 def _kernel_figure_canvas_title(md):
     """One-line caption: dataset, N, and (model B) Q, tau, placement H×L."""
-    dmd = md.get("dale_conf", {})
+    dmd = md["dale_conf"]
     parts = []
     sn = md.get("short_name", "")
     if sn:
@@ -60,6 +64,7 @@ def _kernel_figure_canvas_title(md):
     pl = dmd.get("placement_L")
     if ph is not None and pl is not None:
         parts.append("placement HxL=(%gx%g)" % (float(ph), float(pl)))
+    parts.append("δ_ker=%s" % _format_ker_delta_latex(_placement_ker_delta(dmd)))
     return "  ".join(parts)
 
 
@@ -101,9 +106,9 @@ class Plotter(PlotterBackbone):
         ax.grid()
         cbar = fig.colorbar(im, ax=ax, extend="both", shrink=0.7)
         
-        tit_left = r"True Dale, $N=%d$, $\delta_{\mathrm{ker}}=%d$, %s" % (
+        tit_left = r"True Dale, $N=%d$, $\delta_{\mathrm{ker}}=%s$, %s" % (
             A.shape[0],
-            placement_ker_delta,
+            _format_ker_delta_latex(placement_ker_delta),
             md["short_name"],
         )
         ax.set(title=tit_left)
@@ -469,8 +474,8 @@ class Plotter(PlotterBackbone):
         )
 
         ax.set_title(
-            r"Neuron placement, $N=%d$, $\delta_{\mathrm{ker}}=%d$, %s"
-            % (N, placement_ker_delta, md["short_name"]),
+            r"Neuron placement, $N=%d$, $\delta_{\mathrm{ker}}=%s$, %s"
+            % (N, _format_ker_delta_latex(placement_ker_delta), md["short_name"]),
             pad=36,
         )
         ax.set_xlabel("x (placement)")
@@ -512,6 +517,8 @@ class Plotter(PlotterBackbone):
         d_off = d_off[d_off > 0]
 
         ax1 = fig.add_subplot(gs[0, 0])
+        dmd = md["dale_conf"]
+        d_ker = _format_ker_delta_latex(_placement_ker_delta(dmd))
         if d_off.size > 0:
             ax1.hist(
                 d_off,
@@ -520,11 +527,11 @@ class Plotter(PlotterBackbone):
                 edgecolor="white",
                 alpha=0.9,
             )
-            p25, p50, p75 = np.percentile(d_off, [25, 50, 75])
-            ax1.axvline(p25, color="darkorange", linestyle="--", linewidth=1.3, zorder=4)
+            p16, p50, p84 = np.percentile(d_off, [16, 50, 84])
+            ax1.axvline(p16, color="darkorange", linestyle="--", linewidth=1.3, zorder=4)
             ax1.axvline(p50, color="darkgreen", linestyle="--", linewidth=1.3, zorder=4)
-            ax1.axvline(p75, color="darkviolet", linestyle="--", linewidth=1.3, zorder=4)
-            pct_txt = "p25 = %.5g\np50 = %.5g\np75 = %.5g" % (p25, p50, p75)
+            ax1.axvline(p84, color="darkviolet", linestyle="--", linewidth=1.3, zorder=4)
+            pct_txt = "p16 = %.5g\np50 = %.5g\np84 = %.5g" % (p16, p50, p84)
             ax1.text(
                 0.97,
                 0.97,
@@ -537,14 +544,14 @@ class Plotter(PlotterBackbone):
                 bbox=dict(boxstyle="round,pad=0.35", facecolor="white", edgecolor="0.6", alpha=0.92),
                 zorder=5,
             )
-        ax1.set_title("Non-zero off-diagonal distances")
+        ax1.set_title(r"Non-zero off-diagonal distances ($\delta_{\mathrm{ker}}=%s$)" % d_ker)
         ax1.set_xlabel("distance")
         ax1.set_ylabel("count")
         ax1.grid(True, alpha=0.3)
 
         ax2 = fig.add_subplot(gs[0, 1])
-        if "offdiag_kernel" in trueD:
-            kappa = np.asarray(trueD["offdiag_kernel"], dtype=np.float64).ravel()
+        kappa = np.asarray(trueD["offdiag_kernel"], dtype=np.float64).ravel()
+        if kappa.size > 0:
             lags = np.arange(1, kappa.size + 1, dtype=np.float64)
             ax2.plot(lags, kappa, color="darkorange", marker="o", markersize=4, linewidth=1.0)
             ax2.axhline(0.0, color="k", lw=0.5)
@@ -556,7 +563,7 @@ class Plotter(PlotterBackbone):
             ax2.text(
                 0.5,
                 0.5,
-                "no offdiag_kernel\n(model A)",
+                "model A: lag-1 (empty $\kappa$, $M=0$)",
                 ha="center",
                 va="center",
                 transform=ax2.transAxes,

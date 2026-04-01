@@ -27,23 +27,23 @@ class Plotter(PlotterBackbone):
         trainMD = md["train"]
         short_name = md["short_name"]
 
-        e_nll = fitD.get("e_nll_em", [])
-        m_nll = fitD.get("m_nll_epoch", [])
-        m_l1 = fitD.get("m_l1_epoch", [])
-        m_loss = fitD.get("m_loss_epoch", [])
-        rho = fitD.get("rho_epoch", [])
-        nz = fitD.get("nz_edges_epoch", [])
-        lr = fitD.get("learning_rates", [])
+        e_nll = fitD["e_nll_em"]
+        m_nll = fitD["m_nll_epoch"]
+        m_l1 = fitD["m_l1_epoch"]
+        m_loss = fitD["m_loss_epoch"]
+        rho = fitD["rho_epoch"]
+        nz = fitD["nz_edges_epoch"]
+        lr = fitD["learning_rates"]
 
-        n_em = trainMD.get("num_em_iters", 1)
-        m_per_em = trainMD.get("m_epochs", 1)
+        n_em = int(trainMD["num_em_iters"])
+        m_per_em = int(trainMD["m_epochs"])
         n_m_total = len(m_nll)
         m_epochs = np.arange(1, n_m_total + 1)
         em_iters = np.arange(1, len(e_nll) + 1)
 
-        prune_em = int(trainMD.get("delay_em_iter_4_Aprune", 0))
-        rho_start_em = int(trainMD.get("delay_em_iter_4_ArhoMax", 0))
-        lr_drop_em = int(trainMD.get("delay_em_iter_4_lrDecay", int(n_em * 0.7)))
+        prune_em = int(trainMD["delay_em_iter_4_Aprune"])
+        rho_start_em = int(trainMD["delay_em_iter_4_ArhoMax"])
+        lr_drop_em = int(trainMD["delay_em_iter_4_lrDecay"])
         prune_m_epoch = prune_em * m_per_em
         rho_start_m_epoch = rho_start_em * m_per_em
         lr_drop_m_epoch = lr_drop_em * m_per_em
@@ -74,15 +74,14 @@ class Plotter(PlotterBackbone):
         draw_threshold_marker(ax, prune_em, len(e_nll), "start Aprune", "k")
         draw_threshold_marker(ax, rho_start_em, len(e_nll), "start rhoMax", "tab:brown")
         draw_threshold_marker(ax, lr_drop_em, len(e_nll), "start_lrDrop", "tab:gray", yFac=0.6)
-        if "pgd_iter" in trainMD or "block1_iter" in trainMD:
-            pgd_it = trainMD.get("pgd_iter", trainMD.get("block1_iter", "N/A"))
-            lr_e = trainMD.get("lr_estep", trainMD.get("lr_kappa", "N/A"))
-            txt = (f"block1_iter={pgd_it}\n"
-                   f"lr_E={lr_e}\n"
-                   f"λ₂={trainMD.get('lambda2', 'N/A')}")
-            ax.text(0.97, 0.97, txt, transform=ax.transAxes,
-                    va="top", ha="right", fontsize=8,
-                    bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
+        pgd_it = trainMD["block1_iter"]
+        lr_e = trainMD["lr_kappa"]
+        txt = (f"block1_iter={pgd_it}\n"
+               f"lr_E={lr_e}\n"
+               f"λ₂={trainMD['lambda2']}")
+        ax.text(0.97, 0.97, txt, transform=ax.transAxes,
+                va="top", ha="right", fontsize=8,
+                bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
 
         # ── Row 1, Col 2: M-step NLL + L1 vs M-epoch ────────────────
         ax = self.plt.subplot(2, 3, 2)
@@ -105,17 +104,17 @@ class Plotter(PlotterBackbone):
         draw_threshold_marker(ax, rho_start_m_epoch, n_m_total, "start rhoMax", "tab:brown")
         draw_threshold_marker(ax, lr_drop_m_epoch, n_m_total, "start_lrDrop", "tab:gray", yFac=0.4)
 
-        lr_m = trainMD.get("lr_mstep", trainMD.get("lr_net", "N/A"))
+        lr_m = trainMD["lr_net"]
         txt = (f"lr_M={lr_m}\n"
-               f"L1 λ3={trainMD.get('lambda3', 'N/A')}\n"
-               f"batch={trainMD.get('batch_size', 'N/A')}")
+               f"L1 λ3={trainMD['lambda3']}\n"
+               f"batch={trainMD['batch_size']}")
         ax.text(0.03, 0.03, txt, transform=ax.transAxes,
                 va="bottom", ha="left", fontsize=8,
                 bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
 
         # ── Row 1, Col 3: spectral radius vs M-epoch ────────────────
         ax = self.plt.subplot(2, 3, 3)
-        rho_max = trainMD.get("rho_max", 0.95)
+        rho_max = float(trainMD["rho_max"])
         ax.plot(m_epochs[jSkipM:], rho[jSkipM:] , color='tab:green', linewidth=1,
                 label='ρ(A)')
         ax.axhline(rho_max, color='red', ls='--', lw=1,
@@ -147,56 +146,36 @@ class Plotter(PlotterBackbone):
 
         # ── Row 2, Col 2: temporal kernel kappa_hat ──────────────────
         ax = self.plt.subplot(2, 3, 5)
-        kappa_hat = fitD.get("kappa_hat")
-        if kappa_hat is not None:
-            kappa_hat = np.asarray(kappa_hat)
-            lags = np.arange(1, len(kappa_hat) + 1)
-            ax.step(lags, kappa_hat, where='post', color='tab:blue', label='fit')
-            ax.plot(lags, kappa_hat, 'o', markersize=3, alpha=0.5, color='tab:blue')
-            
-            # Check for truth kernel
-            kappa_true = md.get("offdiag_kernel")
-            if kappa_true is not None:
-                kappa_true = np.asarray(kappa_true)
-                lags_true = np.arange(1, len(kappa_true) + 1)
-                ax.step(lags_true, kappa_true, where='post', color='tab:red', linestyle='--', alpha=0.7, label='truth')
-
-            # Check for initial kernel
-            kappa_init = fitD.get("kappa_init")
-            if kappa_init is not None:
-                kappa_init = np.asarray(kappa_init)
-                ax.step(lags, kappa_init, where='post', color='black', linestyle='--', alpha=0.6, label='init')
-            
-            ax.legend(fontsize=8)
-            ax.set(title="Temporal kernel $\kappa(\ell)$", xlabel="lag $\ell$", ylabel="weight")
-            ax.grid(True, alpha=0.3)
-            ax.axhline(0, color='k', lw=0.8, alpha=0.5)
-        else:
-            ax.text(0.5, 0.5, "No kappa data", ha='center', va='center', transform=ax.transAxes)
-            ax.axis('off')
+        kappa_hat = np.asarray(fitD["kappa_hat"])
+        lags = np.arange(1, len(kappa_hat) + 1)
+        ax.step(lags, kappa_hat, where='post', color='tab:blue', label='fit')
+        ax.plot(lags, kappa_hat, 'o', markersize=3, alpha=0.5, color='tab:blue')
+        kappa_true_arr = np.asarray(md["offdiag_kernel"]).ravel()
+        if kappa_true_arr.size > 0:
+            kappa_true = kappa_true_arr
+            lags_true = np.arange(1, len(kappa_true) + 1)
+            ax.step(lags_true, kappa_true, where='post', color='tab:red', linestyle='--', alpha=0.7, label='truth')
+        kappa_init = np.asarray(fitD["kappa_init"])
+        ax.step(lags, kappa_init, where='post', color='black', linestyle='--', alpha=0.6, label='init')
+        ax.legend(fontsize=8)
+        ax.set(title="Temporal kernel $\kappa(\ell)$", xlabel="lag $\ell$", ylabel="weight")
+        ax.grid(True, alpha=0.3)
+        ax.axhline(0, color='k', lw=0.8, alpha=0.5)
 
         # ── Row 2, Col 3: A off-diagonal weight histogram ────────────
         ax = self.plt.subplot(2, 3, 6)
-        A_fit = fitD.get("A_hat", fitD.get("A_off_hat"))
-        if A_fit is not None:
-            A_fit = np.asarray(A_fit)
-            Nn = A_fit.shape[0]
-            diag_mask = np.eye(Nn, dtype=bool)
-            if A_fit.ndim == 2:
-                A_off = A_fit[~diag_mask]
-            else:
-                 A_off = A_fit # already 1D?
-            valid = np.abs(A_off) > 1e-10
-            A_off_nz = A_off[valid]
-            n_edges = int(A_off_nz.size)
-            ax.hist(A_off_nz, bins=100, color='g', alpha=0.8)
-            ax.set_yscale('log')
-            ax.set(title=f"A off-diagonal, {n_edges} edges",
-                   xlabel="edge value", ylabel="edges")
-            ax.grid(True, alpha=0.3)
-        else:
-            ax.text(0.5, 0.5, "No A_fit data", ha='center', va='center', transform=ax.transAxes)
-            ax.axis('off')
+        A_fit = np.asarray(fitD["A_off_hat"])
+        Nn = A_fit.shape[0]
+        diag_mask = np.eye(Nn, dtype=bool)
+        A_off = A_fit[~diag_mask]
+        valid = np.abs(A_off) > 1e-10
+        A_off_nz = A_off[valid]
+        n_edges = int(A_off_nz.size)
+        ax.hist(A_off_nz, bins=100, color='g', alpha=0.8)
+        ax.set_yscale('log')
+        ax.set(title=f"A off-diagonal, {n_edges} edges",
+               xlabel="edge value", ylabel="edges")
+        ax.grid(True, alpha=0.3)
 
         fig.suptitle(f"MemKern EM: {short_name},  "
                      f"K_EM={n_em}×K_M={m_per_em}",
@@ -212,27 +191,23 @@ class Plotter(PlotterBackbone):
         gs = fig.add_gridspec(2, 8, height_ratios=[2.0, 1.0], hspace=0.35, wspace=0.45, 
                                left=0.05, right=0.95, top=0.9, bottom=0.08)
 
-        short_name = md.get("short_name", "unknown")
-        A_off_true = md.get("A_off_true")
-        A_diag_true = md.get("A_diag_true")
-        
-        if A_off_true is None:
-             print("correl_fit_truth: missing truth A_off_true, skipping")
-             return
+        short_name = md["short_name"]
+        A_off_true = md["A_off_true"]
+        A_diag_true = md["A_diag_true"]
 
         # Prepare connectivity data
         if A_off_true.ndim == 2:
             diag_mask = np.eye(A_off_true.shape[0], dtype=bool)
             A_off_true = A_off_true[~diag_mask]
-        
-        A_off_hat_full = np.asarray(fitD.get("A_off_hat"))
+
+        A_off_hat_full = np.asarray(fitD["A_off_hat"])
         diag_mask = np.eye(A_off_hat_full.shape[0], dtype=bool)
         A_off_hat = A_off_hat_full[~diag_mask]
-        A_diag_hat = np.asarray(fitD.get("A_diag_hat"))
-        B_true = md.get("B_true")
-        B_hat = np.asarray(fitD.get("B_hat"))
+        A_diag_hat = np.asarray(fitD["A_diag_hat"])
+        B_true = md["B_true"]
+        B_hat = np.asarray(fitD["B_hat"])
 
-        minW = md["train"].get("minW", 0.01)
+        minW = float(md["train"]["minW"])
         B_div = 2.0  # Common dividing line for B groups
 
         def get_corr_stats(x, y):
@@ -304,27 +279,24 @@ class Plotter(PlotterBackbone):
         add_corr_ax(ax3, B_true, B_hat, ["B_true", "B_hat"], "B fit", x_split=B_div, show_split=True, dot_color='blue')
 
         ax4 = fig.add_subplot(gs[0, 6:8])
-        kappa_hat = fitD.get("kappa_hat")
-        kappa_true = md.get("offdiag_kernel")
-        if kappa_hat is not None:
-            kappa_hat = np.asarray(kappa_hat)
-            lags = np.arange(1, len(kappa_hat) + 1)
-            ax4.step(lags, kappa_hat, where='post', color='tab:blue', label='kappa_fit', lw=2)
-            if kappa_true is not None:
-                kappa_true = np.asarray(kappa_true)
-                lags_true = np.arange(1, len(kappa_true) + 1)
-                ax4.step(lags_true, kappa_true, where='post', color='tab:red', linestyle='--', alpha=0.8, label='kappa_true', lw=1.5)
-                n_overlap = min(len(kappa_hat), len(kappa_true))
-                diff = np.abs(kappa_hat[:n_overlap] - kappa_true[:n_overlap])
-                ax4.text(0.5, 0.98, f"sum abs err={np.sum(diff):.3f}\nmax abs err={np.max(diff):.3f}", 
-                         transform=ax4.transAxes, fontsize=9, fontweight='bold', color='tab:red', ha='center', va='top')
-            kappa_init = fitD.get("kappa_init")
-            if kappa_init is not None:
-                ax4.step(lags, np.asarray(kappa_init), where='post', color='black', linestyle=':', alpha=0.5, label='kappa_init')
-            ax4.legend(fontsize=8, loc='best')
-            ax4.set(title=r"Temporal kernel $\kappa(\ell)$", xlabel=r"lag $\ell$", ylabel="weight")
-            ax4.grid(True, alpha=0.2)
-            ax4.axhline(0, color='k', lw=0.8, alpha=0.5)
+        kappa_hat = np.asarray(fitD["kappa_hat"])
+        lags = np.arange(1, len(kappa_hat) + 1)
+        ax4.step(lags, kappa_hat, where='post', color='tab:blue', label='kappa_fit', lw=2)
+        kappa_true_arr = np.asarray(md["offdiag_kernel"]).ravel()
+        if kappa_true_arr.size > 0:
+            kappa_true = kappa_true_arr
+            lags_true = np.arange(1, len(kappa_true) + 1)
+            ax4.step(lags_true, kappa_true, where='post', color='tab:red', linestyle='--', alpha=0.8, label='kappa_true', lw=1.5)
+            n_overlap = min(len(kappa_hat), len(kappa_true))
+            diff = np.abs(kappa_hat[:n_overlap] - kappa_true[:n_overlap])
+            ax4.text(0.5, 0.98, f"sum abs err={np.sum(diff):.3f}\nmax abs err={np.max(diff):.3f}",
+                     transform=ax4.transAxes, fontsize=9, fontweight='bold', color='tab:red', ha='center', va='top')
+        kappa_init = np.asarray(fitD["kappa_init"])
+        ax4.step(lags, kappa_init, where='post', color='black', linestyle=':', alpha=0.5, label='kappa_init')
+        ax4.legend(fontsize=8, loc='best')
+        ax4.set(title=r"Temporal kernel $\kappa(\ell)$", xlabel=r"lag $\ell$", ylabel="weight")
+        ax4.grid(True, alpha=0.2)
+        ax4.axhline(0, color='k', lw=0.8, alpha=0.5)
 
         # ── Row 2: Diagnostic Row (8 cells total) ──────────────────────
         # 1-3: Connectivity Residuals (A_off x2, A_diag) shifted left to col 0-2
@@ -362,9 +334,10 @@ class Plotter(PlotterBackbone):
         for i, (res, tit, col) in enumerate(resids_right):
             add_resid_hist(fig.add_subplot(gs[1, i+4]), res, tit, col)
 
-        if kappa_hat is not None and kappa_true is not None:
-            n_overlap = min(len(kappa_hat), len(kappa_true))
-            k_res = kappa_hat[:n_overlap] - kappa_true[:n_overlap]
+        kappa_true_r = np.asarray(md["offdiag_kernel"]).ravel()
+        if kappa_true_r.size > 0:
+            n_overlap = min(len(kappa_hat), len(kappa_true_r))
+            k_res = kappa_hat[:n_overlap] - kappa_true_r[:n_overlap]
             add_resid_hist(fig.add_subplot(gs[1, 6]), k_res, "Kappa residual", 'tab:green')
         
         fig.suptitle(f"Prism EM Diagnostics: {short_name}", fontsize=14)

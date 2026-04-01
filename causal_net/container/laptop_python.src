@@ -1,7 +1,7 @@
 # load python (see ubu24-python.dockerfile: matplotlib, scipy, jupyter, imageio-ffmpeg, …)
 #  podman build --network=host -f ubu24-python.dockerfile -t balewski/ubu24-python:p1
 
-IMG=ubu24-python:p2
+IMG=ubu24-python:p3
 
 echo launch image $IMG
 echo you are launching container ... remember to exit

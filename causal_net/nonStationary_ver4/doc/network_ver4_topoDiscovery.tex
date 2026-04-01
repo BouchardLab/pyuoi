@@ -168,26 +168,26 @@ $\mathcal{N}_{\mathrm{out}}(j)=\{i:G_{ij}=1\}$.
 
 The Newman assortativity coefficient measures the Pearson correlation
 between the degrees at either end of an edge.  For the directed graph
-$G$, define the in-degree of the target and the out-degree of the
+$G$, define the in-degree of the target and the in-degree of the
 source for each edge $(i,j)\in\mathcal{E}$ (meaning $G_{ij}=1$,
 i.e., neuron~$j$ drives neuron~$i$):
 \begin{equation}
   r = \frac{
     |\mathcal{E}|^{-1}\!\displaystyle\sum_{(i,j)\in\mathcal{E}}
-    k_i^{\mathrm{in}}\,k_j^{\mathrm{out}}
+    k_i^{\mathrm{in}}\,k_j^{\mathrm{in}}
     \;-\;
     \left[|\mathcal{E}|^{-1}\!\displaystyle\sum_{(i,j)\in\mathcal{E}}
     k_i^{\mathrm{in}}\right]
     \left[|\mathcal{E}|^{-1}\!\displaystyle\sum_{(i,j)\in\mathcal{E}}
-    k_j^{\mathrm{out}}\right]
+    k_j^{\mathrm{in}}\right]
   }{
-    \sigma_{\mathrm{in}}\;\sigma_{\mathrm{out}}
+    \sigma_{\mathrm{in,target}}\;\sigma_{\mathrm{in,source}}
   },
   \label{eq:assortativity}
 \end{equation}
-where $\sigma_{\mathrm{in}}$ and $\sigma_{\mathrm{out}}$ are the
+where $\sigma_{\mathrm{in,target}}$ and $\sigma_{\mathrm{in,source}}$ are the
 standard deviations of $\{k_i^{\mathrm{in}}\}_{(i,j)\in\mathcal{E}}$
-and $\{k_j^{\mathrm{out}}\}_{(i,j)\in\mathcal{E}}$ over all edges.
+and $\{k_j^{\mathrm{in}}\}_{(i,j)\in\mathcal{E}}$ over all edges.
 
 \subsection{Dependence on $\delta_{\mathrm{ker}}$}
 
@@ -267,50 +267,9 @@ $\delta_{\mathrm{ker}}$:
 \end{equation}
 
 % ===============================================================
-\section{Method 3: Spectral Dimension from the Random Walk}
-\label{sec:spectral_dim}
-% ===============================================================
-
-Consider a random walker on the symmetrized graph $\tilde{G}$ with
-transition matrix $P = \tilde{D}^{-1}\tilde{G}$, where
-$\tilde{D}_{ii}=\sum_j\tilde{G}_{ij}$.  The average return
-probability after $t$ steps is
-\begin{equation}
-  p_{\mathrm{ret}}(t)
-  = \frac{1}{N}\operatorname{tr}(P^t)
-  = \frac{1}{N}\sum_{k=1}^{N}\mu_k^{\,t},
-  \label{eq:return_prob}
-\end{equation}
-where $1=\mu_1\geq\mu_2\geq\cdots\geq\mu_N$ are the eigenvalues
-of~$P$.  For graphs embedded in $d$-dimensional space,
-$p_{\mathrm{ret}}(t)\sim t^{-d_s/2}$ at intermediate times, defining
-the \emph{spectral dimension}~$d_s$.
-
-Rather than fitting a single slope over an arbitrary window, we
-compute the \emph{scale-dependent spectral dimension}
-\begin{equation}
-  d_s(t)
-  = -2\,\frac{d\log p_{\mathrm{ret}}}{d\log t},
-  \label{eq:local_ds}
-\end{equation}
-evaluated via symmetric finite differences at integer~$t$.  We then
-extract two scalar diagnostics: the \emph{plateau value}
-$\bar{d}_s$, obtained by averaging $d_s(t)$ over the interval where
-it exceeds $80\%$ of its maximum, and the \emph{plateau width}~$W$,
-the length of that interval.
-
-As $\delta_{\mathrm{ker}}$ increases, $\bar{d}_s$ decreases
-monotonically toward~$2$ (the embedding dimension) while $W$ grows,
-reflecting clean power-law scaling over a widening range of diffusion
-times.  In the Erd\H{o}s--R\'enyi limit ($\delta_{\mathrm{ker}}=0$),
-long-range shortcuts cause $d_s(t)$ to rise without settling, and no
-plateau forms.  The pair $(\bar{d}_s, W)$ therefore provides a
-complementary diagnostic to the combinatorial methods of
-Sections~\ref{sec:assortativity} and~\ref{sec:jaccard}.
-
-% ===============================================================
-\section{Method 4: Cycle Closure Decay Rate}
+\section{Method 3: Cycle Closure Decay Rate}
 \label{sec:cycles}
+\sectionmark{Method 3}
 % ===============================================================
 
 \subsection{Definition}
@@ -369,8 +328,10 @@ $\delta_{\mathrm{ker}}$ decreases:
 \end{equation}
 
 % ===============================================================
-\section{Method 5: Persistent Homology}
+% ===============================================================
+\section{Method 4: Persistent Homology}
 \label{sec:persistent_homology}
+\sectionmark{Method 4}
 % ===============================================================
 
 We probe the topological complexity of the graph by computing its
@@ -426,7 +387,7 @@ cloud of short bars in~$\Pi_1$ with no dominant persistent features.
 The pair $(\Pi_0,\Pi_1)$ thus offers a purely topological diagnostic
 of the lattice-to-random transition, complementing the combinatorial
 and spectral methods of
-Sections~\ref{sec:assortativity}--\ref{sec:spectral_dim}.
+Sections~\ref{sec:assortativity}--\ref{sec:jaccard}.
 
 
 % ===============================================================
@@ -434,7 +395,7 @@ Sections~\ref{sec:assortativity}--\ref{sec:spectral_dim}.
 \label{sec:summary}
 % ===============================================================
 
-The five diagnostics are collected in
+The four diagnostics are collected in
 Table~\ref{tab:summary}.  Each uses only the adjacency
 matrix~$G$ (or equivalently the zero pattern of
 $A_{\mathrm{true}}^{\mathrm{off}}$) unless otherwise noted.  None
@@ -454,9 +415,6 @@ requires neuron positions, pairwise distances, or spike data.
 \ref{sec:jaccard}
   & Jaccard overlap & $\bar{J}$ & $\uparrow$
   & no & $O(|\mathcal{E}|\,k_{\max})$ \\
-\ref{sec:spectral_dim}
-  & Spectral dimension & $d_s$ & $\downarrow$
-  & no & $O(N^3)$ eigendecomp \\
 \ref{sec:cycles}
   & Cycle closure decay & $\xi$ & $\downarrow$
   & no & $O(K\,N^3)$ or eigendecomp \\
@@ -465,7 +423,7 @@ requires neuron positions, pairwise distances, or spike data.
     \Pi_1\!\uparrow$ & optional & $O(n_{\mathrm{simp}}^3)$ reduction \\
 \bottomrule
 \end{tabular}
-\caption{Summary of the five topological diagnostics for the decay
+\caption{Summary of the four topological diagnostics for the decay
   exponent $\delta_{\mathrm{ker}}$.
   The arrow in the fifth column indicates the direction of change as
   $\delta_{\mathrm{ker}}$ increases (graph becomes more spatially
@@ -477,14 +435,14 @@ requires neuron positions, pairwise distances, or spike data.
 \label{tab:summary}
 \end{table}
 
-Methods~1--4 operate exclusively on the binary adjacency matrix~$G$
+Methods~1--3 operate exclusively on the binary adjacency matrix~$G$
 and are entirely insensitive to the magnitudes of the interaction
 weights $A_{\mathrm{true},ij}$.  Degree assortativity and Jaccard
-overlap count edges and shared neighbors; spectral dimension and cycle
-closure decay work with powers of~$G$ or its symmetrization, both of
+overlap count edges and shared neighbors; cycle closure
+decay works with powers of~$G$, both of
 which depend only on which entries are nonzero.
 
-Persistent homology (Method~5) is the only diagnostic that can
+Persistent homology (Method~4) is the only diagnostic that can
 optionally exploit weight magnitudes.  As formulated in
 Section~\ref{sec:persistent_homology}, the filtration is built from
 $w_{ij}=|\tilde{G}_{ij}|$, where $\tilde{G}$ is the binary
@@ -496,15 +454,14 @@ $w_{ij}=\tfrac{1}{2}(|A_{\mathrm{true},ij}|+|A_{\mathrm{true},ji}|)$,
 so that strongly coupled pairs enter the complex before weakly coupled
 ones.  This weighted variant introduces a continuous filtration
 parameter and may sharpen the topological signatures, at the cost of
-depending on weight magnitudes that the other four methods ignore.
+depending on weight magnitudes that the other three methods ignore.
 
-The five methods probe complementary facets of the same underlying
+The four methods probe complementary facets of the same underlying
 phenomenon.  Degree assortativity (Method~1) detects correlations at
 the scale of single edges.  Jaccard overlap (Method~2) examines
-two-hop neighborhood structure.  Spectral dimension (Method~3) probes
-the global diffusion geometry.  Cycle closure decay (Method~4)
+two-hop neighborhood structure.  Cycle closure decay (Method~3)
 interpolates between local and global scales through the
-parameter~$k$.  Persistent homology (Method~5) captures the
+parameter~$k$.  Persistent homology (Method~4) captures the
 topological skeleton of the graph --- its connected components and
 loop structure --- as a function of interaction strength, providing a
 diagnostic that is invariant under graph isomorphism and insensitive
@@ -513,10 +470,10 @@ to node labeling.
 For practical estimation of $\delta_{\mathrm{ker}}\in[0,3]$, one may
 generate a calibration family of synthetic graphs at a grid of
 $\delta_{\mathrm{ker}}$ values (with the same $N$, $k_{\min}$,
-$k_{\max}$, and E/I ratio as the target network), compute all five
+$k_{\max}$, and E/I ratio as the target network), compute all four
 scalars for each, and fit monotone calibration curves.  Given an
-observed graph, the five diagnostics are evaluated and mapped through
-the calibration curves to produce five independent estimates of
+observed graph, the four diagnostics are evaluated and mapped through
+the calibration curves to produce four independent estimates of
 $\delta_{\mathrm{ker}}$, which can be combined (e.g., by averaging or
 by inverse-variance weighting) into a single consensus estimate.
 

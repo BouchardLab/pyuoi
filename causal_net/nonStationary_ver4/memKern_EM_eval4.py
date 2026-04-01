@@ -49,17 +49,12 @@ def eval_em_metrics_time(fitD, md, spikes):
     yp = spikes_sub[:-1]
     yc = spikes_sub[1:]
 
-    # Model B uses different keys
-    a_hat = fitD.get("A_hat", fitD.get("A_off_hat"))
-    b_hat = fitD.get("B_hat")
-    c_hat = fitD.get("c_hat")
-    
-    if a_hat is None or b_hat is None or c_hat is None:
+    if "c_hat" not in fitD or "S_true" not in md:
         return {}
 
-    a_hat = np.asarray(a_hat, dtype=np.float64)
-    b_hat = np.asarray(b_hat, dtype=np.float64)
-    c_hat = np.asarray(c_hat, dtype=np.float64)
+    a_hat = np.asarray(fitD["A_off_hat"], dtype=np.float64)
+    b_hat = np.asarray(fitD["B_hat"], dtype=np.float64)
+    c_hat = np.asarray(fitD["c_hat"], dtype=np.float64)
 
     n_pairs = spikes_sub.shape[0] - 1
     assert c_hat.shape[0] == spikes_sub.shape[0], "c_hat and spikes_sub must have matching time bins"
@@ -102,7 +97,7 @@ def eval_state_recovery(fitD, md):
     s_true = np.asarray(md["S_true"], dtype=np.int64)[t0_bin : t1_bin + 1]
     s_hat = np.asarray(fitD["S_hat"], dtype=np.int64)
     s_hat_cl = np.asarray(fitD["S_hat_CL"], dtype=np.float64)
-    m_states = int(trainMD.get("num_states", 1))
+    m_states = int(trainMD["num_states"])
 
     assert s_true.shape[0] == s_hat.shape[0] == s_hat_cl.shape[0], \
         "S_true/S_hat/S_hat_CL length mismatch on training window"
@@ -148,7 +143,7 @@ def main():
                         help="Head dir for input/output data")
     parser.add_argument("-p", "--showPlots", type=str, nargs='+',
                         default="a",
-                        help="Plot types: a=EM convergence summary, b=init-vs-truth states, c=A_init-vs-truth, d=A_hat-vs-truth, e=A_hat edge recovery, f=state sequence, g=2D correlations (A/B), h=A_init TP quality (diag/exc/inh)")
+                        help="Plot types: a=EM convergence summary, b=fit-vs-truth diagnostics (A_off, A_diag, B, κ vs simTruth .npz)")
     parser.add_argument("--minW", type=float, default=0.02,
                         help="Threshold for A-matrix edge eval")
     parser.add_argument("--timeReb", type=int, default=20,

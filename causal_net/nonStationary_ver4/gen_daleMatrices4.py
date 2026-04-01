@@ -25,20 +25,30 @@ Neuron index order follows placement (sorted by x, then y). Type labels are in
 tau (0=exc, 1=inh); B vectors and rate summaries use tau, not index blocks.
 
 Output files saved to <basePath>/truthDale/:
-  <dataName>.simTruth.npz   — A_true, B_true, E_true, node_positions, node_types, … + metadata
-  <dataName>.spikes.npz     — stationary spikes + rate statistics
+  <dataName>.simTruth.npz   — arrays below + metadata (dale_conf, evol_conf, …)
+  <dataName>.spikes.npz     — spikes + rate statistics (+ spike-side metadata)
 
-Output shapes (N = num_neurons, T = num_steps):
-  node_positions (N, 2)   float  — (x,y) sorted by x then y
-  node_types    (N,)      int    — 0 excitatory, 1 inhibitory
-  node_signs    (N,)      int8   — +1 / −1 Dale signs (presynaptic)
-  node_out_degrees (N,)   int    — out-degree (topology)
-  E_true        (N, N)    int8   — signed topology {−1,0,+1}
-  A_true        (N, N)    float  — weighted connectivity, rho(A_true)=R
-  B_true        (N,)      float  — bias vector
+simTruth.npz arrays (N = num_neurons, T = num_steps):
+  A_off_true           (N, N) float — off-diagonal weights (diag forced 0)
+  A_diag_true          (N,)   float — diagonal of A_true
+  B_true               (N,)   float — bias / log-baseline vector
+  E_true               (N, N) int8  — signed Dale topology {−1,0,+1}
+  node_positions       (N, 2) float — (x,y) placement, sorted by x then y
+  node_is_inhibitory   (N,)   int32 — 0 = excitatory, 1 = inhibitory
   node_distance_matrix (N, N) float — pairwise Euclidean distances; diagonal 0
-  offdiag_kernel       (mem_lag_steps,) float — κ_ℓ off-diagonal memory weights (model B only)
-  spikes        (T, N)    uint8  — spike counts
+  offdiag_kernel       (M,)   float — κ_ℓ memory kernel; M=0 for model A (lag-1), M>0 for B
+
+simTruth metadata dale_conf (among others): num_neurons, num_excite, spectral_radius,
+  placement_H, placement_L, placement_min_dist, placement_ker_delta, edge_prob,
+  spike_model, weight_var, idleRate; mem_Q, mem_tau, mem_tau_steps, mem_lag_steps (zeros for A;
+  for B, mem_lag_steps = len(offdiag_kernel)).
+
+spikes.npz arrays:
+  spikes (T, N) uint8 — spike counts per bin
+  single_rates, sigle_rates_var, single_fano_fact — per-neuron summaries
+
+spikes.npz metadata repeats spike_model, placement_*, mem_lag_steps (0 for A, same as dale_conf for B).
+evol_conf includes mem_lag_steps mirroring dale_conf.
 
 Spike GLM (--spike_model): A = lag-1 (baseline Y[0] Poisson); B = lag-M
 off-diagonal kernel (--time_kernel_q_tau); mem_tau in seconds; mem_tau_steps = round(mem_tau/dt);
@@ -108,7 +118,7 @@ def generate_spatial_dale_network(
     n_inhib = n_units - n_excite
     assert n_excite > 0 and n_inhib > 0
     assert k_min >= 1 and k_max <= n_units - 1 and k_min <= k_max
-    assert placement_ker_delta in (1, 2)
+    assert float(placement_ker_delta) > 0
     assert 0 < weight_var < 1
     assert 0 < R < 1
 
@@ -438,13 +448,18 @@ def main():
     print("=" * 60)
 
     parser = argparse.ArgumentParser(description="Simulate a recurrent neural network with Dale's principle.")
-    parser.add_argument("--spike_model", type=str, default="A", choices=["A", "B"], help="Spike GLM: A = lag-1 stationary; B = lag-M off-diagonal damped-oscillator kernel.")
-    parser.add_argument("--time_kernel_q_tau", type=float, nargs=2, default=[3.0, 0.4], metavar=("mem_Q", "mem_tau"), help="Model B: [mem_Q, mem_tau] — quality factor, period mem_tau>0 (s); mem_lag_steps=(3*mem_tau_steps)//4 (~1.5π phase).")
+    parser.add_argument("--spike_model", type=str, default="A", choices=["A", "B"],
+                        help="Spike GLM: A = lag-1 stationary; B = lag-M off-diagonal damped-oscillator kernel.")
+    parser.add_argument("--time_kernel_q_tau", type=float, nargs=2, default=[3.0, 0.4], metavar=("mem_Q", "mem_tau"),
+                        help="Model B: [mem_Q, mem_tau] — quality factor, period mem_tau>0 (s); mem_lag_steps=(3*mem_tau_steps)//4 (~1.5π phase).")
     parser.add_argument("--num_neurons", type=int, default=50, help="Total number of neurons in the network.")
     parser.add_argument("--num_excite", type=int, default=None, help="Number of excitatory neurons.")
-    parser.add_argument("--placement_H_L_delta", type=float, nargs=3, default=[1.0, 2.0, 2.0], metavar=("placement_H", "placement_L", "placement_ker_delta"), help="Placement: [0,H] height, [0,L] width, distance-kernel exponent δ in V_ij ∝ D_ij^{-δ} (1 or 2).")
-    parser.add_argument("--placement_min_dist", type=float, default=0.01, help="Grid spacing d_min; minimum inter-neuron distance.")
-    parser.add_argument("--edge_prob", type=float, nargs=2, default=[0.05, 0.2], help="Out-degree range as fractions of N: k_min=max(1,floor(lo*N)), k_max=min(N-1,floor(hi*N)).")
+    parser.add_argument("--placement_H_L_delta", type=float, nargs=3, default=[1.0, 2.0, 2.0],
+                        metavar=("placement_H", "placement_L", "placement_ker_delta"), help="Placement: [0,H] height, [0,L] width, distance-kernel exponent δ>0 in V_ij ∝ D_ij^{-δ} (e.g. 1, 2, 0.2).")
+    parser.add_argument("--placement_min_dist", type=float, default=0.01,
+                        help="Grid spacing d_min; minimum inter-neuron distance.")
+    parser.add_argument("--edge_prob", type=float, nargs=2, default=[0.05, 0.2],
+                        help="Out-degree range as fractions of N: k_min=max(1,floor(lo*N)), k_max=min(N-1,floor(hi*N)).")
     parser.add_argument("--weight_var", type=float, default=0.2, help="Fractional weight variation v for Uniform(1-v,1+v).")
     parser.add_argument("--num_steps", type=int, default=10_001, help="Number of time steps for simulation.")
     parser.add_argument("--step_size", type=float, default=0.01, help="Integration time step size (dt) in seconds.")
@@ -465,9 +480,9 @@ def main():
     )
     if not (placement_H > 0 and placement_L > 0):
         raise ValueError("placement_H_L_delta requires positive H and L")
-    placement_ker_delta = int(round(placement_ker_delta_raw))
-    if placement_ker_delta not in (1, 2):
-        raise ValueError("placement_H_L_delta third value (placement_ker_delta) must be 1 or 2")
+    placement_ker_delta = float(placement_ker_delta_raw)
+    if placement_ker_delta <= 0:
+        raise ValueError("placement_H_L_delta third value (placement_ker_delta, δ) must be positive")
     placement_min_dist = float(args.placement_min_dist)
     if placement_min_dist <= 0:
         raise ValueError("placement_min_dist must be positive")
@@ -564,9 +579,13 @@ def main():
         "spike_model": args.spike_model,
     }
     if args.spike_model == "B":
-        dale_conf["mem_tau"] = mem_tau
-        dale_conf["mem_tau_steps"] = mem_tau_steps
-        dale_conf["mem_Q"] = mem_Q
+        dale_conf["mem_tau"] = float(mem_tau)
+        dale_conf["mem_tau_steps"] = int(mem_tau_steps)
+        dale_conf["mem_Q"] = float(mem_Q)
+    else:
+        dale_conf["mem_tau"] = 0.0
+        dale_conf["mem_tau_steps"] = 0
+        dale_conf["mem_Q"] = 0.0
     if args.seed is not None:
         dale_conf["seed"] = args.seed
 
@@ -589,7 +608,12 @@ def main():
 
     if args.spike_model == "B":
         offdiag_kernel = _offdiag_time_kernel(mem_tau_steps, mem_Q)
-        dale_conf["mem_lag_steps"] = offdiag_kernel.shape[0]
+        dale_conf["mem_lag_steps"] = int(offdiag_kernel.shape[0])
+    else:
+        offdiag_kernel = np.zeros((0,), dtype=np.float64)
+        dale_conf["mem_lag_steps"] = 0
+
+    evol_conf["mem_lag_steps"] = dale_conf["mem_lag_steps"]
 
     print("Dale configuration:")
     pprint(dale_conf)
@@ -648,9 +672,8 @@ def main():
         "node_positions": P_pos,
         "node_is_inhibitory": tau,
         "node_distance_matrix": D_mat,
+        "offdiag_kernel": offdiag_kernel,
     }
-    if args.spike_model == "B":
-        trueD["offdiag_kernel"] = offdiag_kernel
 
     # Compute max spikes per neuron across all bins
     max_spikes_per_neuron = Y.max(axis=0)
@@ -689,6 +712,7 @@ def main():
         "placement_L": float(placement_L),
         "placement_H": float(placement_H),
         "placement_min_dist": float(placement_min_dist),
+        "mem_lag_steps": int(dale_conf["mem_lag_steps"]),
     }
   
     outFt = os.path.join(outPath, args.dataName + ".simTruth.npz")

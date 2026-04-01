@@ -848,6 +848,7 @@ def main():
             "batch_size":             args.batch_size,
             "minW":                   args.minW,
             "M_cut":                  M_cut,
+            "num_states":             1,
             "num_neurons":            N,
             "num_time_bins":          T_full,
             "num_samples":            N_samples_total,
