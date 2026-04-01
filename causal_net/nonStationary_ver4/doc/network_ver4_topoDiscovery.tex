@@ -367,27 +367,23 @@ number of features alive at filtration value~$\epsilon$; its integral
 $B_k = \int \beta_k(\epsilon)\,d\epsilon$ gives a single-number
 summary of topological richness.
 
-For graphs embedded in two dimensions, only $k=0$ (connected
-components) and $k=1$ (loops) carry meaningful geometric information;
-higher-dimensional features such as enclosed cavities ($k=2$) are not
-expected in a planar embedding, and their computation requires
-enumerating $(k{+}1)$-cliques, which becomes prohibitively expensive
-for large graphs.  We therefore restrict attention to the pair
-$(\Pi_0,\Pi_1)$.
+For graphs embedded in two dimensions, only $k=1$ (loops) carries 
+meaningful geometric information; higher-dimensional features such 
+as enclosed cavities ($k=2$) are not expected in a planar embedding, 
+and their computation requires enumerating $(k{+}1)$-cliques, which 
+becomes prohibitively expensive for large graphs.  We therefore 
+restrict attention to $\Pi_1$.
 
 For lattice-like graphs ($\delta_{\mathrm{ker}}\geq 2$), the
-dimension-$0$ barcode consists of a single long bar and many short
-bars, yielding small~$\Pi_0$, while the dimension-$1$ barcode shows
-persistent loops reflecting the regular mesh, giving
-moderate~$\Pi_1$.  In the Erd\H{o}s--R\'enyi limit
-($\delta_{\mathrm{ker}}=0$), random long-range edges create many
-short-lived components and loops, inflating~$\Pi_0$ and producing a
-cloud of short bars in~$\Pi_1$ with no dominant persistent features.
+dimension-$1$ barcode shows persistent loops reflecting the regular 
+mesh, giving moderate~$\Pi_1$.  In the Erd\H{o}s--R\'enyi limit
+($\delta_{\mathrm{ker}}=0$), random long-range edges create many 
+short-lived loops, producing a cloud of short bars in~$\Pi_1$ with 
+no dominant persistent features.
 
-The pair $(\Pi_0,\Pi_1)$ thus offers a purely topological diagnostic
-of the lattice-to-random transition, complementing the combinatorial
-and spectral methods of
-Sections~\ref{sec:assortativity}--\ref{sec:jaccard}.
+$\Pi_1$ thus offers a purely topological diagnostic of the 
+lattice-to-random transition, complementing the combinatorial and 
+spectral methods of Sections~\ref{sec:assortativity}--\ref{sec:jaccard}.
 
 
 % ===============================================================
@@ -419,8 +415,7 @@ requires neuron positions, pairwise distances, or spike data.
   & Cycle closure decay & $\xi$ & $\downarrow$
   & no & $O(K\,N^3)$ or eigendecomp \\
 \ref{sec:persistent_homology}
-  & Persistent homology & $(\Pi_0,\Pi_1)$ & $\Pi_0\!\downarrow,\;
-    \Pi_1\!\uparrow$ & optional & $O(n_{\mathrm{simp}}^3)$ reduction \\
+  & Persistent homology & $\Pi_1$ & $\Pi_1\!\uparrow$ & optional & $O(n_{\mathrm{simp}}^3)$ reduction \\
 \bottomrule
 \end{tabular}
 \caption{Summary of the four topological diagnostics for the decay
@@ -462,7 +457,7 @@ the scale of single edges.  Jaccard overlap (Method~2) examines
 two-hop neighborhood structure.  Cycle closure decay (Method~3)
 interpolates between local and global scales through the
 parameter~$k$.  Persistent homology (Method~4) captures the
-topological skeleton of the graph --- its connected components and
+topological skeleton of the graph --- its 
 loop structure --- as a function of interaction strength, providing a
 diagnostic that is invariant under graph isomorphism and insensitive
 to node labeling.

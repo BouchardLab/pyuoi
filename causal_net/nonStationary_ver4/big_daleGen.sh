@@ -9,8 +9,10 @@ basePath="/pscratch/sd/b/balewski/2026_causalNet_tmp4/"
 N=100
 L=1
 
-#for dker in 0.1 0.5 1.0 1.5 2.0 ; do
-for dker in 0.1 1.0 2.0 ; do
+for dker in 0.1 0.5 1.0 1.5 2.0 2.5; do
+#for dker in 0.1 1.0 2.0  2.5; do
+#for dker in 2.5 ; do
+
     expName=aN${N}_L${L}_dker${dker}
     #echo expName=$expName  
 

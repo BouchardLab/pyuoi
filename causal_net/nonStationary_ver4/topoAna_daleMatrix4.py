@@ -188,21 +188,21 @@ def run_method5(A_off, dmd, verb=1):
     
     # Compute persistence
     st.persistence()
-    diag = st.persistence_intervals_in_dimension(1)
-    
-    # Total persistence Pi_1 = sum(death - birth)
+
+    # Total persistence Pi_1 (dim 1)
+    diag1 = st.persistence_intervals_in_dimension(1)
     pi1 = 0.0
-    if len(diag) > 0:
-        # filter out infinite death if any (at N=200 they should all die)
-        valid = diag[np.isfinite(diag[:, 1])]
-        pi1 = float(np.sum(valid[:, 1] - valid[:, 0]))
+    if len(diag1) > 0:
+        # Filter out infinite death
+        valid1 = diag1[np.isfinite(diag1[:, 1])]
+        pi1 = float(np.sum(valid1[:, 1] - valid1[:, 0]))
     
-    print("\n--- Method 5: persistent homology (H1) ---")
+    print("\n--- Method 4: persistent homology (H1) ---")
     print("  total persistence Pi_1: %.6f" % pi1)
     
     return {
         "homology_k1": pi1,
-        "n_features": len(diag)
+        "n_features_k1": len(diag1)
     }
 
 
