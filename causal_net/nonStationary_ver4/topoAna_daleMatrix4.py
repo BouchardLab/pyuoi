@@ -184,7 +184,12 @@ def run_method3(G, dmd, verb=1):
 
 
 def run_method4(A_off, dmd, verb=1):
-    import gudhi
+    try:
+        import gudhi
+    except ImportError as exc:
+        raise ImportError(
+            "Method 4 requires GUDHI. Install it in this environment before running topology analysis."
+        ) from exc
     A = np.abs(A_off)
     # Symmetrized interaction strength (LaTeX Method 5, weighted variant)
     W = (A + A.T) / 2.0

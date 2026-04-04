@@ -29,6 +29,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+from matplotlib.collections import LineCollection
 from matplotlib.patches import Ellipse
 from matplotlib.ticker import MaxNLocator
 import imageio_ffmpeg
@@ -109,18 +110,32 @@ def rebin_spike_rates(spikeYield, md, tReb2):
 
 def movie_title_header(spikeMD, trueMD, nchan, tbin_sec):
     """Metadata line matching PlotterSpikesTrain.freq_vs_time (dataset, R, nchan, Tbin, …)."""
-    dale = trueMD["dale_conf"]
-    R_sel = float(dale["spectral_radius"])
-    sn = spikeMD["short_name"]
+    dale = trueMD.get("dale_conf", {})
+
+    def md_get_float(key, *, required=False):
+        if key in spikeMD:
+            return float(spikeMD[key])
+        if key in dale:
+            return float(dale[key])
+        if required:
+            raise KeyError(f"Missing metadata field: {key}")
+        return None
+
+    R_sel = md_get_float("spectral_radius", required=True)
+    sn = spikeMD.get("short_name", trueMD.get("short_name", "unknown"))
     tit0 = "dataset: %s  R=%.3f    nchan=%d  Tbin=%.2f sec" % (sn, R_sel, nchan, tbin_sec)
-    if spikeMD["spike_model"] == "B":
+    mem_q = md_get_float("mem_Q")
+    mem_tau = md_get_float("mem_tau")
+    if spikeMD.get("spike_model") == "B" and mem_q is not None and mem_tau is not None:
         tit0 += "  Q=%.4g  tau/sec=%.4g" % (
-            float(spikeMD["mem_Q"]),
-            float(spikeMD["mem_tau"]),
+            mem_q,
+            mem_tau,
         )
+    ph = md_get_float("placement_H", required=True)
+    pl = md_get_float("placement_L", required=True)
     tit0 += "  placement HxL=(%gx%g)" % (
-        float(spikeMD["placement_H"]),
-        float(spikeMD["placement_L"]),
+        ph,
+        pl,
     )
     return tit0
 
@@ -187,6 +202,7 @@ def main():
 
     positions = np.asarray(trueD["node_positions"])
     is_inhib = np.asarray(trueD["node_is_inhibitory"])
+    edge_sign = np.asarray(trueD["E_true"]) if "E_true" in trueD else None
     spikes = np.asarray(spikeD["spikes"])
     if spikes.ndim != 2:
         raise ValueError(
@@ -200,6 +216,8 @@ def main():
             "N mismatch: spikes N=%d vs positions %s vs inhib %s"
             % (nchan, positions.shape, is_inhib.shape)
         )
+    if edge_sign is not None and edge_sign.shape != (nchan, nchan):
+        raise ValueError("E_true must have shape (%d, %d)" % (nchan, nchan))
 
     t0s, t1s = float(args.time_range_sec[0]), float(args.time_range_sec[1])
     i0 = max(0, int(np.floor(t0s / dt)))
@@ -251,8 +269,9 @@ def main():
         max_circle_r = min_dist * 0.45
 
     # Axis span is L+2*flush and H+2*flush (one flush radius per side around [0,L]×[0,H]).
-    pl = float(spikeMD["placement_L"])
-    ph = float(spikeMD["placement_H"])
+    dale = trueMD.get("dale_conf", {})
+    pl = float(spikeMD.get("placement_L", dale["placement_L"]))
+    ph = float(spikeMD.get("placement_H", dale["placement_H"]))
     pad = max_circle_r
     xlim_lo, xlim_hi = -pad, pl + pad
     ylim_lo, ylim_hi = -pad, ph + pad
@@ -313,14 +332,20 @@ def main():
 
     exc_mask = is_inhib == 0
     inh_mask = is_inhib == 1
+    exc_fill = "#f4a3a3"
+    exc_edge = "#8b3a3a"
+    inh_fill = "#a9c8ff"
+    inh_edge = "#355c99"
+    exc_flush = "#ff5c5c"
+    inh_flush = "#4d8dff"
 
     ax.scatter(
         x[exc_mask],
         y[exc_mask],
         marker="^",
         s=marker_size * 800,
-        facecolors="none",
-        edgecolors="black",
+        facecolors=exc_fill,
+        edgecolors=exc_edge,
         linewidths=0.8,
         zorder=3,
     )
@@ -329,11 +354,28 @@ def main():
         y[inh_mask],
         marker="s",
         s=marker_size * 600,
-        facecolors="none",
-        edgecolors="black",
+        facecolors=inh_fill,
+        edgecolors=inh_edge,
         linewidths=0.8,
         zorder=3,
     )
+
+    inh_segments_by_src = [[] for _ in range(N)]
+    if edge_sign is not None:
+        edge_mask = edge_sign != 0
+        for j in np.flatnonzero(inh_mask):
+            for i in np.flatnonzero(edge_mask[:, j]):
+                if i == j:
+                    continue
+                inh_segments_by_src[j].append(np.array([positions[j], positions[i]], dtype=np.float64))
+    inh_edge_collection = LineCollection(
+        [],
+        colors=inh_edge,
+        linewidths=1.0,
+        alpha=0.45,
+        zorder=2,
+    )
+    ax.add_collection(inh_edge_collection)
 
     # Shrink default side margins so the axes use more of the frame (wide L×H plots were ~70% width).
     fig.subplots_adjust(left=0.065, right=0.995, bottom=0.13, top=0.82)
@@ -348,12 +390,13 @@ def main():
 
     circles = []
     for i in range(N):
+        circle_face = inh_flush if inh_mask[i] else exc_flush
         c = Ellipse(
             (x[i], y[i]),
             0.0,
             0.0,
             angle=0.0,
-            facecolor="green",
+            facecolor=circle_face,
             edgecolor="none",
             linewidth=0,
             alpha=0.0,
@@ -377,6 +420,12 @@ def main():
             print(f"  Rendering frame {frame}/{T_render}...")
         t_sec = t_off_sec + (t_start + frame) * frame_dt_sec
         title_text.set_text(title_header + f"\nt = {t_sec:.3f}s  (frame {frame})")
+        firing = spikes[t_start + frame] > 0
+        frame_inh_segments = []
+        if frame % 10 == 0:
+            for j in np.flatnonzero(firing & inh_mask):
+                frame_inh_segments.extend(inh_segments_by_src[j])
+        inh_edge_collection.set_segments(frame_inh_segments)
         for i in range(N):
             g = glow[frame, i]
             if g > 0:
@@ -389,7 +438,7 @@ def main():
                 circles[i].set_visible(True)
             else:
                 circles[i].set_visible(False)
-        return circles
+        return circles + [inh_edge_collection]
 
     output = args.movie_output_path
     _out_dir = os.path.dirname(os.path.abspath(output)) 

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import numpy as np
-import gudhi
 import argparse
 import time
 from typing import Dict, Tuple, List
@@ -9,6 +8,14 @@ from dataclasses import dataclass
 import json
 import networkx as nx
 from PlotterBetti import Plotter
+
+try:
+    import gudhi
+except ImportError as exc:
+    gudhi = None
+    _GUDHI_IMPORT_ERROR = exc
+else:
+    _GUDHI_IMPORT_ERROR = None
 
 @dataclass
 class BettiResults:
@@ -74,6 +81,11 @@ class BettiComputer:
     """Compute Betti numbers using GUDHI"""
     
     def __init__(self, max_dimension: int = 3):
+        if gudhi is None:
+            raise ImportError(
+                "GUDHI is required for Betti number computation. "
+                "Install it in this environment before running this script."
+            ) from _GUDHI_IMPORT_ERROR
         self.max_dimension = max_dimension
     
     def compute(self, edges: np.ndarray, n_nodes: int) -> Tuple[Dict[int, int], Dict[int, int], List[List[Tuple[int, int]]], List[List[List[int]]], List[List[List[int]]]]:

@@ -10,6 +10,7 @@ FROM ubuntu:24.04
 
 # Set non-interactive mode for apt-get
 ARG DEBIAN_FRONTEND=noninteractive
+ARG TARGETARCH
 ENV TZ=America/Los_Angeles
 
 # Update the OS and install required packages
@@ -29,7 +30,11 @@ ENV PATH="/opt/venv/bin:$PATH"
 RUN echo "2d-AAAAAAAAAAAAAAAAAAAAAAAAAAAAA python libs" && \
     /opt/venv/bin/pip install --upgrade pip && \
     /opt/venv/bin/pip install matplotlib h5py scipy jupyter notebook bitstring lmfit pytest scikit-learn pytz networkx[default] imageio-ffmpeg && \
-    /opt/venv/bin/pip install gudhi
+    if [ "${TARGETARCH}" = "arm64" ]; then \
+        echo "Skipping gudhi on linux/arm64: no compatible wheel is available from PyPI."; \
+    else \
+        /opt/venv/bin/pip install gudhi; \
+    fi
 
 
 # Final cleanup
