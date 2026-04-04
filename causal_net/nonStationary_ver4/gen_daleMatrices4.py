@@ -68,6 +68,10 @@ from pprint import pprint
 from toolbox.Util_NumpyIO import write_data_npz
 from UtilDalePoisson4 import estimate_rates
 
+if sys.version_info < (3, 0):
+    sys.stderr.write("ERROR: gen_daleMatrices4.py requires Python 3.0 or newer.\n")
+    sys.exit(1)
+
 ###### Matrix generation (spatial + Dale, see writeup) ##################
 
 
@@ -157,21 +161,19 @@ def generate_spatial_dale_network(
         k_out[j] = kj
         targets = _sample_targets_without_replacement(j, V[:, j], kj, rng)
         E[targets, j] = sigma[j]
-        E[j, j] = -1
+        #E[j, j] = -1  # to tage 
 
     W = np.zeros((n_units, n_units), dtype=np.float64)
     for j in range(n_units):
         for i in range(n_units):
-            eij = E[i, j]
-            if eij == 0:
-                continue
-            u = float(rng.uniform(1.0 - weight_var, 1.0 + weight_var))
             if i == j:
-                W[i, j] = -u
-            elif eij == 1:
-                W[i, j] = u
-            else:
-                W[i, j] = -r_balance * u
+                W[i, j] = float(rng.uniform( -5* weight_var, - 2*weight_var))
+                continue  # done with diagonal self-feedback
+            eij = E[i, j]
+            if eij == 0:    continue  # edge not existing
+            W[i, j] = float(rng.uniform(1.0 - weight_var, 1.0 + weight_var))           
+            if eij == -1:  # inhibitory
+                W[i, j] *= -r_balance
 
     ev = np.linalg.eigvals(W)
     rho0 = float(np.max(np.abs(ev)))
@@ -303,7 +305,7 @@ def gen_stationary_lag1_poisson(num_steps, dt, A, B_intercept, tau, eta_clip, ve
         print("Starting main simulation loop...")
     for t in range(1, num_steps):
         eta = A @ Y[t - 1] + B_intercept
-        lambda_t = np.exp(np.clip(eta, max=eta_clip))  # avoid overflow
+        lambda_t = np.exp(np.minimum(eta, eta_clip))  # avoid overflow
         Y[t] = np.random.poisson(lambda_t * dt)
 
         if verb > 0 and t < 5 and kk > 0:
@@ -415,7 +417,7 @@ def gen_nonstationary_lagM_modelB_poisson(
             if tt >= 0:
                 S += h_off[ell - 1] * Y[tt]
         eta = a_diag * Y[t - 1] + A_off @ S + B_intercept
-        lambda_t = np.exp(np.clip(eta, max=eta_clip))
+        lambda_t = np.exp(np.minimum(eta, eta_clip))
         Y[t] = np.random.poisson(lambda_t * dt)
 
         if verb > 0 and t < 5 and kk > 0:
@@ -460,11 +462,11 @@ def main():
                         help="Grid spacing d_min; minimum inter-neuron distance.")
     parser.add_argument("--edge_prob", type=float, nargs=2, default=[0.05, 0.2],
                         help="Out-degree range as fractions of N: k_min=max(1,floor(lo*N)), k_max=min(N-1,floor(hi*N)).")
-    parser.add_argument("--weight_var", type=float, default=0.2, help="Fractional weight variation v for Uniform(1-v,1+v).")
+    parser.add_argument("--init_weight_var", type=float, default=0.4, help="Fractional weight variation v for Uniform(1-v,1+v).")
     parser.add_argument("--num_steps", type=int, default=10_001, help="Number of time steps for simulation.")
     parser.add_argument("--step_size", type=float, default=0.01, help="Integration time step size (dt) in seconds.")
-    parser.add_argument("--spectral_radius", type=float, default=0.9, help="Target spectral radius value for the connectivity matrix.")
-    parser.add_argument("--idleRate", type=float, nargs=2, default=[15, 30.0], help="Range of idle firing rates [min, max] in Hz.")
+    parser.add_argument("--spectral_radius", type=float, default=0.90, help="Target spectral radius value for the connectivity matrix.")
+    parser.add_argument("--idleRate", type=float, nargs=2, default=[10, 20], help="Range of idle firing rates [min, max] in Hz.")
     parser.add_argument("-v", "--verb", type=int, default=1, help="Verbosity level (0=quiet, 1=normal).")
     parser.add_argument("--dataName", type=str, default=None, help="Base name for output files (default: daleN<num_neurons>_<hash>).")
     parser.add_argument("--basePath", type=str, default="/pscratch/sd/b/balewski/2025_causalNet_tmp/", help="Output directory for all files.")
@@ -545,7 +547,7 @@ def main():
         k_min=k_out_min,
         k_max=k_out_max,
         placement_ker_delta=placement_ker_delta,
-        weight_var=args.weight_var,
+        weight_var=args.init_weight_var,
         R=args.spectral_radius,
         rng=rng,
         verb=args.verb,
@@ -573,7 +575,7 @@ def main():
         "k_out_min": k_out_min,
         "k_out_max": k_out_max,
         "placement_ker_delta": placement_ker_delta,
-        "weight_var": args.weight_var,
+        "init_weight_var": args.init_weight_var,
         "rho0_unscaled": rho0,
         "idleRate": args.idleRate,
         "spike_model": args.spike_model,
@@ -732,7 +734,7 @@ def main():
     )
     print("\nNext step commands:")
     print("     basePath=" + args.basePath)
-    print("  ./view_daleMatrix4.py  --basePath $basePath   --dataName %s  -p a e b  c d f -X  " % args.dataName)
+    print("  ./view_daleMatrix4.py  --basePath $basePath   --dataName %s  -p a e b c d   g   f -X  " % args.dataName)
     print("  ./view_spikesTrain4.py  --basePath $basePath   --dataName %s  --time_range_sec 1 8 -p b --time_rebin2 2   -X " % args.dataName)
     print("  ./movie_spikesTrain4.py  --basePath $basePath   --dataName %s  --time_range_sec 1 8  --flushSize .2  " % args.dataName)
     print("  ./view_spikesTrain4.py  --basePath $basePath   --dataName %s  --time_range_sec 0 20 -p b   -X " % args.dataName)

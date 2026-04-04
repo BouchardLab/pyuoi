@@ -13,13 +13,15 @@ Available plots (-p flag):
      per neuron, and per-neuron firing-rate bar chart
   c  B_idle vs firing rate / SNR scatter, plus excitatory and
      inhibitory rate histograms (rates_study)
-  d  Pseudospectral contour plot with eigenvalue overlay
-  e  2D neuron placement: triangles=excitatory, squares=inhibitory;
+  d  2D neuron placement: triangles=excitatory, squares=inhibitory;
      red=outgoing excitatory edges, blue=outgoing inhibitory edges (presynaptic)
-  f  Off-diagonal distance histogram, offdiag_kernel histogram, empty panel
+  e  Off-diagonal distance histogram, offdiag_kernel histogram, empty panel
+  f  Pseudospectral contour plot with eigenvalue overlay
+  g  Topology overview: signed off-diagonal matrix, distance histogram,
+     and placement topology on one canvas
 
 Usage:
-    ./view_daleMatrix4.py --dataName daleN100_9fbe7f -p a b c d e f
+    ./view_daleMatrix4.py --dataName daleN100_9fbe7f -p a b c d e f g
 """
 
 __author__ = "Jan Balewski"
@@ -41,7 +43,7 @@ def get_parser():
         "--showPlots",
         default="a b",
         nargs="+",
-        help="plot letters: a=Dale+eigen, b=histograms, c=rates_study, d=pseudospectra, e=placement, f=dist/kernel hist",
+        help="plot letters: a=Dale+eigen, b=histograms, c=rates_study, d=placement, e=dist/kernel hist, f=pseudospectra, g=topo overview",
     )
     parser.add_argument("-X", "--noXterm", action="store_true", help="Disable X terminal for plotting")
     parser.add_argument("--basePath", default="/pscratch/sd/b/balewski/2025_causalNet_tmp/", help="head dir for input data")
@@ -106,13 +108,17 @@ if __name__ == "__main__":
         plot.rates_study(trueD_r, spikeD_r, trueMD, figId=3)
 
     if "d" in args.showPlots:
-        plot.Dale_matrix_pseudospectra(trueD_r["A_true"], trueMD, trueD_r, figId=4)
+        plot.plot_placement_topology(trueD, trueMD, figId=4)
 
     if "e" in args.showPlots:
-        plot.plot_placement_topology(trueD, trueMD, figId=5)
+        plot.offdiag_distance_kernel_hist(trueD, trueMD, figId=5)
 
     if "f" in args.showPlots:
-        plot.offdiag_distance_kernel_hist(trueD, trueMD, figId=6)
+        plot.Dale_matrix_pseudospectra(trueD_r["A_true"], trueMD, trueD_r, figId=6)
+
+    if "g" in args.showPlots:
+        plot.topo_overview(trueD, trueMD, figId=7)
+
 
     plot.display_all()
     print("M:done - view_dalePoisson completed successfully!")

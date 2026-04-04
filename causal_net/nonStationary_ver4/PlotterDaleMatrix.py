@@ -68,12 +68,69 @@ def _kernel_figure_canvas_title(md):
     return "  ".join(parts)
 
 
+def _dale_overview_title(md):
+    dmd = md["dale_conf"]
+    return r"True Dale, $N=%d$, $\delta_{\mathrm{ker}}=%s$, %s" % (
+        int(dmd["num_neurons"]),
+        _format_ker_delta_latex(_placement_ker_delta(dmd)),
+        md["short_name"],
+    )
+
+
+def _realized_edge_lengths(trueD):
+    D = np.asarray(trueD["node_distance_matrix"], dtype=np.float64)
+    if D.ndim != 2 or D.shape[0] != D.shape[1]:
+        raise ValueError("node_distance_matrix must be square (N, N)")
+    N = D.shape[0]
+    edge_mask = np.asarray(trueD["E_true"]) != 0
+    if edge_mask.shape != (N, N):
+        raise ValueError("edge mask shape mismatch with node_distance_matrix")
+    edge_mask = edge_mask.copy()
+    np.fill_diagonal(edge_mask, False)
+    d_off = D[edge_mask]
+    return d_off[d_off > 0]
+
+
 #............................
 #............................
 #............................
 class Plotter(PlotterBackbone):
     def __init__(self, args):
         PlotterBackbone.__init__(self,args)
+
+    def _plot_signed_offdiag_matrix(self, ax, trueD, md, title_txt=None):
+        dmd = md["dale_conf"]
+        numNeur = int(dmd["num_neurons"])
+        placement_ker_delta = _placement_ker_delta(dmd)
+
+        if "E_true" in trueD:
+            A_sign = np.asarray(trueD["E_true"], dtype=np.int8).copy()
+        else:
+            A_sign = np.sign(np.asarray(trueD["A_off_true"], dtype=np.float64)).astype(np.int8, copy=False)
+        if A_sign.shape != (numNeur, numNeur):
+            raise ValueError("signed off-diagonal topology shape mismatch")
+        np.fill_diagonal(A_sign, 0)
+
+        sign_cmap = colors.ListedColormap(["blue", "white", "red"])
+        sign_norm = colors.BoundaryNorm([-1.5, -0.5, 0.5, 1.5], sign_cmap.N)
+        ax.imshow(
+            A_sign.T,
+            aspect=1.0,
+            origin="lower",
+            cmap=sign_cmap,
+            norm=sign_norm,
+            interpolation="nearest",
+        )
+        ax.set(
+            ylabel="neuron index (postsynaptic)",
+            xlabel="presyn. neuron index (target)",
+        )
+        ax.set_aspect(1.0)
+        ax.grid(True, alpha=0.45)
+        if title_txt is None:
+            title_txt = _dale_overview_title(md)
+        ax.set_title(title_txt)
+        ax.plot([0, numNeur], [0, numNeur], "--", lw=0.8, color="magenta")
 
 #...!...!..................
     def Dale_matrix_and_eigen(self,A,md,trueD,figId=3):
@@ -100,7 +157,7 @@ class Plotter(PlotterBackbone):
         )
         ax.set(
             ylabel=' neuron index (postsynaptic)',
-            xlabel='presyn. neuron index (output)',
+            xlabel='presyn. neuron index (target)',
         )
         ax.set_aspect(1.0)
         ax.grid()
@@ -372,21 +429,13 @@ class Plotter(PlotterBackbone):
         ax3.set_xlim(0, x_max)
         ax4.set_xlim(0, x_max)
 
-    def plot_placement_topology(self, trueD, md, figId=6):
-        """
-        2D placement: triangles = excitatory, squares = inhibitory;
-        outgoing edges from j→i: red if j is excitatory, blue if inhibitory (presynaptic type).
-        """
-        figId = self.smart_append(figId)
+    def _plot_placement_topology_ax(self, ax, trueD, md, title_txt=None, arch_radius=None):
         dmd = md["dale_conf"]
         L = float(dmd["placement_L"])
         H = float(dmd["placement_H"])
         if not (L > 0 and H > 0):
             raise ValueError("placement_L and placement_H must be positive")
         placement_ker_delta = _placement_ker_delta(dmd)
-        # Figure aspect width:height = 2:1
-        fig = self.plt.figure(figId, facecolor="white", figsize=(10, 5))
-        ax = fig.add_subplot(1, 1, 1)
 
         P = np.asarray(trueD["node_positions"], dtype=float)
         tau = np.asarray(trueD["node_is_inhibitory"]).reshape(-1)
@@ -443,6 +492,20 @@ class Plotter(PlotterBackbone):
             zorder=3,
         )
 
+        label_color = "black"
+        for k in range(0, N, 10):
+            ax.text(
+                P[k, 0],
+                P[k, 1],
+                str(k),
+                color=label_color,
+                fontsize=8,
+                ha="left",
+                va="bottom",
+                bbox=dict(boxstyle="round,pad=0.12", facecolor="white", edgecolor="none", alpha=0.9),
+                zorder=4,
+            )
+
         leg_handles = []
         if red_segs:
             leg_handles.append(Line2D([0], [0], color="red", alpha=0.6, lw=2, label="Exc outgoing"))
@@ -472,12 +535,15 @@ class Plotter(PlotterBackbone):
                 label="Inhibitory",
             )
         )
+        leg_handles.append(Line2D([0], [0], color="lime", alpha=0.95, lw=2, label="1,2,3 hops"))
 
-        ax.set_title(
-            r"Neuron placement, $N=%d$, $\delta_{\mathrm{ker}}=%s$, %s"
-            % (N, _format_ker_delta_latex(placement_ker_delta), md["short_name"]),
-            pad=36,
-        )
+        if title_txt is None:
+            title_txt = r"Neuron placement, $N=%d$, $\delta_{\mathrm{ker}}=%s$, %s" % (
+                N,
+                _format_ker_delta_latex(placement_ker_delta),
+                md["short_name"],
+            )
+        ax.set_title(title_txt, pad=36)
         ax.set_xlabel("x (placement)")
         ax.set_ylabel("y (placement)")
         ax.grid(True, alpha=0.3)
@@ -490,7 +556,19 @@ class Plotter(PlotterBackbone):
             frameon=True,
         )
 
-        mx, my = 0.5, 0.05
+        if arch_radius is not None and np.isfinite(arch_radius) and arch_radius > 0:
+            thetaV = np.linspace(-0.5 * np.pi, 0.5 * np.pi, 300)
+            for x_center in (0.0, arch_radius, 2.0 * arch_radius):
+                xV = x_center + arch_radius * np.cos(thetaV)
+                yV = 0.5 + arch_radius * np.sin(thetaV)
+                keep = np.abs(yV) <= 1.0
+                if not np.any(keep):
+                    continue
+                xP = np.where(keep, xV, np.nan)
+                yP = np.where(keep, yV, np.nan)
+                ax.plot(xP, yP, color="lime", linewidth=2.0, alpha=0.95, zorder=2.2, clip_on=True)
+
+        mx, my = 0.2, 0.05
         ax.set_xlim(0.0 - mx, L + mx)
         ax.set_ylim(0.0 - my, H + my)
 
@@ -498,6 +576,57 @@ class Plotter(PlotterBackbone):
         ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
         ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: "%d" % int(round(x))))
         ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: "%d" % int(round(x))))
+
+    def plot_placement_topology(self, trueD, md, figId=6):
+        """
+        2D placement: triangles = excitatory, squares = inhibitory;
+        outgoing edges from j→i: red if j is excitatory, blue if inhibitory (presynaptic type).
+        """
+        figId = self.smart_append(figId)
+        fig = self.plt.figure(figId, facecolor="white", figsize=(10, 5))
+        ax = fig.add_subplot(1, 1, 1)
+        d_off = _realized_edge_lengths(trueD)
+        arch_radius = float(np.percentile(d_off, 50)) if d_off.size > 0 else None
+        self._plot_placement_topology_ax(ax, trueD, md, arch_radius=arch_radius)
+
+    def _plot_offdiag_distance_hist_ax(self, ax, trueD, md, title_txt=None):
+        d_off = _realized_edge_lengths(trueD)
+        dmd = md["dale_conf"]
+        d_ker = _format_ker_delta_latex(_placement_ker_delta(dmd))
+        pctD = None
+        if d_off.size > 0:
+            ax.hist(
+                d_off,
+                bins=min(60, max(10, d_off.size // 5)),
+                color="steelblue",
+                edgecolor="white",
+                alpha=0.9,
+            )
+            p16, p50, p84 = np.percentile(d_off, [16, 50, 84])
+            pctD = {"p16": float(p16), "p50": float(p50), "p84": float(p84)}
+            ax.axvline(p16, color="darkorange", linestyle="--", linewidth=1.3, zorder=4)
+            ax.axvline(p50, color="darkgreen", linestyle="--", linewidth=1.3, zorder=4)
+            ax.axvline(p84, color="darkviolet", linestyle="--", linewidth=1.3, zorder=4)
+            pct_txt = "p16 = %.5g\np50 = %.5g\np84 = %.5g" % (p16, p50, p84)
+            ax.text(
+                0.97,
+                0.97,
+                pct_txt,
+                transform=ax.transAxes,
+                ha="right",
+                va="top",
+                fontsize=8,
+                family="monospace",
+                bbox=dict(boxstyle="round,pad=0.35", facecolor="white", edgecolor="0.6", alpha=0.92),
+                zorder=5,
+            )
+        if title_txt is None:
+            title_txt = r"Realized edge lengths ($\delta_{\mathrm{ker}}=%s$)" % d_ker
+        ax.set_title(title_txt)
+        ax.set_xlabel("distance")
+        ax.set_ylabel("count")
+        ax.grid(True, alpha=0.3)
+        return pctD
 
     def offdiag_distance_kernel_hist(self, trueD, md, figId=6):
         """
@@ -508,46 +637,8 @@ class Plotter(PlotterBackbone):
         fig = self.plt.figure(figId, facecolor="white", figsize=(14, 4))
         gs = gridspec.GridSpec(1, 3, figure=fig, wspace=0.35)
 
-        D = np.asarray(trueD["node_distance_matrix"], dtype=np.float64)
-        if D.ndim != 2 or D.shape[0] != D.shape[1]:
-            raise ValueError("node_distance_matrix must be square (N, N)")
-        N = D.shape[0]
-        iu = np.triu_indices(N, k=1)
-        d_off = D[iu]
-        d_off = d_off[d_off > 0]
-
         ax1 = fig.add_subplot(gs[0, 0])
-        dmd = md["dale_conf"]
-        d_ker = _format_ker_delta_latex(_placement_ker_delta(dmd))
-        if d_off.size > 0:
-            ax1.hist(
-                d_off,
-                bins=min(60, max(10, d_off.size // 5)),
-                color="steelblue",
-                edgecolor="white",
-                alpha=0.9,
-            )
-            p16, p50, p84 = np.percentile(d_off, [16, 50, 84])
-            ax1.axvline(p16, color="darkorange", linestyle="--", linewidth=1.3, zorder=4)
-            ax1.axvline(p50, color="darkgreen", linestyle="--", linewidth=1.3, zorder=4)
-            ax1.axvline(p84, color="darkviolet", linestyle="--", linewidth=1.3, zorder=4)
-            pct_txt = "p16 = %.5g\np50 = %.5g\np84 = %.5g" % (p16, p50, p84)
-            ax1.text(
-                0.97,
-                0.97,
-                pct_txt,
-                transform=ax1.transAxes,
-                ha="right",
-                va="top",
-                fontsize=8,
-                family="monospace",
-                bbox=dict(boxstyle="round,pad=0.35", facecolor="white", edgecolor="0.6", alpha=0.92),
-                zorder=5,
-            )
-        ax1.set_title(r"Non-zero off-diagonal distances ($\delta_{\mathrm{ker}}=%s$)" % d_ker)
-        ax1.set_xlabel("distance")
-        ax1.set_ylabel("count")
-        ax1.grid(True, alpha=0.3)
+        self._plot_offdiag_distance_hist_ax(ax1, trueD, md)
 
         ax2 = fig.add_subplot(gs[0, 1])
         kappa = np.asarray(trueD["offdiag_kernel"], dtype=np.float64).ravel()
@@ -563,7 +654,7 @@ class Plotter(PlotterBackbone):
             ax2.text(
                 0.5,
                 0.5,
-                "model A: lag-1 (empty $\kappa$, $M=0$)",
+                r"model A: lag-1 (empty $\kappa$, $M=0$)",
                 ha="center",
                 va="center",
                 transform=ax2.transAxes,
@@ -576,3 +667,20 @@ class Plotter(PlotterBackbone):
         title_txt = _kernel_figure_canvas_title(md)
         fig.suptitle(title_txt, fontsize=10, y=0.93)
         fig.subplots_adjust(top=0.74)
+
+    def topo_overview(self, trueD, md, figId=7):
+        figId = self.smart_append(figId)
+        fig = self.plt.figure(figId, facecolor="white", figsize=(13, 10))
+        gs = gridspec.GridSpec(2, 2, figure=fig, height_ratios=[1.0, 1.35], hspace=0.42, wspace=0.28)
+
+        ax1 = fig.add_subplot(gs[0, 0])
+        self._plot_signed_offdiag_matrix(ax1, trueD, md, title_txt="Signed off-diagonal topology")
+
+        ax2 = fig.add_subplot(gs[0, 1])
+        pctD = self._plot_offdiag_distance_hist_ax(ax2, trueD, md, title_txt="Realized edge lengths")
+
+        ax3 = fig.add_subplot(gs[1, :])
+        arch_radius = pctD["p50"]
+        self._plot_placement_topology_ax(ax3, trueD, md, title_txt="Neuron placement", arch_radius=arch_radius)
+        fig.suptitle(_dale_overview_title(md), fontsize=16, y=0.985)
+        fig.subplots_adjust(top=0.90)

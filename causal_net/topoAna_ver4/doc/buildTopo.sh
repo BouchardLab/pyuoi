@@ -2,7 +2,7 @@
 
 set -e
 
-doc_name=ver4_oscKer_EMfit
+doc_name=network_ver4_topoDiscovery
 
 is_ubuntu=0
 if [ -f /etc/os-release ] && grep -qi 'ubuntu' /etc/os-release; then
@@ -19,5 +19,7 @@ else
     fi
     latex "$doc_name"
     latex "$doc_name"
+    pdflatex "$doc_name"  # to produce .pdf for github
+ 
     xdvi -s 5 "${doc_name}.dvi"
 fi

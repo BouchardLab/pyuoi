@@ -13,6 +13,25 @@ class Plotter(PlotterBackbone):
     def __init__(self, args):
         PlotterBackbone.__init__(self, args)
 
+    def _add_aoff_hist(self, ax, a_off_hat):
+        """Plot non-zero off-diagonal edge weights on a log-count histogram."""
+        a_fit = np.asarray(a_off_hat)
+        nn = a_fit.shape[0]
+        diag_mask = np.eye(nn, dtype=bool)
+        a_off = a_fit[~diag_mask]
+        valid = np.abs(a_off) > 1e-10
+        a_off_nz = a_off[valid]
+        n_edges = int(a_off_nz.size)
+        if n_edges > 0:
+            ax.hist(a_off_nz, bins=100, color='g', alpha=0.8)
+            ax.set_yscale('log')
+        else:
+            ax.text(0.5, 0.5, "No non-zero off-diagonal edges",
+                    ha='center', va='center', transform=ax.transAxes)
+        ax.set(title=f"A off-diagonal, {n_edges} edges",
+               xlabel="edge value", ylabel="edges")
+        ax.grid(True, alpha=0.3)
+
 
     def summary_memKerEM(self, fitD, md, figId=1):
         """EM convergence overview: 2 rows × 3 columns.
@@ -108,8 +127,8 @@ class Plotter(PlotterBackbone):
         txt = (f"lr_M={lr_m}\n"
                f"L1 λ3={trainMD['lambda3']}\n"
                f"batch={trainMD['batch_size']}")
-        ax.text(0.03, 0.03, txt, transform=ax.transAxes,
-                va="bottom", ha="left", fontsize=8,
+        ax.text(0.50, 0.50, txt, transform=ax.transAxes,
+                va="center", ha="center", fontsize=8,
                 bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
 
         # ── Row 1, Col 3: spectral radius vs M-epoch ────────────────
@@ -164,18 +183,7 @@ class Plotter(PlotterBackbone):
 
         # ── Row 2, Col 3: A off-diagonal weight histogram ────────────
         ax = self.plt.subplot(2, 3, 6)
-        A_fit = np.asarray(fitD["A_off_hat"])
-        Nn = A_fit.shape[0]
-        diag_mask = np.eye(Nn, dtype=bool)
-        A_off = A_fit[~diag_mask]
-        valid = np.abs(A_off) > 1e-10
-        A_off_nz = A_off[valid]
-        n_edges = int(A_off_nz.size)
-        ax.hist(A_off_nz, bins=100, color='g', alpha=0.8)
-        ax.set_yscale('log')
-        ax.set(title=f"A off-diagonal, {n_edges} edges",
-               xlabel="edge value", ylabel="edges")
-        ax.grid(True, alpha=0.3)
+        self._add_aoff_hist(ax, fitD["A_off_hat"])
 
         fig.suptitle(f"MemKern EM: {short_name},  "
                      f"K_EM={n_em}×K_M={m_per_em}",
@@ -211,11 +219,31 @@ class Plotter(PlotterBackbone):
         B_div = 2.0  # Common dividing line for B groups
 
         def get_corr_stats(x, y):
-            if len(x) < 2: return 0.0, len(x)
+            if len(x) < 2:
+                return 0.0, len(x)
+            if np.allclose(x, x[0]) or np.allclose(y, y[0]):
+                return 0.0, len(x)
             r = np.corrcoef(x, y)[0, 1]
+            if not np.isfinite(r):
+                r = 0.0
             return float(r), len(x)
 
         def add_corr_ax(ax, x, y, labels, title, x_split=0, min_w=None, show_split=True, dot_color='blue'):
+            x = np.asarray(x).ravel()
+            y = np.asarray(y).ravel()
+            if x.size == 0 or y.size == 0:
+                ax.axhline(0, color='k', lw=0.6, alpha=0.3)
+                if show_split:
+                    ax.axvline(x_split, color='red', lw=1.0, ls='--')
+                ax.text(0.5, 0.5, "No points to plot", transform=ax.transAxes,
+                        va='center', ha='center', fontsize=11,
+                        bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
+                ax.set(title=title, xlabel=labels[0], ylabel=labels[1])
+                ax.grid(True, alpha=0.2)
+                if min_w is not None:
+                    for side in [-1, 1]:
+                        ax.axvline(side * min_w, color='red', ls='--', lw=0.8, alpha=0.6)
+                return
             ax.scatter(x, y, s=10, alpha=0.3, color=dot_color, edgecolors='none')
             ax.axhline(0, color='k', lw=0.6, alpha=0.3)
             if show_split:
@@ -339,6 +367,8 @@ class Plotter(PlotterBackbone):
             n_overlap = min(len(kappa_hat), len(kappa_true_r))
             k_res = kappa_hat[:n_overlap] - kappa_true_r[:n_overlap]
             add_resid_hist(fig.add_subplot(gs[1, 6]), k_res, "Kappa residual", 'tab:green')
+
+        self._add_aoff_hist(fig.add_subplot(gs[1, 7]), fitD["A_off_hat"])
         
         fig.suptitle(f"Prism EM Diagnostics: {short_name}", fontsize=14)
 

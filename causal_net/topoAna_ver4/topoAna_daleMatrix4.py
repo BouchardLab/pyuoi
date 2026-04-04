@@ -280,6 +280,7 @@ if __name__ == "__main__":
     # ══════════════════════════════════════════════════════════════
     outMD ={"dale_conf":dmd}
     outMD["shuffle"] = bool(args.shuffle)
+    outMD["provenance"] = {'A-input':args.dataName}
     outMD['methods']={
         'assortativity': info1,
         'jaccard_index': info2,
@@ -287,7 +288,7 @@ if __name__ == "__main__":
         'homology_k1': info4
     }
 
-    outD={} #'G': G,'A_off': A_off, 'neuron_perm': neuron_perm}
+    outD={'G': G,'A_off': A_off, 'neuron_perm': neuron_perm}
     if args.verb>1: pprint(outMD)
     outF = args.dataName
     outFF = os.path.join(args.outPath, f"{outF}.topoAna.npz")
@@ -295,5 +296,5 @@ if __name__ == "__main__":
     write_data_npz(outD, outFF, metaD=outMD)
     print(f"\nSaved: {outFF}")
     print("\n#Summary: dataName, ker_delta, r_assort, jaccard, cycle_decay, hom_k1")
-    print("#Values: %s  %.1f  %.6f  %.6f  %.6f  %.6f" % (args.dataName, dmd["placement_ker_delta"], info1["r_assortativity"], info2["mean_jaccard"], info3["cycle_decay"], info4["homology_k1"]))
+    print("#Values: %s  %.2f  %.6f  %.6f  %.6f  %.6f" % (args.dataName, dmd["placement_ker_delta"], info1["r_assortativity"], info2["mean_jaccard"], info3["cycle_decay"], info4["homology_k1"]))
    
