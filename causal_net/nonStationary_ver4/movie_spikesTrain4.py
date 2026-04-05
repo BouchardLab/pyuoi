@@ -34,6 +34,13 @@ from matplotlib.patches import Ellipse
 from matplotlib.ticker import MaxNLocator
 import imageio_ffmpeg
 
+MP4_QUALITY_PRESETS = {
+    "low": {"dpi": 140, "bitrate": 3000, "crf": 26},
+    "medium": {"dpi": 220, "bitrate": 8000, "crf": 18},
+    "high": {"dpi": 260, "bitrate": 16000, "crf": 15},
+}
+MP4_QUALITY_TAG = {"low": "l", "medium": "m", "high": "h"}
+
 
 def get_parser():
     parser = argparse.ArgumentParser(description="Generate spike movie from Dale simTruth + spikes (same paths as view_spikesTrain4)")
@@ -46,12 +53,18 @@ def get_parser():
     parser.add_argument("--output", type=str, default=None, help="Output path; must end with .mp4 (default: <outPath>/<dataName>_spike_movie.mp4)")
     parser.add_argument("--tau", type=int, default=20, help="Frames for spike glow decay (default: 20)")
     parser.add_argument("--fps", type=int, default=60, help="Frames per second (default: 60)")
+    parser.add_argument("--speed", type=float, default=1.0, help="Playback speed factor in [0.2, 1.0]; lower is slower (default: 1.0)")
     parser.add_argument("--flushSize", type=float, default=0.05, help="Max spike-flash circle radius at g=1 (plot units); 0=auto 0.45×min inter-neuron distance (default: 0)")
     parser.add_argument("--marker_size", type=float, default=0.02, help="Neuron marker size scale; 0=auto (default: 0)")
-    parser.add_argument("--dpi", type=int, default=150, help="DPI for output (default: 150)")
+    parser.add_argument("--mp4quality", choices=sorted(MP4_QUALITY_PRESETS), default="medium", help="MP4 quality preset controlling dpi, bitrate, and crf (default: medium)")
     parser.add_argument("--stillFrames", type=int, default=40, help="Also write <mp4_basename>_still.html: first N frames, click image to advance (0=skip)")
+    parser.add_argument("--edgePrescale", type=int, default=10, help="Show a neuron's outgoing edges on every Nth spike event for that neuron (default: 10)")
 
     args = parser.parse_args()
+    preset = MP4_QUALITY_PRESETS[args.mp4quality]
+    args.dpi = preset["dpi"]
+    args.mp4Bitrate = preset["bitrate"]
+    args.mp4Crf = preset["crf"]
     args.inpPath = os.path.join(args.basePath, "truthDale")
     args.outPath = os.path.join(args.basePath, "plots")
 
@@ -72,8 +85,14 @@ def get_parser():
     if args.stillFrames < 0:
         print("ERROR: --stillFrames must be >= 0", file=sys.stderr)
         sys.exit(1)
+    if args.edgePrescale < 1:
+        print("ERROR: --edgePrescale must be >= 1", file=sys.stderr)
+        sys.exit(1)
+    if not (0.2 <= args.speed <= 1.0):
+        print("ERROR: --speed must be in [0.2, 1.0]", file=sys.stderr)
+        sys.exit(1)
     _out = args.output if args.output else os.path.join(
-        args.outPath, f"{args.dataName}_spike_movie.mp4"
+        args.outPath, f"{args.dataName}_spike_movie_q-{MP4_QUALITY_TAG[args.mp4quality]}.mp4"
     )
     if not _out.endswith(".mp4"):
         print("ERROR: --output must be a .mp4 path", file=sys.stderr)
@@ -248,9 +267,13 @@ def main():
     T_render = t_end - t_start
 
     tau = args.tau
+    export_fps = float(args.fps)
+    output_frame_idx = np.floor(np.arange(int(np.ceil(T_render / args.speed))) * args.speed).astype(np.int32)
+    output_frame_idx = np.clip(output_frame_idx, 0, T_render - 1)
+    T_export = int(output_frame_idx.shape[0])
     print(f"Neurons: {N}, frames: {T_total} (time slice + rebin), frame_dt={frame_dt_sec:.4g}s")
     print(f"Rendering frames {t_start} to {t_end-1} ({T_render} frames)")
-    print(f"Tau (decay frames): {tau}, FPS: {args.fps}")
+    print(f"Tau (decay frames): {tau}, FPS: {args.fps}, speed={args.speed:.3g}, export_fps={export_fps:.3f}, export_frames={T_export}")
 
     x = positions[:, 0]
     y = positions[:, 1]
@@ -294,6 +317,7 @@ def main():
             else "  [auto from min_dist]"
         )
     )
+    print(f"Edge display prescale: every {args.edgePrescale}th spike event per neuron")
 
     print("Precomputing glow intensities...")
     glow = np.zeros((T_render, N), dtype=np.float32)
@@ -325,9 +349,9 @@ def main():
     ax.yaxis.set_major_locator(MaxNLocator(integer=True))
 
     title_text = ax.set_title(
-        title_header + f"\nt = {t_off_sec:.3f}s  (frame 0)",
-        fontsize=8,
-        pad=14,
+        title_header + f"   t = {t_off_sec:.3f}s  (frame 0)",
+        fontsize=12,
+        pad=10,
     )
 
     exc_mask = is_inhib == 0
@@ -360,14 +384,27 @@ def main():
         zorder=3,
     )
 
+    exc_segments_by_src = [[] for _ in range(N)]
     inh_segments_by_src = [[] for _ in range(N)]
     if edge_sign is not None:
         edge_mask = edge_sign != 0
+        for j in np.flatnonzero(exc_mask):
+            for i in np.flatnonzero(edge_mask[:, j]):
+                if i == j:
+                    continue
+                exc_segments_by_src[j].append(np.array([positions[j], positions[i]], dtype=np.float64))
         for j in np.flatnonzero(inh_mask):
             for i in np.flatnonzero(edge_mask[:, j]):
                 if i == j:
                     continue
                 inh_segments_by_src[j].append(np.array([positions[j], positions[i]], dtype=np.float64))
+    exc_edge_collection = LineCollection(
+        [],
+        colors=exc_edge,
+        linewidths=1.0,
+        alpha=0.45,
+        zorder=2,
+    )
     inh_edge_collection = LineCollection(
         [],
         colors=inh_edge,
@@ -375,10 +412,11 @@ def main():
         alpha=0.45,
         zorder=2,
     )
+    ax.add_collection(exc_edge_collection)
     ax.add_collection(inh_edge_collection)
 
     # Shrink default side margins so the axes use more of the frame (wide L×H plots were ~70% width).
-    fig.subplots_adjust(left=0.065, right=0.995, bottom=0.13, top=0.82)
+    fig.subplots_adjust(left=0.065, right=0.995, bottom=0.13, top=0.86)
 
     # Ellipse in data coords with height/width = sx/sy so the patch is a circle in pixels (non-equal data aspect).
     fig.set_dpi(args.dpi)
@@ -413,21 +451,37 @@ def main():
         )
 
     _progress_seen = set()
+    edge_spike_counts = np.zeros(N, dtype=np.int32)
+    last_src_frame = None
+    current_exc_segments = []
+    current_inh_segments = []
 
-    def update(frame):
-        if frame % 200 == 0 and frame not in _progress_seen:
-            _progress_seen.add(frame)
-            print(f"  Rendering frame {frame}/{T_render}...")
-        t_sec = t_off_sec + (t_start + frame) * frame_dt_sec
-        title_text.set_text(title_header + f"\nt = {t_sec:.3f}s  (frame {frame})")
-        firing = spikes[t_start + frame] > 0
-        frame_inh_segments = []
-        if frame % 10 == 0:
+    def update(out_frame):
+        nonlocal last_src_frame, current_exc_segments, current_inh_segments
+        src_frame = int(output_frame_idx[out_frame])
+        if out_frame % 200 == 0 and out_frame not in _progress_seen:
+            _progress_seen.add(out_frame)
+            print(f"  Rendering output frame {out_frame}/{T_export} from source frame {src_frame}/{T_render}...")
+        t_sec = t_off_sec + (t_start + src_frame) * frame_dt_sec
+        title_text.set_text(title_header + f"   t = {t_sec:.3f}s  (frame {src_frame})")
+        if src_frame != last_src_frame:
+            firing = spikes[t_start + src_frame] > 0
+            current_exc_segments = []
+            current_inh_segments = []
+            firing_idx = np.flatnonzero(firing)
+            if firing_idx.size > 0:
+                edge_spike_counts[firing_idx] += 1
+            for j in np.flatnonzero(firing & exc_mask):
+                if edge_spike_counts[j] % args.edgePrescale == 0:
+                    current_exc_segments.extend(exc_segments_by_src[j])
             for j in np.flatnonzero(firing & inh_mask):
-                frame_inh_segments.extend(inh_segments_by_src[j])
-        inh_edge_collection.set_segments(frame_inh_segments)
+                if edge_spike_counts[j] % args.edgePrescale == 0:
+                    current_inh_segments.extend(inh_segments_by_src[j])
+            last_src_frame = src_frame
+        exc_edge_collection.set_segments(current_exc_segments)
+        inh_edge_collection.set_segments(current_inh_segments)
         for i in range(N):
-            g = glow[frame, i]
+            g = glow[src_frame, i]
             if g > 0:
                 r = max_circle_r * g
                 circles[i].set_width(2.0 * r)
@@ -438,7 +492,7 @@ def main():
                 circles[i].set_visible(True)
             else:
                 circles[i].set_visible(False)
-        return circles + [inh_edge_collection]
+        return circles + [exc_edge_collection, inh_edge_collection]
 
     output = args.movie_output_path
     _out_dir = os.path.dirname(os.path.abspath(output)) 
@@ -447,7 +501,7 @@ def main():
     print(f"Creating animation with {T_render} frames -> {output}")
     # blit=True breaks growing flush Ellipse patches (bbox stays ~0); green flashes vanish.
     anim = animation.FuncAnimation(
-        fig, update, frames=T_render, interval=1000 / args.fps, blit=False
+        fig, update, frames=T_export, interval=1000 / export_fps, blit=False
     )
 
     png_frame0 = os.path.splitext(output)[0] + "_frame0.png"
@@ -464,9 +518,16 @@ def main():
     plt.rcParams["animation.ffmpeg_path"] = ff
     if args.verb > 0:
         print(f"Using ffmpeg: {ff}")
+        print(f"MP4 quality: dpi={args.dpi}, bitrate={args.mp4Bitrate} kbps, crf={args.mp4Crf}, speed={args.speed:.3g}, export_fps={export_fps:.3f}, export_frames={T_export}")
 
+    ffmpeg_args = [
+        "-vcodec", "libx264",
+        "-crf", str(args.mp4Crf),
+        "-preset", "slow",
+        "-pix_fmt", "yuv420p",
+    ]
     writer = animation.FFMpegWriter(
-        fps=args.fps, bitrate=2000, extra_args=["-pix_fmt", "yuv420p"]
+        fps=export_fps, bitrate=args.mp4Bitrate, extra_args=ffmpeg_args
     )
     anim.save(output, writer=writer, dpi=args.dpi)
     print(f"Saved movie to {output}")

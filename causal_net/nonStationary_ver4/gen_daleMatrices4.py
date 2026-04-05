@@ -470,7 +470,6 @@ def main():
     parser.add_argument("-v", "--verb", type=int, default=1, help="Verbosity level (0=quiet, 1=normal).")
     parser.add_argument("--dataName", type=str, default=None, help="Base name for output files (default: daleN<num_neurons>_<hash>).")
     parser.add_argument("--basePath", type=str, default="/pscratch/sd/b/balewski/2025_causalNet_tmp/", help="Output directory for all files.")
-    parser.add_argument("--seed", type=int, default=None, help="Optional RNG seed for reproducibility.")
 
     np.set_printoptions(precision=3, suppress=True)
 
@@ -517,10 +516,7 @@ def main():
     k_out_max = max(k_out_min, k_out_max)
     k_out_max = min(k_out_max, Nn - 1)
 
-    if args.seed is not None:
-        np.random.seed(args.seed)
-
-    rng = np.random.default_rng(args.seed)
+    rng = np.random.default_rng()
 
     print("gen dale matrices args:", vars(args), "\n")
 
@@ -588,9 +584,6 @@ def main():
         dale_conf["mem_tau"] = 0.0
         dale_conf["mem_tau_steps"] = 0
         dale_conf["mem_Q"] = 0.0
-    if args.seed is not None:
-        dale_conf["seed"] = args.seed
-
     evol_conf = {
         "num_steps": args.num_steps,
         "step_size": args.step_size,
