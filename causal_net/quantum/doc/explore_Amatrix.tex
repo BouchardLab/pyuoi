@@ -1,0 +1,47 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+
+\geometry{margin=0.8in}
+
+\title{Explore Quantum walk in Neuronal Network Modeling}
+\author{Balewski, NERSC}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Block Matrix Formulation of Time Evolution}
+
+Let the original time evolution be given by $\eta_t = A Y_{t-1} + B$, where the elements of $B$ are bounded in $[0, b_{\max}]$ and the elements of $Y$ are binary ($0$ or $1$). We construct the extended block matrices $A'$ and $B'$ as:
+\begin{equation}
+    A' = \begin{bmatrix} 0 & A \\ A^T & 0 \end{bmatrix}, \quad B' = \begin{bmatrix} B \\ 0 \end{bmatrix}
+\end{equation}
+
+To properly reconstruct $\eta_t$ in the upper block, we must define $Y'_{t-1}$ with the variables in the lower block:
+\begin{equation}
+    Y'_{t-1} = \begin{bmatrix} 0 \\ Y_{t-1} \end{bmatrix}
+\end{equation}
+
+The extended time evolution of $\eta'_t$ then evaluates correctly:
+\begin{align}
+    \eta'_t &= A' Y'_{t-1} + B' \nonumber \\
+            &= \begin{bmatrix} 0 & A \\ A^T & 0 \end{bmatrix} \begin{bmatrix} 0 \\ Y_{t-1} \end{bmatrix} + \begin{bmatrix} B \\ 0 \end{bmatrix} \nonumber \\
+            &= \begin{bmatrix} A Y_{t-1} \\ 0 \end{bmatrix} + \begin{bmatrix} B \\ 0 \end{bmatrix} \nonumber \\
+            &= \begin{bmatrix} A Y_{t-1} + B \\ 0 \end{bmatrix}
+\end{align}
+
+Substituting the original equation into the upper block, we arrive at the final compact form:
+\begin{equation}
+    \eta'_t = \begin{bmatrix} \eta_t \\ 0 \end{bmatrix}
+\end{equation}
+
+Finally we measure the upper half of qubits to retrieve $\eta_t$. Assume $b_{max}=0.3$ and draw B,Y randomly.
+\end{document}
