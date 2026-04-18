@@ -2,7 +2,7 @@
 
 set -e
 
-doc_name=nonStationary-ver4_oscKer_EMfit
+doc_name=nonStationary-ver3_states_EMfit
 
 is_ubuntu=0
 if [ -f /etc/os-release ] && grep -qi 'ubuntu' /etc/os-release; then
