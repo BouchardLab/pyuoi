@@ -135,9 +135,12 @@ The \emph{Bernoulli state-space model (BSSM)} represents a network of $N$ neuron
 (i) latent dynamical states encoding STD resources and (ii) a Bernoulli observation model
 for binary spike indicators conditioned on those states. This is the primary model of
 interest. At physiological firing rates ($30$--$50$\,Hz) and bin width
-($\Delta t = 1$\,ms), the probability of two spikes per bin is of order
-$p^2/2 \sim 10^{-5}$, making Bernoulli statistically indistinguishable from Poisson
-while simplifying both simulation and inference.
+($\Delta t = 1$\,ms), the per-bin spike probability is
+$p \approx r\Delta t = 0.03$--$0.05$. The corresponding Poisson probability
+of two or more spikes in one bin is approximately $p^2/2$, ranging from
+$4.5\times10^{-4}$ to $1.25\times10^{-3}$. Thus the Bernoulli model is a good
+approximation for binary spike indicators while explicitly enforcing at most one
+spike per bin.
 
 \begin{figure}[t]
 \centering
@@ -152,9 +155,10 @@ model through signed recurrent weights $W_{ij}$ and baseline $b_i$.}
 
 \noindent
 Figure~\ref{fig:bssm_std_cartoon} summarizes the sequential data-flow view of
-the model: presynaptic spikes update the STD state, the resulting release is
-filtered by the lag kernel, and the recurrent weighted input determines the
-postsynaptic spike probability.
+the model: the recurrent weighted input determines the postsynaptic spike
+probability, sampled presynaptic spikes generate release from the current STD
+resource, and that release updates both the next STD state and the filtered
+drive available in the next bin.
 
 \paragraph{Discrete time and notation.}
 Let $t\in\{0,1,\dots,T-1\}$ index time bins of width $\Delta t$.
@@ -181,18 +185,25 @@ with each variable evolving as the exact discretization of the TM continuous-tim
 recovery (Eq.~\ref{eq:tm_recovery}) combined with spike-triggered consumption
 (Eq.~\ref{eq:tm_spike_update}):
 \begin{equation}
+\begin{aligned}
+x^{\mathrm{dep}}_{j,t}
+&=
+\underbrace{x_{j,t}\big(1-U\,s_{j,t}\big)}_{\text{spike-triggered depletion}},
+\\
 x_{j,t+1}
-=
-\underbrace{\Big(1-(1-x_{j,t})\,e^{-\Delta t/\tau_{\mathrm{rec}}}\Big)}_{\text{exponential recovery}}
-\cdot
-\underbrace{\big(1-U\,s_{j,t}\big)}_{\text{spike-triggered depletion}},
-\qquad j=1,\dots,N.
+&=
+\underbrace{1-\big(1-x^{\mathrm{dep}}_{j,t}\big)
+e^{-\Delta t/\tau_{\mathrm{rec}}}}_{\text{exponential recovery after depletion}},
+\qquad j=1,\dots,N .
+\end{aligned}
 \label{eq:std_ssm_state}
 \end{equation}
-When $s_{j,t}=0$, resources recover exponentially toward $1$; when $s_{j,t}=1$,
-a fraction $U$ is consumed. Because the update depends only on neuron $j$'s own
-spike indicator, resource variables of different neurons are conditionally independent
-given their respective spike histories, allowing all $N$ updates to proceed in parallel.
+Release during bin $t$ uses the pre-spike resource $x_{j,t}$. If a spike occurs,
+a fraction $U$ is first consumed, and the depleted resource then recovers toward
+$1$ over the interval to bin $t+1$. Because the update depends only on neuron
+$j$'s own spike indicator, resource variables of different neurons are
+conditionally independent given their respective spike histories, allowing all
+$N$ updates to proceed in parallel.
 
 \paragraph{STD-modulated release.}
 The effective synaptic release from neuron $j$ in bin $t$ is:
@@ -213,10 +224,15 @@ The effective STD-filtered synaptic input from neuron $j$ at time $t$ is:
 h_{j,t} = \sum_{\ell=1}^{M}\kappa_\ell\,u_{j,t-\ell}.
 \label{eq:lag_kernel}
 \end{equation}
-The kernel length must satisfy $M\Delta t \gtrsim \tau_{\mathrm{rec}}$ to capture
-the full STD recovery window. Practical kernel choices include exponential decay,
-raised cosine basis functions, or a free learnable filter (see
-Section~\ref{sec:gen_kernel} for the generator choice).
+Here $M\Delta t$ is the finite lag-history span for the fast synaptic current.
+For an exponential synaptic kernel, practical choices take $M\Delta t$ to be
+several synaptic time constants $\tau_s$ so that the current tail is small at
+the truncation boundary. This lag window is distinct from the STD recovery
+memory: the slower recovery governed by $\tau_{\mathrm{rec}}$ is carried by the
+latent state $x_{j,t}$ rather than by the finite synaptic kernel. Practical
+kernel choices include exponential decay, raised cosine basis functions, or a
+free learnable filter (see Section~\ref{sec:gen_kernel} for the generator
+choice).
 
 \paragraph{Bernoulli observation model.}
 For each postsynaptic neuron $i$, the conditional spiking probability is:
@@ -324,16 +340,22 @@ model. It is normalized so that $\sum_{\ell=1}^{M}\kappa_\ell \approx 1$ for
 $M\Delta t \gg \tau_s$.
 
 A key computational advantage of this choice is that the lag-$M$ convolution
-in Eq.~\eqref{eq:lag_kernel} collapses to a single recursive update:
+in Eq.~\eqref{eq:lag_kernel} can be evaluated by a tail-corrected recursive
+update:
 \begin{equation}
-h_{j,t} = \alpha\,h_{j,t-1} + (1-\alpha)\,u_{j,t-1},
+h_{j,t+1}
+=
+\alpha\,h_{j,t} + (1-\alpha)\,u_{j,t}
+-
+(1-\alpha)\alpha^{M}\,u_{j,t-M},
 \label{eq:recursive_kernel}
 \end{equation}
-which avoids explicitly storing $M$ past values of $u_{j,t}$ and scales
-efficiently to large networks. The decay rate of $\kappa_\ell$ is set by the
-fast synaptic time constant $\tau_s$, whereas the slower STD time constant
-$\tau_{\mathrm{rec}}$ enters through the latent state update and the choice of
-history length $M$.
+with $u_{j,t-M}=0$ when $t-M<0$. This recurrence is exactly equivalent to the
+finite lag-$M$ convolution for the exponential kernel and avoids explicitly
+summing over all $M$ lags at every time step. The decay rate of $\kappa_\ell$
+is set by the fast synaptic time constant $\tau_s$, whereas the slower STD time
+constant $\tau_{\mathrm{rec}}$ enters through the latent state update in
+Eq.~\eqref{eq:std_ssm_state}.
 
 %=========
 \subsection{Ground-Truth Parameter Values}
@@ -344,24 +366,26 @@ generator, motivated by mammalian cortical physiology.
 
 \begin{table}[h]
 \centering
-\begin{tabular}{llll}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}llll@{}}
 \toprule
 Parameter & Symbol & Value & Rationale \\
 \midrule
-Time bin width         & $\Delta t$            & $1$\,ms                           & Resolves individual spikes; ensures $p\ll 1$ \\
+Time bin width         & $\Delta t$            & $1$\,ms                           & Resolves spikes; keeps $p$ small \\
 Synaptic time constant & $\tau_s$              & $3$--$5$\,ms                      & AMPA-like fast excitation \\
 STD recovery time      & $\tau_{\mathrm{rec}}$ & $200$--$500$\,ms                  & Typical cortical STD \\
-Utilization parameter  & $U$                   & $0.3$--$0.5$                      & Moderate depression, common for all neurons \\
-Weight scale           & $v, R$                & $v=0.4,\ R=0.90$                  & Uniform weights scaled by spectral radius \\
-Baseline log-odds      & $b_i$                 & tuned per neuron                  & Yields $30$--$50$\,Hz firing \\
-Kernel length          & $M$                   & $\geq\tau_{\mathrm{rec}}/\Delta t$ & Covers STD recovery window \\
+Utilization parameter  & $U$                   & $0.3$--$0.5$                      & Shared moderate depression \\
+Weight scale           & $v, R$                & $v=0.4,\ R=0.90$                  & Spectral-radius scaling \\
+Baseline log-odds      & $b_i$                 & sampled idle-rate range           & User-adjusted baseline drive \\
+Kernel length          & $M$                   & $\gtrsim 3$--$5\,\tau_s/\Delta t$ & Fast synaptic lag window \\
 \bottomrule
 \end{tabular}
 \caption{Ground-truth generator parameters. Ranges reflect variability across
-synapse types and network sizes. The kernel length $M$ must satisfy
-$M\Delta t \gtrsim \tau_{\mathrm{rec}}$ to ensure the history window captures
-the full STD recovery dynamics. The baseline $b_i$ is expressed as a log-odds
-consistent with the Bernoulli observation model (Eq.~\ref{eq:bernoulli_obs}).}
+synapse types and network sizes. The kernel length $M$ controls the finite lag
+history for the fast synaptic filter and is separate from the STD recovery time
+$\tau_{\mathrm{rec}}$. The baseline $b_i$ is expressed as a log-odds consistent
+with the Bernoulli observation model (Eq.~\ref{eq:bernoulli_obs}).}
 \label{tab:gen_params}
 \end{table}
 
@@ -377,17 +401,9 @@ for $t = 0, 1, \dots, T-1$ as follows.
 \label{alg:generator}
 \begin{algorithmic}[1]
 \STATE \textbf{Initialize:} $x_{j,0} \leftarrow 1$ for all $j$ (fully recovered);
-       $h_{j,0} \leftarrow 0$ for all $j$; draw $W$, $\{b_i\}$ as in
+       $h_{j,0} \leftarrow 0$ and $u_{j,t}\leftarrow0$ for $t<0$; draw $W$, $\{b_i\}$ as in
        Eqs.~\eqref{eq:weight_draw}--\eqref{eq:weight_matrix}.
 \FOR{$t = 0, 1, \dots, T-1$}
-  \FOR{each neuron $j = 1,\dots,N$}
-    \STATE Compute STD-modulated release:
-           $u_{j,t} \leftarrow U\,x_{j,t}\,s_{j,t}$
-           \hfill(Eq.~\ref{eq:std_release})
-    \STATE Update recursive synaptic filter:
-           $h_{j,t} \leftarrow \alpha\,h_{j,t-1} + (1-\alpha)\,u_{j,t-1}$
-           \hfill(Eq.~\ref{eq:recursive_kernel})
-  \ENDFOR
   \FOR{each neuron $i = 1,\dots,N$}
     \STATE Compute spiking probability:
            $p_{i,t} \leftarrow \sigma\!\left(b_i +
@@ -398,11 +414,18 @@ for $t = 0, 1, \dots, T-1$ as follows.
            \hfill(Eq.~\ref{eq:bernoulli_likelihood})
   \ENDFOR
   \FOR{each neuron $j = 1,\dots,N$}
+    \STATE Compute STD-modulated release from pre-spike resources:
+           $u_{j,t} \leftarrow U\,x_{j,t}\,s_{j,t}$
+           \hfill(Eq.~\ref{eq:std_release})
     \STATE Update STD resource:
            $x_{j,t+1} \leftarrow
-           \big(1-(1-x_{j,t})e^{-\Delta t/\tau_{\mathrm{rec}}}\big)
-           \cdot(1-U\,s_{j,t})$
+           1-\big(1-x_{j,t}(1-U\,s_{j,t})\big)e^{-\Delta t/\tau_{\mathrm{rec}}}$
            \hfill(Eq.~\ref{eq:std_ssm_state})
+    \STATE Update recursive synaptic filter:
+           $h_{j,t+1} \leftarrow
+           \alpha h_{j,t} + (1-\alpha)u_{j,t}
+           -(1-\alpha)\alpha^M u_{j,t-M}$
+           \hfill(Eq.~\ref{eq:recursive_kernel})
   \ENDFOR
 \ENDFOR
 \STATE \textbf{Output:} spike indicators $\{s_{j,t}\}$, ground-truth STD states
