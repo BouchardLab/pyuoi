@@ -5,6 +5,7 @@
 \usepackage{amssymb}
 \usepackage{bm}
 \usepackage{geometry}
+\usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage{booktabs}
 \usepackage{algorithm}
@@ -12,7 +13,7 @@
 
 \geometry{margin=0.8in}
 
-\title{Synaptic Depression Modeling}
+\title{Synaptic Depression Modeling \\ Data generation and model fitting}
 \author{Jan Balewski, NERSC}
 \date{\today}
 
@@ -30,7 +31,7 @@ through a Bernoulli likelihood. For context, we also briefly review the Tsodyks-
 discrete STD dynamics used in the BSSM.
 \end{abstract}
 
-% ===============================================================
+%=========
 \section{Short-Term Synaptic Depression (STD) in Cortical Synapses}
 \label{sec:std_intro}
 
@@ -61,7 +62,7 @@ STD acts as a rate-dependent synaptic filter: it attenuates sustained high-rate 
 emphasizes transient changes in firing, and contributes to network stabilization by
 preventing runaway excitation.
 
-% ===============================================================
+%=========
 \section{Computational Models with STD}
 \label{sec:std_models}
 
@@ -73,7 +74,7 @@ The following notation is shared across both models:
 $U\in(0,1]$ is the utilization parameter (fraction of available resources used per spike),
 and $\tau_{\mathrm{rec}}$ is the STD recovery time constant.
 
-% ===============================================================
+%=========
 \subsection{Tsodyks--Markram (TM) Resource Model: Conceptual Background}
 \label{sec:tm_std}
 
@@ -81,6 +82,24 @@ The \emph{Tsodyks--Markram (TM)} model~\cite{Tsodyks1997} is a widely used conti
 resource model for \emph{short-term plasticity (STP)}. In the STD-only version, the synapse
 has a single \emph{available-resource} variable $x(t)\in[0,1]$. Between presynaptic spikes,
 resources recover exponentially:
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{tm_std_cartoon.png}
+\caption{Cartoon of the Tsodyks--Markram STD resource model. Presynaptic spikes
+consume a fraction $U$ of the available resource $x$, making successive release
+events smaller; during silence, the resource recovers toward $x=1$ with time
+constant $\tau_{\mathrm{rec}}$.}
+\label{fig:tm_std_cartoon}
+\end{figure}
+
+\noindent
+The cartoon in Fig.~\ref{fig:tm_std_cartoon} summarizes the STD-only TM mechanism:
+spikes multiply the available resource by $(1-U)$, while inter-spike intervals allow
+the resource to recover toward one.
+
+\noindent
+Between presynaptic spikes,
 \begin{equation}
 \frac{dx}{dt}=\frac{1-x}{\tau_{\mathrm{rec}}}.
 \label{eq:tm_recovery}
@@ -99,6 +118,15 @@ The TM model provides the biological motivation for the discrete STD resource up
 used in the BSSM below (Eq.~\ref{eq:std_ssm_state}), which is the exact discretization
 of Eq.~\eqref{eq:tm_recovery} combined with Eq.~\eqref{eq:tm_spike_update}.
 
+\paragraph{Interpretation of $U$.}
+The utilization parameter $U$ is a fraction of the resources available at the
+moment of a spike, not a fixed fraction of the original full pool. For example,
+if $U=0.5$ and several spikes arrive with negligible recovery between them, a
+fully recovered synapse releases $0.5$ of the full pool on the first spike,
+then $0.25$ on the second, then $0.125$ on the third, and so on. Thus the axon
+can still generate more than two closely spaced spikes; STD only makes the
+effective synaptic release decrease geometrically during the burst.
+
 \subsection{Real-Time Adaptive Bernoulli State-Space Network Model (BSSM) with STD
             and Lag-$M$ Kernel}
 \label{sec:bssm_std}
@@ -106,10 +134,27 @@ of Eq.~\eqref{eq:tm_recovery} combined with Eq.~\eqref{eq:tm_spike_update}.
 The \emph{Bernoulli state-space model (BSSM)} represents a network of $N$ neurons using
 (i) latent dynamical states encoding STD resources and (ii) a Bernoulli observation model
 for binary spike indicators conditioned on those states. This is the primary model of
-interest. At physiological firing rates ($5$--$20$\,Hz) and bin widths
-($\Delta t = 1$--$2$\,ms), the probability of two spikes per bin is of order
+interest. At physiological firing rates ($30$--$50$\,Hz) and bin width
+($\Delta t = 1$\,ms), the probability of two spikes per bin is of order
 $p^2/2 \sim 10^{-5}$, making Bernoulli statistically indistinguishable from Poisson
 while simplifying both simulation and inference.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{bssm_std_model_cartoon.png}
+\caption{Cartoon of the full BSSM with STD and a lag-$M$ synaptic kernel.
+Presynaptic binary spikes $s_{j,t}$ modulate the latent resource $x_{j,t}$,
+produce STD-weighted release $u_{j,t}$, pass through a causal synaptic kernel to
+form filtered drive $h_{j,t}$, and enter the postsynaptic Bernoulli observation
+model through signed recurrent weights $W_{ij}$ and baseline $b_i$.}
+\label{fig:bssm_std_cartoon}
+\end{figure}
+
+\noindent
+Figure~\ref{fig:bssm_std_cartoon} summarizes the sequential data-flow view of
+the model: presynaptic spikes update the STD state, the resulting release is
+filtered by the lag kernel, and the recurrent weighted input determines the
+postsynaptic spike probability.
 
 \paragraph{Discrete time and notation.}
 Let $t\in\{0,1,\dots,T-1\}$ index time bins of width $\Delta t$.
@@ -201,8 +246,10 @@ to a fully recovered synapse with no prior spiking.
 \paragraph{Summary of model parameters.}
 The full parameter set of the BSSM is $\theta=\{b_i, W_{ij}, \kappa_\ell, U,
 \tau_{\mathrm{rec}}\}$, where $b_i$ and $W_{ij}$ are neuron- and synapse-specific,
-while $U$ and $\tau_{\mathrm{rec}}$ may be shared across all synapses or made
-neuron-specific depending on modeling assumptions. In the generator
+while this model assumes a single shared utilization parameter $U$ for all
+presynaptic neurons and outgoing synapses. The recovery time
+$\tau_{\mathrm{rec}}$ is also treated as shared in the generator and estimation
+procedure below. In the generator
 (Section~\ref{sec:generator}), all parameters are fixed to known ground-truth
 values; in inference, they constitute the quantities to be estimated.
 
@@ -216,8 +263,8 @@ bursts and recover during silence, so the effective synaptic gain $u_{j,t}$ adap
 online to the presynaptic firing history. Together, these properties make the BSSM
 suitable for closed-loop neural decoding or real-time inference scenarios.
 
-% ===============================================================
-\section{Data Generator: Mammalian Cortical Network with STD}
+%=========
+\section{Data Generator:  Cortical Network with STD}
 \label{sec:generator}
 
 To validate the BSSM and test inference procedures, we generate synthetic spike
@@ -226,7 +273,7 @@ The generator uses the same BSSM structure as the inference model
 (Section~\ref{sec:bssm_std}), but with all parameters fixed to known ground-truth
 values, enabling direct comparison between true and estimated quantities.
 
-% ===============================================================
+%=========
 \subsection{Network Architecture}
 \label{sec:gen_architecture}
 
@@ -261,7 +308,7 @@ W = W^{(0)}\,\frac{R}{\rho(W^{(0)})},
 which preserves sparsity, signs, Dale's law, and the zero diagonal.
 
 
-% ===============================================================
+%=========
 \subsection{Synaptic Kernel}
 \label{sec:gen_kernel}
 
@@ -288,7 +335,7 @@ fast synaptic time constant $\tau_s$, whereas the slower STD time constant
 $\tau_{\mathrm{rec}}$ enters through the latent state update and the choice of
 history length $M$.
 
-% ===============================================================
+%=========
 \subsection{Ground-Truth Parameter Values}
 \label{sec:gen_params}
 
@@ -301,12 +348,12 @@ generator, motivated by mammalian cortical physiology.
 \toprule
 Parameter & Symbol & Value & Rationale \\
 \midrule
-Time bin width         & $\Delta t$            & $1$--$2$\,ms                      & Resolves individual spikes; ensures $p\ll 1$ \\
+Time bin width         & $\Delta t$            & $1$\,ms                           & Resolves individual spikes; ensures $p\ll 1$ \\
 Synaptic time constant & $\tau_s$              & $3$--$5$\,ms                      & AMPA-like fast excitation \\
 STD recovery time      & $\tau_{\mathrm{rec}}$ & $200$--$500$\,ms                  & Typical cortical STD \\
-Utilization parameter  & $U$                   & $0.3$--$0.5$                      & Moderate depression \\
+Utilization parameter  & $U$                   & $0.3$--$0.5$                      & Moderate depression, common for all neurons \\
 Weight scale           & $v, R$                & $v=0.4,\ R=0.90$                  & Uniform weights scaled by spectral radius \\
-Baseline log-odds      & $b_i$                 & tuned per neuron                  & Yields $5$--$20$\,Hz firing \\
+Baseline log-odds      & $b_i$                 & tuned per neuron                  & Yields $30$--$50$\,Hz firing \\
 Kernel length          & $M$                   & $\geq\tau_{\mathrm{rec}}/\Delta t$ & Covers STD recovery window \\
 \bottomrule
 \end{tabular}
@@ -318,7 +365,7 @@ consistent with the Bernoulli observation model (Eq.~\ref{eq:bernoulli_obs}).}
 \label{tab:gen_params}
 \end{table}
 
-% ===============================================================
+%=========
 \subsection{Generation Procedure}
 \label{sec:gen_procedure}
 
@@ -363,18 +410,407 @@ for $t = 0, 1, \dots, T-1$ as follows.
 \end{algorithmic}
 \end{algorithm}
 
-% ===============================================================
+%=========
 \subsection{Network Stability Check}
 \label{sec:gen_stability}
 
 With recurrent excitatory connections, the network can exhibit runaway activity
 if synaptic weights are too large. Before generating long recordings, we recommend
 a short pilot run ($\sim 1$\,s) and verification that mean firing rates across
-neurons remain in the physiological range of $5$--$20$\,Hz. If rates exceed this
+neurons remain in the target range of $30$--$50$\,Hz. If rates exceed this
 range, one should reduce the spectral-radius target $R$ or increase $U$: stronger
 STD provides a natural activity-dependent stabilizing mechanism by reducing
 synaptic efficacy during high-rate episodes.
 
+%=========
+\section{Initializing $U$ from Raw Spike Data}
+\label{sec:U_estimation}
+
+The utilization parameter $U$ controls the multiplicative depletion of synaptic
+resources at each presynaptic spike. Because this depletion affects the relative
+release generated by consecutive spikes from the same neuron, tight-pair
+statistics provide a useful initializer for the network-wide $U$. In this
+section, $U$ denotes the true or model utilization, while $\tilde{U}$ denotes an
+inferred value obtained from data. This raw
+estimate is not treated as final: it is refined later by likelihood optimization
+together with $\tau_\text{rec}$ and the recurrent parameters. We do not attempt
+to pre-estimate $\tau_\text{rec}$ from raw consecutive-spike ISIs: at the target
+30--50~Hz rates, typical ISIs are tens of milliseconds, much shorter than the
+expected 0.2--0.5~s recovery time. Instead, $\tau_\text{rec}$ is treated as
+unknown and initialized from a fixed physiological guess in the full fitting
+procedure. This section estimates the recording requirements for the raw
+$\tilde{U}$ initializer.
+
+\subsection{The Burst-Pair Estimator for $U$}
+
+Consider two consecutive spikes from presynaptic neuron $j$, separated by an
+inter-spike interval (ISI) $\delta$. Let $x_1^-$ be the resource immediately
+before the first spike. After spike-triggered depletion and recovery toward
+one, the resource immediately before the second spike is
+%
+\begin{equation}
+    x_2^- = 1 - \left(1 - x_1^-(1-U)\right)e^{-\delta/\tau_\text{rec}}.
+    \label{eq:pair_recovery}
+\end{equation}
+%
+For this pair, define the two release amplitudes by the same rule as
+Eq.~\eqref{eq:std_release}: $u_1=U x_1^-$ for the first spike and
+$u_2=U x_2^-$ for the second spike. The ratio of second-spike to first-spike
+release is therefore
+%
+\begin{equation}
+    \rho(\delta) = \frac{u_2}{u_1}
+    =
+    (1-U)e^{-\delta/\tau_\text{rec}}
+    + \frac{1-e^{-\delta/\tau_\text{rec}}}{x_1^-}.
+    \label{eq:rho_estimator}
+\end{equation}
+%
+In the linear-response regime, $\rho(\delta)$ can be estimated from the ratio of
+postsynaptic excess firing probabilities above baseline in the bins following
+the first and second presynaptic spikes. The key point is that the zero-ISI
+limit is independent of the unknown starting resource:
+%
+\begin{equation}
+    \lim_{\delta\to0^+}\rho(\delta)=1-U.
+    \label{eq:rho_zero_isi}
+\end{equation}
+%
+Thus the estimator does not require a long silent period before the tight pair.
+It requires the pair itself to be sufficiently tight that recovery during the
+ISI is negligible. For finite $\delta$, the recovery correction depends on the
+unknown $x_1^-$; depleted states amplify the bias. A practical approximation is
+to replace $x_1^-$ by the stationary mean resource expected at the observed
+presynaptic firing rate $r$:
+%
+\begin{equation}
+    \bar{x}(r,U,\tau_\text{rec})
+    \approx
+    \frac{1}{1+U r \tau_\text{rec}},
+    \label{eq:xbar_stationary}
+\end{equation}
+%
+which follows by balancing recovery toward one against average spike-triggered
+depletion. Substituting $\bar{x}$ into Eq.~\eqref{eq:rho_estimator} gives an
+average finite-ISI correction. To make the bias explicit, define the naive
+zero-ISI inferred value $\tilde{U}_0(\delta)=1-\hat{\rho}(\delta)$. The
+finite-ISI effect is an additive bias in the inferred utilization, not a
+multiplicative rescaling. Its
+magnitude is approximately
+%
+\begin{equation}
+    B_U(\delta)
+    \equiv
+    \left|\tilde{U}_0(\delta)-U\right|
+    \approx
+    \left(1-e^{-\delta/\tau_\text{rec}}\right)
+    \left[
+        \frac{1}{\bar{x}(r,U,\tau_\text{rec})}-(1-U)
+    \right]
+    \sim
+    \frac{1-e^{-\delta/\tau_\text{rec}}}{\bar{x}(r,U,\tau_\text{rec})},
+    \label{eq:U_bias}
+\end{equation}
+%
+so high firing rates, which reduce $\bar{x}$, require tighter ISI windows. Let
+$\varepsilon_U$ denote the allowed additive bias in the inferred utilization
+$\tilde{U}$. In continuous time, keeping this finite-ISI correction below
+$\varepsilon_U$ would require an ideal small-window cutoff
+%
+\begin{equation}
+    \delta_\text{ideal}
+    \approx
+    \frac{\varepsilon_U\,\tau_\text{rec}}
+    {\frac{1}{\bar{x}(r,U,\tau_\text{rec})}-(1-U)},
+    \label{eq:delta_ideal}
+\end{equation}
+%
+valid when $\delta_\text{ideal}\ll\tau_\text{rec}$. With 1~ms binned spike
+trains, however, the smallest resolvable nonzero ISI is one time bin. Therefore
+the practical tight-pair cutoff used for initialization is
+%
+\begin{equation}
+    \delta_\text{max}=\Delta t=1~\mathrm{ms}.
+    \label{eq:delta_max}
+\end{equation}
+%
+This cutoff is not chosen because it makes the finite-ISI bias vanish; it is the
+finest window available in the sampled data. The typical ISI,
+$1/r\approx20$--$33$~ms, is much too large to use as a tight-pair cutoff because
+recovery during that interval is no longer negligible. Because
+$\bar{x}$ itself depends on the unknown $U$, this raw estimator is naturally
+iterative in $\tilde{U}$: start from a nominal value (for example
+$\tilde{U}=0.5$), compute $\bar{x}(r,\tilde{U},\tau_\text{rec})$ and
+$\delta_\text{max}$, estimate a new $\tilde{U}$ from the selected tight pairs,
+then update $\bar{x}$ and repeat until the initializer stabilizes.
+
+With a nominal or current estimate of $\tau_\text{rec}$ and an average resource
+estimate $\bar{x}$, each observed ratio can be corrected before averaging:
+%
+\begin{equation}
+    \tilde{U}_\text{corrected}(\delta,\bar{x})
+    =
+    1 -
+    e^{\delta/\tau_\text{rec}}
+    \left[
+        \hat{\rho}(\delta) - \frac{1-e^{-\delta/\tau_\text{rec}}}{\bar{x}}
+    \right].
+    \label{eq:U_correction}
+\end{equation}
+%
+The tight-pair window is still useful after this correction because it limits
+sensitivity to model mismatch, refractory effects, and finite-sample noise in
+the excess-probability ratio. In the protocol below, the raw tight-pair estimate
+is used only to initialize $\tilde{U}$; the final value is obtained by likelihood
+optimization.
+
+\paragraph{Treatment of $\tau_\text{rec}$ during initialization.}
+The tight-pair initializer requires a value of $\tau_\text{rec}$ in
+Eqs.~\eqref{eq:xbar_stationary}--\eqref{eq:U_correction}, but raw spike pairs do
+not give a practical standalone estimate of this slow time constant at the
+target rates. Therefore the initialization uses a fixed physiological guess,
+for example $\tilde{\tau}_\text{rec}^{(0)}=0.4$~s. This value is not assumed to
+be correct. It only sets the initial resource scale and tight-pair window; the
+three-block likelihood optimization later updates $\tilde{\tau}_\text{rec}$
+directly in Block~C.
+
+\subsection{Statistical Requirements: Tight Pairs and Shots}
+\label{sec:tight_pairs_shots}
+
+\textbf{Tight pairs} are consecutive spike pairs from the same neuron with
+ISI $\delta \leq \delta_\text{max}$. For a Poisson spike train with rate $r$
+observed for duration $T_\text{obs}=T\Delta t$, the expected number of tight
+pairs per neuron is
+%
+\begin{equation}
+    \mathcal{P}_\text{pairs}
+    = r T_\text{obs}\left(1-e^{-r\delta_\text{max}}\right)
+    \approx r^2 T_\text{obs}\delta_\text{max},
+    \label{eq:Npairs}
+\end{equation}
+%
+with the approximation valid only when $r\delta_\text{max}\ll1$. Thus the
+physical recording duration, firing rate, and coincidence window determine the
+pair count; the time bin width matters only insofar as it must resolve the
+selected ISIs.
+
+\textbf{Shots} are the postsynaptic spike observations that follow selected
+tight-pair events. Since the model uses one shared $U$, tight pairs pool across
+all presynaptic neurons. If the mean number of true postsynaptic targets per
+presynaptic neuron is $k$, the approximate number of informative shots is
+%
+\begin{equation}
+    N_\text{shots}^\text{eff}
+    \approx N\,\mathcal{P}_\text{pairs}\,k.
+    \label{eq:Nshots}
+\end{equation}
+%
+The raw data contain observations from all possible postsynaptic neurons, but
+only the connected targets contribute coherent signal to the excess-probability
+ratio. A rough precision target is
+$N_\text{shots}^\text{eff}\gtrsim 1/\varepsilon_U^2$. For
+$N=500$ and $k=75$, even $\mathcal{P}_\text{pairs}=10$ per neuron gives
+$3.75\times10^5$ effective shots, so the estimator is usually limited more by
+the recovery-bias window than by shot noise.
+
+\subsection{Parameter Dependence and Operating Points}
+
+With the stationary-resource approximation, the ideal continuous-time
+coincidence window is set by the additive-bias tolerance in
+Eq.~\eqref{eq:delta_ideal}. In the actual 1~ms binned data, sub-millisecond
+windows cannot be resolved, so the practical choice is fixed to
+$\delta_\text{max}=1$~ms. Higher firing rates reduce $\bar{x}$ and therefore
+increase the implied finite-ISI bias, but they also increase the number of
+available tight pairs. The typical ISI, $1/r$, should not be used as a
+tight-pair cutoff: for $r=30$~Hz it is about 33~ms, which would introduce an
+additive bias of order $0.5$ in $\tilde{U}$ under the baseline parameters.
+
+\begin{table}[h]
+\centering
+\caption{Practical tight-pair statistics for true/nominal $U=0.5$,
+$\delta_\text{max}=\Delta t$, $N=500$, mean out-degree $k=0.15N=75$, and fixed
+recording duration $T_\text{obs}=1000$~s. $B_U(\delta)$ is the implied additive
+finite-ISI bias from Eq.~\ref{eq:U_bias}, evaluated at $\delta=\Delta t$; for
+the 1~ms rows this is $B_U(1~\mathrm{ms})$. $\mathcal{P}_\text{pairs}$ uses the
+exact Poisson expression in Eq.~\ref{eq:Npairs}. The resource mean $\bar{x}$ is
+computed from Eq.~\ref{eq:xbar_stationary}. Baseline row in bold.}
+\label{tab:tight_pairs}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{clcccccc}
+\toprule
+Row & Description & $\Delta t$ & $r$ & $\tau_\text{rec}$ &
+$\bar{x}$ & $B_U(\Delta t)$ & $\mathcal{P}_\text{pairs}$/neuron \\
+ & & (ms) & (Hz) & (s) & & & \\
+\midrule
+\textbf{1} & \textbf{Baseline} & \textbf{1} & \textbf{30} & \textbf{0.4} & \textbf{0.143} & \textbf{0.016} & \textbf{887} \\
+2 & Baseline, finer bin & 0.5 & 30 & 0.4 & 0.143 & 0.008 & 447 \\
+3 & Higher target rate & 1 & 50 & 0.4 & 0.091 & 0.026 & 2,439 \\
+4 & Higher target rate, finer bin & 0.5 & 50 & 0.4 & 0.091 & 0.013 & 1,235 \\
+5 & Short $\tau_\text{rec}$ & 1 & 30 & 0.2 & 0.250 & 0.017 & 887 \\
+6 & Short $\tau_\text{rec}$, finer bin & 0.5 & 30 & 0.2 & 0.250 & 0.009 & 447 \\
+7 & Long $\tau_\text{rec}$ & 1 & 30 & 0.5 & 0.118 & 0.016 & 887 \\
+8 & Long $\tau_\text{rec}$, finer bin & 0.5 & 30 & 0.5 & 0.118 & 0.008 & 447 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The main conclusion from Table~\ref{tab:tight_pairs} is that, for the
+$N=500$ network considered here, network-wide pooling gives ample effective
+shots throughout the 30--50~Hz target firing range even when only one-bin
+tight pairs are used. The cost is a percent-level finite-ISI bias in the raw
+$\tilde{U}$ initializer. This is acceptable for initialization because the
+three-block likelihood fit subsequently refines $\tilde{U}$; it would not be
+acceptable as a final standalone estimator.
+
+
+
+
+%=========
+\section{Summary of the Parameter Estimation Method}
+\label{sec:param_estimation}
+
+The true BSSM parameter set is
+$\theta = \{b_i, W_{ij}, \tau_\text{rec}, U, \tau_s\}$. The corresponding
+estimated parameter set is denoted
+$\tilde{\theta} = \{\tilde{b}_i, \tilde{W}_{ij}, \tilde{\tau}_\text{rec},
+\tilde{U}\}$, with $\tau_s$ assumed known from the fast synaptic time scale or
+fixed by the chosen kernel. The utilization estimate $\tilde{U}$ is initialized
+from tight pairs using a nominal recovery time, while
+$\tilde{\tau}_\text{rec}$ is treated as unknown and initialized from a fixed
+physiological guess, $\tilde{\tau}_\text{rec}^{(0)}=0.4$~s; neither is fixed
+thereafter.
+The final estimate is obtained by a three-block coordinate-descent
+maximum-likelihood procedure over $\{\tilde{b}_i,\tilde{W}_{ij}\}$,
+$\tilde{U}$, and $\tilde{\tau}_\text{rec}$.
+
+\subsection{Pre-processing: Initializing $\tilde{\tau}_\text{rec}$ and Estimating $\tilde{U}$}
+
+\textbf{Step 1 --- Initialize $\tilde{\tau}_\text{rec}$.} Do not pre-estimate
+$\tau_\text{rec}$ from raw consecutive-spike ISIs. At 30--50~Hz, typical ISIs
+are only $20$--$33$~ms, so they do not span the 0.2--0.5~s recovery range
+needed for a stable standalone estimate. Set a physiological starting value,
+\begin{equation}
+    \tilde{\tau}_\text{rec}^{(0)} = 0.4~\text{s}.
+\end{equation}
+This value is only an initialization for the forward STD recursion and for the
+tight-pair correction; it is updated later in Block~C.
+
+\textbf{Step 2 --- Initialize $\tilde{U}$ iteratively.} Estimate
+$\tilde{U}^{(0)}$ from the
+tight-pair release ratio in Eq.~\eqref{eq:rho_estimator}, pooling pairs across
+all presynaptic neurons. Because the finite-ISI correction depends on the
+typical pre-pair resource level, and that resource level depends on $U$, this
+initialization is a fixed-point procedure rather than a one-pass calculation.
+Start from a nominal value, for example $\tilde{U}=0.5$; compute
+$\bar{x}(r,\tilde{U},\tilde{\tau}_\text{rec}^{(0)})$ from
+Eq.~\eqref{eq:xbar_stationary}; set the tight-pair window using
+Eq.~\eqref{eq:delta_max}; estimate a new $\tilde{U}$ using the corrected ratio
+in Eq.~\eqref{eq:U_correction}; then recompute $\bar{x}$ and repeat until the
+update changes negligibly. With an extremely narrow coincidence window, the
+zero-ISI approximation $\lim_{\delta\to0^+}\rho(\delta)=1-U$ is recovered as
+the limiting case. This estimate anchors the subsequent optimization but is
+allowed to move during the likelihood fit.
+
+\textbf{Step 3 --- Initialize $\{b_i, W_{ij}\}$.} Given
+$\tilde{\tau}_\text{rec}^{(0)}$ and $\tilde{U}^{(0)}$, compute the latent trajectories
+$\{x_{j,t}\}$, $\{u_{j,t}\}$, and $\{h_{j,t}\}$ by
+Eqs.~\eqref{eq:std_ssm_state}, \eqref{eq:std_release},
+and \eqref{eq:recursive_kernel}. Initialize the baseline log-odds as:
+%
+\begin{equation}
+    b_i^{(0)} = \log\frac{\bar{p}_i}{1-\bar{p}_i},
+\end{equation}
+%
+where $\bar{p}_i=T^{-1}\sum_t s_{i,t}$ is the observed spike probability per
+bin. Initialize all $W_{ij}=0$, consistent with sparse connectivity and ensuring
+that early iterations are driven by data rather than random recurrent input.
+
+\textbf{Step 4 --- Burn-in protection.} Regardless of the chosen
+$\tilde{\tau}_\text{rec}^{(0)}$, set $x_{j,0} = 1$ for all $j$ (fully recovered) and
+exclude the first $T_\text{burn} = 5\tilde{\tau}_\text{rec}^{(0)}/\Delta t$ bins from all
+likelihood evaluations while retaining them for the forward state computation.
+This removes dependence on the initial condition, which decays with timescale
+$\tau_\text{rec}$.
+
+\subsection{Main Optimization: Three-Block Coordinate Descent}
+
+With $\{b_i^{(0)}, W_{ij}^{(0)}, \tilde{U}^{(0)}, \tilde{\tau}_\text{rec}^{(0)}\}$ initialized,
+the algorithm alternates between three blocks until convergence. The latent
+state $x_j(t)$ is not an independent free parameter: given the observed spike
+train and a candidate pair $(\tilde{U},\tilde{\tau}_\text{rec})$, it is determined by the
+forward recursion in Eq.~\eqref{eq:std_ssm_state}. Therefore $x$, $u$, and $h$
+are recomputed whenever either $\tilde{U}$ or $\tilde{\tau}_\text{rec}$ changes.
+
+\textbf{Block A --- Update $\{b_i, W_{ij}\}$ with $\tilde{U}$ and $\tilde{\tau}_\text{rec}$
+fixed.} Given the current $(\tilde{U},\tilde{\tau}_\text{rec})$, compute $\{x_{j,t}\}$,
+$\{u_{j,t}\}$, and $\{h_{j,t}\}$ in a single forward pass. The log-likelihood
+then decomposes over postsynaptic neurons:
+%
+\begin{equation}
+    \ell(\{b_i, W_{ij}\}) = \sum_{i=1}^{N} \sum_{t=T_\text{burn}}^{T-1}
+    \left[ s_{i,t} \log p_{i,t} + (1 - s_{i,t})\log(1 - p_{i,t}) \right],
+\end{equation}
+%
+where $p_{i,t} = \sigma(b_i + \sum_{j \neq i} W_{ij} h_{j,t})$. This separates
+into $N$ independent logistic regression problems, one per postsynaptic neuron $i$,
+each with at most $N-1$ predictors $\{h_{j,t}\}_{j \neq i}$. Each is solved with
+an L1-regularized logistic-regression solver to promote sparsity, exploiting the
+fact that the true connectivity is approximately 15\% dense with unknown support.
+The $N$ subproblems are fully independent and trivially parallelized across
+neurons.
+
+\textbf{Block B --- Update $\tilde{U}$ with $\{b_i, W_{ij}\}$ and $\tilde{\tau}_\text{rec}$
+fixed.} The log-likelihood as a function of $\tilde{U}$ is one-dimensional but
+nonlinear because $\tilde{U}$ changes both the depletion recursion and the release
+amplitude. For each candidate $\tilde{U}\in(0,1]$, recompute $\{x,u,h\}$ and evaluate
+the Bernoulli likelihood. The update can be performed with a bounded scalar
+optimizer or by automatic differentiation through the forward pass. A weak prior
+or bounded search interval around the tight-pair initializer can be used to
+stabilize the known $\tilde{U}$--$W_{ij}$ scaling coupling.
+
+\textbf{Block C --- Update $\tilde{\tau}_\text{rec}$ with $\{b_i, W_{ij}\}$ and $\tilde{U}$
+fixed.} The log-likelihood as a function of $\tilde{\tau}_\text{rec}$ is also
+one-dimensional and smooth but nonlinear. For each candidate $\tilde{\tau}_\text{rec}>0$,
+recompute $\{x,u,h\}$ through Eq.~\eqref{eq:std_ssm_state}; then update
+$\tilde{\tau}_\text{rec}$ with a scalar constrained optimizer or automatic
+differentiation through the forward pass.
+
+\textbf{Convergence.} Outer iterations cycle through Blocks A--C. To avoid
+early-stage bias from poor STD parameters corrupting the $W_{ij}$ fit, it is
+useful to hold $\tilde{U}$ and $\tilde{\tau}_\text{rec}$ fixed for the first 2--3 outer
+iterations while $\{b_i,W_{ij}\}$ stabilize, then release the scalar STD
+parameters for joint refinement. Convergence is declared when the relative
+change in log-likelihood between outer iterations falls below a prescribed
+tolerance, typically $10^{-4}$.
+
+\subsection{Computational Scaling}
+
+The forward pass computing $\{x_{j,t}, u_{j,t}, h_{j,t}\}$ is $\mathcal{O}(NT)$
+and fully vectorized across neurons, requiring a single sequential scan over $T$
+bins. At $N = 500$ and $T = 10^6$ this amounts to $5 \times 10^8$ operations per
+outer iteration, feasible in seconds on a GPU using \texttt{jax.lax.scan} or an
+equivalent. The Block~A logistic regressions involve $N$ problems each of dimension
+$(N-1) \times T$, but the L1 penalty and true sparsity of $W_{ij}$ mean that only
+$\sim 0.15\,N$ predictors carry nonzero weight, reducing the effective problem size
+substantially. Blocks B and C are scalar optimizations; each likelihood or
+gradient evaluation costs one $\mathcal{O}(NT)$ forward pass and is usually not
+the bottleneck.
+
+\subsection{Identifiability}
+
+The strongest coupling is between $\tilde{U}$ and $W_{ij}$: increasing
+$\tilde{U}$ increases release amplitude and can be partially offset by smaller
+weights. The tight-pair initializer, the bounded domain $0<\tilde{U}\leq1$,
+and optional weak regularization on $\tilde{U}$ help anchor this direction. A
+second coupling exists between $\tilde{\tau}_\text{rec}$ and $W_{ij}$: longer
+recovery times produce more depleted
+$x_{j,t}$ trajectories, which logistic regression can partially compensate by
+inflating $W_{ij}$. These couplings are not exact degeneracies because the model
+must also match the time course of recovery after bursts, not only the mean
+coupling level. The recommended practice of fitting $\{b_i,W_{ij}\}$ first and
+then releasing $\tilde{U}$ and $\tilde{\tau}_\text{rec}$ exploits this
+structure by ensuring the scalar-parameter gradients are evaluated against a
+stable weight matrix.
 \begin{thebibliography}{1}
 
 \bibitem{Tsodyks1997}
