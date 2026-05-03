@@ -1,0 +1,391 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+\geometry{margin=0.8in}
+
+\title{Synaptic Depression Modeling}
+\author{Jan Balewski, NERSC}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We describe a real-time adaptive Bernoulli state-space model (BSSM) for a network of
+interacting neurons with short-term synaptic depression (STD) and a lag-$M$ synaptic
+memory kernel. The STD mechanism is represented as a latent dynamical resource variable
+that is updated at each discrete time step, coupled to observed binary spike indicators
+through a Bernoulli likelihood. For context, we also briefly review the Tsodyks--Markram
+(TM) resource model, which provides the continuous-time biological foundation for the
+discrete STD dynamics used in the BSSM.
+\end{abstract}
+
+% ===============================================================
+\section{Short-Term Synaptic Depression (STD) in Cortical Synapses}
+\label{sec:std_intro}
+
+Short-term synaptic depression (STD) is a fast, reversible decrease in synaptic strength
+that occurs when a presynaptic cortical neuron fires repeatedly over short time windows
+(typically from milliseconds to seconds).
+
+\paragraph{Activity-decaying phenomenon.}
+When presynaptic firing is high, the postsynaptic response (EPSCs or IPSCs) becomes
+progressively smaller for successive spikes, producing a decaying envelope of synaptic
+efficacy during bursts. After presynaptic activity pauses, synaptic strength gradually
+recovers to baseline levels.
+
+\paragraph{Main biological mechanism.}
+STD is commonly modeled as depletion of synaptic ``resources'' required for effective
+neurotransmitter release. At each presynaptic spike, release depends on
+(i) the availability of readily releasable vesicles (or release-ready sites) and
+(ii) an effective probability of release (often related to intracellular calcium dynamics).
+Sustained activity depletes resources and reduces future release, while periods of silence
+allow recovery.
+
+\paragraph{Relevant timescales.}
+Recovery is typically on intermediate timescales ($\sim 100$\,ms to a few seconds),
+depending on synapse type and experimental protocol.
+
+\paragraph{Functional consequences.}
+STD acts as a rate-dependent synaptic filter: it attenuates sustained high-rate input,
+emphasizes transient changes in firing, and contributes to network stabilization by
+preventing runaway excitation.
+
+% ===============================================================
+\section{Computational Models with STD}
+\label{sec:std_models}
+
+We describe two STD frameworks. The TM model (Section~\ref{sec:tm_std}) is included
+for conceptual context only. The BSSM (Section~\ref{sec:bssm_std}) is the target
+implementation model.
+
+The following notation is shared across both models:
+$U\in(0,1]$ is the utilization parameter (fraction of available resources used per spike),
+and $\tau_{\mathrm{rec}}$ is the STD recovery time constant.
+
+% ===============================================================
+\subsection{Tsodyks--Markram (TM) Resource Model: Conceptual Background}
+\label{sec:tm_std}
+
+The \emph{Tsodyks--Markram (TM)} model~\cite{Tsodyks1997} is a widely used continuous-time
+resource model for \emph{short-term plasticity (STP)}. In the STD-only version, the synapse
+has a single \emph{available-resource} variable $x(t)\in[0,1]$. Between presynaptic spikes,
+resources recover exponentially:
+\begin{equation}
+\frac{dx}{dt}=\frac{1-x}{\tau_{\mathrm{rec}}}.
+\label{eq:tm_recovery}
+\end{equation}
+At a presynaptic spike time $t=t_k$, a fraction $U$ of available resources is consumed:
+\begin{equation}
+x(t_k^+)=x(t_k^-)\,(1-U),
+\label{eq:tm_spike_update}
+\end{equation}
+and the released neurotransmitter amplitude at that spike is
+\begin{equation}
+r(t_k)=U\,x(t_k^-).
+\label{eq:tm_release}
+\end{equation}
+The TM model provides the biological motivation for the discrete STD resource update
+used in the BSSM below (Eq.~\ref{eq:std_ssm_state}), which is the exact discretization
+of Eq.~\eqref{eq:tm_recovery} combined with Eq.~\eqref{eq:tm_spike_update}.
+
+\subsection{Real-Time Adaptive Bernoulli State-Space Network Model (BSSM) with STD
+            and Lag-$M$ Kernel}
+\label{sec:bssm_std}
+
+The \emph{Bernoulli state-space model (BSSM)} represents a network of $N$ neurons using
+(i) latent dynamical states encoding STD resources and (ii) a Bernoulli observation model
+for binary spike indicators conditioned on those states. This is the primary model of
+interest. At physiological firing rates ($5$--$20$\,Hz) and bin widths
+($\Delta t = 1$--$2$\,ms), the probability of two spikes per bin is of order
+$p^2/2 \sim 10^{-5}$, making Bernoulli statistically indistinguishable from Poisson
+while simplifying both simulation and inference.
+
+\paragraph{Discrete time and notation.}
+Let $t\in\{0,1,\dots,T-1\}$ index time bins of width $\Delta t$.
+For each neuron $j$, the primary observable is the binary \emph{spike indicator}
+\begin{equation}
+s_{j,t} =
+\begin{cases}
+1 & \text{neuron } j \text{ fired a spike in bin } t,\\
+0 & \text{neuron } j \text{ was silent in bin } t,
+\end{cases}
+\end{equation}
+which records only \emph{whether} a spike occurred. The downstream efficacy of that
+spike is determined separately by the latent STD resource variable $x_{j,t}\in[0,1]$,
+which encodes the fraction of neurotransmitter available for release at the start of
+bin $t$ (see Eq.~\ref{eq:std_ssm_state}). A spike that occurs when resources are
+depleted ($x_{j,t}\approx 0$) contributes little to postsynaptic drive, whereas a
+spike after full recovery ($x_{j,t}\approx 1$) contributes maximally.
+
+\paragraph{STD latent state dynamics.}
+Each presynaptic neuron $j$ has its own latent resource variable $x_{j,t}$,
+tracking the STD state of that neuron's outgoing synapses independently of all
+other neurons. The full network state is the collection $\{x_{j,t}\}_{j=1}^{N}$,
+with each variable evolving as the exact discretization of the TM continuous-time
+recovery (Eq.~\ref{eq:tm_recovery}) combined with spike-triggered consumption
+(Eq.~\ref{eq:tm_spike_update}):
+\begin{equation}
+x_{j,t+1}
+=
+\underbrace{\Big(1-(1-x_{j,t})\,e^{-\Delta t/\tau_{\mathrm{rec}}}\Big)}_{\text{exponential recovery}}
+\cdot
+\underbrace{\big(1-U\,s_{j,t}\big)}_{\text{spike-triggered depletion}},
+\qquad j=1,\dots,N.
+\label{eq:std_ssm_state}
+\end{equation}
+When $s_{j,t}=0$, resources recover exponentially toward $1$; when $s_{j,t}=1$,
+a fraction $U$ is consumed. Because the update depends only on neuron $j$'s own
+spike indicator, resource variables of different neurons are conditionally independent
+given their respective spike histories, allowing all $N$ updates to proceed in parallel.
+
+\paragraph{STD-modulated release.}
+The effective synaptic release from neuron $j$ in bin $t$ is:
+\begin{equation}
+u_{j,t}=U\,x_{j,t}\,s_{j,t}.
+\label{eq:std_release}
+\end{equation}
+This quantity is zero in the absence of a spike, small when resources are depleted
+by recent activity, and large (up to $U$) after full recovery.
+
+\paragraph{Lag-$M$ synaptic kernel.}
+Synaptic currents have temporal extent beyond a single bin. We convolve the
+STD-modulated release with a causal lag-$M$ kernel
+$\bm{\kappa}=(\kappa_1,\dots,\kappa_M)^\top$, $\kappa_\ell\geq 0$, encoding how
+a release event at lag $\ell$ bins contributes to postsynaptic drive at time $t$.
+The effective STD-filtered synaptic input from neuron $j$ at time $t$ is:
+\begin{equation}
+h_{j,t} = \sum_{\ell=1}^{M}\kappa_\ell\,u_{j,t-\ell}.
+\label{eq:lag_kernel}
+\end{equation}
+The kernel length must satisfy $M\Delta t \gtrsim \tau_{\mathrm{rec}}$ to capture
+the full STD recovery window. Practical kernel choices include exponential decay,
+raised cosine basis functions, or a free learnable filter (see
+Section~\ref{sec:gen_kernel} for the generator choice).
+
+\paragraph{Bernoulli observation model.}
+For each postsynaptic neuron $i$, the conditional spiking probability is:
+\begin{equation}
+p_{i,t}
+=
+\sigma\!\left(
+b_i
++
+\sum_{\substack{j=1\\j\neq i}}^{N}
+W_{ij}\,h_{j,t}
+\right),
+\label{eq:bernoulli_obs}
+\end{equation}
+where $\sigma(z)=1/(1+e^{-z})$ is the logistic sigmoid, $b_i$ is a baseline
+log-odds for neuron $i$, and $W_{ij}$ is the synaptic weight from neuron $j$
+to neuron $i$ (positive for excitatory, negative for inhibitory connections).
+Self-connections are excluded by the constraint $j\neq i$.
+The spike indicator is then drawn as:
+\begin{equation}
+s_{i,t} \sim \mathrm{Bernoulli}(p_{i,t}).
+\label{eq:bernoulli_likelihood}
+\end{equation}
+For $t-\ell<0$, pre-history values $u_{j,t-\ell}$ are set to zero, corresponding
+to a fully recovered synapse with no prior spiking.
+
+\paragraph{Summary of model parameters.}
+The full parameter set of the BSSM is $\theta=\{b_i, W_{ij}, \kappa_\ell, U,
+\tau_{\mathrm{rec}}\}$, where $b_i$ and $W_{ij}$ are neuron- and synapse-specific,
+while $U$ and $\tau_{\mathrm{rec}}$ may be shared across all synapses or made
+neuron-specific depending on modeling assumptions. In the generator
+(Section~\ref{sec:generator}), all parameters are fixed to known ground-truth
+values; in inference, they constitute the quantities to be estimated.
+
+\paragraph{Real-time and adaptive aspects.}
+The term \emph{real-time} refers to the fact that both the latent STD state
+$x_{j,t}$ and parameter estimates can be updated sequentially as new spike
+indicators $s_{i,t}$ arrive, without reprocessing the full data history. The term
+\emph{adaptive} refers to the property that $x_{j,t}$ automatically tracks recent
+presynaptic spiking through Eq.~\eqref{eq:std_ssm_state}: resources deplete during
+bursts and recover during silence, so the effective synaptic gain $u_{j,t}$ adapts
+online to the presynaptic firing history. Together, these properties make the BSSM
+suitable for closed-loop neural decoding or real-time inference scenarios.
+
+% ===============================================================
+\section{Data Generator: Mammalian Cortical Network with STD}
+\label{sec:generator}
+
+To validate the BSSM and test inference procedures, we generate synthetic spike
+trains from a network that mimics key properties of mammalian cortical dynamics.
+The generator uses the same BSSM structure as the inference model 
+(Section~\ref{sec:bssm_std}), but with all parameters fixed to known ground-truth
+values, enabling direct comparison between true and estimated quantities.
+
+% ===============================================================
+\subsection{Network Architecture}
+\label{sec:gen_architecture}
+
+We consider a network of $N\in[50, 500]$ neurons partitioned following Dale's law
+into $N_E = 0.8\,N$ excitatory and $N_I = 0.2\,N$ inhibitory neurons.
+The code constructs the initial synaptic matrix $W\in\mathbb{R}^{N\times N}$
+with a spatial connections Dale generator. Neurons are
+placed on a two-dimensional grid over $[0,L]\times[0,H]$ with minimum spacing
+$d_{\min}$, and their order is sorted by position. For each presynaptic neuron
+$j$, an out-degree $k_j$ is drawn from the configured range and $k_j$ distinct
+postsynaptic targets are sampled without replacement with probability
+proportional to $D_{ij}^{-\delta}$, excluding $i=j$. This gives nearby neurons
+higher connection probability while keeping the diagonal zero.
+
+The nonzero weights obey Dale's law column-by-column:
+\begin{equation}
+W^{(0)}_{ij} =
+\begin{cases}
++a_{ij} & \text{if neuron } j \text{ is excitatory},\\
+-\frac{N_E}{N_I}\,a_{ij} & \text{if neuron } j \text{ is inhibitory},
+\end{cases}
+\qquad
+a_{ij}\sim\mathrm{Uniform}(1-v,1+v),
+\label{eq:weight_draw}
+\end{equation}
+for sampled edges only, with $W^{(0)}_{ii}=0$. Finally, the whole matrix is
+rescaled to the requested spectral radius $R$,
+\begin{equation}
+W = W^{(0)}\,\frac{R}{\rho(W^{(0)})},
+\label{eq:weight_matrix}
+\end{equation}
+which preserves sparsity, signs, Dale's law, and the zero diagonal.
+
+
+% ===============================================================
+\subsection{Synaptic Kernel}
+\label{sec:gen_kernel}
+
+We use an \emph{exponential decay kernel} as the ground-truth synaptic filter:
+\begin{equation}
+\kappa_\ell = (1-\alpha)\,\alpha^{\ell-1}, \qquad \ell = 1,\dots,M,
+\label{eq:exp_kernel}
+\end{equation}
+where $\alpha = e^{-\Delta t/\tau_s}$ and $\tau_s$ is the synaptic time constant.
+This kernel corresponds to a standard single-compartment synaptic current model
+and is the exact discrete-time analog of the continuous-time shot-noise synaptic
+model. It is normalized so that $\sum_{\ell=1}^{M}\kappa_\ell \approx 1$ for
+$M\Delta t \gg \tau_s$.
+
+A key computational advantage of this choice is that the lag-$M$ convolution
+in Eq.~\eqref{eq:lag_kernel} collapses to a single recursive update:
+\begin{equation}
+h_{j,t} = \alpha\,h_{j,t-1} + (1-\alpha)\,u_{j,t-1},
+\label{eq:recursive_kernel}
+\end{equation}
+which avoids explicitly storing $M$ past values of $u_{j,t}$ and scales
+efficiently to large networks. The decay rate of $\kappa_\ell$ is set by the
+fast synaptic time constant $\tau_s$, whereas the slower STD time constant
+$\tau_{\mathrm{rec}}$ enters through the latent state update and the choice of
+history length $M$.
+
+% ===============================================================
+\subsection{Ground-Truth Parameter Values}
+\label{sec:gen_params}
+
+Table~\ref{tab:gen_params} lists the ground-truth parameter values used in the
+generator, motivated by mammalian cortical physiology.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{llll}
+\toprule
+Parameter & Symbol & Value & Rationale \\
+\midrule
+Time bin width         & $\Delta t$            & $1$--$2$\,ms                      & Resolves individual spikes; ensures $p\ll 1$ \\
+Synaptic time constant & $\tau_s$              & $3$--$5$\,ms                      & AMPA-like fast excitation \\
+STD recovery time      & $\tau_{\mathrm{rec}}$ & $200$--$500$\,ms                  & Typical cortical STD \\
+Utilization parameter  & $U$                   & $0.3$--$0.5$                      & Moderate depression \\
+Weight scale           & $v, R$                & $v=0.4,\ R=0.90$                  & Uniform weights scaled by spectral radius \\
+Baseline log-odds      & $b_i$                 & tuned per neuron                  & Yields $5$--$20$\,Hz firing \\
+Kernel length          & $M$                   & $\geq\tau_{\mathrm{rec}}/\Delta t$ & Covers STD recovery window \\
+\bottomrule
+\end{tabular}
+\caption{Ground-truth generator parameters. Ranges reflect variability across
+synapse types and network sizes. The kernel length $M$ must satisfy
+$M\Delta t \gtrsim \tau_{\mathrm{rec}}$ to ensure the history window captures
+the full STD recovery dynamics. The baseline $b_i$ is expressed as a log-odds
+consistent with the Bernoulli observation model (Eq.~\ref{eq:bernoulli_obs}).}
+\label{tab:gen_params}
+\end{table}
+
+% ===============================================================
+\subsection{Generation Procedure}
+\label{sec:gen_procedure}
+
+Given the fixed parameters, synthetic spike indicators are generated sequentially
+for $t = 0, 1, \dots, T-1$ as follows.
+
+\begin{algorithm}
+\caption{Synthetic network spike train generator}
+\label{alg:generator}
+\begin{algorithmic}[1]
+\STATE \textbf{Initialize:} $x_{j,0} \leftarrow 1$ for all $j$ (fully recovered);
+       $h_{j,0} \leftarrow 0$ for all $j$; draw $W$, $\{b_i\}$ as in
+       Eqs.~\eqref{eq:weight_draw}--\eqref{eq:weight_matrix}.
+\FOR{$t = 0, 1, \dots, T-1$}
+  \FOR{each neuron $j = 1,\dots,N$}
+    \STATE Compute STD-modulated release:
+           $u_{j,t} \leftarrow U\,x_{j,t}\,s_{j,t}$
+           \hfill(Eq.~\ref{eq:std_release})
+    \STATE Update recursive synaptic filter:
+           $h_{j,t} \leftarrow \alpha\,h_{j,t-1} + (1-\alpha)\,u_{j,t-1}$
+           \hfill(Eq.~\ref{eq:recursive_kernel})
+  \ENDFOR
+  \FOR{each neuron $i = 1,\dots,N$}
+    \STATE Compute spiking probability:
+           $p_{i,t} \leftarrow \sigma\!\left(b_i +
+           \sum_{j \neq i} W_{ij}\,h_{j,t}\right)$
+           \hfill(Eq.~\ref{eq:bernoulli_obs})
+    \STATE Draw spike indicator:
+           $s_{i,t} \sim \mathrm{Bernoulli}(p_{i,t})$
+           \hfill(Eq.~\ref{eq:bernoulli_likelihood})
+  \ENDFOR
+  \FOR{each neuron $j = 1,\dots,N$}
+    \STATE Update STD resource:
+           $x_{j,t+1} \leftarrow
+           \big(1-(1-x_{j,t})e^{-\Delta t/\tau_{\mathrm{rec}}}\big)
+           \cdot(1-U\,s_{j,t})$
+           \hfill(Eq.~\ref{eq:std_ssm_state})
+  \ENDFOR
+\ENDFOR
+\STATE \textbf{Output:} spike indicators $\{s_{j,t}\}$, ground-truth STD states
+       $\{x_{j,t}\}$, weight matrix $W$.
+\end{algorithmic}
+\end{algorithm}
+
+% ===============================================================
+\subsection{Network Stability Check}
+\label{sec:gen_stability}
+
+With recurrent excitatory connections, the network can exhibit runaway activity
+if synaptic weights are too large. Before generating long recordings, we recommend
+a short pilot run ($\sim 1$\,s) and verification that mean firing rates across
+neurons remain in the physiological range of $5$--$20$\,Hz. If rates exceed this
+range, one should reduce the spectral-radius target $R$ or increase $U$: stronger
+STD provides a natural activity-dependent stabilizing mechanism by reducing
+synaptic efficacy during high-rate episodes.
+
+\begin{thebibliography}{1}
+
+\bibitem{Tsodyks1997}
+M.~V. Tsodyks and H.~Markram.
+\newblock The neural code between neocortical pyramidal neurons depends on
+  neurotransmitter release probability.
+\newblock \emph{Proceedings of the National Academy of Sciences}, 94(2):719--723,
+  1997.
+\newblock doi:{10.1073/pnas.94.2.719}.
+
+\end{thebibliography}
+
+\end{document}
+ 
