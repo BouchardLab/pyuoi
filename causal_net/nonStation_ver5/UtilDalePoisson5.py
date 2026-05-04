@@ -211,7 +211,7 @@ def estimate_rates(Y, dt, tau, max_samples, spect_radius, varTwindow=5, mxNn=5, 
     rates_dict = {
         'single_rates': spike_rates,
         'neur_freqIdx':neur_freq_index,
-        'sigle_rates_var': single_rates_var,
+        'single_rates_var': single_rates_var,
         'single_fano_fact': fano_factor
     }
 

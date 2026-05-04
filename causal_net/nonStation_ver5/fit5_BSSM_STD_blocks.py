@@ -4,15 +4,15 @@ Block-coordinate fit for the BSSM-STD Bernoulli model.
 
 The script fits
 
-    p_t = sigmoid(b + W h_t)
+    p_t = sigmoid(B + W h_t)
 
 from observed spikes.  The fast synaptic kernel is fixed from command-line
 arguments, while the STD release trajectory h_t is recomputed from
 observed spikes for each candidate (U, tau_rec).
 
 Blocks:
-  A. fit b and W with U, tau_rec fixed, using mini-batch Bernoulli NLL;
-  B. jointly update U and tau_rec by bounded 2D grid-refinement search with b,W fixed.
+  A. fit B and W with U, tau_rec fixed, using mini-batch Bernoulli NLL;
+  B. jointly update U and tau_rec by bounded 2D grid-refinement search with B,W fixed.
 
 Run with a PyTorch module on NERSC, for example:
 
@@ -24,7 +24,6 @@ import argparse
 import json
 import math
 import os
-import secrets
 import time
 import zipfile
 from pprint import pprint
@@ -87,12 +86,17 @@ def parse_args():
     p.add_argument("--tau_rec0", type=float, default=0.4, help="Initial tau_rec in seconds.")
     p.add_argument(
         "--init_samples",
-        "--init_sample",
-        dest="init_samples",
         type=int,
         required=True,
-        help="Mandatory number of post-burn bins, >1000, used to initialize b from rates "
+        help="Mandatory number of post-burn bins, >1000, used to initialize B from rates "
              "and W from lag-1 covariances.",
+    )
+    p.add_argument(
+        "--initW_random",
+        type=float,
+        default=0.0,
+        help="If >0, initialize off-diagonal W_ij uniformly in [-value,value]; "
+             "otherwise initialize W from post-burn lag-1 covariances.",
     )
     p.add_argument(
         "--u_bounds",
@@ -119,13 +123,18 @@ def parse_args():
         "--freeze_std_outer",
         type=int,
         default=2,
-        help="Number of initial outer iterations that update only b,W.",
+        help="Number of initial outer iterations that update only B,W.",
+    )
+    p.add_argument(
+        "--delay_epoch_4_blockB",
+        type=int,
+        default=5,
+        help="Number of initial outer iterations to skip before running Block B grid search.",
     )
     p.add_argument("--blockA_epochs", type=int, default=40,
                    help="Block A epochs for frozen-STD outer iterations.")
     p.add_argument("--blockA_epochs_live", type=int, default=-1,
-                   help="Block A epochs once STD params are live (outer >= freeze_std_outer). "
-                        "If <0, reuse --blockA_epochs.")
+                   help="Block A epochs once Block B is live. If <0, reuse --blockA_epochs.")
     p.add_argument(
         "--progress_every",
         type=int,
@@ -134,6 +143,12 @@ def parse_args():
     )
     p.add_argument("--batch_size", type=int, default=8192)
     p.add_argument("--lr_w", type=float, default=1e-2)
+    p.add_argument(
+        "--lr_end_factor",
+        type=float,
+        default=0.1,
+        help="LR decays to lr_w * lr_end_factor",
+    )
     p.add_argument("--lambda_l1", type=float, default=1e-4)
     p.add_argument(
         "--rho_max",
@@ -144,16 +159,10 @@ def parse_args():
     p.add_argument(
         "--delay_epoch_4_rhoMax",
         type=int,
-        default=0,
+        default=99,
         help="Number of initial Block A epochs per outer iteration to skip before applying --rho_max.",
     )
     p.add_argument("--eta_clip", type=float, default=10.0)
-    p.add_argument(
-        "--zero_diag",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Force W diagonal to zero.",
-    )
     p.add_argument("--u_grid_points", type=int, default=9)
     p.add_argument("--tau_grid_points", type=int, default=9)
     p.add_argument("--grid_refine", type=int, default=1)
@@ -169,7 +178,6 @@ def parse_args():
         default=0.03,
         help="Absolute off-diagonal weight threshold used only for reporting nz_weight_outer.",
     )
-    p.add_argument("--fitName", type=str, default=None)
     p.add_argument("--seed", type=int, default=12345)
     p.add_argument("-v", "--verb", type=int, default=1)
     return p.parse_args()
@@ -292,10 +300,20 @@ def logit_np(p):
     return np.log(p) - np.log1p(-p)
 
 
-def init_b_w_from_postburn_spikes(spikes_w, burn_bins, init_samples, zero_diag=True):
+def init_B_W_from_postburn_spikes(
+    spikes_w,
+    burn_bins,
+    init_samples,
+    kernel_len_steps,
+    initW_random,
+    seed,
+):
     init_samples = int(init_samples)
     if init_samples < 2:
         abort_fit("--init_samples must be at least 2")
+    kernel_len_steps = int(kernel_len_steps)
+    if kernel_len_steps < 1:
+        abort_fit("--kernel_len_steps must be at least 1")
     postburn = np.asarray(spikes_w[burn_bins:], dtype=np.float64)
     init_bins = int(postburn.shape[0])
     if init_bins < init_samples:
@@ -306,17 +324,47 @@ def init_b_w_from_postburn_spikes(spikes_w, burn_bins, init_samples, zero_diag=T
         )
 
     init_spikes = postburn[:init_samples]
-    p0 = np.mean(init_spikes, axis=0)
-    b0 = logit_np(p0)
+    p_mean = np.mean(init_spikes, axis=0)
+    B0 = logit_np(p_mean)
 
-    pre = init_spikes[:-1]
-    post = init_spikes[1:]
-    pre_centered = pre - np.mean(pre, axis=0, keepdims=True)
-    post_centered = post - np.mean(post, axis=0, keepdims=True)
-    W0 = (post_centered.T @ pre_centered) / float(pre.shape[0])
-    if zero_diag:
+    if float(initW_random) > 0.0:
+        pre = init_spikes[:-1]
+        post = init_spikes[1:]
+        p_minus = np.mean(pre, axis=0)
+        p_plus = np.mean(post, axis=0)
+        rng = np.random.default_rng(int(seed))
+        W0 = rng.uniform(
+            -float(initW_random),
+            float(initW_random),
+            size=(init_spikes.shape[1], init_spikes.shape[1]),
+        )
         np.fill_diagonal(W0, 0.0)
-    return b0, W0, init_samples
+        rebin_bins = 0
+        return B0, W0, init_samples, p_mean, p_plus, p_minus, rebin_bins
+
+    if init_samples % kernel_len_steps != 0:
+        abort_fit(
+            "--init_samples must be an integer multiple of --kernel_len_steps "
+            "for data-based W initialization: init_samples=%d kernel_len_steps=%d"
+            % (init_samples, kernel_len_steps)
+        )
+    rebin_bins = init_samples // kernel_len_steps
+    if rebin_bins < 2:
+        abort_fit(
+            "data-based W initialization needs at least 2 rebinned samples: "
+            "init_samples=%d kernel_len_steps=%d gives %d"
+            % (init_samples, kernel_len_steps, rebin_bins)
+        )
+    init_rebinned = init_spikes.reshape(rebin_bins, kernel_len_steps, init_spikes.shape[1]).sum(axis=1)
+    pre = init_rebinned[:-1]
+    post = init_rebinned[1:]
+    p_minus = np.mean(pre, axis=0)
+    p_plus = np.mean(post, axis=0)
+    pre_centered = pre - p_minus.reshape(1, -1)
+    post_centered = post - p_plus.reshape(1, -1)
+    W0 = (post_centered.T @ pre_centered) / float(rebin_bins - 1)
+    np.fill_diagonal(W0, 0.0)
+    return B0, W0, init_samples, p_mean, p_plus, p_minus, rebin_bins
 
 
 def infer_alpha(kappa):
@@ -345,18 +393,19 @@ def build_exponential_kernel(dt, synaptic_tau, mem_lag_steps):
     return (1.0 - alpha) * np.power(alpha, ell)
 
 
-def project_w_(W, zero_diag=True):
+def project_w_(W):
     with torch.no_grad():
-        if zero_diag:
-            W.diagonal().zero_()
+        W.diagonal().zero_()
 
 
 def enforce_spectral_radius_(W, rho_max):
-    if rho_max is None or float(rho_max) <= 0.0:
-        return
+    if float(rho_max) <= 0.0:
+        abort_fit("--rho_max must be positive")
     with torch.no_grad():
         rho = torch.linalg.eigvals(W).abs().max()
-        if torch.isfinite(rho) and rho > float(rho_max):
+        if not torch.isfinite(rho):
+            abort_fit("spectral radius is not finite")
+        if rho > float(rho_max):
             W.mul_(float(rho_max) / float(rho.item()))
 
 
@@ -365,7 +414,7 @@ def spectral_radius_torch(W):
     if W.device.type != "cuda":
         abort_fit("spectral radius diagnostic requires CUDA tensor")
     if W.numel() == 0:
-        return float("nan")
+        abort_fit("spectral radius diagnostic requires nonempty W")
     vals = torch.linalg.eigvals(W)
     return float(torch.max(torch.abs(vals)).item())
 
@@ -515,13 +564,13 @@ def make_h(
 
 
 @torch.no_grad()
-def bernoulli_nll_mean(H, Y_eval, W, b, eta_clip, batch_size):
+def bernoulli_nll_mean(H, Y_eval, W, B, eta_clip, batch_size):
     n = H.shape[0]
     N = H.shape[1]
     total = 0.0
     for i0 in range(0, n, batch_size):
         i1 = min(n, i0 + batch_size)
-        eta = H[i0:i1] @ W.t() + b
+        eta = H[i0:i1] @ W.t() + B
         eta = torch.clamp(eta, -float(eta_clip), float(eta_clip))
         loss = F.binary_cross_entropy_with_logits(
             eta, Y_eval[i0:i1].to(dtype=H.dtype), reduction="sum"
@@ -535,20 +584,58 @@ def progress_line(args, t_start, msg):
         print("  %s elapsed=%.1fs" % (msg, time.time() - t_start), flush=True)
 
 
-def train_block_a(H, Y_eval, W, b, args, offdiag_mask, generator, outer, t_start, epochs=None):
-    params = [W, b]
+def blockA_epochs_for_outer(args, outer):
+    live_std = (
+        int(outer) >= int(args.freeze_std_outer)
+        and int(outer) >= int(args.delay_epoch_4_blockB)
+    )
+    if live_std and int(args.blockA_epochs_live) >= 0:
+        return int(args.blockA_epochs_live)
+    return int(args.blockA_epochs)
+
+
+def train_block_a(
+    H,
+    Y_eval,
+    W,
+    B,
+    args,
+    offdiag_mask,
+    generator,
+    outer,
+    t_start,
+    epochs=None,
+    global_epoch_offset=0,
+    global_epoch_total=None,
+):
+    params = [W, B]
     optimizer = torch.optim.Adam(params, lr=float(args.lr_w))
     n = int(H.shape[0])
     N = int(H.shape[1])
     bce_losses = []
     l1_losses = []
     total_losses = []
+    lr_values = []
     progress_every = int(args.progress_every)
     rho_delay = int(args.delay_epoch_4_rhoMax)
     if epochs is None:
         epochs = int(args.blockA_epochs)
+    if global_epoch_total is None:
+        global_epoch_total = int(epochs)
 
     for epoch in range(epochs):
+        global_epoch = int(global_epoch_offset) + int(epoch)
+        if int(global_epoch_total) > 1:
+            lr_frac = float(global_epoch) / float(int(global_epoch_total) - 1)
+        else:
+            lr_frac = 0.0
+        lr_epoch = float(args.lr_w) * (
+            1.0 - lr_frac * (1.0 - float(args.lr_end_factor))
+        )
+        lr_values.append(lr_epoch)
+        for group in optimizer.param_groups:
+            group["lr"] = lr_epoch
+
         perm = torch.randperm(n, device=H.device, generator=generator)
         epoch_bce_loss = 0.0
         epoch_l1_loss = 0.0
@@ -560,7 +647,7 @@ def train_block_a(H, Y_eval, W, b, args, offdiag_mask, generator, outer, t_start
             Yb = Y_eval.index_select(0, idx).to(dtype=H.dtype)
 
             optimizer.zero_grad(set_to_none=True)
-            eta = Hb @ W.t() + b
+            eta = Hb @ W.t() + B
             eta = torch.clamp(eta, -float(args.eta_clip), float(args.eta_clip))
             base_loss = F.binary_cross_entropy_with_logits(eta, Yb, reduction="mean")
             l1_loss = torch.zeros((), dtype=base_loss.dtype, device=base_loss.device)
@@ -569,7 +656,7 @@ def train_block_a(H, Y_eval, W, b, args, offdiag_mask, generator, outer, t_start
             loss = base_loss + l1_loss
             loss.backward()
             optimizer.step()
-            project_w_(W, zero_diag=bool(args.zero_diag))
+            project_w_(W)
 
             nb = int(idx.numel()) * N
             epoch_bce_loss += float(base_loss.item()) * nb
@@ -595,12 +682,13 @@ def train_block_a(H, Y_eval, W, b, args, offdiag_mask, generator, outer, t_start
             )
         ):
             print(
-                "  progress outer=%d/%d epoch=%d/%d blockA_bce=%.6f blockA_l1=%.3g blockA_total=%.6f elapsed=%.1fs"
+                "  progress outer=%d/%d epoch=%d/%d lr=%.3g blockA_bce=%.6f blockA_l1=%.3g blockA_total=%.6f elapsed=%.1fs"
                 % (
                     outer + 1,
                     int(args.num_outer),
                     epoch + 1,
                     epochs,
+                    lr_epoch,
                     epoch_bce,
                     epoch_l1,
                     epoch_total,
@@ -613,10 +701,11 @@ def train_block_a(H, Y_eval, W, b, args, offdiag_mask, generator, outer, t_start
         np.asarray(bce_losses, dtype=np.float64),
         np.asarray(l1_losses, dtype=np.float64),
         np.asarray(total_losses, dtype=np.float64),
+        np.asarray(lr_values, dtype=np.float64),
     )
 
 
-def joint_grid_search(
+def blockB_joint_grid_search(
     current_u,
     current_tau,
     u_bounds,
@@ -625,7 +714,7 @@ def joint_grid_search(
     tau_grid_points,
     refine_steps,
     shrink,
-    objective_fn,
+    objective_nll_fn,
     t_start=None,
     outer=None,
     num_outer=None,
@@ -642,10 +731,13 @@ def joint_grid_search(
         abort_fit("joint grid tau bounds must satisfy tau_lo < tau_hi")
     best_u = float(np.clip(current_u, u_lo, u_hi))
     best_tau = float(np.clip(current_tau, tau_lo, tau_hi))
-    best_loss = float("inf")
+    best_nll = float("inf")
     u_all = []
     tau_all = []
-    losses_all = []
+    nll_all = []
+    refine_all = []
+    eval_all = []
+    eval_total_all = []
 
     cur_u_lo, cur_u_hi = u_lo, u_hi
     cur_tau_lo, cur_tau_hi = tau_lo, tau_hi
@@ -657,18 +749,21 @@ def joint_grid_search(
         if best_tau > cur_tau_lo and best_tau < cur_tau_hi:
             tau_grid = np.unique(np.sort(np.append(tau_grid, best_tau)))
 
-        losses = []
+        nlls = []
         pairs = []
         n_eval = int(u_grid.size * tau_grid.size)
         i_eval = 0
         for u_val in u_grid:
             for tau_val in tau_grid:
                 i_eval += 1
-                loss = float(objective_fn(float(u_val), float(tau_val)))
+                nll = float(objective_nll_fn(float(u_val), float(tau_val)))
                 u_all.append(float(u_val))
                 tau_all.append(float(tau_val))
-                losses_all.append(loss)
-                losses.append(loss)
+                nll_all.append(nll)
+                refine_all.append(int(ref))
+                eval_all.append(int(i_eval))
+                eval_total_all.append(int(n_eval))
+                nlls.append(nll)
                 pairs.append((float(u_val), float(tau_val)))
                 print_eval = (
                     int(eval_progress_every) > 0
@@ -677,17 +772,17 @@ def joint_grid_search(
                 if verb > 0 and print_eval:
                     prefix = (
                         "    search U_tau refine=%d eval=%d/%d U=%.6g tau_rec=%.6g nll=%.6f"
-                        % (ref, i_eval, n_eval, float(u_val), float(tau_val), loss)
+                        % (ref, i_eval, n_eval, float(u_val), float(tau_val), nll)
                     )
                     if outer is not None and num_outer is not None:
                         prefix = "    outer=%d/%d %s" % (int(outer) + 1, int(num_outer), prefix.strip())
                     if t_start is not None:
                         prefix += " elapsed=%.1fs" % (time.time() - t_start)
                     print(prefix, flush=True)
-        losses = np.asarray(losses, dtype=np.float64)
-        idx = int(np.argmin(losses))
+        nlls = np.asarray(nlls, dtype=np.float64)
+        idx = int(np.argmin(nlls))
         best_u, best_tau = pairs[idx]
-        best_loss = float(losses[idx])
+        best_nll = float(nlls[idx])
 
         u_width = (cur_u_hi - cur_u_lo) * float(shrink)
         tau_width = (cur_tau_hi - cur_tau_lo) * float(shrink)
@@ -698,22 +793,26 @@ def joint_grid_search(
         if verb > 1:
             print(
                 "    U_tau refine=%d best_U=%.6g best_tau=%.6g nll=%.6f"
-                % (ref, best_u, best_tau, best_loss),
+                % (ref, best_u, best_tau, best_nll),
                 flush=True,
             )
 
     return (
         best_u,
         best_tau,
-        best_loss,
+        best_nll,
         np.asarray(u_all, dtype=np.float64),
         np.asarray(tau_all, dtype=np.float64),
-        np.asarray(losses_all, dtype=np.float64),
+        np.asarray(nll_all, dtype=np.float64),
+        np.asarray(refine_all, dtype=np.int32),
+        np.asarray(eval_all, dtype=np.int32),
+        np.asarray(eval_total_all, dtype=np.int32),
     )
 
 
 def main():
     args = parse_args()
+    print("BSSM-fit args:");    pprint(vars(args))
     t_start = time.time()
     device = choose_device()
     dtype = torch.float32 if args.dtype == "float32" else torch.float64
@@ -750,8 +849,14 @@ def main():
         abort_fit("--progress_every must be nonnegative")
     if args.delay_epoch_4_rhoMax < 0:
         abort_fit("--delay_epoch_4_rhoMax must be nonnegative")
+    if args.delay_epoch_4_blockB < 0:
+        abort_fit("--delay_epoch_4_blockB must be nonnegative")
     if args.batch_size < 1:
         abort_fit("--batch_size must be at least 1")
+    if not (0.0 < args.lr_end_factor <= 1.0):
+        abort_fit("--lr_end_factor must satisfy 0 < lr_end_factor <= 1")
+    if args.rho_max <= 0.0:
+        abort_fit("--rho_max must be positive")
     if args.u_grid_points < 3 or args.tau_grid_points < 3:
         abort_fit("--u_grid_points and --tau_grid_points must each be at least 3")
     if args.grid_refine < 0:
@@ -814,23 +919,33 @@ def main():
 
     spikes_t = torch.as_tensor(spikes_w.astype(np.float32), dtype=dtype, device=device)
     Y_eval = spikes_t[burn_bins:]
-    b0, W0, init_bins = init_b_w_from_postburn_spikes(
+    (
+        B0,
+        W0,
+        init_bins,
+        init_p_mean,
+        init_p_plus,
+        init_p_minus,
+        W_init_rebin_bins,
+    ) = init_B_W_from_postburn_spikes(
         spikes_w,
         burn_bins,
         args.init_samples,
-        zero_diag=bool(args.zero_diag),
+        args.kernel_len_steps,
+        args.initW_random,
+        args.seed,
     )
     np_dtype = np.float32 if dtype == torch.float32 else np.float64
-    b0 = b0.astype(np_dtype)
+    B0 = B0.astype(np_dtype)
     W0 = W0.astype(np_dtype)
     offdiag_np = ~np.eye(N, dtype=bool)
     W0_abs_mean = float(np.mean(np.abs(W0[offdiag_np]))) if np.any(offdiag_np) else 0.0
 
     W = torch.tensor(W0, dtype=dtype, device=device, requires_grad=True)
-    b = torch.tensor(b0, dtype=dtype, device=device, requires_grad=True)
+    B = torch.tensor(B0, dtype=dtype, device=device, requires_grad=True)
 
     offdiag_mask = ~torch.eye(N, dtype=torch.bool, device=device)
-    project_w_(W, zero_diag=bool(args.zero_diag))
+    project_w_(W)
 
     gen = torch.Generator(device=device)
     gen.manual_seed(int(args.seed))
@@ -844,10 +959,15 @@ def main():
     blockA_bce_loss = []
     blockA_l1_loss = []
     blockA_loss = []
+    blockA_lr = []
     joint_search_outer = []
     joint_search_U = []
     joint_search_tau_rec = []
-    joint_search_loss = []
+    joint_search_nll = []
+    joint_search_refine = []
+    joint_search_eval = []
+    joint_search_eval_total = []
+    blockB_executed = []
 
     if args.verb > 0:
         print("\nfit5_BSSM_STD_blocks.py", flush=True)
@@ -870,16 +990,34 @@ def main():
             flush=True,
         )
         print(
-            "  init b,W from first %d post-burn bins: b_mean=%.6g W_lag1_cov_abs_mean=%.6g"
-            % (init_bins, float(np.mean(b0)), W0_abs_mean),
+            "  init B from first %d post-burn bins: B_mean=%.6g"
+            % (init_bins, float(np.mean(B0))),
             flush=True,
         )
+        if float(args.initW_random) > 0.0:
+            print(
+                "  init W random uniform offdiag in [-%.6g,%.6g]: W_abs_mean=%.6g"
+                % (float(args.initW_random), float(args.initW_random), W0_abs_mean),
+                flush=True,
+            )
+        else:
+            print(
+                "  init W from %d rebinned post-burn samples of %d bins: W_lag1_cov_abs_mean=%.6g"
+                % (W_init_rebin_bins, int(args.kernel_len_steps), W0_abs_mean),
+                flush=True,
+            )
         print(
             "  kernel: tau_s=%.6g M=%d alpha=%.6g  init U=%.6g tau_rec=%.6g"
             % (float(args.synaptic_tau), mem_lag_steps, alpha, U, tau_rec),
             flush=True,
         )
         print("  CUDA H recurrence chunk_steps=%d" % int(args.h_chunk_steps), flush=True)
+
+    total_blockA_epochs = sum(
+        blockA_epochs_for_outer(args, outer)
+        for outer in range(int(args.num_outer))
+    )
+    blockA_epoch_offset = 0
 
     for outer in range(int(args.num_outer)):
         if args.verb > 0:
@@ -905,21 +1043,24 @@ def main():
             verb=args.verb,
         )
 
-        live_std = outer >= int(args.freeze_std_outer)
-        epochs_this_outer = (
-            int(args.blockA_epochs_live) if (live_std and args.blockA_epochs_live >= 0)
-            else int(args.blockA_epochs)
+        live_std = (
+            outer >= int(args.freeze_std_outer)
+            and outer >= int(args.delay_epoch_4_blockB)
         )
+        epochs_this_outer = blockA_epochs_for_outer(args, outer)
         progress_line(
             args,
             t_start,
             "start Block A outer=%d/%d epochs=%d batch_size=%d"
             % (outer + 1, int(args.num_outer), epochs_this_outer, int(args.batch_size)),
         )
-        bce_losses, l1_losses, losses = train_block_a(
-            H, Y_eval, W, b, args, offdiag_mask, gen, outer, t_start,
+        bce_losses, l1_losses, losses, lr_values = train_block_a(
+            H, Y_eval, W, B, args, offdiag_mask, gen, outer, t_start,
             epochs=epochs_this_outer,
+            global_epoch_offset=blockA_epoch_offset,
+            global_epoch_total=total_blockA_epochs,
         )
+        blockA_epoch_offset += epochs_this_outer
         progress_line(args, t_start, "finished Block A outer=%d/%d" % (outer + 1, int(args.num_outer)))
         for ep, val in enumerate(losses):
             blockA_outer.append(outer)
@@ -927,9 +1068,10 @@ def main():
             blockA_bce_loss.append(float(bce_losses[ep]))
             blockA_l1_loss.append(float(l1_losses[ep]))
             blockA_loss.append(float(val))
+            blockA_lr.append(float(lr_values[ep]))
 
         progress_line(args, t_start, "start evaluating nll_after_blockA outer=%d/%d" % (outer + 1, int(args.num_outer)))
-        nll_after_A = bernoulli_nll_mean(H, Y_eval, W, b, args.eta_clip, args.batch_size)
+        nll_after_A = bernoulli_nll_mean(H, Y_eval, W, B, args.eta_clip, args.batch_size)
         progress_line(
             args,
             t_start,
@@ -937,7 +1079,7 @@ def main():
             % (outer + 1, int(args.num_outer), nll_after_A),
         )
 
-        if outer >= int(args.freeze_std_outer):
+        if live_std:
             progress_line(
                 args,
                 t_start,
@@ -945,7 +1087,7 @@ def main():
                 % (outer + 1, int(args.num_outer), U, tau_rec),
             )
 
-            def obj_std(u_val, tau_val):
+            def obj_std_nll(u_val, tau_val):
                 H_std = make_h(
                     spikes_t,
                     float(u_val),
@@ -957,11 +1099,21 @@ def main():
                     args.h_chunk_steps,
                     verb=0,
                 )
-                loss_std = bernoulli_nll_mean(H_std, Y_eval, W, b, args.eta_clip, args.batch_size)
+                nll_std = bernoulli_nll_mean(H_std, Y_eval, W, B, args.eta_clip, args.batch_size)
                 del H_std
-                return loss_std
+                return nll_std
 
-            U, tau_rec, nll_std, vals_u, vals_tau, losses_std = joint_grid_search(
+            (
+                U,
+                tau_rec,
+                nll_std,
+                vals_u,
+                vals_tau,
+                vals_nll,
+                vals_refine,
+                vals_eval,
+                vals_eval_total,
+            ) = blockB_joint_grid_search(
                 U,
                 tau_rec,
                 args.u_bounds,
@@ -970,7 +1122,7 @@ def main():
                 args.tau_grid_points,
                 args.grid_refine,
                 args.grid_shrink,
-                obj_std,
+                obj_std_nll,
                 t_start=t_start,
                 outer=outer,
                 num_outer=args.num_outer,
@@ -985,16 +1137,26 @@ def main():
             joint_search_outer.extend([outer] * vals_u.size)
             joint_search_U.extend(vals_u.tolist())
             joint_search_tau_rec.extend(vals_tau.tolist())
-            joint_search_loss.extend(losses_std.tolist())
+            joint_search_nll.extend(vals_nll.tolist())
+            joint_search_refine.extend(vals_refine.tolist())
+            joint_search_eval.extend(vals_eval.tolist())
+            joint_search_eval_total.extend(vals_eval_total.tolist())
+            blockB_executed.append(1)
             nll_outer = float(nll_std)
         else:
             progress_line(
                 args,
                 t_start,
-                "skip joint U/tau_rec search outer=%d/%d because freeze_std_outer=%d"
-                % (outer + 1, int(args.num_outer), int(args.freeze_std_outer)),
+                "skip joint U/tau_rec search outer=%d/%d because freeze_std_outer=%d delay_epoch_4_blockB=%d"
+                % (
+                    outer + 1,
+                    int(args.num_outer),
+                    int(args.freeze_std_outer),
+                    int(args.delay_epoch_4_blockB),
+                ),
             )
-            nll_std = np.nan
+            nll_std = float(nll_after_A)
+            blockB_executed.append(0)
             nll_outer = float(nll_after_A)
 
         rho_w = spectral_radius_torch(W.detach())
@@ -1026,17 +1188,25 @@ def main():
     outer_arr = np.asarray(outer_rows, dtype=np.float64)
     elapsed = time.time() - t_start
 
-    if args.fitName is None:
-        out_stem = "%s-bssmStdFit-%s" % (args.dataName, secrets.token_hex(3))
-    else:
-        out_stem = args.fitName
+    out_stem = args.dataName
     out_ff = os.path.join(out_path, out_stem + ".fitBSSMSTD.npz")
 
     W_fit = W.detach().cpu().numpy().astype(np.float32)
-    b_fit = b.detach().cpu().numpy().astype(np.float32)
+    B_fit = B.detach().cpu().numpy().astype(np.float32)
+    W_init = W0.astype(np.float32)
+    B_init = B0.astype(np.float32)
     out_d = {
         "W_fit": W_fit,
-        "b_fit": b_fit,
+        "B_fit": B_fit,
+        "W_init": W_init,
+        "B_init": B_init,
+        "init_p_mean": init_p_mean.astype(np.float32),
+        "init_p_plus": init_p_plus.astype(np.float32),
+        "init_p_minus": init_p_minus.astype(np.float32),
+        "W_init_abs_mean": np.asarray([W0_abs_mean], dtype=np.float64),
+        "initW_random": np.asarray([float(args.initW_random)], dtype=np.float64),
+        "W_init_rebin_steps": np.asarray([int(args.kernel_len_steps)], dtype=np.int32),
+        "W_init_rebin_bins": np.asarray([int(W_init_rebin_bins)], dtype=np.int64),
         "outer_idx": outer_arr[:, 0].astype(np.int32),
         "U_outer": outer_arr[:, 1],
         "tau_rec_outer": outer_arr[:, 2],
@@ -1045,22 +1215,51 @@ def main():
         "nll_outer": outer_arr[:, 5],
         "spectral_radius_outer": outer_arr[:, 6],
         "nz_weight_outer": outer_arr[:, 7].astype(np.int32),
+        "blockB_executed": np.asarray(blockB_executed, dtype=np.int32),
         "blockA_outer": np.asarray(blockA_outer, dtype=np.int32),
         "blockA_epoch": np.asarray(blockA_epoch, dtype=np.int32),
         "blockA_bce_loss": np.asarray(blockA_bce_loss, dtype=np.float64),
         "blockA_l1_loss": np.asarray(blockA_l1_loss, dtype=np.float64),
         "blockA_loss": np.asarray(blockA_loss, dtype=np.float64),
+        "blockA_lr": np.asarray(blockA_lr, dtype=np.float64),
         "joint_search_outer": np.asarray(joint_search_outer, dtype=np.int32),
         "joint_search_U": np.asarray(joint_search_U, dtype=np.float64),
         "joint_search_tau_rec": np.asarray(joint_search_tau_rec, dtype=np.float64),
-        "joint_search_loss": np.asarray(joint_search_loss, dtype=np.float64),
+        "joint_search_nll": np.asarray(joint_search_nll, dtype=np.float64),
+        "joint_search_refine": np.asarray(joint_search_refine, dtype=np.int32),
+        "joint_search_eval": np.asarray(joint_search_eval, dtype=np.int32),
+        "joint_search_eval_total": np.asarray(joint_search_eval_total, dtype=np.int32),
         "kappa_fit": kappa.astype(np.float32),
         "alpha_fit": np.asarray([alpha], dtype=np.float64),
         "burn_bins": np.asarray([burn_bins], dtype=np.int32),
         "time_range_bins": np.asarray([start_bin, end_bin], dtype=np.int64),
         "requested_time_range_bins": np.asarray([requested_start_bin, requested_end_bin], dtype=np.int64),
         "fit_time_range_bins": np.asarray([start_bin + burn_bins, end_bin], dtype=np.int64),
+        "init_time_range_bins": np.asarray(
+            [start_bin + burn_bins, start_bin + burn_bins + init_bins - 1],
+            dtype=np.int64,
+        ),
         "time_step_sec": np.asarray([dt], dtype=np.float64),
+        "num_neurons": np.asarray([N], dtype=np.int32),
+        "num_input_bins": np.asarray([T_w], dtype=np.int64),
+        "num_eval_bins": np.asarray([Y_eval.shape[0]], dtype=np.int64),
+        "num_init_bins": np.asarray([init_bins], dtype=np.int64),
+        "U_init": np.asarray([float(args.u0)], dtype=np.float64),
+        "tau_rec_init": np.asarray([float(args.tau_rec0)], dtype=np.float64),
+        "u_bounds": np.asarray(args.u_bounds, dtype=np.float64),
+        "tau_bounds": np.asarray(args.tau_bounds, dtype=np.float64),
+        "u_grid_points": np.asarray([int(args.u_grid_points)], dtype=np.int32),
+        "tau_grid_points": np.asarray([int(args.tau_grid_points)], dtype=np.int32),
+        "grid_refine": np.asarray([int(args.grid_refine)], dtype=np.int32),
+        "grid_shrink": np.asarray([float(args.grid_shrink)], dtype=np.float64),
+        "delay_epoch_4_blockB": np.asarray([int(args.delay_epoch_4_blockB)], dtype=np.int32),
+        "eta_clip": np.asarray([float(args.eta_clip)], dtype=np.float64),
+        "lr_w": np.asarray([float(args.lr_w)], dtype=np.float64),
+        "lr_end_factor": np.asarray([float(args.lr_end_factor)], dtype=np.float64),
+        "lambda_l1": np.asarray([float(args.lambda_l1)], dtype=np.float64),
+        "rho_max": np.asarray([float(args.rho_max)], dtype=np.float64),
+        "weight_threshold": np.asarray([float(args.weight_threshold)], dtype=np.float64),
+        "h_chunk_steps": np.asarray([int(args.h_chunk_steps)], dtype=np.int32),
     }
 
     out_md = {
@@ -1083,7 +1282,6 @@ def main():
             "kernel_synaptic_tau": float(args.synaptic_tau),
             "kernel_len_steps": int(mem_lag_steps),
             "kernel_alpha": float(alpha),
-            "zero_diag": bool(args.zero_diag),
         },
         "result": {
             "U_final": float(out_d["U_outer"][-1]),
@@ -1103,6 +1301,9 @@ def main():
             "  final_U=%.6f  final_tau=%.6f  elapsed=%.1fs"
             % (out_d["U_outer"][-1], out_d["tau_rec_outer"][-1], elapsed)
         )
+    print(f"  basePath={args.basePath}")
+    print(f"  ./eval_BSSM_fit.py --basePath {args.basePath} --dataName {args.dataName} -p a b\n")
+
 
 
 if __name__ == "__main__":

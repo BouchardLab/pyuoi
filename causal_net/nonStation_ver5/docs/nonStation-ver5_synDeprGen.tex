@@ -149,7 +149,7 @@ spike per bin.
 Presynaptic binary spikes $s_{j,t}$ modulate the latent resource $x_{j,t}$,
 produce STD-weighted release $u_{j,t}$, pass through a causal synaptic kernel to
 form filtered drive $h_{j,t}$, and enter the postsynaptic Bernoulli observation
-model through signed recurrent weights $W_{ij}$ and baseline $b_i$.}
+model through signed recurrent weights $W_{ij}$ and baseline $B_i$.}
 \label{fig:bssm_std_cartoon}
 \end{figure}
 
@@ -240,14 +240,14 @@ For each postsynaptic neuron $i$, the conditional spiking probability is:
 p_{i,t}
 =
 \sigma\!\left(
-b_i
+B_i
 +
 \sum_{\substack{j=1\\j\neq i}}^{N}
 W_{ij}\,h_{j,t}
 \right),
 \label{eq:bernoulli_obs}
 \end{equation}
-where $\sigma(z)=1/(1+e^{-z})$ is the logistic sigmoid, $b_i$ is a baseline
+where $\sigma(z)=1/(1+e^{-z})$ is the logistic sigmoid, $B_i$ is a baseline
 log-odds for neuron $i$, and $W_{ij}$ is the synaptic weight from neuron $j$
 to neuron $i$ (positive for excitatory, negative for inhibitory connections).
 Self-connections are excluded by the constraint $j\neq i$.
@@ -263,8 +263,8 @@ $u_{j,t}\geq0$, the filtered drive satisfies $h_{j,t}\geq0$ at all times;
 the implementation enforces this with a floor clamp after each recursive update.
 
 \paragraph{Summary of model parameters.}
-The full parameter set of the BSSM is $\theta=\{b_i, W_{ij}, \kappa_\ell, U,
-\tau_{\mathrm{rec}}\}$, where $b_i$ and $W_{ij}$ are neuron- and synapse-specific,
+The full parameter set of the BSSM is $\theta=\{B_i, W_{ij}, \kappa_\ell, U,
+\tau_{\mathrm{rec}}\}$, where $B_i$ and $W_{ij}$ are neuron- and synapse-specific,
 while this model assumes a single shared utilization parameter $U$ for all
 presynaptic neurons and outgoing synapses. The recovery time
 $\tau_{\mathrm{rec}}$ is also treated as shared in the generator and estimation
@@ -385,18 +385,18 @@ Synaptic time constant & $\tau_s$              & $3$--$5$\,ms                   
 STD recovery time      & $\tau_{\mathrm{rec}}$ & $200$--$500$\,ms                  & Typical cortical STD \\
 Utilization parameter  & $U$                   & $0.3$--$0.5$                      & Shared moderate depression \\
 Weight scale           & $v, R$                & $v=0.4,\ R=0.90$                  & Spectral-radius scaling \\
-Baseline log-odds      & $b_i$                 & sampled idle-rate range           & User-adjusted baseline drive \\
+Baseline log-odds      & $B_i$                 & sampled idle-rate range           & User-adjusted baseline drive \\
 Kernel length          & $M$                   & $\gtrsim 3$--$5\,\tau_s/\Delta t$ & Fast synaptic lag window \\
 \bottomrule
 \end{tabular}
 \caption{Ground-truth generator parameters. Ranges reflect variability across
 synapse types and network sizes. The kernel length $M$ controls the finite lag
 history for the fast synaptic filter and is separate from the STD recovery time
-$\tau_{\mathrm{rec}}$. The baseline $b_i$ is expressed as a log-odds consistent
+$\tau_{\mathrm{rec}}$. The baseline $B_i$ is expressed as a log-odds consistent
 with the Bernoulli observation model (Eq.~\ref{eq:bernoulli_obs}).
 Each neuron's idle rate is drawn independently and uniformly from
 $[\text{idleRate}_{\min}, \text{idleRate}_{\max}]$, and the corresponding
-log-odds is $b_i = \log\frac{r_i\Delta t}{1 - r_i\Delta t}$.}
+log-odds is $B_i = \log\frac{r_i\Delta t}{1 - r_i\Delta t}$.}
 \label{tab:gen_params}
 \end{table}
 
@@ -412,12 +412,12 @@ for $t = 0, 1, \dots, T-1$ as follows.
 \label{alg:generator}
 \begin{algorithmic}[1]
 \STATE \textbf{Initialize:} $x_{j,0} \leftarrow 1$ for all $j$ (fully recovered);
-       $h_{j,0} \leftarrow 0$ and $u_{j,t}\leftarrow0$ for $t<0$; draw $W$, $\{b_i\}$ as in
+       $h_{j,0} \leftarrow 0$ and $u_{j,t}\leftarrow0$ for $t<0$; draw $W$, $\{B_i\}$ as in
        Eqs.~\eqref{eq:weight_draw}--\eqref{eq:weight_matrix}.
 \FOR{$t = 0, 1, \dots, T-1$}
   \FOR{each neuron $i = 1,\dots,N$}
     \STATE Compute spiking probability:
-           $p_{i,t} \leftarrow \sigma\!\left(b_i +
+           $p_{i,t} \leftarrow \sigma\!\left(B_i +
            \sum_{j \neq i} W_{ij}\,h_{j,t}\right)$
            \hfill(Eq.~\ref{eq:bernoulli_obs})
     \STATE Draw spike indicator:
@@ -461,8 +461,8 @@ synaptic efficacy during high-rate episodes.
 \label{sec:param_estimation}
 
 The true BSSM parameter set is
-$\theta = \{b_i, W_{ij}, \tau_\text{rec}, U, \tau_s\}$. The estimated set is
-$\tilde{\theta} = \{\tilde{b}_i, \tilde{W}_{ij}, \tilde{\tau}_\text{rec}, \tilde{U}\}$,
+$\theta = \{B_i, W_{ij}, \tau_\text{rec}, U, \tau_s\}$. The estimated set is
+$\tilde{\theta} = \{\tilde{B}_i, \tilde{W}_{ij}, \tilde{\tau}_\text{rec}, \tilde{U}\}$,
 with the exponential synaptic kernel fixed rather than fitted. In
 \texttt{fit5\_BSSM\_STD\_blocks.py}, \texttt{--synaptic\_tau} sets $\tau_s$ and
 \texttt{--kernel\_len\_steps} sets $M$. The latent state $x_{j,t}$ is not a free
@@ -498,14 +498,14 @@ post-burn fitting duration and requires the input file to contain both the
 burn-in bins and the full requested fitting window. If the input is too short,
 the run aborts rather than shortening the requested fit.
 
-\textbf{Step 3 --- $\{b_i^{(0)}, W_{ij}^{(0)}\}$.}
-Initialize both $\{b_i^{(0)},W_{ij}^{(0)}\}$ from the first
+\textbf{Step 3 --- $\{B_i^{(0)}, W_{ij}^{(0)}\}$.}
+Initialize both $\{B_i^{(0)},W_{ij}^{(0)}\}$ from the first
 $J=\texttt{--init\_samples}$ post-burn bins.
 The \texttt{--init\_samples} argument is mandatory and must be greater than
 $1000$; the fitter aborts if fewer than $J$ post-burn bins are available.
 The baseline log-odds use the mean firing rates in this initialization window:
 \begin{equation}
-    b_i^{(0)} = \log\frac{\bar{p}_i}{1-\bar{p}_i}, \qquad
+    B_i^{(0)} = \log\frac{\bar{p}_i}{1-\bar{p}_i}, \qquad
     \bar{p}_i = \frac{1}{J}\sum_{r=0}^{J-1} s_{i,T_\text{burn}+r}.
 \end{equation}
 Weights are initialized from raw lag-1 spike covariances over the same
@@ -521,9 +521,13 @@ with $W_{ii}^{(0)}=0$. Here $\bar{p}^{+}_i$ and $\bar{p}^{-}_j$ are the
 means of the post- and pre-lag samples used in the covariance. Thus
 $W_{ij}^{(0)}$ is positive when spikes in neuron $j$ one bin earlier are
 associated with increased spiking in neuron $i$.
+The output NPZ stores these initialization arrays as \texttt{B\_init} and
+\texttt{W\_init}; it also stores the Eq.~(17) means as
+\texttt{init\_p\_mean}, \texttt{init\_p\_plus}, and
+\texttt{init\_p\_minus}.
 
 %=========
-\subsection{Block A: Update $\{b_i, W_{ij}\}$}
+\subsection{Block A: Update $\{B_i, W_{ij}\}$}
 \label{sec:block_a}
 
 \paragraph{Objective.}
@@ -531,7 +535,7 @@ With $(\tilde{U},\tilde{\tau}_\text{rec})$ fixed and $\{h_{j,t}\}$ precomputed,
 the per-bin clipped logit and predicted probability are
 \begin{equation}
     \eta_{i,t} = \mathrm{clip}\!\left(
-        b_i + \sum_{j\neq i} \tilde{W}_{ij}\,h_{j,t},\; -\eta_c,\; \eta_c
+        B_i + \sum_{j\neq i} \tilde{W}_{ij}\,h_{j,t},\; -\eta_c,\; \eta_c
     \right),
     \qquad
     \tilde{p}_{i,t} = \sigma(\eta_{i,t}),
@@ -550,7 +554,7 @@ negative log-likelihood over all post-burn bins and all neurons:
 \end{equation}
 Block~A minimizes this NLL plus L1 regularization:
 \begin{equation}
-\mathcal{L}_A(\{b_i,\tilde{W}_{ij}\})
+\mathcal{L}_A(\{B_i,\tilde{W}_{ij}\})
 =
 \mathcal{N}(\tilde{p})
 +\lambda_1\,\overline{|\tilde{W}|},
@@ -560,7 +564,8 @@ where $\overline{|\tilde{W}|}$ is the mean absolute value of the off-diagonal
 weights. The L1 term ($\lambda_1>0$, default $10^{-4}$) promotes sparsity.
 The fitter saves the epoch-wise BCE term, L1 term, and their sum separately as
 \texttt{blockA\_bce\_loss}, \texttt{blockA\_l1\_loss}, and
-\texttt{blockA\_loss}, respectively.
+\texttt{blockA\_loss}, respectively. The final fitted arrays are saved as
+\texttt{B\_fit} and \texttt{W\_fit}.
 
 \paragraph{Optimizer.}
 $\mathcal{L}_A$ is minimized by the Adam optimizer with learning rate
@@ -591,7 +596,7 @@ and processes them in mini-batches of size $B$ (default $8192$).
 \subsection{Block B: Joint Update of $\tilde{U}$ and $\tilde{\tau}_\text{rec}$}
 \label{sec:block_b}
 
-With $\{b_i,\tilde{W}_{ij}\}$ fixed, the STD parameters are updated jointly by
+With $\{B_i,\tilde{W}_{ij}\}$ fixed, the STD parameters are updated jointly by
 minimizing the mean Bernoulli NLL over a two-dimensional grid:
 \begin{equation}
 \mathcal{L}_B(\tilde{U},\tilde{\tau}_\text{rec})

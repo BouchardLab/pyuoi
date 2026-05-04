@@ -16,7 +16,6 @@ network has no self-loops.
 """
 
 import argparse
-import hashlib
 import os
 import sys
 import time
@@ -27,9 +26,6 @@ import numpy as np
 
 from toolbox.Util_NumpyIO import write_data_npz
 from UtilDalePoisson5 import estimate_rates
-
-
-DEFAULT_KERNEL_TAU_MULTIPLE = 5.0
 
 
 if sys.version_info < (3, 0):
@@ -171,10 +167,7 @@ def summarize_pairwise_distances(distance_matrix, verb=1):
         raise ValueError("distance_matrix must be a square matrix")
     n_units = distance_matrix.shape[0]
     if n_units < 2:
-        out = {"mean": float("nan"), "median": float("nan"), "n_nodes": n_units, "n_pairs": 0}
-        if verb > 0:
-            print("Pairwise distance: N<2 - no pairs (mean/median undefined).")
-        return out
+        raise ValueError("at least 2 neurons are required for pairwise distances")
     iu = np.triu_indices(n_units, k=1)
     distances = distance_matrix[iu]
     out = {
@@ -205,7 +198,7 @@ def set_flat_selfSpiking(n_units, idle_rate_hz, dt, tau, rng):
     """
     Bernoulli baseline logits derived from target idle firing rates in Hz.
 
-    The returned b_true is a log-odds vector. If recurrent input were zero,
+    The returned B_true is a log-odds vector. If recurrent input were zero,
     neuron i would spike with probability p_i ~ rate_i * dt in each bin.
     """
     tau = np.asarray(tau).reshape(-1)
@@ -261,7 +254,7 @@ def gen_bssm_std_bernoulli(
     num_steps,
     dt,
     W_true,
-    b_true,
+    B_true,
     tau,
     std_u,
     std_tau_rec,
@@ -290,8 +283,8 @@ def gen_bssm_std_bernoulli(
     tau_i = tau.astype(np.int64)
     if np.any((tau_i != 0) & (tau_i != 1)):
         raise ValueError("tau entries must be 0 or 1")
-    if b_true.shape != (n_units,):
-        raise ValueError("b_true shape %s does not match (%d,)" % (b_true.shape, n_units))
+    if B_true.shape != (n_units,):
+        raise ValueError("B_true shape %s does not match (%d,)" % (B_true.shape, n_units))
     if not (0 < std_u <= 1):
         raise ValueError("std_u must satisfy 0 < std_u <= 1")
     if std_tau_rec <= 0:
@@ -339,7 +332,7 @@ def gen_bssm_std_bernoulli(
         )
         print(
             "b stats: min=%.3f, max=%.3f, mean=%.3f"
-            % (float(np.min(b_true)), float(np.max(b_true)), float(np.mean(b_true)))
+            % (float(np.min(B_true)), float(np.max(B_true)), float(np.mean(B_true)))
         )
 
     t_start = time.time()
@@ -348,7 +341,7 @@ def gen_bssm_std_bernoulli(
         x_true[t] = x
         h_true[t] = h
 
-        logits_t = np.clip(b_true + W_true @ h, -logit_clip, logit_clip)
+        logits_t = np.clip(B_true + W_true @ h, -logit_clip, logit_clip)
         p_t = _sigmoid(logits_t)
         s_t = (rng.random(n_units) < p_t).astype(np.uint8)
         u_t = std_u * x * s_t
@@ -413,10 +406,10 @@ def main():
     p("--synaptic_tau", type=float, default=0.005, help="Synaptic decay constant tau_s in seconds.")
     p("--std_recovery_tau", type=float, default=0.300, help="STD recovery constant tau_rec in seconds.")
     p("--std_u", type=float, default=0.4, help="STD utilization U in (0, 1].")
-    p("--kernel_len_steps", type=int, default=0,
-      help="Lag-M synaptic-kernel length in bins. If 0, use ceil(5 * synaptic_tau / dt).")
+    p("--kernel_len_steps", type=int, default=25,
+      help="Lag-M synaptic-kernel length in bins.")
     p("--num_neurons", type=int, default=50, help="Total number of neurons in the network.")
-    p("--num_excite", type=int, default=None, help="Number of excitatory neurons.")
+    p("--num_excite", type=int, required=True, help="Number of excitatory neurons.")
     p("--placement_H_L_delta", type=float, nargs=3, default=[1.0, 2.0, 2.0],
       metavar=("placement_H", "placement_L", "placement_ker_delta"),
       help="Placement: [0,H] height, [0,L] width, and distance-kernel exponent delta > 0.")
@@ -430,7 +423,7 @@ def main():
     p("--idleRate", type=float, nargs=2, default=[30.0, 50.0], help="Range of baseline firing rates [min, max] in Hz.")
     p("--logit_clip", type=float, default=20.0, help="Clip logits to [-logit_clip, +logit_clip].")
     p("-v", "--verb", type=int, default=1, help="Verbosity level (0=quiet, 1=normal).")
-    p("--dataName", type=str, default=None, help="Base name for output files (default: daleN<num_neurons>_<hash>).")
+    p("--dataName", type=str, required=True, help="Base name for output files.")
     p("--basePath", type=str, default="/pscratch/sd/b/balewski/2026_causalNet_tmp/",
       help="Output directory root; files are written under <basePath>/truthDale/.")
 
@@ -460,12 +453,6 @@ def main():
     if args.logit_clip <= 0:
         raise ValueError("logit_clip must be positive")
 
-    if args.dataName is None:
-        args.dataName = "daleN%d_" % args.num_neurons + hashlib.md5(os.urandom(32)).hexdigest()[:6]
-
-    if args.num_excite is None:
-        args.num_excite = int(0.8 * args.num_neurons)
-
     n_units = int(args.num_neurons)
     if n_units < 10:
         raise ValueError("num_neurons must be >= 10")
@@ -483,13 +470,9 @@ def main():
     total_time_sec = float(args.num_steps) * float(args.step_size)
     var_t_window = min(5.0, max(0.5, total_time_sec / 4.0))
 
-    if args.kernel_len_steps > 0:
-        mem_lag_steps = int(args.kernel_len_steps)
-    else:
-        mem_lag_steps = max(
-            1,
-            int(np.ceil(DEFAULT_KERNEL_TAU_MULTIPLE * synaptic_tau / float(args.step_size))),
-        )
+    if args.kernel_len_steps < 1:
+        raise ValueError("kernel_len_steps must be >= 1")
+    mem_lag_steps = int(args.kernel_len_steps)
     kernel_span_sec = mem_lag_steps * float(args.step_size)
     kernel_capture_fraction = float(1.0 - np.exp(-kernel_span_sec / synaptic_tau))
     if args.verb > 0 and kernel_span_sec < 3.0 * synaptic_tau:
@@ -512,8 +495,10 @@ def main():
 
     rng = np.random.default_rng()
     out_path = os.path.join(args.basePath, "truthDale")
-    assert os.path.exists(args.basePath)
-    assert os.path.exists(out_path)
+    if not os.path.exists(args.basePath):
+        raise FileNotFoundError("missing basePath: %s" % args.basePath)
+    if not os.path.exists(out_path):
+        raise FileNotFoundError("missing output path: %s" % out_path)
 
     print("\n%s" % ("=" * 60))
     print("  Spectral radius target: R=%.3f" % float(args.spectral_radius))
@@ -553,7 +538,7 @@ def main():
         verb=args.verb,
     )
 
-    b_true = set_flat_selfSpiking(
+    B_true = set_flat_selfSpiking(
         n_units=n_units,
         idle_rate_hz=args.idleRate,
         dt=float(args.step_size),
@@ -605,7 +590,7 @@ def main():
         num_steps=args.num_steps,
         dt=float(args.step_size),
         W_true=W_true,
-        b_true=b_true,
+        B_true=B_true,
         tau=tau,
         std_u=float(args.std_u),
         std_tau_rec=float(std_tau_rec),
@@ -635,7 +620,7 @@ def main():
 
     trueD = {
         "W_true": W_true,
-        "b_true": b_true,
+        "B_true": B_true,
         "sign_true": sign_true,
         "node_positions": positions,
         "node_is_inhibitory": tau,
@@ -679,7 +664,7 @@ def main():
     spikeD = {
         "spikes": spikes.astype(np.uint8),
         "single_rates": rates_dict["single_rates"],
-        "sigle_rates_var": rates_dict["sigle_rates_var"],
+        "single_rates_var": rates_dict["single_rates_var"],
         "single_fano_fact": rates_dict["single_fano_fact"],
     }
     spikeMD = {
@@ -718,23 +703,11 @@ def main():
     print("\nNext step commands:")
     print("     basePath=" + args.basePath)
     print(
-        "  ./view_daleMatrix5.py  --basePath $basePath   --dataName %s  -p a e b c d   g   f -X"
+        "  ./fit5_BSSM_STD_blocks.py --basePath $basePath --dataName %s --burn_sec 2 --init_samples 50000 --u_bounds 0.2 0.8 --tau_bounds 0.1 0.8"
         % args.dataName
     )
     print(
-        "  ./view_spikesTrain5.py  --basePath $basePath   --dataName %s  --time_range_sec 0 8 -p abc --time_rebin2 10   -X"
-        % args.dataName
-    )
-    print(
-        "  ./movie_spikesTrain5.py  --basePath $basePath   --dataName %s  --time_range_sec 1 8  --flushSize .2"
-        % args.dataName
-    )
-    print(
-        "  ./view_spikesTrain5.py  --basePath $basePath   --dataName %s  --time_range_sec 0 20 -p b   -X"
-        % args.dataName
-    )
-    print(
-        " ./memKern_EM_train4.py  --basePath $basePath   --dataName %s  --time_range_sec 1 20"
+        "  ./eval_BSSM_fit.py --basePath $basePath --dataName %s -X"
         % args.dataName
     )
 
