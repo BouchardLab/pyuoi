@@ -29,6 +29,9 @@ from toolbox.Util_NumpyIO import write_data_npz
 from UtilDalePoisson5 import estimate_rates
 
 
+DEFAULT_KERNEL_TAU_MULTIPLE = 5.0
+
+
 if sys.version_info < (3, 0):
     sys.stderr.write("ERROR: gen5_BSSM_STD_spikes.py requires Python 3.0 or newer.\n")
     sys.exit(1)
@@ -231,8 +234,10 @@ def build_exponential_kernel(dt, synaptic_tau, mem_lag_steps, verb=0):
     Exponential lag-M kernel:
         kappa_l = (1 - alpha) alpha^(l-1), alpha = exp(-dt / tau_s)
 
-    This is the kernel induced by the normalized recursion
-        h_t = alpha h_{t-1} + (1 - alpha) u_{t-1}.
+    This finite kernel is implemented with the equivalent tail-corrected
+    recursion
+        h_{t+1} = alpha h_t + (1 - alpha) u_t
+                  - (1 - alpha) alpha^M u_{t-M}.
     """
     synaptic_tau = float(synaptic_tau)
     if synaptic_tau <= 0:
@@ -246,8 +251,8 @@ def build_exponential_kernel(dt, synaptic_tau, mem_lag_steps, verb=0):
     kernel = (1.0 - alpha) * np.power(alpha, ell)
     if verb > 0:
         print(
-            "  exponential kernel: len=%d, tau_s=%.6g sec, alpha=%.6g, sum=%.12g"
-            % (mem_lag_steps, synaptic_tau, alpha, float(np.sum(kernel)))
+            "  exponential kernel: len=%d, span=%.6g sec, tau_s=%.6g sec, alpha=%.6g, sum=%.12g"
+            % (mem_lag_steps, mem_lag_steps * float(dt), synaptic_tau, alpha, float(np.sum(kernel)))
         )
     return kernel, alpha
 
@@ -261,6 +266,7 @@ def gen_bssm_std_bernoulli(
     std_u,
     std_tau_rec,
     synaptic_alpha,
+    mem_lag_steps,
     logit_clip,
     rng,
     verb=0,
@@ -292,11 +298,16 @@ def gen_bssm_std_bernoulli(
         raise ValueError("std_tau_rec must be positive")
     if not (0 <= synaptic_alpha < 1):
         raise ValueError("synaptic_alpha must satisfy 0 <= alpha < 1")
+    mem_lag_steps = int(mem_lag_steps)
+    if mem_lag_steps < 1:
+        raise ValueError("mem_lag_steps must be >= 1")
 
     x = np.ones(n_units, dtype=np.float64)
     h = np.zeros(n_units, dtype=np.float64)
+    u_history = np.zeros((mem_lag_steps, n_units), dtype=np.float64)
     recovery_decay = float(np.exp(-dt / std_tau_rec))
     synaptic_gain = 1.0 - synaptic_alpha
+    tail_gain = synaptic_gain * float(np.power(synaptic_alpha, mem_lag_steps))
 
     spikes = np.zeros((num_steps, n_units), dtype=np.uint8)
     x_true = np.zeros((num_steps, n_units), dtype=np.float32)
@@ -309,8 +320,18 @@ def gen_bssm_std_bernoulli(
     if verb > 0:
         print("\n=== Generating BSSM-STD Bernoulli spikes ===")
         print(
-            "steps=%d, dt=%.6g, neurons=%d, excit=%d, std_u=%.6g, tau_rec=%.6g, alpha=%.6g, gain=%.6g"
-            % (num_steps, dt, n_units, n_exc, std_u, std_tau_rec, synaptic_alpha, synaptic_gain)
+            "steps=%d, dt=%.6g, neurons=%d, excit=%d, std_u=%.6g, tau_rec=%.6g, alpha=%.6g, gain=%.6g, M=%d"
+            % (
+                num_steps,
+                dt,
+                n_units,
+                n_exc,
+                std_u,
+                std_tau_rec,
+                synaptic_alpha,
+                synaptic_gain,
+                mem_lag_steps,
+            )
         )
         print(
             "W stats: min=%.3f, max=%.3f, mean=%.3f"
@@ -323,6 +344,7 @@ def gen_bssm_std_bernoulli(
 
     t_start = time.time()
     for t in range(num_steps):
+        old_u = u_history[t % mem_lag_steps].copy()
         x_true[t] = x
         h_true[t] = h
 
@@ -341,9 +363,12 @@ def gen_bssm_std_bernoulli(
                 % (t, int(np.sum(s_t)), float(np.mean(p_t)), float(np.mean(x)), float(np.mean(h)))
             )
 
-        x = (1.0 - (1.0 - x) * recovery_decay) * (1.0 - std_u * s_t)
+        x_depleted = x * (1.0 - std_u * s_t)
+        x = 1.0 - (1.0 - x_depleted) * recovery_decay
         x = np.clip(x, 0.0, 1.0)
-        h = synaptic_alpha * h + synaptic_gain * u_t
+        h = synaptic_alpha * h + synaptic_gain * u_t - tail_gain * old_u
+        h = np.maximum(h, 0.0)
+        u_history[t % mem_lag_steps] = u_t
 
         if verb > 0 and t > 0 and t % progress_stride == 0:
             elapsed = time.time() - t_start
@@ -389,7 +414,7 @@ def main():
     p("--std_recovery_tau", type=float, default=0.300, help="STD recovery constant tau_rec in seconds.")
     p("--std_u", type=float, default=0.4, help="STD utilization U in (0, 1].")
     p("--kernel_len_steps", type=int, default=0,
-      help="Lag-M kernel length in bins. If 0, use ceil(std_recovery_tau / dt).")
+      help="Lag-M synaptic-kernel length in bins. If 0, use ceil(5 * synaptic_tau / dt).")
     p("--num_neurons", type=int, default=50, help="Total number of neurons in the network.")
     p("--num_excite", type=int, default=None, help="Number of excitatory neurons.")
     p("--placement_H_L_delta", type=float, nargs=3, default=[1.0, 2.0, 2.0],
@@ -400,13 +425,13 @@ def main():
       help="Out-degree range as fractions of N: k_min=max(1,floor(lo*N)), k_max=min(N-1,floor(hi*N)).")
     p("--init_weight_var", type=float, default=0.4, help="Fractional weight variation v for Uniform(1-v,1+v).")
     p("--num_steps", type=int, default=5_001, help="Number of time steps for simulation.")
-    p("--step_size", type=float, default=0.002, help="Time bin width dt in seconds.")
+    p("--step_size", type=float, default=0.001, help="Time bin width dt in seconds.")
     p("--spectral_radius", type=float, default=0.90, help="Target spectral radius for the off-diagonal recurrent matrix.")
-    p("--idleRate", type=float, nargs=2, default=[5.0, 20.0], help="Range of baseline firing rates [min, max] in Hz.")
+    p("--idleRate", type=float, nargs=2, default=[30.0, 50.0], help="Range of baseline firing rates [min, max] in Hz.")
     p("--logit_clip", type=float, default=20.0, help="Clip logits to [-logit_clip, +logit_clip].")
     p("-v", "--verb", type=int, default=1, help="Verbosity level (0=quiet, 1=normal).")
     p("--dataName", type=str, default=None, help="Base name for output files (default: daleN<num_neurons>_<hash>).")
-    p("--basePath", type=str, default="/private/tmp/2025_causalNet_tmp/",
+    p("--basePath", type=str, default="/pscratch/sd/b/balewski/2026_causalNet_tmp/",
       help="Output directory root; files are written under <basePath>/truthDale/.")
 
     np.set_printoptions(precision=3, suppress=True)
@@ -461,9 +486,18 @@ def main():
     if args.kernel_len_steps > 0:
         mem_lag_steps = int(args.kernel_len_steps)
     else:
-        mem_lag_steps = max(1, int(np.ceil(std_tau_rec / float(args.step_size))))
-    if mem_lag_steps * float(args.step_size) < std_tau_rec:
-        raise ValueError("kernel_len_steps must satisfy M * dt >= std_recovery_tau")
+        mem_lag_steps = max(
+            1,
+            int(np.ceil(DEFAULT_KERNEL_TAU_MULTIPLE * synaptic_tau / float(args.step_size))),
+        )
+    kernel_span_sec = mem_lag_steps * float(args.step_size)
+    kernel_capture_fraction = float(1.0 - np.exp(-kernel_span_sec / synaptic_tau))
+    if args.verb > 0 and kernel_span_sec < 3.0 * synaptic_tau:
+        print(
+            "WARNING: kernel lag span M*dt=%.6g sec is less than 3*tau_s=%.6g sec; "
+            "the fast synaptic tail will be strongly truncated."
+            % (kernel_span_sec, 3.0 * synaptic_tau)
+        )
 
     prob_lo = float(args.edge_prob[0])
     prob_hi = float(args.edge_prob[1])
@@ -543,6 +577,8 @@ def main():
         "idleRate": args.idleRate,
         "model_name": "BSSM_STD",
         "mem_lag_steps": int(mem_lag_steps),
+        "kernel_span_sec": float(kernel_span_sec),
+        "kernel_capture_fraction": float(kernel_capture_fraction),
         "synaptic_tau": float(synaptic_tau),
         "std_tau_rec": float(std_tau_rec),
         "std_u": float(args.std_u),
@@ -555,6 +591,7 @@ def main():
         "logit_clip": args.logit_clip,
         "model_name": "BSSM_STD",
         "mem_lag_steps": int(mem_lag_steps),
+        "kernel_span_sec": float(kernel_span_sec),
     }
 
     print("\n%s" % ("=" * 60))
@@ -573,6 +610,7 @@ def main():
         std_u=float(args.std_u),
         std_tau_rec=float(std_tau_rec),
         synaptic_alpha=synaptic_alpha,
+        mem_lag_steps=mem_lag_steps,
         logit_clip=float(args.logit_clip),
         rng=rng,
         verb=args.verb,
@@ -654,6 +692,7 @@ def main():
         "placement_H": float(placement_H),
         "placement_min_dist": float(placement_min_dist),
         "mem_lag_steps": int(mem_lag_steps),
+        "kernel_span_sec": float(kernel_span_sec),
     }
 
     out_truth = os.path.join(out_path, args.dataName + ".simTruth.npz")

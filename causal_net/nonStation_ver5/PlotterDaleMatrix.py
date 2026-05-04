@@ -249,7 +249,7 @@ class Plotter(PlotterBackbone):
         if pos_weights.size > 0:
             ax.hist(pos_weights, bins=binX, color='red', alpha=0.7, edgecolor=None, label='excit:%d'%pos_weights.size)
         ax.legend(loc='upper left')
-        tit='Recurrent weights $W_{ij}$, N%d%s, %s'%(W.shape[0], R_tag, md['short_name'])
+        tit='$W_{ij}$, N%d%s, %s'%(W.shape[0], R_tag, md['short_name'])
         ax.set(title=tit, xlabel='off-diagonal weight value',ylabel='num edges')
         ax.axvline(0,color='k',ls='--')
         ax.grid(True, alpha=0.3)
@@ -272,7 +272,6 @@ class Plotter(PlotterBackbone):
         common_bins = np.linspace(0, max(20.0, float(np.max(single_rates)) * 1.05), 24)
         ax.hist(single_rates[exc_mask], bins=common_bins, color='red', alpha=0.6, edgecolor=None, label='exc')
         ax.hist(single_rates[inh_mask], bins=common_bins, color='blue', alpha=0.6, edgecolor=None, label='inh')
-        ax.axvspan(5.0, 20.0, color='limegreen', alpha=0.12, label='target 5-20 Hz')
         ax.set_xlabel('firing rate (Hz)')
         ax.set_ylabel('num neurons')
         ax.grid(True, alpha=0.3)
@@ -627,7 +626,7 @@ class Plotter(PlotterBackbone):
         ax3.set_ylabel("recovered fraction")
         ax3.set_xlim(0.0, recovery_xmax)
         ax3.grid(True, alpha=0.3)
-        txt = r"$M\Delta t$=%.4g s" "\n" r"$\tau_{rec}$=%.4g s" "\n" r"$x(\tau_{rec})$=%.3f" % (
+        txt = r"synaptic $M\Delta t$=%.4g s" "\n" r"$\tau_{rec}$=%.4g s" "\n" r"$x(\tau_{rec})$=%.3f" % (
             float(lags[-1]), tau_rec, float(1.0 - np.exp(-1.0))
         )
         ax3.text(

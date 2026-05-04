@@ -4,23 +4,23 @@ set -e
 
 doc_name=nonStation-ver5_synDeprGen
 
-is_ubuntu=0
+is_ubuntu_or_macos=0
 if [ -f /etc/os-release ] && grep -qi 'ubuntu' /etc/os-release; then
-    is_ubuntu=1
+    is_ubuntu_or_macos=1
+elif [ "$(uname -s)" = "Darwin" ]; then
+    is_ubuntu_or_macos=1
 fi
- echo is_ubuntu=$is_ubuntu
 
-if [ "$is_ubuntu" -eq 1 ]; then
-    pdflatex "$doc_name"
-    pdflatex "$doc_name"
-#    open "${doc_name}.pdf"
-else
-    if ! command -v latex >/dev/null 2>&1; then
-        module load texlive
-    fi
-    #latex "$doc_name"
-    #latex "$doc_name"
-    pdflatex "$doc_name"  # to produce .pdf for github
- 
-#    xdvi -s 5 "${doc_name}.dvi"
+if ! command -v pdflatex >/dev/null 2>&1; then
+    module load texlive
+fi
+
+pdflatex -interaction=nonstopmode -halt-on-error "$doc_name"
+pdflatex -interaction=nonstopmode -halt-on-error "$doc_name"
+
+pdf_file="${doc_name}.pdf"
+echo "Built $pdf_file"
+
+if [ "$is_ubuntu_or_macos" -eq 0 ]; then
+    gv "$pdf_file"
 fi
