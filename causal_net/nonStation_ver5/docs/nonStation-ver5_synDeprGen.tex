@@ -13,7 +13,7 @@
 
 \geometry{margin=0.8in}
 
-\title{Synaptic Depression Modeling \\ Data generation and model fitting}
+\title{Synaptic Depression Modeling \\ Poisson spike generation and model fitting}
 \author{Jan Balewski, NERSC}
 \date{\today}
 
@@ -22,13 +22,13 @@
 \maketitle
 
 \begin{abstract}
-We describe a real-time adaptive Bernoulli state-space model (BSSM) for a network of
+We describe a real-time adaptive Poisson state-space model (PSSM) for a network of
 interacting neurons with short-term synaptic depression (STD) and a lag-$M$ synaptic
 memory kernel. The STD mechanism is represented as a latent dynamical resource variable
-that is updated at each discrete time step, coupled to observed binary spike indicators
-through a Bernoulli likelihood. For context, we also briefly review the Tsodyks--Markram
+that is updated at each discrete time step, coupled to observed spike counts
+through a Poisson likelihood. For context, we also briefly review the Tsodyks--Markram
 (TM) resource model, which provides the continuous-time biological foundation for the
-discrete STD dynamics used in the BSSM.
+discrete STD dynamics used in the PSSM.
 \end{abstract}
 
 %=========
@@ -67,7 +67,7 @@ preventing runaway excitation.
 \label{sec:std_models}
 
 We describe two STD frameworks. The TM model (Section~\ref{sec:tm_std}) is included
-for conceptual context only. The BSSM (Section~\ref{sec:bssm_std}) is the target
+for conceptual context only. The PSSM (Section~\ref{sec:bssm_std}) is the target
 implementation model.
 
 The following notation is shared across both models:
@@ -115,7 +115,7 @@ r(t_k)=U\,x(t_k^-).
 \label{eq:tm_release}
 \end{equation}
 The TM model provides the biological motivation for the discrete STD resource update
-used in the BSSM below (Eq.~\ref{eq:std_ssm_state}), which is the exact discretization
+used in the PSSM below (Eq.~\ref{eq:std_ssm_state}), which is the exact discretization
 of Eq.~\eqref{eq:tm_recovery} combined with Eq.~\eqref{eq:tm_spike_update}.
 
 \paragraph{Interpretation of $U$.}
@@ -127,55 +127,50 @@ then $0.25$ on the second, then $0.125$ on the third, and so on. Thus the axon
 can still generate more than two closely spaced spikes; STD only makes the
 effective synaptic release decrease geometrically during the burst.
 
-\subsection{Real-Time Adaptive Bernoulli State-Space Network Model (BSSM) with STD
+\subsection{Real-Time Adaptive Poisson State-Space Network Model (PSSM) with STD
             and Lag-$M$ Kernel}
 \label{sec:bssm_std}
 
-The \emph{Bernoulli state-space model (BSSM)} represents a network of $N$ neurons using
-(i) latent dynamical states encoding STD resources and (ii) a Bernoulli observation model
-for binary spike indicators conditioned on those states. This is the primary model of
+The \emph{Poisson state-space model (PSSM)} represents a network of $N$ neurons using
+(i) latent dynamical states encoding STD resources and (ii) a Poisson observation model
+for per-bin spike counts conditioned on those states. This is the primary model of
 interest. At physiological firing rates ($30$--$50$\,Hz) and bin width
-($\Delta t = 1$\,ms), the per-bin spike probability is
-$p \approx r\Delta t = 0.03$--$0.05$. The corresponding Poisson probability
-of two or more spikes in one bin is approximately $p^2/2$, ranging from
-$4.5\times10^{-4}$ to $1.25\times10^{-3}$. Thus the Bernoulli model is a good
-approximation for binary spike indicators while explicitly enforcing at most one
-spike per bin.
+($\Delta t = 1$\,ms), the expected spike count per bin is
+$\lambda \approx r\Delta t = 0.03$--$0.05$. In that regime, most bins still contain
+zero or one spike, but the Poisson model also allows occasional bins with two or more
+spikes instead of enforcing a hard binary cap.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\textwidth]{bssm_std_model_cartoon.png}
-\caption{Cartoon of the full BSSM with STD and a lag-$M$ synaptic kernel.
-Presynaptic binary spikes $s_{j,t}$ modulate the latent resource $x_{j,t}$,
+\caption{Cartoon of the full PSSM with STD and a lag-$M$ synaptic kernel.
+Presynaptic spike counts $s_{j,t}$ modulate the latent resource $x_{j,t}$,
 produce STD-weighted release $u_{j,t}$, pass through a causal synaptic kernel to
-form filtered drive $h_{j,t}$, and enter the postsynaptic Bernoulli observation
-model through signed recurrent weights $W_{ij}$ and baseline $B_i$.}
+form filtered drive $h_{j,t}$, and enter the postsynaptic Poisson observation
+model through signed recurrent weights $W_{ij}$ and baseline $B_i$ to generate
+the output spike count $s_{i,t}$.}
 \label{fig:bssm_std_cartoon}
 \end{figure}
 
 \noindent
 Figure~\ref{fig:bssm_std_cartoon} summarizes the sequential data-flow view of
 the model: the recurrent weighted input determines the postsynaptic spike
-probability, sampled presynaptic spikes generate release from the current STD
+count intensity, sampled presynaptic spikes generate release from the current STD
 resource, and that release updates both the next STD state and the filtered
 drive available in the next bin.
 
 \paragraph{Discrete time and notation.}
 Let $t\in\{0,1,\dots,T-1\}$ index time bins of width $\Delta t$.
-For each neuron $j$, the primary observable is the binary \emph{spike indicator}
+For each neuron $j$, the primary observable is the nonnegative integer \emph{spike count}
 \begin{equation}
-s_{j,t} =
-\begin{cases}
-1 & \text{neuron } j \text{ fired a spike in bin } t,\\
-0 & \text{neuron } j \text{ was silent in bin } t,
-\end{cases}
+s_{j,t}\in\{0,1,2,\dots\},
 \end{equation}
-which records only \emph{whether} a spike occurred. The downstream efficacy of that
-spike is determined separately by the latent STD resource variable $x_{j,t}\in[0,1]$,
-which encodes the fraction of neurotransmitter available for release at the start of
-bin $t$ (see Eq.~\ref{eq:std_ssm_state}). A spike that occurs when resources are
-depleted ($x_{j,t}\approx 0$) contributes little to postsynaptic drive, whereas a
-spike after full recovery ($x_{j,t}\approx 1$) contributes maximally.
+which records how many spikes neuron $j$ emitted in bin $t$. The downstream efficacy of
+those spikes is determined separately by the latent STD resource variable
+$x_{j,t}\in[0,1]$, which encodes the fraction of neurotransmitter available for release
+at the start of bin $t$ (see Eq.~\ref{eq:std_ssm_state}). Spikes that occur when
+resources are depleted ($x_{j,t}\approx 0$) contribute little to postsynaptic drive,
+whereas spikes after full recovery ($x_{j,t}\approx 1$) contribute maximally.
 
 \paragraph{STD latent state dynamics.}
 Each presynaptic neuron $j$ has its own latent resource variable $x_{j,t}$,
@@ -188,7 +183,7 @@ recovery (Eq.~\ref{eq:tm_recovery}) combined with spike-triggered consumption
 \begin{aligned}
 x^{\mathrm{dep}}_{j,t}
 &=
-\underbrace{x_{j,t}\big(1-U\,s_{j,t}\big)}_{\text{spike-triggered depletion}},
+\underbrace{x_{j,t}(1-U)^{s_{j,t}}}_{\text{spike-triggered depletion}},
 \\
 x_{j,t+1}
 &=
@@ -198,21 +193,25 @@ e^{-\Delta t/\tau_{\mathrm{rec}}}}_{\text{exponential recovery after depletion}}
 \end{aligned}
 \label{eq:std_ssm_state}
 \end{equation}
-Release during bin $t$ uses the pre-spike resource $x_{j,t}$. If a spike occurs,
-a fraction $U$ is first consumed, and the depleted resource then recovers toward
-$1$ over the interval to bin $t+1$. Because the update depends only on neuron
-$j$'s own spike indicator, resource variables of different neurons are
+Release during bin $t$ uses the pre-bin resource $x_{j,t}$. If $s_{j,t}>0$ spikes occur
+within the bin, each spike consumes a fraction $U$ of the resource remaining at that
+moment, so the net depletion factor is $(1-U)^{s_{j,t}}$. Because
+$\tau_{\mathrm{rec}}\gg \Delta t$ in the intended regime, recovery within a bin is
+neglected and the depleted resource then recovers toward $1$ over the interval to
+bin $t+1$. Because the update depends only on neuron $j$'s own spike count, resource
+variables of different neurons are
 conditionally independent given their respective spike histories, allowing all
 $N$ updates to proceed in parallel.
 
 \paragraph{STD-modulated release.}
 The effective synaptic release from neuron $j$ in bin $t$ is:
 \begin{equation}
-u_{j,t}=U\,x_{j,t}\,s_{j,t}.
+u_{j,t}=x_{j,t}\Bigl[1-(1-U)^{s_{j,t}}\Bigr].
 \label{eq:std_release}
 \end{equation}
-This quantity is zero in the absence of a spike, small when resources are depleted
-by recent activity, and large (up to $U$) after full recovery.
+This is the total released resource from all spikes in bin $t$: it is zero when
+$s_{j,t}=0$, small when resources are depleted by recent activity, and approaches
+$x_{j,t}$ when many spikes arrive in the same bin.
 
 \paragraph{Lag-$M$ synaptic kernel.}
 Synaptic currents have temporal extent beyond a single bin. We convolve the
@@ -234,12 +233,12 @@ kernel choices include exponential decay, raised cosine basis functions, or a
 free learnable filter (see Section~\ref{sec:gen_kernel} for the generator
 choice).
 
-\paragraph{Bernoulli observation model.}
-For each postsynaptic neuron $i$, the conditional spiking probability is:
+\paragraph{Poisson observation model.}
+For each postsynaptic neuron $i$, the conditional expected spike count is:
 \begin{equation}
-p_{i,t}
+\lambda_{i,t}
 =
-\sigma\!\left(
+\exp\!\left(
 B_i
 +
 \sum_{\substack{j=1\\j\neq i}}^{N}
@@ -247,13 +246,12 @@ W_{ij}\,h_{j,t}
 \right),
 \label{eq:bernoulli_obs}
 \end{equation}
-where $\sigma(z)=1/(1+e^{-z})$ is the logistic sigmoid, $B_i$ is a baseline
-log-odds for neuron $i$, and $W_{ij}$ is the synaptic weight from neuron $j$
+where $B_i$ is a baseline log-mean-count for neuron $i$, and $W_{ij}$ is the synaptic weight from neuron $j$
 to neuron $i$ (positive for excitatory, negative for inhibitory connections).
 Self-connections are excluded by the constraint $j\neq i$.
-The spike indicator is then drawn as:
+The spike count is then drawn as:
 \begin{equation}
-s_{i,t} \sim \mathrm{Bernoulli}(p_{i,t}).
+s_{i,t} \sim \mathrm{Poisson}(\lambda_{i,t}).
 \label{eq:bernoulli_likelihood}
 \end{equation}
 For $t-1-\ell<0$, pre-history values $u_{j,t-1-\ell}$ are set to zero, corresponding
@@ -263,7 +261,7 @@ $u_{j,t}\geq0$, the filtered drive satisfies $h_{j,t}\geq0$ at all times;
 the implementation enforces this with a floor clamp after each recursive update.
 
 \paragraph{Summary of model parameters.}
-The full parameter set of the BSSM is $\theta=\{B_i, W_{ij}, \kappa_\ell, U,
+The full parameter set of the PSSM is $\theta=\{B_i, W_{ij}, \kappa_\ell, U,
 \tau_{\mathrm{rec}}\}$, where $B_i$ and $W_{ij}$ are neuron- and synapse-specific,
 while this model assumes a single shared utilization parameter $U$ for all
 presynaptic neurons and outgoing synapses. The recovery time
@@ -275,20 +273,20 @@ values; in inference, they constitute the quantities to be estimated.
 \paragraph{Real-time and adaptive aspects.}
 The term \emph{real-time} refers to the fact that both the latent STD state
 $x_{j,t}$ and parameter estimates can be updated sequentially as new spike
-indicators $s_{i,t}$ arrive, without reprocessing the full data history. The term
+counts $s_{i,t}$ arrive, without reprocessing the full data history. The term
 \emph{adaptive} refers to the property that $x_{j,t}$ automatically tracks recent
 presynaptic spiking through Eq.~\eqref{eq:std_ssm_state}: resources deplete during
 bursts and recover during silence, so the effective synaptic gain $u_{j,t}$ adapts
-online to the presynaptic firing history. Together, these properties make the BSSM
+online to the presynaptic firing history. Together, these properties make the PSSM
 suitable for closed-loop neural decoding or real-time inference scenarios.
 
 %=========
 \section{Data Generator:  Cortical Network with STD}
 \label{sec:generator}
 
-To validate the BSSM and test inference procedures, we generate synthetic spike
+To validate the PSSM and test inference procedures, we generate synthetic spike
 trains from a network that mimics key properties of mammalian cortical dynamics.
-The generator uses the same BSSM structure as the inference model 
+The generator uses the same PSSM structure as the inference model 
 (Section~\ref{sec:bssm_std}), but with all parameters fixed to known ground-truth
 values, enabling direct comparison between true and estimated quantities.
 
@@ -380,23 +378,23 @@ generator, motivated by mammalian cortical physiology.
 \toprule
 Parameter & Symbol & Value & Rationale \\
 \midrule
-Time bin width         & $\Delta t$            & $1$\,ms                           & Resolves spikes; keeps $p$ small \\
+Time bin width         & $\Delta t$            & $1$\,ms                           & Resolves spikes; keeps $\lambda$ small \\
 Synaptic time constant & $\tau_s$              & $3$--$5$\,ms                      & AMPA-like fast excitation \\
 STD recovery time      & $\tau_{\mathrm{rec}}$ & $200$--$500$\,ms                  & Typical cortical STD \\
 Utilization parameter  & $U$                   & $0.3$--$0.5$                      & Shared moderate depression \\
 Weight scale           & $v, R$                & $v=0.4,\ R=0.90$                  & Spectral-radius scaling \\
-Baseline log-odds      & $B_i$                 & sampled idle-rate range           & User-adjusted baseline drive \\
+Baseline log-count     & $B_i$                 & sampled idle-rate range           & User-adjusted baseline drive \\
 Kernel length          & $M$                   & $\gtrsim 3$--$5\,\tau_s/\Delta t$ & Fast synaptic lag window \\
 \bottomrule
 \end{tabular}
 \caption{Ground-truth generator parameters. Ranges reflect variability across
 synapse types and network sizes. The kernel length $M$ controls the finite lag
 history for the fast synaptic filter and is separate from the STD recovery time
-$\tau_{\mathrm{rec}}$. The baseline $B_i$ is expressed as a log-odds consistent
-with the Bernoulli observation model (Eq.~\ref{eq:bernoulli_obs}).
+$\tau_{\mathrm{rec}}$. The baseline $B_i$ is expressed as a log-mean-count consistent
+with the Poisson observation model (Eq.~\ref{eq:bernoulli_obs}).
 Each neuron's idle rate is drawn independently and uniformly from
 $[\text{idleRate}_{\min}, \text{idleRate}_{\max}]$, and the corresponding
-log-odds is $B_i = \log\frac{r_i\Delta t}{1 - r_i\Delta t}$.}
+log-mean-count is $B_i = \log(r_i\Delta t)$.}
 \label{tab:gen_params}
 \end{table}
 
@@ -404,7 +402,7 @@ log-odds is $B_i = \log\frac{r_i\Delta t}{1 - r_i\Delta t}$.}
 \subsection{Generation Procedure}
 \label{sec:gen_procedure}
 
-Given the fixed parameters, synthetic spike indicators are generated sequentially
+Given the fixed parameters, synthetic spike counts are generated sequentially
 for $t = 0, 1, \dots, T-1$ as follows.
 
 \begin{algorithm}
@@ -416,21 +414,21 @@ for $t = 0, 1, \dots, T-1$ as follows.
        Eqs.~\eqref{eq:weight_draw}--\eqref{eq:weight_matrix}.
 \FOR{$t = 0, 1, \dots, T-1$}
   \FOR{each neuron $i = 1,\dots,N$}
-    \STATE Compute spiking probability:
-           $p_{i,t} \leftarrow \sigma\!\left(B_i +
+    \STATE Compute expected spike count:
+           $\lambda_{i,t} \leftarrow \exp\!\left(B_i +
            \sum_{j \neq i} W_{ij}\,h_{j,t}\right)$
            \hfill(Eq.~\ref{eq:bernoulli_obs})
-    \STATE Draw spike indicator:
-           $s_{i,t} \sim \mathrm{Bernoulli}(p_{i,t})$
+    \STATE Draw spike count:
+           $s_{i,t} \sim \mathrm{Poisson}(\lambda_{i,t})$
            \hfill(Eq.~\ref{eq:bernoulli_likelihood})
   \ENDFOR
   \FOR{each neuron $j = 1,\dots,N$}
     \STATE Compute STD-modulated release from pre-spike resources:
-           $u_{j,t} \leftarrow U\,x_{j,t}\,s_{j,t}$
+           $u_{j,t} \leftarrow x_{j,t}\bigl[1-(1-U)^{s_{j,t}}\bigr]$
            \hfill(Eq.~\ref{eq:std_release})
     \STATE Update STD resource:
            $x_{j,t+1} \leftarrow
-           1-\big(1-x_{j,t}(1-U\,s_{j,t})\big)e^{-\Delta t/\tau_{\mathrm{rec}}}$
+           1-\big(1-x_{j,t}(1-U)^{s_{j,t}}\big)e^{-\Delta t/\tau_{\mathrm{rec}}}$
            \hfill(Eq.~\ref{eq:std_ssm_state})
     \STATE Update recursive synaptic filter:
            $h_{j,t+1} \leftarrow
@@ -439,7 +437,7 @@ for $t = 0, 1, \dots, T-1$ as follows.
            \hfill(Eq.~\ref{eq:recursive_kernel})
   \ENDFOR
 \ENDFOR
-\STATE \textbf{Output:} spike indicators $\{s_{j,t}\}$, ground-truth STD states
+\STATE \textbf{Output:} spike counts $\{s_{j,t}\}$, ground-truth STD states
        $\{x_{j,t}\}$, weight matrix $W$.
 \end{algorithmic}
 \end{algorithm}
