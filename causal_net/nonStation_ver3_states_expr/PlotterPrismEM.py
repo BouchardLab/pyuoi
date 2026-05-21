@@ -538,7 +538,7 @@ class Plotter(PlotterBackbone):
             (A_hat, "A_hat", None),
         ]):
             _, n_diag, n_off = self._count_A_edges(A, minW=minW)
-            mat_title = f"{label}, frequency sorted, nEdges={n_diag}+{n_off}"
+            mat_title = f"{label}, nEdges={n_diag}+{n_off}"
             A_disp = self._A_for_display_minW(A, minW)
             cnt_post, med_post = self._postsyn_nz_edge_stats(A, minW)
 
@@ -559,7 +559,7 @@ class Plotter(PlotterBackbone):
                 0.02, 0.95, f"median={med_cnt:d}", transform=ax.transAxes,
                 va="top", ha="left", fontsize=9, color="green",
             )
-            ax.set_title(f"{label}: # non-zero edges / postsyn")
+            ax.set_title(f"{label}: # non-zero edges")
             ax.set_xlabel("postsyn. neuron index (input)")
             ax.set_ylabel("# non-zero edges")
             ax.grid(True, alpha=0.35)
@@ -569,7 +569,7 @@ class Plotter(PlotterBackbone):
             ax = fig.add_subplot(gs[row, 3])
             ax.plot(x_post, med_post, color='tab:green', linewidth=1.0)
             ax.axhline(0.0, color='k', ls='--', lw=1.0, alpha=0.9)
-            ax.set_title(f"{label}: median non-zero edge / postsyn")
+            ax.set_title(f"{label}: median non-zero edge")
             ax.set_xlabel("postsyn. neuron index (input)")
             ax.set_ylabel("median edge value")
             ax.grid(True, alpha=0.35)
@@ -577,7 +577,7 @@ class Plotter(PlotterBackbone):
                 self._overlay_single_rates(ax, single_rates, x_post)
 
         fig.suptitle(
-            f"A fitted summary: {md['short_name']},  minW={minW:g}",
+            f"A fitted summary: {md['short_name']},  minW={minW:g}, neur. freq. sorted",
             fontsize=13,
         )
         fig.tight_layout(rect=[0, 0, 1, 0.95])
@@ -1324,10 +1324,13 @@ class Plotter(PlotterBackbone):
         s_label, cl_label, c_ylabel, show_xlabel=True,
     ):
         n_states = C.shape[1]
-        ax.plot(t_bins, S, color="k", linewidth=2.5, label=s_label)
+        ax.plot(t_bins, S, color="k", linewidth=2.5, label=s_label, zorder=4)
         lo = np.clip(S - S_cl, 0.0, float(n_states - 1))
         hi = np.clip(S + S_cl, 0.0, float(n_states - 1))
-        ax.fill_between(t_bins, lo, hi, color="gray", alpha=0.3, label=cl_label)
+        ax.fill_between(
+            t_bins, lo, hi, color="gray", alpha=0.3, label=cl_label,
+            zorder=3,
+        )
         ax.set(title=title, ylabel="state")
         if show_xlabel:
             ax.set_xlabel("time (s)")
@@ -1337,12 +1340,17 @@ class Plotter(PlotterBackbone):
 
         c_colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple"]
         ax2 = ax.twinx()
+        ax2.set_zorder(1)
         for m in range(n_states):
             ax2.plot(
                 t_bins, C[:, m], linewidth=0.8, alpha=0.85,
                 color=c_colors[m % len(c_colors)],
                 label=f"{c_ylabel}[{m}]",
+                zorder=2,
             )
+        ax.set_zorder(ax2.get_zorder() + 1)
+        ax.patch.set_visible(False)
+
         ax2.set_ylabel(c_ylabel)
         ax2.set_ylim(0.0, 1.0)
         ax.legend(loc="lower left", bbox_to_anchor=(0.0, 1.02), fontsize=8)
