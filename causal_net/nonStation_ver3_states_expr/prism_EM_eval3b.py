@@ -130,6 +130,45 @@ def eval_true_state_recovery(fitD, md):
     }
 
 
+def compute_neuron_type(fitD, minW):
+    """Compute and store neuron_type vector: -1=inh, 0=und, +1=exc."""
+    A_hat = np.asarray(fitD["A_hat"], dtype=np.float64)
+    assert A_hat.ndim == 2 and A_hat.shape[0] == A_hat.shape[1], "A_hat must be square"
+    N = A_hat.shape[0]
+    minW = float(minW)
+    off_mask = ~np.eye(N, dtype=bool)
+    A_thr = A_hat.copy()
+    A_thr[off_mask & (np.abs(A_thr) < minW)] = 0.0
+    np.fill_diagonal(A_thr, 0.0)
+    Sedge = A_thr.sum(axis=1)
+    neuron_type = np.zeros((N,), dtype=np.int8)
+    neuron_type[Sedge > minW] = 1
+    neuron_type[Sedge < -minW] = -1
+    fitD["neuron_Sedge"] = Sedge.astype(np.float32)
+    fitD["neuron_type"] = neuron_type
+    return neuron_type
+
+
+def compute_A_prune(fitD, neuron_type, minW):
+    """Compute and store A_prune from A_hat and neuron_type."""
+    A_hat = np.asarray(fitD["A_hat"], dtype=np.float64)
+    neuron_type = np.asarray(neuron_type, dtype=np.int8)
+    assert neuron_type.shape[0] == A_hat.shape[0], "neuron_type length must match A_hat rows"
+    minW = float(minW)
+    N = A_hat.shape[0]
+    off_mask = ~np.eye(N, dtype=bool)
+    A_prune = A_hat.copy()
+    A_prune[off_mask & (np.abs(A_prune) < minW)] = 0.0
+    diag_A = np.diag(A_hat).copy()
+    exc_rows = neuron_type > 0
+    inh_rows = neuron_type < 0
+    A_prune[exc_rows, :] = np.where(A_prune[exc_rows, :] > 0, A_prune[exc_rows, :], 0.0)
+    A_prune[inh_rows, :] = np.where(A_prune[inh_rows, :] < 0, A_prune[inh_rows, :], 0.0)
+    np.fill_diagonal(A_prune, diag_A)
+    fitD["A_prune"] = A_prune.astype(np.float32)
+    return fitD["A_prune"]
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Evaluate and plot prism EM results")
@@ -140,7 +179,7 @@ def main():
                         help="Head dir for input/output data")
     parser.add_argument("-p", "--showPlots", type=str, nargs='+',
                         default="a",
-                        help="Plot types: a=EM convergence summary, b=init-vs-truth states, c=A_init-vs-truth, d=A_hat-vs-truth, e=A_hat edge recovery, f=state sequence, g=2D correlations (A/B), h=A_init TP quality (diag/exc/inh), i=A_init/A_hat fitted-only, j=state+bioExp rates (no truth)")
+                        help="Plot types: a=EM convergence summary, b=init-vs-truth states, c=A_init-vs-truth, d=A_hat-vs-truth, e=A_hat edge recovery, f=state sequence, g=2D correlations (A/B), h=A_init TP quality (diag/exc/inh), i=A_init/A_hat fitted-only, j=state+bioExp rates (no truth), k=bioExp spatial A_hat edges, m=Nedge/Sedge node stats, n=bioExp A_prune pos/neg edges")
     parser.add_argument("--minW", type=float, default=0.02,
                         help="Threshold for A-matrix edge eval")
     parser.add_argument("--timeReb", type=int, default=20,
@@ -184,9 +223,13 @@ def main():
     if is_bioexp:
         st_name = prov["experiment_name"]
         spikesFF = os.path.join(spikesPath, f"{st_name}.spikes.npz")
+        print(f"bioExp data: skipped simTruth/prismTruth, spikes={spikesFF}")
         spikeD, spikeMD = read_data_npz(spikesFF, verb=args.verb > 1)
         spikes = spikeD["spikes"]
-        print(f"bioExp data: skipped simTruth/prismTruth, spikes={spikesFF}")
+        bioFF = spikesFF.replace('spikes.npz', 'bioExp.npz')
+        bioD, bioMD = read_data_npz(bioFF, verb=args.verb > 1)
+        bio_plot_md = {**spikeMD, **bioMD}
+        
     else:
         truth_name = prov["state_model_file"]
         truthPath = os.path.join(args.basePath, "truthDale")
@@ -233,11 +276,13 @@ def main():
             print(row)
 
     MD["short_name"] = args.dataName
+    neuron_type = compute_neuron_type(fitD, args.minW)
+    compute_A_prune(fitD, neuron_type, args.minW)
 
     # ── plot ───────────────────────────
     if is_bioexp:
         assert not any(c in args.showPlots for c in "bcdefgh"), \
-            "bioExp: plots b-h require ground truth; use -p a i j"
+            "bioExp: plots b-h require ground truth; use -p a i j k m n"
 
     args.prjName = args.dataName
     plot = Plotter(args)
@@ -277,11 +322,6 @@ def main():
 
     if 'j' in args.showPlots:
         assert is_bioexp, "plot j requires bioExp data (experiment_name in provenance)"
-        bioFF = os.path.join(
-            spikesPath, f"{prov['experiment_name']}.bioExp.npz"
-        )
-        _, bioMD = read_data_npz(bioFF, verb=args.verb > 1)
-        bio_plot_md = {**spikeMD, **bioMD}
         rebD = detect_spike_bursts(
             spikeD, spikeMD, args.time_rebin2,
             args.burst_freq_thres, args.burst_chan_thres,
@@ -289,6 +329,26 @@ def main():
         plot.state_seq_fitonly_prismEM(
             fitD, MD, rebD, bio_plot_md, figId=9,
             time_range_sec=args.time_range_sec,
+        )
+
+    if 'k' in args.showPlots:
+        assert is_bioexp, "plot k requires bioExp data (experiment_name in provenance)"
+        plot.neuron_spatial_Ahat_edges(
+            fitD, bioD, bio_plot_md, minW=args.minW, figId=10
+        )
+
+    if 'm' in args.showPlots:
+        plot.node_outgoing_edge_stats_prismEM(
+            fitD, MD, spikeD["single_rates"], neuron_type,
+            minW=args.minW, figId=11,
+            est_key="A_hat", est_label="A_hat",
+        )
+
+    if 'n' in args.showPlots:
+        assert is_bioexp, "plot n requires bioExp data (experiment_name in provenance)"
+        plot.neuron_spatial_Ahat_edges_split(
+            fitD, bioD, bio_plot_md, neuron_type, fitD["neuron_Sedge"],
+            minW=args.minW, maxNeurons=24, figId=12
         )
 
     plot.display_all()

@@ -8,7 +8,6 @@ for connectivity analysis. The preprocessing pipeline includes:
 - Temporal binning and spike count extraction  
 - Data quality assessment and filtering
 - Metadata extraction and session identification
-- Metrics spreadsheet ingestion (metrics_curated.xlsx)
 - Output formatting for downstream analysis tools
 
 Session naming convention:
@@ -27,9 +26,9 @@ Usage:
 
 __author__ = "Jan Balewski"
 __email__ = "janstar1122@gmail.com"
-import sys, os, hashlib
+import sys,os,hashlib
 import numpy as np
-import pandas as pd
+import pickle
 from pprint import pprint
 from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
 
@@ -90,6 +89,7 @@ def read_spike_npy(md,args):
     # Load the dictionary from the .npy file
     spike_dict = np.load(inpF, allow_pickle=True).item()
 
+    print('spike_dict',spike_dict);ok
    
     pmd['sampling_freq'] =args.samp_freq
     
@@ -123,67 +123,8 @@ def read_spike_npy(md,args):
     return  rawD
 
 
-def _mea_match_key(val):
-    """Canonical key for matching MEA_idx across npy dict keys and spreadsheet."""
-    if isinstance(val, (bytes, np.bytes_)):
-        val = val.decode()
-    if isinstance(val, (int, np.integer)):
-        return str(int(val))
-    if isinstance(val, (float, np.floating)):
-        if np.isnan(val):
-            raise ValueError("MEA_idx is NaN in metrics_curated.xlsx")
-        f = float(val)
-        return str(int(f)) if f == int(f) else str(f)
-    s = str(val).strip()
-    try:
-        f = float(s)
-        return str(int(f)) if f == int(f) else s
-    except ValueError:
-        return s
-
-
-def load_metrics_curated(args, mea_idx_order):
-    """Load metrics_curated.xlsx; filter and reorder rows to match output neuron order."""
-    xlsxF = os.path.join(args.expPath, args.sessionName, "metrics_curated.xlsx")
-    print("metrics xlsx:", xlsxF)
-    assert os.path.exists(xlsxF), f"missing metrics spreadsheet: {xlsxF}"
-
-    df = pd.read_excel(xlsxF, engine="openpyxl")
-    cols = list(df.columns)
-    cols[0] = "MEA_idx"
-    df.columns = cols
-    assert "MEA_idx" in df.columns, "first spreadsheet column must be MEA_idx"
-
-    mea_keys = [_mea_match_key(v) for v in df["MEA_idx"].values]
-    if len(mea_keys) != len(set(mea_keys)):
-        raise ValueError("duplicate MEA_idx rows in metrics_curated.xlsx")
-
-    row_by_mea = {_k: i for i, _k in enumerate(mea_keys)}
-    order_idx = []
-    for mea_id in np.asarray(mea_idx_order).ravel():
-        key = _mea_match_key(mea_id)
-        assert key in row_by_mea, (
-            f"MEA_idx {mea_id!r} (key={key!r}) not found in metrics_curated.xlsx"
-        )
-        order_idx.append(row_by_mea[key])
-
-    df_ord = df.iloc[order_idx].reset_index(drop=True)
-    col_names = [str(c) for c in df_ord.columns]
-    metrics_2d = df_ord.to_numpy()
-
-    n_match = len(order_idx)
-    n_sheet = len(df)
-    print(
-        "metrics_curated: kept %d/%d rows, shape=%s, cols=%d"
-        % (n_match, n_sheet, metrics_2d.shape, len(col_names))
-    )
-    if args.verb > 1:
-        print("  columns:", col_names)
-    return metrics_2d, col_names
-
-
 #...!...!....................
-def unroll_bioexp(rawD, bioMD, args):
+def unroll_bioexp(rawD,bioMD): 
     pmd=bioMD['bioexp']
     sel=bioMD['data_selector']
     frLo, frHi = sel['freq_range']
@@ -237,11 +178,6 @@ def unroll_bioexp(rawD, bioMD, args):
     bioD['neur_freqIdx']=neur_freqIdx
     bioD['neur_revFreqIdx']=neur_revFreqIdx
     bioD['MEA_idx']=MEA_idx
-    bioD['single_rates']=np.asarray(chanFreq, dtype=np.float64)
-
-    metrics_2d, metrics_cols = load_metrics_curated(args, MEA_idx)
-    bioD['metrics_curated'] = metrics_2d
-    bioMD['metrics_curated_columns'] = metrics_cols
 
     #.... compute neural statistics for spikeMD
     num_neurons = nchan
@@ -296,7 +232,7 @@ if __name__ == "__main__":
     rawD=read_spike_npy(bioMD,args)
 
     #.... filter & unroll data
-    bioD,spikeD,spikeMD=unroll_bioexp(rawD,bioMD,args)
+    bioD,spikeD,spikeMD=unroll_bioexp(rawD,bioMD)
 
     #...... WRITE   OUTPUT .........
     outFt = os.path.join(args.dataPath, bioMD['short_name'] + '.bioExp.npz')

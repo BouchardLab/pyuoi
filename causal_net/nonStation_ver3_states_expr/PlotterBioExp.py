@@ -55,6 +55,16 @@ METRICS_HIST_TITLE_UNITS = {
     "amplitude_median": "uV",
 }
 
+METRICS_HIST_XMIN_ZERO = {
+    "snr",
+    "firing_rate",
+    "sync_spike_2",
+    "sync_spike_4",
+    "sync_spike_8",
+    "firing_range",
+    "sd_ratio",
+}
+
 METRICS_HIST_LOG_Y = {
     "presence_ratio",
     "isi_violations_ratio",
@@ -287,7 +297,7 @@ class Plotter(PlotterBackbone):
             if col_name in METRICS_HIST_LOG_Y:
                 ax.set_yscale("log")
 
-            if col_name == "snr":
+            if col_name in METRICS_HIST_XMIN_ZERO:
                 ax.set_xlim(left=0.0)
 
             p16, p50, p84 = np.percentile(vals, [16, 50, 84])

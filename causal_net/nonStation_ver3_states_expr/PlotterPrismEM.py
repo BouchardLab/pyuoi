@@ -349,7 +349,10 @@ class Plotter(PlotterBackbone):
             fontsize=12,
         )
 
-    def _draw_A_matrix(self, ax, A, title, num_exc=None, norm_map=None):
+    def _draw_A_matrix(
+        self, ax, A, title, num_exc=None, norm_map=None,
+        exc_inh_from_offdiag=False, exc_inh_min_abs=0.0,
+    ):
         A = np.asarray(A)
         if norm_map is None:
             vmin = float(np.min(A))
@@ -360,9 +363,29 @@ class Plotter(PlotterBackbone):
         im = ax.imshow(A, aspect=1.0, origin='lower', cmap='bwr',
                        norm=norm_map, interpolation='nearest')
         N = A.shape[0]
+        n_exc = n_inh = n_und = None
         if num_exc is not None:
-            ax.axhline(num_exc - 0.5, color='k', ls='--', lw=0.8)
-            ax.axvline(num_exc - 0.5, color='k', ls='--', lw=0.8)
+            n_exc = int(num_exc)
+            n_inh = N - n_exc
+            ax.axhline(n_exc - 0.5, color='k', ls='--', lw=0.8)
+            ax.axvline(n_exc - 0.5, color='k', ls='--', lw=0.8)
+        elif exc_inh_from_offdiag:
+            offdiag = A.astype(np.float64).copy()
+            np.fill_diagonal(offdiag, 0.0)
+            row_sum = offdiag.sum(axis=1)
+            min_abs = float(exc_inh_min_abs)
+            n_exc = int(np.sum(row_sum > min_abs))
+            n_inh = int(np.sum(row_sum < -min_abs))
+            n_und = int(np.sum(np.abs(row_sum) < min_abs))
+        if n_exc is not None and n_inh is not None and (n_exc + n_inh) > 0:
+            txt = f"exc={n_exc}\ninh={n_inh}"
+            if n_und is not None:
+                txt += f"\nund={n_und}"
+            ax.text(
+                0.03, 0.97, txt,
+                transform=ax.transAxes, va="top", ha="left", fontsize=9,
+                bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=0.3),
+            )
         ax.plot([0, N], [0, N], '--', lw=0.8, color='magenta')
         ax.set_xlim(-0.5, N + 0.5)
         ax.set_ylim(-0.5, N + 0.5)
@@ -450,19 +473,19 @@ class Plotter(PlotterBackbone):
         A[off_mask & (np.abs(A) < float(minW))] = 0.0
         return A
 
+    def _A_prune_from_fitD(self, fitD):
+        """Saved A_prune matrix."""
+        return np.asarray(fitD["A_prune"], dtype=np.float64)
+
     def _postsyn_nz_edge_stats(self, A, minW):
-        """Per postsynaptic row: count and median of off-diagonal edges with |A| >= minW."""
+        """Per postsynaptic row: count and sum of off-diagonal edges with |A| >= minW."""
         A = np.asarray(A, dtype=np.float64)
         N = A.shape[0]
         minW = float(minW)
         strong = ~np.eye(N, dtype=bool) & (np.abs(A) >= minW)
         cnt = strong.sum(axis=1).astype(np.int64)
-        med = np.full((N,), np.nan, dtype=np.float64)
-        for i in range(N):
-            vals = A[i, strong[i]]
-            if vals.size > 0:
-                med[i] = float(np.median(vals))
-        return cnt, med
+        sum_post = np.where(strong, A, 0.0).sum(axis=1)
+        return cnt, sum_post
 
     def _overlay_single_rates(self, ax, single_rates, x_post):
         rate = np.asarray(single_rates, dtype=np.float64).ravel()
@@ -509,7 +532,7 @@ class Plotter(PlotterBackbone):
         """Fitted A only: 2 rows x 4 cols.
 
         Cols: heatmap | off-diagonal histogram | # non-zero edges vs postsyn |
-              median non-zero edge vs postsyn.
+              sum non-zero edge vs postsyn.
         Non-zero edge: off-diagonal with |A_ij| >= minW.
         Neuron axes use frequency-sorted indices as stored in the fit (no truth).
         Bottom-row cols 3-4 overlay single_rates (Hz) on right y-axis.
@@ -540,7 +563,7 @@ class Plotter(PlotterBackbone):
             _, n_diag, n_off = self._count_A_edges(A, minW=minW)
             mat_title = f"{label}, nEdges={n_diag}+{n_off}"
             A_disp = self._A_for_display_minW(A, minW)
-            cnt_post, med_post = self._postsyn_nz_edge_stats(A, minW)
+            cnt_post, sum_post = self._postsyn_nz_edge_stats(A, minW)
 
             ax = fig.add_subplot(gs[row, 0])
             self._draw_A_matrix(ax, A_disp, mat_title, num_exc=num_exc)
@@ -560,18 +583,18 @@ class Plotter(PlotterBackbone):
                 va="top", ha="left", fontsize=9, color="green",
             )
             ax.set_title(f"{label}: # non-zero edges")
-            ax.set_xlabel("postsyn. neuron index (input)")
+            ax.set_xlabel("postsyn. neuron index")
             ax.set_ylabel("# non-zero edges")
             ax.grid(True, alpha=0.35)
             if row == 1:
                 self._overlay_single_rates(ax, single_rates, x_post)
 
             ax = fig.add_subplot(gs[row, 3])
-            ax.plot(x_post, med_post, color='tab:green', linewidth=1.0)
+            ax.plot(x_post, sum_post, color='tab:green', linewidth=1.0)
             ax.axhline(0.0, color='k', ls='--', lw=1.0, alpha=0.9)
-            ax.set_title(f"{label}: median non-zero edge")
-            ax.set_xlabel("postsyn. neuron index (input)")
-            ax.set_ylabel("median edge value")
+            ax.set_title(f"{label}: sum non-zero edges")
+            ax.set_xlabel("postsyn. neuron index")
+            ax.set_ylabel("sum edge value")
             ax.grid(True, alpha=0.35)
             if row == 1:
                 self._overlay_single_rates(ax, single_rates, x_post)
@@ -662,6 +685,16 @@ class Plotter(PlotterBackbone):
         """Wrapper for current EM use case; reusable for A_hat later."""
         self.compare_A_vs_truth(fitD[est_key], md, cmp_label=est_label, figId=figId)
 
+    def _node_outgoing_edge_stats(self, A, minW):
+        """Per postsynaptic row: Nedge count and Sedge sum, |A|>minW off-diag."""
+        A = np.asarray(A, dtype=np.float64)
+        N = A.shape[0]
+        minW = float(minW)
+        strong = ~np.eye(N, dtype=bool) & (np.abs(A) > minW)
+        Nedge = strong.sum(axis=1).astype(np.int64)
+        Sedge = np.where(strong, A, 0.0).sum(axis=1)
+        return Nedge, Sedge
+
     def edge_recovery_prismEM(self, fitD, md, minW=0.02, figId=4, est_key="A_hat", est_label="A_hat"):
         """One-row, four-panel edge recovery: A_true | A_est edges | confusion | stats."""
         A_true, N, num_exc, n_diag, n_off, shared_norm = self._get_A_true_info(md)
@@ -736,6 +769,161 @@ class Plotter(PlotterBackbone):
             f"A-matrix edge recovery, minW={float(minW):g} (off-diag only): {md['short_name']}",
             fontsize=12)
         fig.tight_layout()
+
+    def _draw_A_matrix_summary_3cols(
+        self, fig, gs, row, A, label, minW, single_rates, num_exc=None,
+    ):
+        """Heatmap, off-diagonal hist, # non-zero edges (as in -p i bottom row, cols 0-2)."""
+        A = np.asarray(A, dtype=np.float64)
+        N = A.shape[0]
+        minW = float(minW)
+        x_post = np.arange(N, dtype=np.int64)
+        single_rates = np.asarray(single_rates, dtype=np.float64).ravel()
+        assert single_rates.shape[0] == N, (
+            f"single_rates length {single_rates.shape[0]} != N={N}"
+        )
+
+        _, n_diag, n_off = self._count_A_edges(A, minW=minW)
+        A_disp = self._A_for_display_minW(A, minW)
+        cnt_post, _ = self._postsyn_nz_edge_stats(A, minW)
+        sum_Nedge = int(np.sum(cnt_post))
+
+        ax = fig.add_subplot(gs[row, 0])
+        self._draw_A_matrix(
+            ax, A_disp, f"{label}, nEdges={n_diag}+{n_off}", num_exc=num_exc,
+            exc_inh_from_offdiag=(num_exc is None), exc_inh_min_abs=minW,
+        )
+
+        ax = fig.add_subplot(gs[row, 1])
+        self._draw_A_offdiag_hist(ax, A, f"{label} off-diagonal", minW=minW)
+        ax.text(
+            0.98, 0.97, f"sum Nedge={sum_Nedge:d}", transform=ax.transAxes,
+            va="top", ha="right", fontsize=9, color="k",
+            bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=2),
+        )
+
+        ax = fig.add_subplot(gs[row, 2])
+        ax.plot(x_post, cnt_post, color='tab:blue', linewidth=1.0)
+        med_cnt = int(np.median(cnt_post))
+        ax.axhline(med_cnt, color='green', ls='--', lw=1.0, alpha=0.9)
+        ax.text(
+            0.02, 0.95, f"median={med_cnt:d}", transform=ax.transAxes,
+            va="top", ha="left", fontsize=9, color="green",
+        )
+        ax.set_title(f"{label}: # non-zero edges")
+        ax.set_xlabel("postsyn. neuron index")
+        ax.set_ylabel("# non-zero edges")
+        ax.grid(True, alpha=0.35)
+        self._overlay_single_rates(ax, single_rates, x_post)
+
+    def node_outgoing_edge_stats_prismEM(
+        self, fitD, md, single_rates, neuron_type,
+        minW=0.02, figId=12, est_key="A_hat", est_label="A_hat",
+    ):
+        """2x3 canvas: row0 Nedge/Sedge stats; row1 A_prune summary (-p i style)."""
+        A_est = np.asarray(fitD[est_key], dtype=np.float64)
+        A_prune = self._A_prune_from_fitD(fitD)
+        assert A_est.ndim == 2 and A_est.shape[0] == A_est.shape[1], "A_est must be square"
+        assert A_prune.shape == A_est.shape, "A_prune shape must match A_hat"
+        N = A_est.shape[0]
+        minW = float(minW)
+
+        Nedge, Sedge = self._node_outgoing_edge_stats(A_est, minW)
+        r_ns = self._corrcoef_safe(Nedge, Sedge)
+        n_bins = max(10, min(40, int(np.sqrt(N)) * 2))
+        neuron_type = np.asarray(neuron_type, dtype=np.int8)
+        assert neuron_type.shape[0] == N, "neuron_type length must match A_hat rows"
+        n_exc = int(np.sum(neuron_type > 0))
+        n_inh = int(np.sum(neuron_type < 0))
+        n_und = int(np.sum(neuron_type == 0))
+
+        def add_hist_percentile_marker(ax, vals, fmt=".3f"):
+            vals = np.asarray(vals, dtype=np.float64)
+            vals = vals[np.isfinite(vals)]
+            p16, p50, p84 = np.percentile(vals, [16, 50, 84])
+            ylo, yhi = ax.get_ylim()
+            y_mark = 0.5 * (ylo + yhi)
+            ax.errorbar(
+                p50, y_mark,
+                xerr=[[p50 - p16], [p84 - p50]],
+                fmt="o", color="k", markersize=8,
+                capsize=4, capthick=1.2, elinewidth=1.2, zorder=5,
+            )
+            p16_txt = format(p16, fmt)
+            p50_txt = format(p50, fmt)
+            p84_txt = format(p84, fmt)
+            txt = f"p16={p16_txt}\nmed={p50_txt}\np84={p84_txt}"
+            ax.text(
+                0.98, 0.97, txt, transform=ax.transAxes,
+                va="top", ha="right", fontsize=9, color="k",
+                bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=2),
+            )
+
+        num_exc = None
+        dale_conf = md.get("dale_conf")
+        if dale_conf is not None:
+            num_exc = dale_conf.get("num_excite")
+
+        figId = self.smart_append(figId)
+        fig = self.plt.figure(figId, facecolor='white', figsize=(14, 8))
+        gs = fig.add_gridspec(2, 3, height_ratios=[1.0, 1.15], hspace=0.45, wspace=0.35)
+
+        ax = fig.add_subplot(gs[0, 0])
+        for cls, color, label in [
+            (1, "magenta", f"exc={n_exc}"),
+            (-1, "#39FF14", f"inh={n_inh}"),
+            (0, "salmon", f"und={n_und}"),
+        ]:
+            mask = neuron_type == cls
+            if cls == 0:
+                ax.scatter(
+                    Nedge[mask], Sedge[mask], s=18, marker='o',
+                    alpha=0.80, color=color, edgecolors="k",
+                    linewidths=0.35, label=label,
+                )
+            else:
+                ax.scatter(
+                    Nedge[mask], Sedge[mask], s=16, marker='.',
+                    alpha=0.80, color=color, label=label,
+                )
+        ax.set(
+            title=f"Nedge vs Sedge  r={r_ns:.3f}",
+            xlabel="Nedge (# outgoing edges per row)",
+            ylabel="Sedge",
+        )
+        ax.legend(loc="best", fontsize=9)
+        ax.grid(True, alpha=0.35)
+
+        ax = fig.add_subplot(gs[0, 1])
+        ax.hist(Nedge, bins=n_bins, color='tab:blue', alpha=0.85)
+        add_hist_percentile_marker(ax, Nedge, fmt=".0f")
+        ax.set(
+            title=f"Nedge, N={N}, sum Nedge={int(np.sum(Nedge))}",
+            xlabel="Nedge (# outgoing edges per row)",
+            ylabel="nodes",
+        )
+        ax.grid(True, alpha=0.35)
+
+        ax = fig.add_subplot(gs[0, 2])
+        ax.hist(Sedge, bins=n_bins, color='tab:green', alpha=0.85)
+        add_hist_percentile_marker(ax, Sedge)
+        ax.set(
+            title=f"Sedge distribution, N={N}",
+            xlabel="Sedge (sum outgoing edge values per row)",
+            ylabel="nodes",
+        )
+        ax.grid(True, alpha=0.35)
+
+        self._draw_A_matrix_summary_3cols(
+            fig, gs, 1, A_prune, "A_prune", minW, single_rates, num_exc=num_exc,
+        )
+
+        fig.suptitle(
+            f"{est_label} per-node outgoing edges, minW={minW:g} (row=postsynaptic): "
+            f"{md['short_name']}",
+            fontsize=12,
+        )
+        fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.94])
 
     def _scatter_tp_true_vs_est(self, ax, a_true_tp, a_est_tp, title, color):
         x_true = np.asarray(a_true_tp, dtype=np.float64).ravel()
@@ -1374,7 +1562,6 @@ class Plotter(PlotterBackbone):
         S_hat_cl = np.asarray(fitD["S_hat_CL"], dtype=np.float64)[i0:i1 + 1]
 
         clip = clip_rebD_time(rebD, time_range_sec)
-        bio_plot = PlotterBioExp(self.args)
         dataset_name = bio_plot_md["short_name"]
 
         figId = self.smart_append(figId)
@@ -1396,10 +1583,10 @@ class Plotter(PlotterBackbone):
         )
 
         ax = fig.add_subplot(gs[2, 0])
-        bio_plot.plot_bioexp_sum_rate(ax, rebD, clip)
+        PlotterBioExp.plot_bioexp_sum_rate(self, ax, rebD, clip)
 
         ax = fig.add_subplot(gs[3, 0])
-        bio_plot.plot_bioexp_heatmap(fig, ax, rebD, dataset_name, clip)
+        PlotterBioExp.plot_bioexp_heatmap(self, fig, ax, rebD, dataset_name, clip)
 
         t0s, t1s = float(time_range_sec[0]), float(time_range_sec[1])
         fig.suptitle(
@@ -1407,3 +1594,184 @@ class Plotter(PlotterBackbone):
             fontsize=12,
         )
         fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.94])
+
+    def _bioexp_Ahat_topology_ax(
+        self, ax, loc_x, loc_y, A_hat, minW, sign=None, neuron_type=None,
+        node_size=16, row_select=None, und_color="salmon",
+    ):
+        """Neuron layout with A_hat edges; sign is 'pos', 'neg', or None for both."""
+        ax.set_facecolor("white")
+        if neuron_type is None:
+            ax.scatter(
+                loc_x, loc_y, s=node_size, marker="o", facecolors="white",
+                edgecolors="k", linewidths=0.4, alpha=0.95, zorder=3,
+            )
+        else:
+            neuron_type = np.asarray(neuron_type)
+            node_color = np.full(loc_x.shape, und_color, dtype=object)
+            node_color[neuron_type > 0] = "magenta"
+            node_color[neuron_type < 0] = "#39FF14"
+            ax.scatter(
+                loc_x, loc_y, s=node_size, marker="o", c=node_color,
+                edgecolors="k", linewidths=0.4, alpha=0.95, zorder=3,
+            )
+        edge_mask = np.abs(A_hat) > float(minW)
+        np.fill_diagonal(edge_mask, False)
+        if sign == "pos":
+            edge_mask &= A_hat > 0
+            edge_color = "red"
+        elif sign == "neg":
+            edge_mask &= A_hat < 0
+            edge_color = "blue"
+        post_idx, pre_idx = np.where(edge_mask)
+        n_total = int(post_idx.size)
+        if row_select is not None:
+            row_select = np.asarray(row_select, dtype=bool)
+            draw_mask = row_select[post_idx]
+            post_draw = post_idx[draw_mask]
+            pre_draw = pre_idx[draw_mask]
+        else:
+            post_draw = post_idx
+            pre_draw = pre_idx
+        if sign is None:
+            for i_post, j_pre in zip(post_draw, pre_draw):
+                color = "red" if A_hat[i_post, j_pre] > 0 else "blue"
+                ax.plot(
+                    [loc_x[j_pre], loc_x[i_post]],
+                    [loc_y[j_pre], loc_y[i_post]],
+                    color=color, alpha=0.7, linewidth=0.7, zorder=2,
+                )
+        else:
+            for i_post, j_pre in zip(post_draw, pre_draw):
+                ax.plot(
+                    [loc_x[j_pre], loc_x[i_post]],
+                    [loc_y[j_pre], loc_y[i_post]],
+                    color=edge_color, alpha=0.7, linewidth=0.7, zorder=2,
+                )
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xlabel("loc_x (um)", fontsize=11)
+        ax.set_ylabel("loc_y (um)", fontsize=11)
+        ax.tick_params(labelsize=9)
+        ax.grid(True, alpha=0.35)
+        return n_total, int(post_draw.size)
+
+    def neuron_spatial_Ahat_edges(self, fitD, bioD, bioMD, minW=0.02, figId=10):
+        """MEA layout plus fitted A_hat edges for bioExp data."""
+        loc_x = PlotterBioExp._metrics_column(self, bioD, bioMD, "loc_x")
+        loc_y = PlotterBioExp._metrics_column(self, bioD, bioMD, "loc_y")
+        rate = PlotterBioExp._metrics_column(self, bioD, bioMD, "firing_rate")
+        A_hat = np.asarray(fitD["A_hat"], dtype=np.float64)
+        n_neur = loc_x.shape[0]
+        assert A_hat.shape == (n_neur, n_neur), (
+            f"A_hat shape {A_hat.shape} does not match {n_neur} neuron locations"
+        )
+
+        figId = self.smart_append(figId)
+        fig = self.plt.figure(figId, facecolor="white", figsize=(15, 10))
+        gs = fig.add_gridspec(1, 3, width_ratios=[1.0, 0.06, 1.0], wspace=0.28)
+
+        ax = fig.add_subplot(gs[0, 0])
+        ax.set_facecolor("white")
+        sc = ax.scatter(
+            loc_x, loc_y, c=rate, s=12, marker="s",
+            cmap="Blues", vmin=0.0, vmax=float(np.max(rate)),
+            linewidths=0.15, edgecolors="k", alpha=0.95,
+        )
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xlabel("loc_x (um)", fontsize=11)
+        ax.set_ylabel("loc_y (um)", fontsize=11)
+        ax.tick_params(labelsize=9)
+        ax.grid(True, alpha=0.35)
+        ax.set_title(f"dataset: {bioMD['short_name']}   n={n_neur} neurons", fontsize=11, pad=8)
+
+        cax = fig.add_subplot(gs[0, 1])
+        cb = fig.colorbar(sc, cax=cax, orientation="vertical")
+        cb.set_label("Firing Rate [Hz]", fontsize=11)
+        cb.ax.tick_params(labelsize=9)
+
+        ax = fig.add_subplot(gs[0, 2])
+        n_edges, _ = self._bioexp_Ahat_topology_ax(ax, loc_x, loc_y, A_hat, minW, sign=None)
+        ax.set_title(f"A_hat edges, |A|>{float(minW):g}, n={n_edges}", fontsize=11, pad=8)
+        ax.plot([], [], color="red", alpha=0.7, label="A_hat > 0")
+        ax.plot([], [], color="blue", alpha=0.7, label="A_hat < 0")
+        ax.legend(loc="best", fontsize=9)
+
+        fig.suptitle(f"Neuron spatial A_hat topology: {bioMD['short_name']}", fontsize=12)
+        fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.94])
+
+    def neuron_spatial_Ahat_edges_split(
+        self, fitD, bioD, bioMD, neuron_type, neuron_Sedge,
+        minW=0.02, maxNeurons=30, figId=11,
+    ):
+        """Two panels: positive-only and negative-only A_prune edges (bioExp)."""
+        loc_x = PlotterBioExp._metrics_column(self, bioD, bioMD, "loc_x")
+        loc_y = PlotterBioExp._metrics_column(self, bioD, bioMD, "loc_y")
+        A_prune = self._A_prune_from_fitD(fitD)
+        n_neur = loc_x.shape[0]
+        assert A_prune.shape == (n_neur, n_neur), (
+            f"A_prune shape {A_prune.shape} does not match {n_neur} neuron locations"
+        )
+        neuron_type = np.asarray(neuron_type, dtype=np.int8)
+        assert neuron_type.shape[0] == n_neur, "neuron_type length must match neuron locations"
+        neuron_Sedge = np.asarray(neuron_Sedge, dtype=np.float64)
+        assert neuron_Sedge.shape[0] == n_neur, "neuron_Sedge length must match neuron locations"
+        n_exc = int(np.sum(neuron_type > 0))
+        n_inh = int(np.sum(neuron_type < 0))
+        n_und = int(np.sum(neuron_type == 0))
+
+        def ranked_row_select(type_value):
+            idx = np.where(neuron_type == int(type_value))[0]
+            idx = idx[np.argsort(neuron_Sedge[idx])]
+            n_side = max(1, int(maxNeurons) // 2)
+            if idx.size <= int(maxNeurons):
+                sel = idx
+            else:
+                sel = np.unique(np.concatenate([idx[:n_side], idx[-n_side:]]))
+            row_select = np.zeros((n_neur,), dtype=bool)
+            row_select[sel] = True
+            return row_select, int(sel.size)
+
+        exc_rows, n_exc_show = ranked_row_select(1)
+        inh_rows, n_inh_show = ranked_row_select(-1)
+
+        figId = self.smart_append(figId)
+        fig = self.plt.figure(figId, facecolor="white", figsize=(14, 4.8))
+        gs = fig.add_gridspec(
+            1, 2, left=0.06, right=0.99, bottom=0.13, top=0.84, wspace=0.18
+        )
+
+        ax = fig.add_subplot(gs[0, 0])
+        n_pos, n_pos_show = self._bioexp_Ahat_topology_ax(
+            ax, loc_x, loc_y, A_prune, 0.0, sign="pos",
+            neuron_type=neuron_type, node_size=32, row_select=exc_rows,
+            und_color="yellow",
+        )
+        ax.set_title(
+            f"A_prune>0, shown edges {n_pos_show}/{n_pos}, neurons {n_exc_show}/{n_exc}",
+            fontsize=11, pad=8,
+        )
+        ax.scatter([], [], s=32, marker="o", c="magenta", edgecolors="k", label=f"exc={n_exc}")
+        ax.scatter([], [], s=32, marker="o", c="#39FF14", edgecolors="k", label=f"inh={n_inh}")
+        ax.scatter([], [], s=32, marker="o", c="yellow", edgecolors="k", label=f"und={n_und}")
+        ax.legend(loc="best", fontsize=9)
+
+        ax = fig.add_subplot(gs[0, 1])
+        n_neg, n_neg_show = self._bioexp_Ahat_topology_ax(
+            ax, loc_x, loc_y, A_prune, 0.0, sign="neg",
+            neuron_type=neuron_type, node_size=32, row_select=inh_rows,
+            und_color="yellow",
+        )
+        ax.set_title(
+            f"A_prune<0, shown edges {n_neg_show}/{n_neg}, neurons {n_inh_show}/{n_inh}",
+            fontsize=11, pad=8,
+        )
+        ax.scatter([], [], s=32, marker="o", c="magenta", edgecolors="k", label=f"exc={n_exc}")
+        ax.scatter([], [], s=32, marker="o", c="#39FF14", edgecolors="k", label=f"inh={n_inh}")
+        ax.scatter([], [], s=32, marker="o", c="yellow", edgecolors="k", label=f"und={n_und}")
+        ax.legend(loc="best", fontsize=9)
+
+        fig.suptitle(
+            f"Neuron spatial A_prune topology (signed): {bioMD['short_name']}  "
+            f"max neurons per panel={int(maxNeurons)}",
+            fontsize=12, y=0.97,
+        )

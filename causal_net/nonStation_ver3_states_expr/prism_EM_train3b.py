@@ -775,6 +775,23 @@ def main():
         mdl = model.module if hasattr(model, "module") else model
         A_hat = mdl.A.detach().cpu().numpy()
         B_hat = mdl.B.detach().cpu().numpy()
+        A_thr = A_hat.copy()
+        Nn = A_thr.shape[0]
+        off_mask = ~np.eye(Nn, dtype=bool)
+        A_thr[off_mask & (np.abs(A_thr) < float(args.minW))] = 0.0
+        np.fill_diagonal(A_thr, 0.0)
+        neuron_Sedge = A_thr.sum(axis=1)
+        neuron_type = np.zeros((Nn,), dtype=np.int8)
+        neuron_type[neuron_Sedge > float(args.minW)] = 1
+        neuron_type[neuron_Sedge < -float(args.minW)] = -1
+        A_prune = A_hat.copy()
+        A_prune[off_mask & (np.abs(A_prune) < float(args.minW))] = 0.0
+        diag_A = np.diag(A_hat).copy()
+        exc_rows = neuron_type > 0
+        inh_rows = neuron_type < 0
+        A_prune[exc_rows, :] = np.where(A_prune[exc_rows, :] > 0, A_prune[exc_rows, :], 0.0)
+        A_prune[inh_rows, :] = np.where(A_prune[inh_rows, :] < 0, A_prune[inh_rows, :], 0.0)
+        np.fill_diagonal(A_prune, diag_A)
 
         if args.fitName is None:
             h6 = secrets.token_hex(3)
@@ -787,6 +804,9 @@ def main():
         outD = {
             "A_init":         A_init_np.astype(np.float32),
             "A_hat":          A_hat.astype(np.float32),
+            "A_prune":        A_prune.astype(np.float32),
+            "neuron_type":    neuron_type,
+            "neuron_Sedge":   neuron_Sedge.astype(np.float32),
             "B_init":         B_init_out_np.astype(np.float32),
             "B_hat":          B_hat.astype(np.float32),
             "freq_h1d":       np.asarray(freq_h1d, dtype=np.float32),
