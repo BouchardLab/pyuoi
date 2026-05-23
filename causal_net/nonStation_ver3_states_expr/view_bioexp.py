@@ -55,9 +55,6 @@ def get_parser():
                         help="display data time range in seconds")
     parser.add_argument("--burst_freq_thres", default=5., type=float,
                         help="tags high freq channels for burst detection")
-    parser.add_argument("--burst_chan_thres", default=30, type=int,
-                        help="burst flag when instant high-rate neuron count exceeds this")
-
     parser.add_argument("--dataName", default="HET_80k_1-fc62ef",
                         help="preprocessed session name")
 
@@ -88,6 +85,7 @@ if __name__ == "__main__":
     bioFF = os.path.join(args.dataPath, f"{args.dataName}.bioExp.npz")
     print("bioExp:", bioFF)
     bioD, bioMD = read_data_npz(bioFF)
+    if args.verb > 1: pprint(bioMD)
     _require_bioexp(bioD, bioMD)
 
     plotMD = dict(bioMD)
@@ -98,9 +96,11 @@ if __name__ == "__main__":
     if "a" in args.showPlots or "b" in args.showPlots:
         spikesFF = os.path.join(args.dataPath, f"{args.dataName}.spikes.npz")
         spikeD, spikeMD = read_data_npz(spikesFF)
+        '''
         for key in ("spikes", "single_rates", "provenance", "data_type",
                     "time_step_sec", "num_neurons"):
             assert key in spikeMD, f"spikes.npz metadata missing {key!r}"
+        '''
         assert "experiment_name" in spikeMD["provenance"]
         plotMD = {**bioMD, **spikeMD}
         args.prjName = spikeMD["provenance"]["experiment_name"]
@@ -111,7 +111,7 @@ if __name__ == "__main__":
         plotMD["plot"] = {"time_rangeLR": np.array(args.time_range)}
         rebD = detect_spike_bursts(
             spikeD, spikeMD, args.time_rebin2,
-            args.burst_freq_thres, args.burst_chan_thres,
+            args.burst_freq_thres,
         )
 
     plot = Plotter(args)
@@ -129,3 +129,5 @@ if __name__ == "__main__":
 
     plot.display_all()
     print("M:done")
+
+  

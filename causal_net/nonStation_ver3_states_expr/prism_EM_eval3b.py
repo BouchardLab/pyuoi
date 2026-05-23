@@ -192,8 +192,6 @@ def main():
                    help="bioExp burst panels: rebin factor on spike time axis")
     g.add_argument("--burst_freq_thres", default=5.0, type=float,
                    help="bioExp burst panels: per-neuron rate threshold (Hz)")
-    g.add_argument("--burst_chan_thres", default=30, type=int,
-                   help="bioExp burst panels: flag burst when high-rate count exceeds this")
     parser.add_argument("-X", "--noXterm", action="store_true",
                         help="Disable X terminal for plotting")
     parser.add_argument("-v", "--verb", type=int, default=1,
@@ -229,7 +227,7 @@ def main():
         bioFF = spikesFF.replace('spikes.npz', 'bioExp.npz')
         bioD, bioMD = read_data_npz(bioFF, verb=args.verb > 1)
         bio_plot_md = {**spikeMD, **bioMD}
-        
+        if args.verb > 1: pprint(bioMD)
     else:
         truth_name = prov["state_model_file"]
         truthPath = os.path.join(args.basePath, "truthDale")
@@ -324,7 +322,7 @@ def main():
         assert is_bioexp, "plot j requires bioExp data (experiment_name in provenance)"
         rebD = detect_spike_bursts(
             spikeD, spikeMD, args.time_rebin2,
-            args.burst_freq_thres, args.burst_chan_thres,
+            args.burst_freq_thres,
         )
         plot.state_seq_fitonly_prismEM(
             fitD, MD, rebD, bio_plot_md, figId=9,

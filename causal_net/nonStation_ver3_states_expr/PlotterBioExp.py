@@ -147,13 +147,10 @@ class Plotter(PlotterBackbone):
     def plot_bioexp_sum_rate(self, ax, rebD, clip):
         timeV = clip["timeV"]
         rate1D = clip["rate1D"]
-        highChanMask = clip["highChanMask"]
         Tbin = clip["Tbin"]
         tL, tR = clip["tL"], clip["tR"]
         nchan = clip["nchan"]
         ax.bar(timeV + Tbin * 0.5, rate1D, width=Tbin, color='orange', align='center', alpha=0.7)
-        ax.bar(timeV + Tbin * 0.5, rate1D * highChanMask, width=Tbin,
-               color='red', align='center', alpha=0.7)
         ax.set(ylabel='sum rate (Hz)', title=f'sum rate from all {nchan} neurons')
         ax.set_xlim(tL, tR)
         ax.grid()
@@ -190,12 +187,10 @@ class Plotter(PlotterBackbone):
         fig=self.plt.figure(figId,facecolor='white', figsize=(16,11))
 
         rateThr2=rebD['rate_thres2']
-        highCntThr=rebD['high_cnt_thres']
         clip = clip_rebD_time(rebD, md['plot']['time_rangeLR'])
         print('iTL,R', clip['itL'], clip['itR'])
 
         highChanCnt = rebD['highChanCnt'][clip['itL']:clip['itR']]
-        highChanMask = clip['highChanMask']
         timeV = clip['timeV']
         Tbin = clip['Tbin']
         tL, tR = clip['tL'], clip['tR']
@@ -205,10 +200,8 @@ class Plotter(PlotterBackbone):
 
         ax = fig.add_subplot(gs[0, 0])
         ax.bar(timeV+Tbin*.5, highChanCnt, width=Tbin, color='forestgreen', align='center', alpha=0.7)
-        ax.bar(timeV+Tbin*.5, highChanCnt*highChanMask, width=Tbin, color='red', align='center', alpha=0.7)
-        ax.axhline(highCntThr, c='g', lw=1, ls='--')
         tit = (f'num neurons with instantaneous rate > thres={rateThr2:.0f} (Hz), '
-               f'cnt thres={highCntThr}, usable time frac:{rebD["usable_time_fract"]:.3f}  nchan={nchan}')
+               f'nchan={nchan}')
         ax.set(ylabel='num neurons', title=tit)
         ax.set_xlim(tL, tR)
         ax.grid()
@@ -377,5 +370,4 @@ class Plotter(PlotterBackbone):
             fontsize=12,
         )
         fig.tight_layout(rect=[0, 0, 1, 0.94])
-
 
