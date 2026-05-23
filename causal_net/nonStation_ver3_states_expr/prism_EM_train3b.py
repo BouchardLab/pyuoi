@@ -868,7 +868,7 @@ def main():
         print(f"\nSaved: {outFF}")
         print(f"  basePath={args.basePath}")
         print(f"  ./prism_EM_eval3b.py --basePath $basePath "
-              f"--dataName {outF} -p a i j \n")
+              f"--dataName {outF} -p a m n j  i \n")
     cleanup_distributed(is_dist)
 
 

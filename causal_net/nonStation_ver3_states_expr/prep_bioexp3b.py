@@ -164,7 +164,7 @@ def _read_metrics_frame(args):
 
     df = pd.read_excel(xlsxF, engine="openpyxl")
     cols = list(df.columns)
-    cols[0] = "unit_id" if args.inpFormat == 2 else "MEA_idx"
+    cols[0] = "MEA_idx"
     df.columns = cols
 
     if args.inpFormat == 2:
@@ -174,10 +174,6 @@ def _read_metrics_frame(args):
             "location_Z": "loc_z",
         }
         df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
-        assert "extremum_channel" in df.columns, (
-            f"{metrics_name} missing 'extremum_channel' column needed to create MEA_idx"
-        )
-        df["MEA_idx"] = df["extremum_channel"]
     else:
         assert "MEA_idx" in df.columns, "first spreadsheet column must be MEA_idx"
 
@@ -203,48 +199,22 @@ def _integer_if_possible(vals):
     return arr
 
 
-def _format2_metrics_order(df, spike_key_order, metrics_name):
-    """Return quality_metrics row indices matching sorted spike dictionary keys."""
-    key_arr = np.asarray(spike_key_order).ravel()
-    if all(_is_integral_key(k) for k in key_arr):
-        row_idx = np.asarray([int(float(k)) for k in key_arr], dtype=int)
-        if row_idx.size and np.min(row_idx) >= 0 and np.max(row_idx) < len(df):
-            return row_idx
-
-    unit_keys = [_mea_match_key(v) for v in df["unit_id"].values]
-    if len(unit_keys) != len(set(unit_keys)):
-        raise ValueError(f"duplicate unit_id rows in {metrics_name}")
-    row_by_unit = {_k: i for i, _k in enumerate(unit_keys)}
-
-    order_idx = []
-    for spike_key in key_arr:
-        key = _mea_match_key(spike_key)
-        assert key in row_by_unit, (
-            f"spike key {spike_key!r} (key={key!r}) not found in {metrics_name} unit_id column"
-        )
-        order_idx.append(row_by_unit[key])
-    return np.asarray(order_idx, dtype=int)
-
-
 def load_metrics_curated(args, mea_idx_order, spike_key_order):
     """Load metrics spreadsheet; filter and reorder rows to match output neuron order."""
     df, metrics_name = _read_metrics_frame(args)
 
-    if args.inpFormat == 2:
-        order_idx = _format2_metrics_order(df, spike_key_order, metrics_name)
-    else:
-        mea_keys = [_mea_match_key(v) for v in df["MEA_idx"].values]
-        if len(mea_keys) != len(set(mea_keys)):
-            raise ValueError(f"duplicate MEA_idx rows in {metrics_name}")
+    mea_keys = [_mea_match_key(v) for v in df["MEA_idx"].values]
+    if len(mea_keys) != len(set(mea_keys)):
+        raise ValueError(f"duplicate MEA_idx rows in {metrics_name}")
 
-        row_by_mea = {_k: i for i, _k in enumerate(mea_keys)}
-        order_idx = []
-        for mea_id in np.asarray(mea_idx_order).ravel():
-            key = _mea_match_key(mea_id)
-            assert key in row_by_mea, (
-                f"MEA_idx {mea_id!r} (key={key!r}) not found in {metrics_name}"
-            )
-            order_idx.append(row_by_mea[key])
+    row_by_mea = {_k: i for i, _k in enumerate(mea_keys)}
+    order_idx = []
+    for mea_id in np.asarray(mea_idx_order).ravel():
+        key = _mea_match_key(mea_id)
+        assert key in row_by_mea, (
+            f"MEA_idx {mea_id!r} (key={key!r}) not found in {metrics_name}"
+        )
+        order_idx.append(row_by_mea[key])
 
     df_ord = df.iloc[order_idx].reset_index(drop=True)
     col_names = [str(c) for c in df_ord.columns]
@@ -397,7 +367,7 @@ if __name__ == "__main__":
         pprint(spikeMD)
 
     print("\nNext step command:")
-    print('   ./view_bioexp.py  --dataPath $dataPath  --dataName   %s  -p  a b   -T 0 3550  ' % (bioMD['short_name']))
+    print('   ./view_bioexp.py  --dataPath $dataPath  --dataName   %s  -p  a b c  -T 0 3550  ' % (bioMD['short_name']))
     print("  ./fit_lassoPoisson.py  --dataPath $dataPath  --dataName %s  --num_epochs  10 " % bioMD['short_name'])
     print(" ./fitLasso4GPU.sh  --dataPath $dataPath  --dataName %s  --num_epochs  200 " % bioMD['short_name'])
     print("  ./bootsFit.sh --dataName  %s  --num_epochs  250 --dropDataFrac 0.5 --num_bootstraps 7  " % bioMD['short_name'])
