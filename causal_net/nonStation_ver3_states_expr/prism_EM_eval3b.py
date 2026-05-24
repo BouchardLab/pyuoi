@@ -227,6 +227,7 @@ def main():
         bioFF = spikesFF.replace('spikes.npz', 'bioExp.npz')
         bioD, bioMD = read_data_npz(bioFF, verb=args.verb > 1)
         bio_plot_md = {**spikeMD, **bioMD}
+        bio_plot_md["dataName"] = args.dataName
         if args.verb > 1: pprint(bioMD)
     else:
         truth_name = prov["state_model_file"]

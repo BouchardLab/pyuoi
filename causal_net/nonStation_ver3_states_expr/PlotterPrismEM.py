@@ -84,12 +84,9 @@ class Plotter(PlotterBackbone):
         prune_em = trainMD["delay_em_iter_4_Aprune"]
         rho_start_em = trainMD["delay_em_iter_4_ArhoMax"]
         lr_drop_em = trainMD["delay_em_iter_4_lrDecay"]
-        dyn_weight_em = trainMD["delay_em_iter_4_Aprune"]
-        show_dyn_weight_marker = not bool(trainMD.get("noFreqWeight", False))
         prune_m_epoch = prune_em * m_per_em
         rho_start_m_epoch = rho_start_em * m_per_em
         lr_drop_m_epoch = lr_drop_em * m_per_em
-        dyn_weight_m_epoch = dyn_weight_em * m_per_em
 
         def draw_threshold_marker(ax, x_pos, x_max, txt, color,yFac=0.02):
             if not (0 < x_pos <= x_max):
@@ -111,14 +108,12 @@ class Plotter(PlotterBackbone):
         ax = self.plt.subplot(2, 3, 1)
         ax.plot(em_iters[jSkipEM:], e_nll[jSkipEM:], 'o-', color='tab:blue', markersize=3,
                 linewidth=1.2)
-        ax.set(title="E-step weighted NLL", xlabel="EM iteration",
+        ax.set(title="E-step NLL", xlabel="EM iteration",
                ylabel="NLL / bin")
         ax.grid(True, alpha=0.3)
         draw_threshold_marker(ax, prune_em, len(e_nll), "start Aprune", "k")
         draw_threshold_marker(ax, rho_start_em, len(e_nll), "start rhoMax", "tab:brown")
         draw_threshold_marker(ax, lr_drop_em, len(e_nll), "start_lrDrop", "tab:gray", yFac=0.6)
-        if show_dyn_weight_marker:
-            draw_threshold_marker(ax, dyn_weight_em, len(e_nll), "start dynWeight", "tab:pink")
         txt = (f"pgd_iter={trainMD['pgd_iter']}\n"
                f"lr_E={trainMD['lr_estep']}\n"
                f"λ₂={trainMD['lambda2']}")
@@ -146,8 +141,6 @@ class Plotter(PlotterBackbone):
         draw_threshold_marker(ax, prune_m_epoch, n_m_total, "start Aprune", "k")
         draw_threshold_marker(ax, rho_start_m_epoch, n_m_total, "start rhoMax", "tab:brown")
         draw_threshold_marker(ax, lr_drop_m_epoch, n_m_total, "start_lrDrop", "tab:gray", yFac=0.4)
-        if show_dyn_weight_marker:
-            draw_threshold_marker(ax, dyn_weight_m_epoch, n_m_total, "start dynWeight", "tab:pink")
 
         txt = (f"lr_M={trainMD['lr_mstep']}\n"
                f"L1 λ3={trainMD['lambda3']}\n"
@@ -169,8 +162,6 @@ class Plotter(PlotterBackbone):
         draw_threshold_marker(ax, prune_m_epoch, n_m_total, "start Aprune", "k")
         draw_threshold_marker(ax, rho_start_m_epoch, n_m_total, "start rhoMax", "tab:brown")
         draw_threshold_marker(ax, lr_drop_m_epoch, n_m_total, "start_lrDrop", "tab:gray", yFac=0.4)
-        if show_dyn_weight_marker:
-            draw_threshold_marker(ax, dyn_weight_m_epoch, n_m_total, "start dynWeight", "tab:pink")
         ax.legend(fontsize=8)
 
         # ── Row 2, Col 1: non-zero off-diag edges vs M-epoch ────────
@@ -182,8 +173,6 @@ class Plotter(PlotterBackbone):
         draw_threshold_marker(ax, prune_m_epoch, n_m_total, "start Aprune", "k")
         draw_threshold_marker(ax, rho_start_m_epoch, n_m_total, "start rhoMax", "tab:brown")
         draw_threshold_marker(ax, lr_drop_m_epoch, n_m_total, "start_lrDrop", "tab:gray", yFac=0.4)
-        if show_dyn_weight_marker:
-            draw_threshold_marker(ax, dyn_weight_m_epoch, n_m_total, "start dynWeight", "tab:pink")
 
         # learning rate on twin axis
         ax2 = ax.twinx()
@@ -1770,8 +1759,9 @@ class Plotter(PlotterBackbone):
         ax.scatter([], [], s=32, marker="o", c="yellow", edgecolors="k", label=f"und={n_und}")
         ax.legend(loc="best", fontsize=9)
 
+        data_name = bioMD.get("dataName", bioMD["short_name"])
         fig.suptitle(
-            f"Neuron spatial A_prune topology (signed): {bioMD['short_name']}  "
+            f"Neuron spatial A_prune topology (signed): {data_name}  "
             f"max neurons per panel={int(maxNeurons)}",
             fontsize=12, y=0.97,
         )
