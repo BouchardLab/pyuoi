@@ -12,7 +12,7 @@ Algorithm: Block Coordinate Descent
   M-step: m_epochs of Adam with DataLoader        → update (A, B)
 
 Uses uniformly weighted Poisson NLL in both steps, L1 off-diagonal
-soft-thresholding, and hard spectral radius projection on A.
+soft-thresholding, and delayed soft spectral radius correction on A.
 Numerical tricks and defaults follow prism_Mstep_train3.py (M-step)
 and prism_Estep_train.py (E-step).
 
@@ -240,19 +240,22 @@ def offdiag_soft_threshold_(A, lr, lam):
         A[mask] = v.sign() * (v.abs() - thresh).clamp(min=0.0)
 
 
-def enforce_spectral_radius_(A, rho_max):
-    """Hard in-place spectral projection.  Returns rho before projection."""
+def enforce_spectral_radius_(A, rho_max, correction_strength=1.0):
+    """In-place spectral-radius correction. Returns rho before correction."""
     with torch.no_grad():
         rho = torch.linalg.eigvals(A).abs().max().item()
-        if rho > rho_max:
-            A.mul_(rho_max / rho)
+        alpha = min(1.0, max(0.0, float(correction_strength)))
+        if rho > rho_max and alpha > 0.0:
+            hard_scale = float(rho_max) / float(rho)
+            scale = 1.0 - alpha * (1.0 - hard_scale)
+            A.mul_(scale)
     return rho
 
 
-def sync_AB_via_rank0_avg_then_broadcast_(mdl, rho_max):
+def sync_AB_via_rank0_avg_then_broadcast_(mdl, rho_max, correction_strength=1.0):
     """Rank-0 averages A/B, enforces rho on averaged A, then broadcasts A/B."""
     if not (dist.is_available() and dist.is_initialized()):
-        enforce_spectral_radius_(mdl.A, rho_max)
+        enforce_spectral_radius_(mdl.A, rho_max, correction_strength)
         return
 
     rank = dist.get_rank()
@@ -267,7 +270,7 @@ def sync_AB_via_rank0_avg_then_broadcast_(mdl, rho_max):
         if rank == 0:
             A_buf.div_(world)
             B_buf.div_(world)
-            enforce_spectral_radius_(A_buf, rho_max)
+            enforce_spectral_radius_(A_buf, rho_max, correction_strength)
 
         dist.broadcast(A_buf, src=0)
         dist.broadcast(B_buf, src=0)
@@ -277,7 +280,8 @@ def sync_AB_via_rank0_avg_then_broadcast_(mdl, rho_max):
 
 def run_mstep_epoch(model, loader, optimizer, device, dt,
                     l1_wt, lambda3, rho_max,
-                    rho_every, apply_prune, apply_rho, off_mask, minW):
+                    rho_every, apply_prune, apply_rho, rho_correction_strength,
+                    off_mask, minW):
     """One DataLoader pass updating A and B.  Returns metrics dict.
     """
     model.train()
@@ -306,7 +310,9 @@ def run_mstep_epoch(model, loader, optimizer, device, dt,
         if apply_prune and lambda3 > 0:
             offdiag_soft_threshold_(mdl.A, optimizer.param_groups[0]["lr"], lambda3)
         if apply_rho and (bi % rho_every == 0):
-            sync_AB_via_rank0_avg_then_broadcast_(mdl, rho_max)
+            sync_AB_via_rank0_avg_then_broadcast_(
+                mdl, rho_max, rho_correction_strength
+            )
 
         s_tot += loss.item()
         s_nll += nll.item()
@@ -396,7 +402,7 @@ def parse_args():
     g.add_argument("--lambda3", type=float, default=0.02,
                    help="L1 penalty on off-diagonal A")
     g.add_argument("--rho_max", type=float, default=0.95,
-                   help="Hard spectral radius ceiling for A")
+                   help="Spectral radius target for delayed soft correction of A")
     g.add_argument("--prescale_m_step_4_ArhoMax", type=int, default=50,
                    help="Spectral projection frequency (batches)")
     g.add_argument("--delay_em_iter_4_ArhoMax", type=int, default=3,
@@ -653,7 +659,7 @@ def main():
     # ── history ──────────────────────────────────────────────────
     h_e_nll = []
     h_m_loss, h_m_nll, h_m_l1 = [], [], []
-    h_rho, h_nz, h_lr = [], [], []
+    h_rho, h_nz, h_lr, h_rho_alpha = [], [], [], []
 
     t_start = time.time()
     m_epoch_global = 0
@@ -673,6 +679,8 @@ def main():
                 print(f"threshold passed: 'delay_em_iter_4_Aprune': {args.delay_em_iter_4_Aprune} (em={em})")
         apply_prune = em > args.delay_em_iter_4_Aprune
         apply_rho = em > args.delay_em_iter_4_ArhoMax
+        em_iters_left = max(1, args.num_em_iters - em + 1)
+        rho_correction_strength = 1.0 / float(em_iters_left) if apply_rho else 0.0
 
         # ── E-step ───────────────────────────────────────────────
         te0 = time.time()
@@ -739,6 +747,7 @@ def main():
                 model, loader, optimizer, device, dt,
                 l1_wt, args.lambda3, args.rho_max,
                 args.prescale_m_step_4_ArhoMax, apply_prune, apply_rho,
+                rho_correction_strength,
                 off_mask, args.minW
             )
             if em > args.delay_em_iter_4_lrDecay:
@@ -750,6 +759,7 @@ def main():
             h_rho.append(met["rho"])
             h_nz.append(met["nz"])
             h_lr.append(float(optimizer.param_groups[0]["lr"]))
+            h_rho_alpha.append(rho_correction_strength)
         tm = time.time() - tm0
 
         if rank == 0 and args.verb > 0:
@@ -821,6 +831,7 @@ def main():
             "m_nll_epoch":    np.asarray(h_m_nll, dtype=np.float64),
             "m_l1_epoch":     np.asarray(h_m_l1, dtype=np.float64),
             "rho_epoch":      np.asarray(h_rho, dtype=np.float64),
+            "rho_correction_strength_epoch": np.asarray(h_rho_alpha, dtype=np.float64),
             "nz_edges_epoch": np.asarray(h_nz, dtype=np.int64),
             "learning_rates": np.asarray(h_lr, dtype=np.float64),
         }
@@ -838,6 +849,7 @@ def main():
             "lambda2":                  args.lambda2,
             "lambda3":                  args.lambda3,
             "rho_max":                  args.rho_max,
+            "rho_projection_mode":       "soft_inverse_em_iters_left",
             "prescale_m_step_4_ArhoMax":  args.prescale_m_step_4_ArhoMax,
             "delay_em_iter_4_ArhoMax":    args.delay_em_iter_4_ArhoMax,
             "rho_sync_mode":            "broadcast",
