@@ -20,7 +20,9 @@ Model, Objective, and Implementation. Ver3}
 \maketitle
 
 \begin{abstract}
-This document describes the current \texttt{prism\_EM\_train.py} implementation for fitting a non-stationary Poisson GLM with latent state mixing (PRISM-EM)~\footnote{PRISM: PRobabilistic Inference of Sparse Mixed-state dynamics; ~~EM: Expectations Maximization}. The model uses a shared connectivity matrix across states, state-specific bias vectors, and time-varying simplex coefficients. Training is performed by block coordinate descent: a sequential projected-gradient E-step for coefficients followed by Viterbi decoding to one-hot state assignments, and an Adam-based M-step for model parameters with off-diagonal L1 shrinkage and spectral-radius projection. Spectral-radius enforcement, L1 pruning, and learning-rate decay are each activated after a configurable number of EM iterations. We summarize the exact objective used in code, the decoding method, all current default hyperparameters, and initialization modes (data-driven vs random) for \(A\), \(B\), and \(C\).
+This document describes the current \texttt{prism\_EM\_train3.py} implementation
+(script header: \texttt{prism\_EM\_train.py}) for fitting a non-stationary
+Poisson GLM with latent state mixing (PRISM-EM)~\footnote{PRISM: PRobabilistic Inference of Sparse Mixed-state dynamics; ~~EM: Expectations Maximization}. Input spike trains are read from \texttt{spikesData/<dataName>.spikes.npz} (non-stationary output of \texttt{gen\_nonStationarySpikes3.py}). The model uses a shared connectivity matrix across states, state-specific bias vectors, and time-varying simplex coefficients. Training is performed by block coordinate descent: a sequential projected-gradient E-step for coefficients followed by Viterbi decoding to one-hot state assignments, and an Adam-based M-step for model parameters with off-diagonal L1 shrinkage and spectral-radius projection. Spectral-radius enforcement, L1 pruning, and learning-rate decay are each activated after a configurable number of EM iterations. Distributed training (\texttt{torchrun}) shards the E-step over time bins and synchronizes \(A\), \(B\), and \(c\) across GPUs. We summarize the exact objective used in code, the decoding method, all current default hyperparameters, initialization modes (data-driven vs random) for \(A\), \(B\), and \(C\), and the saved fit file layout.
 \end{abstract}
 
 \tableofcontents
@@ -39,7 +41,7 @@ by \(M\) latent dynamical states that switch over time. The key
 structural assumption is that all states share a single
 connectivity matrix \(A \in \mathbb{R}^{N \times N}\) but differ in
 baseline excitability through per-state bias vectors
-\(B_m \in \mathbb{R}^N,\; m = 1, \dots, M\).
+\(B_m \in \mathbb{R}^N,\; m = 0, \dots, M-1\) (0-based state indices in code).
 
 At each time bin \(t\), a coefficient vector
 \(c_t \in \mathbb{R}^M\), constrained to the probability simplex
@@ -169,6 +171,12 @@ sweep from \(t=2\) to \(T\). At each time bin:
   \item Accept \(c_t\), continue to next time bin.
 \end{enumerate}
 Projection uses the sort-based simplex projection (Duchi et al., \(O(M\log M)\)).
+Bin \(t=0\) is not updated; the sweep starts at \(t=1\) (first lag pair
+\((Y_0,Y_1)\)), matching the objective sum over \(t=2,\dots,T\) in
+1-based notation.
+In the distributed setting, each rank updates a disjoint time shard of
+\(c_{1:T}\); shard results are averaged where multiple ranks overlap at
+shard boundaries, then broadcast so all ranks share the same \(c\).
 
 After the forward sweep completes, the soft coefficients \(c_{1:T}\) are decoded into a hard state sequence via Viterbi (Section~\ref{sec:decode}). The M-step then receives one-hot encoded state assignments rather than the soft simplex probabilities:
 \begin{equation}
@@ -212,7 +220,8 @@ Learning rate follows linear decay from \(\alpha_M^{(0)}\) to
 \subsection{State Decoding}
 \label{sec:decode}
 
-Viterbi decoding is applied both within the EM loop (after each E-step, to produce one-hot assignments for the M-step) and after the final EM iteration (to produce the output state sequence). The decoder uses a homogeneous transition prior:
+Viterbi decoding is applied both within the EM loop (after each E-step, to produce one-hot assignments for the M-step) and after the final EM iteration (to produce the output state sequence). The decoder uses a homogeneous transition prior with
+\(\tau_{\mathrm{dwell}}=\texttt{decode\_dwell\_sec}\):
 \begin{equation}
   p_{\mathrm{stay}}=\exp\!\left(-\frac{\Delta t}{\tau_{\mathrm{dwell}}}\right),
   \qquad
@@ -240,7 +249,7 @@ Per-bin confidence is
 Group & Parameter (\texttt{CLI}) & Default \\
 \midrule
 EM structure & \texttt{--num\_em\_iters} & 20 \\
- & \texttt{--m\_epochs} & 5 \\
+ & \texttt{--m\_epochs} & 100 \\
 E-step & \texttt{--pgd\_iter} & 5 \\
  & \texttt{--lr\_estep} & 0.03 \\
  & \texttt{--lambda2} & 2.0 \\
@@ -261,11 +270,17 @@ Init & \texttt{--init\_A} & data (or rand)\\
  & \texttt{--init\_states} & data (or rand) \\
 \bottomrule
 \end{tabular}
-\caption{Current defaults in \texttt{prism\_EM\_train.py}.}
+\caption{Current defaults in \texttt{prism\_EM\_train3.py}.}
 \end{table}
 
 \paragraph{Required input.}
-\texttt{--num\_states} is required (no default).
+\texttt{--num\_states} (\texttt{-M}) is required (no default).
+\texttt{--dataName} and \texttt{--basePath} locate input spikes under
+\texttt{<basePath>/spikesData/}; fits are written to
+\texttt{<basePath>/prismFit/<fitName>.prismEM.npz}.
+Wrapper script \texttt{fitPrismEM.sh} launches distributed training via
+\texttt{torchrun} (default 4 GPUs) and sets
+\texttt{--time\_range\_sec 0 80} unless overridden.
 
 \paragraph{Dataset-provided values.}
 \(\Delta t\) (\texttt{time\_step\_sec}) and \(\eta_{\mathrm{clip}}\)
@@ -294,7 +309,8 @@ So coefficients start uniform over states.
 \paragraph{data mode:}
 \begin{enumerate}
   \item Aggregate spikes into coarse blocks of length
-  \(\lceil\tau_{\mathrm{dwell}}/\Delta t\rceil\) bins.
+  \(\lceil\tau_{\mathrm{dwell}}/\Delta t\rceil\) bins, where
+  \(\tau_{\mathrm{dwell}}=\texttt{decode\_dwell\_sec}\) (default 0.3\,s).
   \item For each block, compute a scalar mean population firing rate.
   \item Find \(M-1\) thresholds minimizing within-cluster variance
   (dynamic-programming segmentation on unique rate values).
@@ -340,6 +356,37 @@ A \leftarrow 3\,A_{\mathrm{ols}}.
 No spectral-radius rescaling is applied at initialization; the spectral constraint is enforced later during training via the delayed projection mechanism.
 
 Diagnostics (condition number, spectral radius, one-step \(R^2\), Frobenius norm,
-bins used) are computed on the pre-scaled OLS estimate and saved in metadata.
+bins used) are computed on the pre-scaled OLS estimate and saved in metadata
+(\texttt{init\_A} sub-dictionary of the output metadata).
+
+% ---------------------------------------------------------------
+\section{Output File and Evaluation}
+\label{sec:output}
+% ---------------------------------------------------------------
+
+After training, rank~0 writes \texttt{<basePath>/prismFit/<fitName>.prismEM.npz}.
+If \texttt{--fitName} is omitted, the name is
+\texttt{<dataName>-EM-<6hex>}.
+Key arrays (shapes for \(T\) time bins, \(N\) neurons, \(M\) states):
+\begin{itemize}
+  \item \texttt{A\_init}, \texttt{A\_hat}: \((N,N)\);
+  \item \texttt{B\_init}: \((N,)\) --- first row of the initialized \(B\) matrix
+        (common across states in \texttt{data} mode);
+  \item \texttt{B\_hat}: \((M,N)\) --- full per-state bias matrix;
+  \item \texttt{c\_init}, \texttt{c\_hat}: \((T,M)\);
+  \item \texttt{S\_init}, \texttt{S\_hat}: \((T,)\) integer state labels
+        (\texttt{S\_init} is \(-1\) in \texttt{rand} init mode);
+  \item \texttt{S\_hat\_CL}: \((T,)\) per-bin confidence
+        \(\mathrm{CL}_t = 1-\max_m c_{t,m}\);
+  \item \texttt{e\_nll\_em}, \texttt{m\_loss\_epoch}, \texttt{m\_nll\_epoch},
+        \texttt{m\_l1\_epoch}, \texttt{rho\_epoch}, \texttt{nz\_edges\_epoch},
+        \texttt{learning\_rates}: training history.
+\end{itemize}
+Metadata records all CLI hyperparameters, time-window bins, initialization
+dictionaries, and \texttt{mstep\_state\_mode=viterbi\_onehot}.
+Suggested evaluation:
+\begin{verbatim}
+./prism_EM_eval3.py --basePath $basePath --dataName <fitName> -p a e f g
+\end{verbatim}
 
 \end{document}

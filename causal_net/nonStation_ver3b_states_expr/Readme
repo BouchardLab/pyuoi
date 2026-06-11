@@ -1,0 +1,28 @@
+Then this is  how I read experimental data from Mandar 
+
+Use this version:
+https://github.com/BouchardLab/pyuoi/tree/uoi-var/causal_net/nonStation_ver3_states_expr
+
+INPUT:
+expPath=/global/cfs/cdirs/m2043/causal_inference/Canine_Organoids_PVS/
+sesN=Analysis/CanineOrganoids_03112026_PVS/260324/M08092/Network/000023/well000;
+shortN=Canine_260324_r23_w0_1hz
+
+The shortN is my compact data idetniffier: day, run#, well#, and what is the cut-off frequency (I use 1Hz
+
+OUTPUT:
+this is where I want to uncompressed data to land:
+basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3
+dataPath=${basePath}/spikesData/
+
+This is unpackimg command:
+./prep_bioexp3b.py --sessionName $sesN  --dataPath $dataPath --expPath $expPath --freqRange 1 50 --shortName $shortN 
+
+This is how you can inspect some aspects of raw data:
+   ./view_bioexp.py  --dataPath $dataPath  --dataName   Canine_260324_r23_w0_1hz  -p  a b   -T 0 3550  
+
+login09:/global/cfs/cdirs/m2043/causal_inference/Canine_Organoids_PVS/Analysis/CanineOrganoids_03112026_PVS> ls */*/*/*
+260324/M08092/Network/000021:
+well000/  well001/  well002/  well003/ well004/  well005/
+
+
