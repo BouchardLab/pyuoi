@@ -1,0 +1,642 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+
+\geometry{margin=0.8in}
+
+\title{EM-FDR-Bagging: Robust Estimation of the Connectivity Matrix\\
+from Multi-State Spiking Data\\
+\large A bagged, scramble-calibrated wrapper around PRISM-EM}
+\author{Jan Balewski, NERSC}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This document describes \textbf{EM-FDR-Bagging}, a statistical wrapper around
+the PRISM-EM fitter that aims to recover the shared connectivity matrix
+\(A\in\mathbb{R}^{N\times N}\) of a non-stationary, multi-state Poisson GLM
+\emph{robustly}, i.e.\ with explicit control of false edges and with
+per-edge uncertainty estimates, on real data where no ground truth exists.
+The method combines three ideas. First, \emph{block bagging}: the recording
+is resampled into multiple overlapping bags built from spaced contiguous
+time blocks, and PRISM-EM is fit independently on each bag. Second, a
+\emph{circular-shift null}: within each bag the fitted state sequence is
+frozen and the connectivity and state biases are re-estimated many times on per-neuron
+time-scrambled spikes, producing a null distribution of edge weights that
+have been passed through exactly the same estimation machinery as the real
+weights. Third, \emph{per-row pooled significance with cross-bag stability
+selection}: edges are tested against a row-pooled null and retained only if
+they are selected reliably across bags. The procedure yields, for every
+surviving edge, a selection frequency, a bagged point estimate, a bootstrap
+SD, and a null-referenced effect size. We treat PRISM-EM as a
+black box exposed through two entry points and specify everything needed for
+an implementer who has the PRISM-EM code in hand.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ===============================================================
+\section{Scope and Inputs}
+% ===============================================================
+
+The input is a single spike-train recording of \(N\) neurons over \(T\)
+discrete time bins of width \(\Delta t\), in the format consumed by
+PRISM-EM (\texttt{spikesData/<dataName>.spikes.npz}). The target regime,
+which sizes every numerical choice below, is:
+\(N=50\)–\(500\) neurons; recordings of \(10\)–\(60\) minutes at
+\(\Delta t=10\,\text{ms}\), so \(T\) ranges from \(6\times10^{4}\) to
+\(3.6\times10^{5}\) bins; per-neuron firing rates of \(1\)–\(5\,\text{Hz}\);
+state-switching rates of \(5\)–\(15\) transitions per minute; and a small
+number of latent states, typically \(M\approx3\). Crucially, the method is
+designed for application to \emph{real} data: it never references ground
+truth, and every quantity it reports is computed from the data alone.
+
+The deliverable is not a single point estimate of \(A\) but a vetted edge
+list. For each off-diagonal entry \((i,j)\) that survives the procedure we
+report a point estimate, a statistical uncertainty, a stability (selection)
+frequency, and an effect size relative to the null. Self-couplings
+\(A_{ii}\) are excluded from testing throughout.
+
+% ===============================================================
+\section{The PRISM-EM Workhorse and Its Two Entry Points}
+\label{sec:workhorse}
+% ===============================================================
+
+EM-FDR-Bagging treats PRISM-EM as a callable. We summarize only what the
+wrapper relies on; the full model, objective, and defaults are documented
+separately in the PRISM-EM specification.
+
+\subsection{What PRISM-EM fits}
+
+PRISM-EM fits a non-stationary Poisson GLM in which all \(M\) latent states
+share one connectivity matrix \(A\) but carry state-specific bias vectors
+\(B_m\). With \(c_t\) the simplex coefficients at bin \(t\) and
+\(B_t=\sum_m c_{mt}B_m\), the rate is
+\(\mu_t=\exp\!\big(\min(A Y_{t-1}+B_t,\,\eta_{\text{clip}})\big)\,\Delta t\)
+and \(Y_t\sim\text{Poisson}(\mu_t)\). Training is block coordinate descent:
+an E-step infers \(c_{1:T}\) by simplex-projected gradient descent and
+Viterbi-decodes them to a hard one-hot state sequence
+\(\hat S_{1:T}\); an M-step then updates \(A,\mathbf{B}\) by Adam under the
+frozen one-hot assignment, with off-diagonal \(L_1\) shrinkage (strength
+\(\lambda_3\)), a spectral-radius projection
+\(\rho(A)\le\rho_{\max}\), and a learning-rate decay. The
+shrinkage, projection, and decay each switch on only after a configurable
+number of EM iterations. The fitted \(A\) is therefore the output of a
+specific, deterministic-in-configuration pipeline of regression plus
+shrinkage plus spectral projection --- a fact the null construction below
+depends on.
+
+\subsection{Entry point 1: full fit}
+\label{sec:ep1}
+
+\begin{quote}
+\(\textsf{full\_fit}(\text{spikes},\,M,\,\theta_{\text{EM}})
+\;\longrightarrow\;(\hat A,\ \hat S_{1:T},\ \hat{\mathbf B},\ \text{history})\)
+\end{quote}
+
+This is the ordinary PRISM-EM run: full E/M alternation on the supplied
+spikes, returning the fitted connectivity \(\hat A\), the decoded one-hot
+state sequence \(\hat S_{1:T}\), the per-state biases \(\hat{\mathbf B}\),
+and the training history. Here \(\theta_{\text{EM}}\) collects all PRISM-EM
+hyperparameters (number of EM iterations, M-step epochs, learning rates,
+\(\lambda_2,\lambda_3,\rho_{\max}\), the delay schedules, etc.).
+
+\subsection{Entry point 2: M-step-only refit with locked state sequence}
+\label{sec:ep2}
+
+\begin{quote}
+\(\textsf{mstep\_locked}(\,Y_{\text{prev}},\,Y_{\text{curr}},\,\hat S^{\text{lock}},\,
+\hat{\mathbf B}^{\text{init}},\,\theta_{\text{M}}\,)
+\;\longrightarrow\;(A,\mathbf B)\)
+\end{quote}
+
+This entry point runs \emph{only} the M-step. It accepts spike pairs
+\((Y_{\text{prev}},Y_{\text{curr}})\), an externally supplied and
+\emph{frozen} state sequence \(\hat S^{\text{lock}}\) (used directly as the
+one-hot assignment, with no E-step and no Viterbi re-decoding), and returns
+the re-estimated connectivity \(A\) and the refit state biases
+\(\mathbf B\). The supplied \(\hat{\mathbf B}^{\text{init}}\) is the
+time-ordered fit's \(\hat{\mathbf B}\); it initializes the locked M-step but
+is not frozen. Re-fitting \(\mathbf B\) in the scrambled context lets the
+null absorb state-specific baseline effects, so the test of \(A\) is not
+made artificially harsh by a bias mismatch.
+
+\paragraph{Locked-state time indexing.} For each lag-1 training pair
+\((Y_{t-1},Y_t)\), the locked state used by the M-step is
+\(\hat S^{\text{lock}}_{t-1}\), i.e.\ the state attached to the input/history
+bin. Equivalently, if the spike pairs have length \(T-1\), the state
+covariate rows are formed from \(\hat S^{\text{lock}}_{0:T-2}\), converted
+to one-hot vectors. This convention is part of the model definition for
+lag-1 fitting and must be used identically for the real time-ordered fit and
+for every scrambled locked refit.
+
+The locked M-step is configured to reproduce the real
+pipeline exactly: the same \(L_1\) strength \(\lambda_3\), the same spectral
+projection \(\rho_{\max}\), and the same learning-rate decay as the
+corresponding \textsf{full\_fit}. Because there is no E-step here, the EM
+iteration counters that gate PRISM-EM's delayed schedules are not
+meaningful; instead all schedule-gated operations (shrinkage, spectral
+projection, decay) are \textbf{active from the first M-step epoch}. The
+rationale is that the null estimate must traverse the same shrinkage and
+constraint geometry as the converged real estimate, which lives in the
+late-EM regime where all schedules have already fired.
+
+\paragraph{Implementation note (prerequisite).} The current PRISM-EM code
+inlines the M-step inside the EM loop and feeds it the one-hot sequence
+produced internally by the E-step. To support entry point~2, the M-step
+must be exposed as a standalone callable that consumes an externally
+supplied \(\hat S^{\text{lock}}\) and externally supplied spike pairs. This
+includes making the lag-1 state alignment explicit as
+\(\hat S^{\text{lock}}_{t-1}\) for pair \((Y_{t-1},Y_t)\). This
+is a small refactor of existing code rather than new modeling work; the rest
+of this document assumes both entry points exist with the signatures above.
+
+% ===============================================================
+\section{Method Overview}
+% ===============================================================
+
+EM-FDR-Bagging has two stages, and the document is organized to match the
+intended software structure.
+
+\textbf{Stage~(a), per-bag fitting} (Sections~\ref{sec:bagging}--\ref{sec:bagout}).
+For a single bag: assemble a resampled time series from spaced blocks, run
+\textsf{full\_fit} to obtain the real \((\hat A^{(b)},\hat S^{(b)})\), then run
+\(P\) scramble refits through \textsf{mstep\_locked} with the state sequence
+frozen, obtaining a set of null connectivity matrices. Write everything to
+disk. This stage is one self-contained program; it is run \(N_{\text{bag}}\)
+times, once per bag, as independent jobs.
+
+\textbf{Stage~(b), aggregation and pruning} (Section~\ref{sec:aggregate}).
+Read all per-bag outputs from a directory, build per-row pooled null
+distributions, perform per-bag selection and cross-bag stability selection,
+and emit the final vetted edge list with uncertainties.
+
+The symbols introduced for the wrapper, kept distinct from PRISM-EM's
+\(N,M,T\), are collected in Table~\ref{tab:symbols}.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Symbol & Meaning & Nominal value \\
+\midrule
+\(N_{\text{blk}}\) & blocks per bag & \(10\) \\
+\(L_{\text{blk}}\) & block length (s) & \(60\) \\
+\(L_{\text{blk}}^{\text{bin}}\) & block length (bins) \(=L_{\text{blk}}/\Delta t\) & \(6000\) \\
+\(W_{\text{src}}\) & source window for block starts (s) & e.g.\ \([1000,1600]\) \\
+\(N_{\text{bag}}\) & number of bags & \(5\)--\(10\) \\
+\(P\) & scrambles per bag & \(4\)--\(8\) \\
+\(\delta_{\text{blk}}^{\min}\) & min separation between block starts (s) & \(1\) \\
+\(\delta_{\text{roll}}^{\min}\) & roll exclusion-zone half-width (s) & \(2\) \\
+\(q\) & per-bag per-row selection quantile level & e.g.\ \(0.99\) \\
+\(\pi_{\text{thr}}\) & cross-bag selection-frequency threshold & \(0.6\)--\(0.8\) \\
+\(M,N,T\) & states, neurons, bins (PRISM-EM) & \(\approx3\); \(50\)--\(500\); \(6\!\times\!10^4\)--\(3.6\!\times\!10^5\) \\
+\bottomrule
+\end{tabular}
+\caption{Symbols introduced by EM-FDR-Bagging and their nominal values.
+Every numeric choice in the text is written as ``symbol = value'' so it can
+be adjusted.}
+\label{tab:symbols}
+\end{table}
+
+% ===============================================================
+\section{Stage (a.1): Block Bagging}
+\label{sec:bagging}
+% ===============================================================
+
+A bag is a surrogate recording assembled by concatenating
+\(N_{\text{blk}}=10\) contiguous blocks, each of length
+\(L_{\text{blk}}=60\,\text{s}\) (i.e.\ \(L_{\text{blk}}^{\text{bin}}=6000\)
+bins at \(\Delta t=10\,\text{ms}\)), drawn from a designated source window
+\(W_{\text{src}}\) of the original recording. The reassembled bag has length
+\(N_{\text{blk}}\times L_{\text{blk}}^{\text{bin}}\) bins (here
+\(6\times10^4\) bins, i.e.\ \(10\) minutes), which is the sequence PRISM-EM
+fits.
+
+\paragraph{Block placement.} Block start positions are bin indices drawn
+from the source window. The window \(W_{\text{src}}\) is given in seconds and
+must leave room for a full block, so admissible starts (in bins) lie in
+\([\,W_{\text{src}}^{\text{start}}/\Delta t,\;
+W_{\text{src}}^{\text{end}}/\Delta t - L_{\text{blk}}^{\text{bin}}\,]\).
+Within that range a start may fall on essentially any bin, so the number of
+candidate starts is large (tens of thousands), and exact collisions between
+two chosen starts are vanishingly unlikely. The genuine hazard is not
+identical starts but \emph{near-identical, heavily overlapping} blocks: two
+starts one bin apart share all but one bin of content and would inject a
+near-duplicate stretch into the bag. We therefore impose a minimum
+separation \(\delta_{\text{blk}}^{\min}=1\,\text{s}\) (\(100\) bins) between
+any two chosen starts and sample by rejection: draw \(N_{\text{blk}}\)
+starts uniformly from the admissible range, reject and redraw any draw that
+violates the minimum-separation constraint, and try up to
+\texttt{max\_block\_draw\_trials}=30 times for each new block. If all 30
+attempts fail, accept the 31st draw regardless of the separation constraint
+and mark the violation in the job metadata. This bounded retry policy avoids
+silent infinite loops while still giving the ordinary case many chances to
+avoid near-duplicates.
+
+\paragraph{Blocks are non-circular.} Each block is a literal contiguous slice
+of the recording, clipped at the window end; no wrap-around is used in block
+extraction. Lag structure within a block is preserved exactly, so the first
+lag pair \((Y_0,Y_1)\) at a block boundary is the only mild discontinuity,
+and with \(L_{\text{blk}}^{\text{bin}}=6000\) bins per block the boundary
+fraction is negligible. By default these cross-block boundary pairs are
+included rather than masked, because the assembled bag is passed to
+\textsf{full\_fit} as an ordinary spike sequence and the number of such
+pairs is only \(N_{\text{blk}}-1\) out of \(T_b-1\). The realized block
+start offsets and the assembled-sequence boundary pair indices are stored
+in the per-bag job record so their influence can be audited, or a stricter
+masked-pair variant can be evaluated later.
+
+\paragraph{Why overlapping bags.} Bags are deliberately allowed to overlap
+in source time across the \(N_{\text{bag}}\) runs; this is a block bootstrap
+on a single finite recording. Overlap induces positive correlation between
+bags, which has consequences for the uncertainty estimates
+(Section~\ref{sec:errors}) and the stability bound
+(Section~\ref{sec:aggregate}); these are stated honestly where they bite.
+The overlap can be reduced --- and its impact studied --- by lengthening the
+total recording while holding \(N_{\text{blk}}\) small, which the parameter
+layout supports directly.
+
+% ===============================================================
+\section{Stage (a.2): Real Fit and the Circular-Shift Null}
+\label{sec:null}
+% ===============================================================
+
+\subsection{Real fit on the bag}
+
+For bag \(b\), call entry point~1 on the assembled bag:
+\[
+(\hat A^{(b)},\ \hat S^{(b)}_{1:T_b},\ \hat{\mathbf B}^{(b)})
+=\textsf{full\_fit}(\text{bag}_b,\,M,\,\theta_{\text{EM}}),
+\qquad T_b=N_{\text{blk}}L_{\text{blk}}^{\text{bin}}.
+\]
+This \(\hat A^{(b)}\) is the bag's real connectivity estimate; the frozen
+state sequence \(\hat S^{(b)}\) is reused unchanged for all scrambles below.
+
+\subsection{The null: per-neuron independent circular shifts}
+
+The null hypothesis for an edge is ``no directed lag-1 coupling from neuron
+\(j\) to neuron \(i\) beyond what the bias/state structure already explains.''
+We realize it by destroying cross-neuron temporal alignment while preserving
+each neuron's own marginal statistics and the state timeline. Concretely,
+for scramble \(p=1,\dots,P\) we draw an independent integer circular shift
+\(\delta_n^{(p)}\) for each neuron \(n\) and roll that neuron's spike train:
+\[
+\tilde Y^{(p)}_{t,n} = Y_{(t-\delta_n^{(p)})\bmod T_b,\ n}.
+\]
+Because every neuron is shifted by a different random amount, the precise
+lag-1 relationship that \(A\) captures is broken, while each neuron's firing
+rate, burstiness, and count distribution are untouched (a circular roll is a
+pure permutation of a neuron's own time axis). The state sequence
+\(\hat S^{(b)}\) is \emph{not} rolled: it is held fixed so that the null asks
+specifically about coupling, not about state structure.
+
+\paragraph{Two-sided exclusion zone on each shift.} A shift near \(0\) leaves
+the data almost unshifted and a shift near \(T_b\) wraps back to almost
+unshifted; both leave the real lag structure largely intact and would
+contaminate the null toward the alternative. We therefore restrict each
+shift to
+\[
+\delta_n^{(p)}\in
+\big[\,\delta_{\text{roll}}^{\min,\text{bin}},\ \
+T_b-\delta_{\text{roll}}^{\min,\text{bin}}\,\big],
+\qquad
+\delta_{\text{roll}}^{\min,\text{bin}}=\delta_{\text{roll}}^{\min}/\Delta t,
+\]
+with \(\delta_{\text{roll}}^{\min}=2\,\text{s}\) (\(200\) bins). The
+exclusion is two-sided by construction: both the small-shift and the
+near-full-wrap small-effective-shift regions are forbidden.
+
+\paragraph{No pairwise separation among neurons.} The shifts of different
+neurons need not be separated from one another. The null only requires that
+each neuron's shift is individually non-trivial (the two-sided zone above)
+and that shifts are drawn independently across neurons; a coincidence in
+which two neurons happen to share the same shift is harmless to null
+validity. This matters in practice: with a \(10\)-minute bag and a
+\(2\,\text{s}\) separation there would be only \(\sim300\) ``slots,'' yet a
+bag may contain up to \(500\) neurons, so any attempt to enforce pairwise
+distinct shifts would be infeasible by pigeonhole. We deliberately avoid
+that requirement. A lightweight \texttt{max\_retries} guard on the per-neuron
+draw is retained only to handle a pathological window, not to enforce mutual
+spacing.
+
+\subsection{Null re-estimation through the locked M-step}
+
+For each scramble \(p\) we recompute connectivity with the state sequence
+frozen, via entry point~2:
+\[
+(A^{\text{null},(b,p)},\mathbf B^{\text{null},(b,p)})
+=\textsf{mstep\_locked}\!\big(\tilde Y^{(p)}_{\text{prev}},\ \tilde Y^{(p)}_{\text{curr}},\
+\hat S^{(b)},\ \hat{\mathbf B}^{(b)},\ \theta_{\text{M}}\big).
+\]
+The locked state attached to pair
+\((\tilde Y^{(p)}_{t-1},\tilde Y^{(p)}_t)\) is
+\(\hat S^{(b)}_{t-1}\). The state sequence itself remains the decoded
+sequence from the real, time-ordered bag fit; only the spike counts entering
+the null M-step are circularly shifted. The biases
+\(\mathbf B^{\text{null},(b,p)}\) are initialized from
+\(\hat{\mathbf B}^{(b)}\) and refit under that frozen state timeline.
+The configuration \(\theta_{\text{M}}\) matches the real pipeline exactly
+(Section~\ref{sec:ep2}): identical \(\lambda_3\), identical \(\rho_{\max}\),
+identical learning-rate decay, all active from the first epoch. This is the
+crux of the calibration: the real \(\hat A^{(b)}\) and the null
+\(A^{\text{null},(b,p)}\) are both outputs of the \emph{same} regression,
+shrinkage, and spectral projection, applied to the same state timeline,
+differing only in whether cross-neuron alignment was destroyed and in the
+resulting refit biases. A
+significance statement of the form ``this edge is larger than the same
+machinery produces on scrambled data'' is therefore meaningful; using a raw,
+unshrunk M-step for the null would compare against a differently biased
+quantity and invalidate the test.
+
+\subsection{How many scrambles are needed}
+\label{sec:howmanyscrambles}
+
+A useful efficiency follows from testing significance per row rather than
+per edge (Section~\ref{sec:aggregate}). For row \(i\) we pool the
+\((N-1)\) off-diagonal null weights of that row across all scrambles. A
+\emph{single} scramble therefore already contributes \(\sim(N-1)\) null
+samples to row \(i\)'s distribution --- of order \(199\) for \(N=200\). With
+a modest \(P=4\)--\(8\) the pooled per-row null holds
+\((N-1)\times P\approx800\)--\(1600\) samples, ample to resolve a \(1\%\)
+tail. By contrast a \emph{per-edge} null would need on the order of hundreds
+of scrambles just to populate a single edge's distribution, which is
+infeasible at this budget. The two regimes are not equivalent: the
+\((N-1)\) samples within one scramble are not independent (they share a
+single scrambled realization of the data), so increasing \(P\) still helps
+by adding genuinely independent null realizations and by averaging out
+scramble-to-scramble variability. The recommendation is to keep \(P\) small
+(\(4\)--\(8\)) but greater than one, precisely because per-row pooling
+supplies the raw sample count while extra scrambles supply independence.
+
+% ===============================================================
+\section{Stage (a.3): Per-Bag Outputs}
+\label{sec:bagout}
+% ===============================================================
+
+Each per-bag job writes a self-contained file to a shared results directory,
+with a name carrying the bag index so that \(N_{\text{bag}}\) parallel jobs
+do not collide. The file contains, at minimum: the real connectivity
+\(\hat A^{(b)}\in\mathbb{R}^{N\times N}\); the stack of null connectivities
+\(\{A^{\text{null},(b,p)}\}_{p=1}^{P}\) of shape \((P,N,N)\); the frozen
+state sequence \(\hat S^{(b)}\); the realized block start indices and the
+assembled-sequence boundary pair indices; any block-start constraint
+violations caused by exhausting \texttt{max\_block\_draw\_trials}; the
+realized per-neuron shifts (for reproducibility and for the data-reuse
+study); optionally the refit null biases
+\(\{\mathbf B^{\text{null},(b,p)}\}_{p=1}^{P}\) for diagnostics; the fitted
+off-diagonal sparsity of \(\hat A^{(b)}\) (number and
+fraction of surviving edges) as a sanity cross-check; and the PRISM-EM
+training-history summary (final objective, iteration count, whether each
+delayed schedule fired, final state occupancy). Stage~(b) consumes only
+these files and never re-runs PRISM-EM.
+
+\paragraph{Compute layout.} Each per-bag job is a single SLURM job on a
+single node using \(4\times\)A100, matching the existing PRISM-EM launch
+(\texttt{torchrun --standalone --nnodes=1 --nproc\_per\_node=4}). The
+\(P\) scramble refits reuse the same node and the frozen \(\hat S^{(b)}\),
+so they are cheap relative to the full fit. The \(N_{\text{bag}}\) jobs are
+mutually independent and submitted in parallel.
+
+% ===============================================================
+\section{Stage (b): Aggregation, Significance, and Pruning}
+\label{sec:aggregate}
+% ===============================================================
+
+Stage~(b) is a single postprocessing program pointed at the results
+directory. It performs per-row null pooling, per-bag selection, and
+cross-bag stability selection, then reports the vetted edge list with
+uncertainties.
+
+\subsection{Per-row pooled null and per-bag selection}
+\label{sec:perrow}
+
+We test significance \emph{per row}, exploiting the assumption that the
+incoming edges to a given target neuron \(i\) are exchangeable under the null:
+they share that target neuron's firing statistics, state occupancy, and
+observation scale. This is a much milder assumption than per-edge normality.
+The row convention is \(A_{ij}\) = effect of source neuron \(j\) on target
+neuron \(i\); therefore this row-pooled test calibrates the incoming weights
+to one target neuron. The separate biological interpretation of a source
+neuron as broadly excitatory or inhibitory is read down a column of retained
+edges, across the downstream targets it controls. The per-row exchangeability
+assumption is what makes the small scramble budget viable
+(Section~\ref{sec:howmanyscrambles}).
+
+For bag \(b\) and row \(i\), pool the off-diagonal null weights across all
+scrambles of that bag,
+\[
+\mathcal{N}^{(b)}_i
+=\big\{\,A^{\text{null},(b,p)}_{ij}\ :\ j\neq i,\ p=1,\dots,P\,\big\},
+\qquad |\mathcal{N}^{(b)}_i| = (N-1)\,P,
+\]
+and form a per-row threshold as the upper-\(q\) quantile of the magnitudes,
+\[
+\tau^{(b)}_i = \mathrm{Quantile}_{q}\!\big(\,\{|x| : x\in\mathcal{N}^{(b)}_i\}\,\big),
+\qquad q = 0.99 \ \text{(nominal)}.
+\]
+An edge is \emph{selected in bag \(b\)} if its real magnitude exceeds the
+row threshold,
+\[
+\text{sel}^{(b)}_{ij} = \mathbb{1}\!\big[\,|\hat A^{(b)}_{ij}| > \tau^{(b)}_i\,\big],
+\qquad i\neq j.
+\]
+Equivalently, each real edge can be converted to a within-row \(p\)-value
+against the pooled null and the Benjamini--Hochberg procedure applied within
+the row; the quantile-threshold form above is the operational default. The
+expected number of edges selected per bag and per row is recorded as a
+diagnostic (it is the quantity \(q_\Lambda\) of the stability bound below);
+it is \emph{measured}, never prescribed, so the algorithm discovers how many
+edges it keeps rather than being told a target sparsity.
+
+\subsection{Cross-bag stability selection}
+
+A single bag's selection is noisy. We retain only edges that are selected
+reliably across bags. Define the selection frequency
+\[
+\pi_{ij} = \frac{1}{N_{\text{bag}}}\sum_{b=1}^{N_{\text{bag}}}\text{sel}^{(b)}_{ij},
+\]
+and keep edge \((i,j)\) in the final network if
+\(\pi_{ij}\ge\pi_{\text{thr}}\), with
+\(\pi_{\text{thr}}=0.6\)--\(0.8\) (nominal). This is Meinshausen--B\"uhlmann
+stability selection: the data are perturbed by resampling, the base selector
+is run on each perturbation, and only consistently chosen variables survive.
+
+\paragraph{Two ways to set the knobs (one reported, one derived).} The
+operational default exposes the pair \((q,\ \pi_{\text{thr}})\): a per-bag
+per-row quantile level \(q\) and a cross-bag frequency threshold
+\(\pi_{\text{thr}}\). A more compact, single-knob alternative collapses these
+using the stability-selection error bound,
+\[
+\mathbb{E}[V]\;\le\;\frac{1}{2\pi_{\text{thr}}-1}\cdot\frac{q_\Lambda^{2}}{p_{\text{cand}}},
+\]
+where \(\mathbb{E}[V]\) is the expected number of false edges,
+\(q_\Lambda\) is the \emph{measured} average number of edges selected per bag,
+and \(p_{\text{cand}}=N(N-1)\) is the number of candidate off-diagonal edges.
+In this mode the user fixes only a single target,
+\texttt{target\_false\_edges}, interpreted as a target upper bound on
+\(\mathbb{E}[V]\). The per-bag quantile is set loose and merely determines
+\(q_\Lambda\), and \(\pi_{\text{thr}}\) is then \emph{derived} from the
+bound rather than tuned. We document this route because it reduces the
+user's choice to the expected number of false retained edges, but adopt the
+explicit \((q,\pi_{\text{thr}})\) pair as the default for transparency. The
+honest caveat applies to either route: the bound assumes independent
+(exchangeable) bags, whereas our overlapping-block bags are positively
+correlated, so a derived \(\pi_{\text{thr}}\) and any implied false-edge
+control should be read as approximate and reported as such, not as a
+guaranteed FDR.
+
+% ===============================================================
+\section{Per-Edge Uncertainty: Two Distinct Errors}
+\label{sec:errors}
+% ===============================================================
+
+The design furnishes two genuinely different per-edge ``errors,'' which
+answer different questions and must not be conflated.
+
+\subsection{Null spread and effect size}
+
+For row \(i\), the pooled null \(\mathcal{N}_i=\bigcup_b\mathcal{N}^{(b)}_i\)
+has a mean and standard deviation,
+\[
+m^{\text{null}}_i=\operatorname{mean}\big(\mathcal{N}_i\big),
+\qquad
+s^{\text{null}}_i=\operatorname{SD}\big(\mathcal{N}_i\big),
+\]
+which characterize the \emph{noise floor}: how large an edge weight looks
+purely by chance once cross-neuron alignment is destroyed and the same
+machinery is applied. This is not the uncertainty of the estimate; it is the
+spread of the null. It does, however, define a natural null-referenced
+effect size,
+\[
+z_{ij}=\frac{\bar A_{ij}-m^{\text{null}}_i}{s^{\text{null}}_i},
+\]
+a per-edge signal-to-noise ratio against the scramble null, where
+\(\bar A_{ij}\) is the bagged point estimate defined next.
+
+\subsection{Estimation variability: the across-bag bootstrap SD}
+
+The quantity one usually means by ``the statistical error of an edge'' is the
+sampling variability of its fitted weight, and bagging estimates it directly.
+Each bag yields a real fitted weight \(\hat A^{(b)}_{ij}\) on a different
+resampled stretch of data; their spread across bags is a block-bootstrap
+estimate of the estimator's sampling distribution. We report the bagged mean
+and bootstrap SD,
+\[
+\bar A_{ij}=\frac{1}{B_{ij}}\sum_{b\in\mathcal{B}_{ij}}\hat A^{(b)}_{ij},
+\qquad
+\widehat{\mathrm{SD}}_{ij}
+=\sqrt{\frac{1}{B_{ij}-1}\sum_{b\in\mathcal{B}_{ij}}\big(\hat A^{(b)}_{ij}-\bar A_{ij}\big)^{2}},
+\]
+where \(\mathcal{B}_{ij}\) is the set of bags entering the average and
+\(B_{ij}=|\mathcal{B}_{ij}|\).
+
+\paragraph{Which bags to average over.} A bag in which edge \((i,j)\) was
+pruned to exactly zero by \(L_1\) contributes a structural zero, not a noisy
+nonzero. Two summaries are therefore reported. The
+\emph{selection-conditional} estimate averages only over bags where the edge
+survived (\(\mathcal{B}_{ij}=\{b:\text{sel}^{(b)}_{ij}=1\}\)); it reflects the
+typical magnitude when the edge is detected but is biased upward in
+magnitude. The \emph{all-bag} estimate averages over every bag
+(\(\mathcal{B}_{ij}=\{1,\dots,N_{\text{bag}}\}\), structural zeros included);
+it is diluted toward zero in proportion to how often the edge is absent. We
+recommend reporting the selection-conditional mean and bootstrap SD
+\emph{together with} the selection frequency \(\pi_{ij}\), so that the dilution is visible
+rather than hidden: \(\pi_{ij}\) and \(\bar A_{ij}\) together convey both how
+often and how strongly an edge appears.
+
+\paragraph{Honest caveat on calibration.} The bags are overlapping
+block-bootstrap samples from one finite recording, not independent datasets.
+Overlap makes bags more alike than independent draws, so the naive across-bag
+SD \emph{underestimates} the true sampling error; with only
+\(N_{\text{bag}}=5\)--\(10\) bags it is additionally coarse (few degrees of
+freedom). Accordingly \(\widehat{\mathrm{SD}}_{ij}\) should be used as a
+\emph{relative} reliability measure --- excellent for ranking edges and for
+flagging unstable ones --- rather than as a calibrated frequentist standard
+error supporting a strict confidence interval. The degree of underestimation
+can be probed empirically by lengthening the recording and shrinking the
+block overlap (Section~\ref{sec:bagging}), which is a deliberate affordance
+of the design.
+
+\subsection{Reported per-edge record}
+
+For every edge that passes stability selection
+(\(\pi_{ij}\ge\pi_{\text{thr}}\)) the pipeline emits
+\[
+\big(\,i,\ j,\ \pi_{ij},\ \bar A_{ij},\ \widehat{\mathrm{SD}}_{ij},\ z_{ij}\,\big),
+\]
+together with the all-bag mean for comparison and the row null summary
+\((m^{\text{null}}_i,s^{\text{null}}_i)\). The selection frequency
+\(\pi_{ij}\), the bagged point estimate, the bootstrap SD, and the
+null-referenced effect size are complementary: an edge that is frequently
+selected, large relative to its bootstrap SD, and far into the null tail is
+trustworthy; an edge strong in one bag but rarely selected, or with bootstrap SD
+comparable to its magnitude, is flagged as unreliable.
+
+% ===============================================================
+\section{End-to-End Summary}
+% ===============================================================
+
+\paragraph{Stage (a), run \(N_{\text{bag}}\) times in parallel (one node,
+\(4\times\)A100 each).}
+\begin{enumerate}
+  \item Assemble bag \(b\): draw \(N_{\text{blk}}=10\) block starts in the
+  source window \(W_{\text{src}}\), enforce
+  \(\delta_{\text{blk}}^{\min}=1\,\text{s}\) separation by rejection sampling
+  (up to \texttt{max\_block\_draw\_trials}=30 attempts per new block, then
+  accept the next draw and record any violation), extract non-circular blocks
+  of \(L_{\text{blk}}=60\,\text{s}\), concatenate, and record the block
+  offsets and boundary pair indices.
+  \item \(\textsf{full\_fit}\to(\hat A^{(b)},\hat S^{(b)},\hat{\mathbf B}^{(b)})\).
+  \item For \(p=1,\dots,P\): draw independent per-neuron circular shifts in
+  the two-sided zone
+  \([\delta_{\text{roll}}^{\min,\text{bin}},T_b-\delta_{\text{roll}}^{\min,\text{bin}}]\),
+  roll spikes, and
+  \(\textsf{mstep\_locked}\to(A^{\text{null},(b,p)},\mathbf B^{\text{null},(b,p)})\)
+  with the real pipeline's \(\lambda_3,\rho_{\max}\), decay active from epoch
+  one, \(\hat S^{(b)}\) frozen and aligned as \(\hat S^{(b)}_{t-1}\) for pair
+  \((Y_{t-1},Y_t)\), and \(\mathbf B\) initialized from
+  \(\hat{\mathbf B}^{(b)}\) but refit.
+  \item Write \(\hat A^{(b)}\), \(\{A^{\text{null},(b,p)}\}\), \(\hat S^{(b)}\),
+  realized block starts, boundary pair indices, block-start retry violations,
+  realized shifts, fitted sparsity, and history summary, with a bag-indexed
+  filename.
+\end{enumerate}
+
+\paragraph{Stage (b), single postprocessing job.}
+\begin{enumerate}
+  \item Per bag and row, pool the \((N-1)P\) off-diagonal null weights, form
+  the upper-\(q\) magnitude threshold \(\tau^{(b)}_i\), and select edges with
+  \(|\hat A^{(b)}_{ij}|>\tau^{(b)}_i\); record \(q_\Lambda\).
+  \item Compute selection frequencies \(\pi_{ij}\) and keep edges with
+  \(\pi_{ij}\ge\pi_{\text{thr}}\) (or use the
+  \texttt{target\_false\_edges}-derived \(\pi_{\text{thr}}\)).
+  \item For surviving edges, compute the bagged mean \(\bar A_{ij}\),
+  bootstrap SD \(\widehat{\mathrm{SD}}_{ij}\) (selection-conditional and
+  all-bag), and effect size \(z_{ij}\) against the pooled row null.
+  \item Emit the vetted edge list
+  \((i,j,\pi_{ij},\bar A_{ij},\widehat{\mathrm{SD}}_{ij},z_{ij})\) plus
+  diagnostics.
+\end{enumerate}
+
+\paragraph{Closing note.} The method's robustness comes from never trusting a
+single fit: connectivity is asserted only when it survives data resampling
+(bagging), exceeds a null built by the identical estimation machinery
+(scramble calibration), and recurs across bags (stability selection). Its
+two reported uncertainties --- the null spread and the across-bag bootstrap
+SD --- are deliberately kept distinct, and their known limitations under
+overlapping bags are stated rather than papered over, so that the resulting
+edge list can be read with appropriate confidence on real data where no
+ground truth is available to check it.
+
+\end{document}
