@@ -248,16 +248,6 @@ def init_A_from_spikes(spikes, args):
         meta["offDiag_A_init_fact"] = offDiagFact
         A_init = A_init * offDiagFact
 
-    if 0:  # thresholded off-diagonal renormalization        
-        off_diag = ~np.eye(A_init.shape[0], A_init.shape[1], dtype=bool)
-        above_thr = (np.abs(A_init) > float(args.minW))
-        below_thr = (np.abs(A_init) < float(args.minW))
-        strong_off_diag = off_diag & above_thr
-        weak_off_diag = off_diag & below_thr
-        A_init[strong_off_diag] *= offDiagFact
-        A_init[weak_off_diag] = 0.0
-        
-
     rho_max = float(args.rho_max)
     if 0: # global spectral radius rescaling
         rho_before = float(np.max(np.abs(np.linalg.eigvals(A_init))))

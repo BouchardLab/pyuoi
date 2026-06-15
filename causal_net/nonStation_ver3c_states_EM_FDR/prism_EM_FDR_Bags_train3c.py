@@ -6,8 +6,10 @@ fit, runs P circular-shift locked M-step null refits, and writes one NPZ file.
 """
 
 import argparse
+import hashlib
 import math
 import os
+import re
 import time
 from pprint import pprint
 
@@ -41,10 +43,12 @@ def parse_args():
     g = parser.add_argument_group("FDR bagging")
     g.add_argument("--bag_idx", type=int, required=True,
                    help="Bag index used in the output filename and RNG stream")
+    g.add_argument("--bagsTag", default=None,
+                   help="Tag appended to dataName in bag output names; default/None derives a 4-char hash")
     g.add_argument("--fdr_out_dir", type=str, default=None,
                    help="Output directory; default: <basePath>/prismFDR")
-    g.add_argument("--source_window_sec", nargs=2, type=float, required=True,
-                   help="Source window [start, end] in seconds for block starts")
+    g.add_argument("--time_range_sec", nargs=2, type=float, required=True,
+                   help="Time range [start, end] in seconds for block starts")
     g.add_argument("--num_blocks", type=int, default=10,
                    help="Number of contiguous blocks in this bag")
     g.add_argument("--block_len_sec", type=float, default=60.0,
@@ -66,8 +70,30 @@ def parse_args():
     return parser.parse_args()
 
 
-def source_window_bins(source_window_sec, dt, T_raw, block_len_bins):
-    t0, t1 = [float(x) for x in source_window_sec]
+def resolve_bags_tag(args):
+    """Return explicit bagsTag or a deterministic 4-char tag shared by all bags."""
+    tag = getattr(args, "bagsTag", None)
+    if tag is not None:
+        tag = str(tag).strip()
+    if tag and tag.lower() != "none":
+        if not re.fullmatch(r"[A-Za-z0-9]+", tag):
+            raise ValueError(f"--bagsTag must be alphanumeric, got {tag!r}")
+        return tag
+
+    tag_items = []
+    for key in sorted(vars(args)):
+        if key in {"bag_idx", "bagsTag", "basePath", "fdr_out_dir", "fitName", "verb"}:
+            continue
+        val = getattr(args, key)
+        if isinstance(val, (list, tuple)):
+            val = ",".join(str(x) for x in val)
+        tag_items.append(f"{key}={val}")
+    payload = "|".join(tag_items).encode("utf-8")
+    return hashlib.sha1(payload).hexdigest()[:4]
+
+
+def time_range_bins(time_range_sec, dt, T_raw, block_len_bins):
+    t0, t1 = [float(x) for x in time_range_sec]
     if t1 < t0:
         t0, t1 = t1, t0
     src0 = max(0, int(math.floor(t0 / dt)))
@@ -75,7 +101,7 @@ def source_window_bins(source_window_sec, dt, T_raw, block_len_bins):
     max_start = src1_excl - int(block_len_bins)
     if max_start < src0:
         raise ValueError(
-            "source_window_sec is too short for the requested block_len_sec: "
+            "time_range_sec is too short for the requested block_len_sec: "
             f"window bins [{src0}, {src1_excl}), block_len_bins={block_len_bins}"
         )
     return src0, src1_excl, max_start
@@ -117,13 +143,33 @@ def assemble_bag(spikes, dt, args, rng):
     if block_len_bins < 2:
         raise ValueError("block_len_sec must span at least two time bins")
     min_sep_bins = int(round(float(args.min_block_start_sep_sec) / float(dt)))
-    src0, src1_excl, max_start = source_window_bins(
-        args.source_window_sec, dt, T_raw, block_len_bins
+    src0, src1_excl, max_start = time_range_bins(
+        args.time_range_sec, dt, T_raw, block_len_bins
     )
-    starts, violations = draw_block_starts(
-        rng, src0, max_start, args.num_blocks, min_sep_bins,
-        args.max_block_draw_trials
-    )
+    if int(args.bag_idx) == 0:
+        starts = src0 + np.arange(int(args.num_blocks), dtype=np.int64) * block_len_bins
+        last_start = int(starts[-1])
+        max_start_timeline = min(int(T_raw) - int(block_len_bins), int(src1_excl) - int(block_len_bins))
+        if last_start > max_start_timeline:
+            required_bins = int(args.num_blocks) * int(block_len_bins)
+            available_bins = int(src1_excl) - int(src0)
+            required_sec = required_bins * float(dt)
+            available_sec = available_bins * float(dt)
+            raise ValueError(
+                "bag_idx=0 chronological blocks do not fit in the input timeline: "
+                f"requires at least {required_sec:g} sec "
+                f"({required_bins} bins = num_blocks {int(args.num_blocks)} "
+                f"* block_len_sec {float(args.block_len_sec):g}), "
+                f"but --time_range_sec provides {available_sec:g} sec "
+                f"({available_bins} bins; bins [{src0}, {src1_excl})). "
+                f"Increase --time_range_sec end or reduce --num_blocks/--block_len_sec."
+            )
+        violations = np.zeros((0, 3), dtype=np.int64)
+    else:
+        starts, violations = draw_block_starts(
+            rng, src0, max_start, args.num_blocks, min_sep_bins,
+            args.max_block_draw_trials
+        )
     blocks = [spikes[s:s + block_len_bins] for s in starts]
     bag = np.concatenate(blocks, axis=0)
     boundary_pair_indices = (
@@ -134,7 +180,7 @@ def assemble_bag(spikes, dt, args, rng):
         "block_start_sec": starts.astype(np.float64) * float(dt),
         "block_retry_violations": violations,
         "boundary_pair_indices": boundary_pair_indices,
-        "source_window_bins": np.asarray([src0, src1_excl], dtype=np.int64),
+        "time_range_bins": np.asarray([src0, src1_excl], dtype=np.int64),
         "block_len_bins": np.asarray([block_len_bins], dtype=np.int64),
         "min_block_start_sep_bins": np.asarray([min_sep_bins], dtype=np.int64),
     }
@@ -166,7 +212,9 @@ def stack_history(null_histories, key, dtype):
 
 
 def main():
+    job_t0 = time.perf_counter()
     args = normalize_delay_args(parse_args())
+    bags_tag = resolve_bags_tag(args)
     ctx = init_distributed()
     seed_base = int(args.seed) + int(args.bag_idx) * 1000003
     seed_everything(seed_base)
@@ -192,7 +240,7 @@ def main():
             if args.verb > 0:
                 print("\nFDR-bag args:", vars(args), "\n")
                 print(
-                    f"bag_idx={args.bag_idx} T_b={bag_spikes.shape[0]} "
+                    f"bagsTag={bags_tag} bag_idx={args.bag_idx} T_b={bag_spikes.shape[0]} "
                     f"N={bag_spikes.shape[1]} blocks={args.num_blocks} "
                     f"scrambles={args.num_scrambles}"
                 )
@@ -209,9 +257,16 @@ def main():
 
         dt = float(spikeMD["time_step_sec"])
         T_b, N = bag_spikes.shape
-        time_range_sec = [0.0, float(T_b * dt)]
-        time_range_bins = [0, T_b - 1]
-        out_stem = f"{args.dataName}.bag{int(args.bag_idx):03d}"
+        if int(args.bag_idx) == 0:
+            b0 = int(bag_info["block_start_bins"][0])
+            b1 = b0 + int(T_b) - 1
+            time_range_bins = [b0, b1]
+            time_range_sec = [float(b0 * dt), float((b1 + 1) * dt)]
+        else:
+            time_range_sec = [0.0, float(T_b * dt)]
+            time_range_bins = [0, T_b - 1]
+        out_data_name = f"{args.dataName}_{bags_tag}"
+        out_stem = f"{out_data_name}.bag{int(args.bag_idx):03d}"
 
         real_t0 = time.perf_counter()
         fitD, fitMD = run_full_fit(
@@ -221,7 +276,8 @@ def main():
             fit_name=out_stem,
             provenance_update={
                 "dataName": args.dataName,
-                "FDR_bag_file": out_stem,
+                "bagsFDR_stageA_dataName": out_data_name,
+                "bagsFDR_stageA_file": out_stem,
             },
         )
         if is_rank0(ctx) and args.verb > 0:
@@ -276,7 +332,7 @@ def main():
                     nz = int(hist_p["nz_edges_epoch"][-1]) if hist_p["nz_edges_epoch"].size else -1
                     rho = float(hist_p["rho_epoch"][-1]) if hist_p["rho_epoch"].size else float("nan")
                     n_epoch = int(hist_p["m_loss_epoch"].size)
-                    ela = time.perf_counter() - null_t0
+                    ela = time.perf_counter() - job_t0
                     print(
                         f"null {p + 1}/{args.num_scrambles} finished: "
                         f"elapsed={ela:.1f}s locked_m_epochs={n_epoch} "
@@ -293,7 +349,7 @@ def main():
                 "block_start_sec": bag_info["block_start_sec"],
                 "block_retry_violations": bag_info["block_retry_violations"],
                 "boundary_pair_indices": bag_info["boundary_pair_indices"],
-                "source_window_bins": bag_info["source_window_bins"],
+                "time_range_bins": bag_info["time_range_bins"],
                 "block_len_bins": bag_info["block_len_bins"],
                 "min_block_start_sep_bins": bag_info["min_block_start_sep_bins"],
                 "null_m_loss_epoch": stack_history(null_histories, "m_loss_epoch", np.float64),
@@ -304,16 +360,29 @@ def main():
                 "null_learning_rates": stack_history(null_histories, "learning_rates", np.float64),
             })
 
-            outMD = dict(fitMD)
-            outMD["fit_type"] = "prismEM_FDRbag"
-            outMD["fdr_bag"] = {
+            real_fit_md = {
+                "train": fitMD["train"],
+                "states_recovery_eval": fitMD["states_recovery_eval"],
+                "init_A": fitMD["init_A"],
+                "init_state": fitMD["init_state"],
+                "init_B": fitMD["init_B"],
+            }
+            outMD = {
+                k: v for k, v in fitMD.items()
+                if k not in real_fit_md
+            }
+            outMD["fit_type"] = "prismEM_FDRbags_stageA"
+            outMD["bagsFDR_stageA"] = {
                 "program": "prism_EM_FDR_Bags_train3c.py",
                 "dataName": args.dataName,
+                "bagsTag": bags_tag,
+                "output_dataName": out_data_name,
+                "output_name": out_stem,
                 "bag_idx": int(args.bag_idx),
-                "num_scrambles": int(args.num_scrambles),
-                "source_window_sec": [float(x) for x in args.source_window_sec],
-                "source_window_bins": [int(x) for x in bag_info["source_window_bins"]],
+                "time_range_sec": [float(x) for x in args.time_range_sec],
+                "time_range_bins": [int(x) for x in bag_info["time_range_bins"]],
                 "num_blocks": int(args.num_blocks),
+                "bag0_mode": "chronological" if int(args.bag_idx) == 0 else "random_blocks",
                 "block_len_sec": float(args.block_len_sec),
                 "block_len_bins": int(bag_info["block_len_bins"][0]),
                 "min_block_start_sep_sec": float(args.min_block_start_sep_sec),
@@ -321,10 +390,14 @@ def main():
                 "max_block_draw_trials": int(args.max_block_draw_trials),
                 "min_roll_shift_sec": float(args.min_roll_shift_sec),
                 "min_roll_shift_bins": int(min_roll_shift_bins),
-                "null_A_init": args.null_A_init,
-                "null_B_init": args.null_B_init,
-                "null_A_init_md": null_A_init_md,
-                "null_B_init_md": null_B_init_md,
+                "real_fit": real_fit_md,
+                "null_refits": {
+                    "num_scrambles": int(args.num_scrambles),
+                    "A_init": args.null_A_init,
+                    "B_init": args.null_B_init,
+                    "A_init_md": null_A_init_md,
+                    "B_init_md": null_B_init_md,
+                },
                 "saved_bag_spikes": False,
                 "output_schema": "real_fit_fields_plus_A_null_B_null",
                 "seed_base": int(seed_base),

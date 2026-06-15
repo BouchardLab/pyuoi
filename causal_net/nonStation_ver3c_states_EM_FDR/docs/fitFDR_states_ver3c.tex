@@ -198,7 +198,7 @@ Symbol & Meaning & Nominal value \\
 \(N_{\text{blk}}\) & blocks per bag & \(10\) \\
 \(L_{\text{blk}}\) & block length (s) & \(60\) \\
 \(L_{\text{blk}}^{\text{bin}}\) & block length (bins) \(=L_{\text{blk}}/\Delta t\) & \(6000\) \\
-\(W_{\text{src}}\) & source window for block starts (s) & e.g.\ \([1000,1600]\) \\
+\(R_{\text{time}}\) & time range for block starts (s) & e.g.\ \([1000,1600]\) \\
 \(N_{\text{bag}}\) & number of bags & \(5\)--\(10\) \\
 \(P\) & scrambles per bag & \(4\)--\(8\) \\
 \(\delta_{\text{blk}}^{\min}\) & min separation between block starts (s) & \(1\) \\
@@ -222,17 +222,17 @@ be adjusted.}
 A bag is a surrogate recording assembled by concatenating
 \(N_{\text{blk}}=10\) contiguous blocks, each of length
 \(L_{\text{blk}}=60\,\text{s}\) (i.e.\ \(L_{\text{blk}}^{\text{bin}}=6000\)
-bins at \(\Delta t=10\,\text{ms}\)), drawn from a designated source window
-\(W_{\text{src}}\) of the original recording. The reassembled bag has length
+bins at \(\Delta t=10\,\text{ms}\)), drawn from a designated time range
+\(R_{\text{time}}\) of the original recording. The reassembled bag has length
 \(N_{\text{blk}}\times L_{\text{blk}}^{\text{bin}}\) bins (here
 \(6\times10^4\) bins, i.e.\ \(10\) minutes), which is the sequence PRISM-EM
 fits.
 
 \paragraph{Block placement.} Block start positions are bin indices drawn
-from the source window. The window \(W_{\text{src}}\) is given in seconds and
+from the time range. The range \(R_{\text{time}}\) is given in seconds and
 must leave room for a full block, so admissible starts (in bins) lie in
-\([\,W_{\text{src}}^{\text{start}}/\Delta t,\;
-W_{\text{src}}^{\text{end}}/\Delta t - L_{\text{blk}}^{\text{bin}}\,]\).
+\([\,R_{\text{time}}^{\text{start}}/\Delta t,\;
+R_{\text{time}}^{\text{end}}/\Delta t - L_{\text{blk}}^{\text{bin}}\,]\).
 Within that range a start may fall on essentially any bin, so the number of
 candidate starts is large (tens of thousands), and exact collisions between
 two chosen starts are vanishingly unlikely. The genuine hazard is not
@@ -248,6 +248,15 @@ attempts fail, accept the 31st draw regardless of the separation constraint
 and mark the violation in the job metadata. This bounded retry policy avoids
 silent infinite loops while still giving the ordinary case many chances to
 avoid near-duplicates.
+
+\paragraph{Reference chronological bag.} The special job
+\texttt{bag\_idx=0} is not randomly resampled. Its block starts follow the
+input-data timeline: block 0 begins at the start of \texttt{--time\_range\_sec},
+block 1 begins one block length later, and so on. This bag is used as the Stage~(b)
+reference for time-series fields, so state-assignment plots from the
+aggregate output remain aligned to the original simulation timeline when
+ground truth is available. All \texttt{bag\_idx>0} jobs use the random
+block-bootstrap sampler described above.
 
 \paragraph{Blocks are non-circular.} Each block is a literal contiguous slice
 of the recording, clipped at the window end; no wrap-around is used in block
@@ -416,9 +425,9 @@ consumes only these files and never re-runs PRISM-EM.
 \paragraph{Per-bag program output naming.} One invocation of
 \texttt{prism\_EM\_FDR\_Bags\_train3c.py} produces one bag file containing
 the real time-ordered fit and all \(P\) scramble refits for that bag. The
-filename is deterministic and includes both \texttt{dataName} and
-\texttt{bag\_idx}, for example
-\texttt{<dataName>.bag003.prismFDRbag.npz}. The real fit fields are written
+filename is deterministic and includes \texttt{dataName}, \texttt{bagsTag},
+and \texttt{bag\_idx}, for example
+\texttt{<dataName>\_<bagsTag>.bag003.prismFDRbag.npz}. The real fit fields are written
 in the same schema as the standalone \texttt{prism\_EM\_train3c.py} output,
 so the usual baseline fit evaluation can be run on the real part of a bag
 without a separate training job.
@@ -428,7 +437,7 @@ ordinary PRISM-EM training controls (\texttt{num\_states},
 \texttt{num\_em\_iters}, \texttt{m\_epochs}, learning rates,
 \(\lambda_2,\lambda_3,\rho_{\max}\), schedule delays, batch size, and
 initialization modes for the real fit). Its additional controls are:
-\texttt{bag\_idx}, \texttt{source\_window\_sec},
+\texttt{bag\_idx}, \texttt{bagsTag}, \texttt{time\_range\_sec},
 \texttt{num\_blocks}, \texttt{block\_len\_sec},
 \texttt{min\_block\_start\_sep\_sec},
 \texttt{max\_block\_draw\_trials}, \texttt{num\_scrambles},
@@ -510,6 +519,14 @@ and keep edge \((i,j)\) in the final network if
 \(\pi_{\text{thr}}=0.6\)--\(0.8\) (nominal). This is Meinshausen--B\"uhlmann
 stability selection: the data are perturbed by resampling, the base selector
 is run on each perturbation, and only consistently chosen variables survive.
+For example, the implementation default \texttt{--sel\_prob 0.7} means that
+an off-diagonal edge must be selected in at least \(70\%\) of the bags to
+survive. The value assigned to a surviving edge is not weighted by the
+selection frequency or by any bag quality score; it is the plain arithmetic
+mean of \(\hat A^{(b)}_{ij}\) over the bags in which that edge passed the
+per-bag null threshold. Bags where the edge did not pass the per-bag selector
+do not enter this final \texttt{A\_hat} value, although the all-bag mean is
+also saved as a diagnostic.
 
 \paragraph{Two ways to set the knobs (one reported, one derived).} The
 operational default exposes the pair \((q,\ \pi_{\text{thr}})\): a per-bag
@@ -623,6 +640,268 @@ trustworthy; an edge strong in one bag but rarely selected, or with bootstrap SD
 comparable to its magnitude, is flagged as unreliable.
 
 % ===============================================================
+\section{Implementation and Runtime Arguments}
+\label{sec:implementation}
+% ===============================================================
+
+This section records the concrete command-line interface used by the current
+implementation. Stage~(a) produces one bag file per invocation. Stage~(b)
+reads the ordered set of bag files and writes a single aggregate
+\texttt{.prismEM.npz} file that can be opened by the existing
+\texttt{prism\_EM\_eval3c.py} machinery.
+
+\subsection{\texttt{prism\_EM\_FDR\_Bags\_train3c.py}: Stage (a)}
+
+This program is run once per bag, normally as one multi-GPU job:
+\[
+\texttt{torchrun --standalone --nnodes=1 --nproc\_per\_node=4
+./prism\_EM\_FDR\_Bags\_train3c.py ...}
+\]
+It assembles one block-resampled bag, performs the real time-ordered
+PRISM-EM fit on that bag, runs the requested circular-shift locked-M-step
+null refits, and writes one self-contained bag file.
+
+\paragraph{Input and output naming.}
+The input spike file is
+\[
+\texttt{<basePath>/spikesData/<dataName>.spikes.npz}.
+\]
+The output directory is \texttt{fdr\_out\_dir} if supplied, otherwise
+\[
+\texttt{<basePath>/prismFDR}.
+\]
+The output file is deterministic in \texttt{dataName}, \texttt{bagsTag}, and
+\texttt{bag\_idx}:
+\[
+\texttt{<basePath>/prismFDR/<dataName>\_<bagsTag>.bag003.prismFDRbag.npz}
+\]
+for \(\texttt{bag\_idx}=3\) and default output directory. The bag index is
+not only a label: it also enters the random seed stream, so rerunning the
+same command with the same \texttt{bag\_idx} reproduces the same bag and
+scramble shifts, while changing only \texttt{bag\_idx} produces a different
+bag file. The one exception is \texttt{bag\_idx=0}: its block starts are
+chronological by construction, while its scramble shifts still use the
+bag-indexed random seed.
+
+A single Stage~(a) bag can be evaluated directly by passing the bag stem to
+\texttt{prism\_EM\_eval3c.py}; if \texttt{dataName} contains a
+\texttt{bagNNN} token, the evaluator reads
+\texttt{<basePath>/prismFDR/<dataName>.prismFDRbag.npz} instead of looking
+under \texttt{prismFit}.
+
+\paragraph{Required arguments.}
+\begin{description}
+  \item[\texttt{--basePath}] Root directory containing \texttt{spikesData/}
+  and receiving \texttt{prismFDR/}. This is the same run directory used by
+  the plain PRISM-EM trainer.
+  \item[\texttt{--dataName}] Short dataset name. The program reads
+  \texttt{<dataName>.spikes.npz} from \texttt{spikesData/}.
+  \item[\texttt{--num\_states}] Number \(M\) of latent states in the
+  switching Poisson GLM.
+  \item[\texttt{--bag\_idx}] Integer bag index. It is used in the output
+  filename and in the per-bag RNG seed. For \texttt{bag\_idx=0}, the bag
+  blocks are chronological, starting at the time-range start and advancing
+  by one block length per block; other bag indices draw random block starts.
+  \item[\texttt{--bagsTag TAG}] Alphanumeric tag appended after
+  \texttt{dataName} in Stage~(a) output names. If omitted or set to
+  \texttt{None}, the program derives a deterministic four-character
+  alphanumeric tag from the shared bagging/training configuration, excluding
+  \texttt{bag\_idx}.
+  \item[\texttt{--time\_range\_sec START END}] Time range, in
+  seconds, from which block starts are drawn.
+\end{description}
+
+\paragraph{Bagging and scramble arguments.}
+\begin{description}
+  \item[\texttt{--fdr\_out\_dir}] Optional output directory for Stage~(a)
+  bag files. Default: \texttt{<basePath>/prismFDR}.
+  \item[\texttt{--num\_blocks}] Number of contiguous blocks concatenated
+  into one bag. Default: \(10\).
+  \item[\texttt{--block\_len\_sec}] Length of each contiguous block in
+  seconds. Default: \(60\).
+  \item[\texttt{--min\_block\_start\_sep\_sec}] Desired minimum separation
+  between block starts. Default: \(1\) second.
+  \item[\texttt{--max\_block\_draw\_trials}] Number of rejection-sampling
+  attempts used to satisfy the block-start separation constraint. If no
+  candidate passes after this many attempts, the next draw is accepted and
+  the violation is recorded in the output. Default: \(30\).
+  \item[\texttt{--num\_scrambles}] Number \(P\) of circular-shift null
+  refits saved in this bag file. Default: \(4\).
+  \item[\texttt{--min\_roll\_shift\_sec}] Two-sided exclusion zone around
+  zero circular shift for each neuron. A shift is drawn from the interval
+  excluding shifts smaller than this value and shifts closer than this value
+  to a full wrap. Default: \(2\) seconds.
+  \item[\texttt{--null\_A\_init}] Fresh \(A\) initialization mode for every
+  null refit. Values: \texttt{scrambled\_data} (default) or \texttt{rand}.
+  The real-time \(\hat A\) is deliberately not used to seed the null.
+  \item[\texttt{--null\_B\_init}] Fresh \(\mathbf B\) initialization mode for
+  every null refit. Values: \texttt{scrambled\_data} (default) or
+  \texttt{rand}. The null \(\mathbf B\) is refit and saved as
+  \texttt{B\_null}.
+\end{description}
+
+\paragraph{Inherited EM and M-step arguments.}
+The Stage~(a) driver shares the ordinary PRISM-EM workhorse with
+\texttt{prism\_EM\_train3c.py}.
+\begin{description}
+  \item[\texttt{--num\_em\_iters}] Number of outer EM iterations for the real
+  time-ordered bag fit. Default: \(20\).
+  \item[\texttt{--m\_epochs}] M-step Adam epochs per EM iteration. Default:
+  \(2\). The null locked M-step uses the total count
+  \(\texttt{num\_em\_iters}\times\texttt{m\_epochs}\); there is no separate
+  \texttt{null\_m\_epochs}.
+  \item[\texttt{--pgd\_iter}] PGD iterations per time bin in the E-step.
+  Default: \(5\).
+  \item[\texttt{--lr\_estep}] PGD learning rate in the E-step. Default:
+  \(0.03\).
+  \item[\texttt{--lambda2}] Temporal smoothness weight for the state
+  probabilities. Default: \(2.0\).
+  \item[\texttt{--lr\_mstep}] Adam learning rate for the M-step. Default:
+  \(0.003\).
+  \item[\texttt{--lr\_end\_factor}] Final learning-rate multiplier after
+  linear decay. Default: \(0.1\).
+  \item[\texttt{--lambda3}] L1 penalty weight on off-diagonal \(A\). Default:
+  \(0.02\).
+  \item[\texttt{--rho\_max}] Target spectral radius for soft correction of
+  \(A\). Default: \(0.95\).
+  \item[\texttt{--prescale\_m\_step\_4\_ArhoMax}] M-step batch interval for
+  spectral-radius projection checks. Default: \(120\).
+  \item[\texttt{--delay\_em\_iter\_4\_ArhoMax}] First real-fit EM iteration
+  after which \(\rho_{\max}\) correction is active. Default: \(3\).
+  \item[\texttt{--delay\_em\_iter\_4\_lrDecay}] First real-fit EM iteration
+  after which learning-rate decay advances. Default: \(1\).
+  \item[\texttt{--delay\_em\_iter\_4\_Aprune}] First real-fit EM iteration
+  after which L1 proximal pruning is active. Default: \(1\).
+  \item[\texttt{--batch\_size}] M-step minibatch size. Default: \(2048\).
+  \item[\texttt{--init\_states}] Initial latent-state mode for the real fit:
+  \texttt{data} (default) or \texttt{rand}.
+  \item[\texttt{--init\_A}] Initial \(A\) mode for the real fit:
+  \texttt{data} (default) or \texttt{rand}.
+  \item[\texttt{--init\_B}] Initial \(\mathbf B\) mode for the real fit:
+  \texttt{data} (default) or \texttt{rand}.
+  \item[\texttt{--init\_A\_Tmax}] Maximum number of bins used for
+  data-driven \(A\) initialization. Default: \(50000\).
+  \item[\texttt{--decode\_dwell\_sec}] Dwell-time prior used in Viterbi
+  decoding. Default: \(0.3\) seconds.
+  \item[\texttt{--seed}] Base random seed. Default: \(42\); the effective
+  seed is offset by \texttt{bag\_idx}.
+  \item[\texttt{--fitName}] Accepted by the shared parser for ordinary EM
+  compatibility, but Stage~(a) output naming is determined by
+  \texttt{dataName} and \texttt{bag\_idx}.
+  \item[\texttt{--verb}] Verbosity level. With the default verbosity, rank
+  \(0\) reports runtime device information, real-fit elapsed time, and
+  elapsed time for each scramble refit.
+\end{description}
+
+\paragraph{Saved Stage (a) contents.}
+The file has the normal real-fit fields (\texttt{A\_hat}, \texttt{B\_hat},
+\texttt{S\_hat}, \texttt{c\_hat}, training histories, etc.) plus
+\texttt{A\_null}, \texttt{B\_null}, \texttt{roll\_shifts\_bin},
+\texttt{block\_start\_bins}, \texttt{block\_start\_sec},
+\texttt{boundary\_pair\_indices}, \texttt{block\_retry\_violations}, and
+locked null M-step histories. The assembled bag spike train is not saved.
+Stage~(a) metadata are grouped under \texttt{bagsFDR\_stageA}. This includes
+the bag assembly controls, the circular-shift null-refit controls and
+per-scramble initialization diagnostics, and a \texttt{real\_fit} sub-dict
+holding the usual PRISM-EM \texttt{train}, \texttt{init\_A},
+\texttt{init\_B}, \texttt{init\_state}, and \texttt{states\_recovery\_eval}
+metadata for the real time-ordered fit on that bag.
+
+\subsection{\texttt{prism\_EM\_FDR\_Bags\_agregate3c.py}: Stage (b)}
+
+This program is a single CPU postprocessing step. It reads the Stage~(a)
+files, performs the per-row null thresholding and cross-bag stability
+selection, and writes one aggregate file in the same outer format expected
+by \texttt{prism\_EM\_eval3c.py}. The filename contains
+\texttt{agregate} with one ``g'' because that is the implemented script
+name.
+
+\paragraph{Input and output naming.}
+The default input directory is
+\[
+\texttt{<basePath>/prismFDR}.
+\]
+For \texttt{num\_bags} \(=B\), the program expects the contiguous file set
+\begin{verbatim}
+<dataName>.bag000.prismFDRbag.npz
+<dataName>.bag001.prismFDRbag.npz
+...
+<dataName>.bag{num_bags-1, zero padded}.prismFDRbag.npz
+\end{verbatim}
+Here \texttt{dataName} is the extended Stage~(a) name, i.e.\
+\texttt{<originalDataName>\_<bagsTag>}.
+The output stem is
+\[
+\texttt{<dataName>\_bags<num\_bags>},
+\]
+and the output file is written to
+\[
+\texttt{<basePath>/prismFit/<dataName>\_bags<num\_bags>.prismEM.npz}.
+\]
+For example, with \texttt{dataName=daleN100\_2ba29b\_c47b43} and
+\texttt{num\_bags=5}, the output stem is
+\[
+\texttt{daleN100\_2ba29b\_c47b43\_bags5}.
+\]
+It can then be opened by
+\begin{verbatim}
+./prism_EM_eval3c.py \
+  --basePath <basePath> \
+  --dataName <dataName>_bags5 \
+  -p a e f g
+\end{verbatim}
+
+\paragraph{Runtime arguments.}
+\begin{description}
+  \item[\texttt{--basePath}] Root run directory. The default input is
+  \texttt{<basePath>/prismFDR}; the aggregate output is written to
+  \texttt{<basePath>/prismFit}.
+  \item[\texttt{--dataName}] Original dataset short name used by Stage~(a).
+  This is the prefix of all bag files.
+  \item[\texttt{--num\_bags}] Number of Stage~(a) bag files to read. The
+  implementation expects bags numbered contiguously from \texttt{bag000}.
+  \item[\texttt{--per\_bag\_quantile}] Quantile \(q\) used for the per-row
+  null magnitude threshold \(\tau^{(b)}_i\). Default: \(0.99\).
+  \item[\texttt{--sel\_prob}] Cross-bag selection-frequency threshold
+  \(\pi_{\text{thr}}\). Default: \(0.7\).
+  \item[\texttt{--fdr\_out\_dir}] Optional override for the Stage~(a) bag
+  directory. Default: \texttt{<basePath>/prismFDR}.
+  \item[\texttt{--verb}] Verbosity level. Default: \(1\).
+\end{description}
+
+\paragraph{Aggregate output schema.}
+The output \texttt{A\_hat} is the final stable matrix: off-diagonal entries
+are the selection-conditional bagged means for edges with
+\(\pi_{ij}\ge\texttt{sel\_prob}\), and zero otherwise. With the default
+\texttt{--sel\_prob 0.7}, this means retaining only edges present in at least
+\(70\%\) of bags; the retained edge value is the unweighted mean over only
+those bag instances where the edge was selected. Diagonal entries are
+the all-bag mean diagonals. \texttt{A\_prune}, \texttt{neuron\_type}, and
+\texttt{neuron\_Sedge} are recomputed from this aggregate \texttt{A\_hat}.
+The output \texttt{B\_hat} is the mean across bags after aligning state rows
+to bag~0 by the fitted \(\mathbf B\) vectors. The time-series fields
+\texttt{S\_hat}, \texttt{c\_hat}, \texttt{S\_hat\_CL}, and the EM histories
+are copied from reference bag~0 to preserve compatibility with the existing
+plotting code; those plots should therefore be interpreted as reference-bag
+diagnostics, while the connectivity fields are Stage~(b) aggregates.
+Because \texttt{bag000} is chronological, these copied state assignments
+are aligned to the original input timeline for simulation truth comparisons.
+Stage~(b) metadata are grouped under \texttt{bagsFDR\_stageB}; Stage~(a)
+metadata copied from reference bag~0 remain under \texttt{bagsFDR\_stageA}.
+
+Additional Stage~(b) arrays include \texttt{A\_bag},
+\texttt{B\_bag\_aligned}, \texttt{state\_permutation\_to\_ref},
+\texttt{selected\_mask}, \texttt{selected\_in\_bag},
+\texttt{selection\_count}, \texttt{selection\_frequency},
+\texttt{A\_mean\_selected}, \texttt{A\_sd\_selected},
+\texttt{A\_mean\_all}, \texttt{A\_sd\_all}, \texttt{row\_null\_tau\_bag},
+\texttt{row\_null\_tau\_mean}, \texttt{row\_null\_mean},
+\texttt{row\_null\_sd}, \texttt{z\_null}, and a compact selected-edge table
+with \texttt{edge\_i}, \texttt{edge\_j}, \texttt{edge\_sel\_freq},
+\texttt{edge\_A\_mean}, \texttt{edge\_A\_sd\_boot}, and
+\texttt{edge\_z\_null}.
+
+% ===============================================================
 \section{End-to-End Summary}
 % ===============================================================
 
@@ -630,7 +909,7 @@ comparable to its magnitude, is flagged as unreliable.
 \(4\times\)A100 each).}
 \begin{enumerate}
   \item Assemble bag \(b\): draw \(N_{\text{blk}}=10\) block starts in the
-  source window \(W_{\text{src}}\), enforce
+  time range \(R_{\text{time}}\), enforce
   \(\delta_{\text{blk}}^{\min}=1\,\text{s}\) separation by rejection sampling
   (up to \texttt{max\_block\_draw\_trials}=30 attempts per new block, then
   accept the next draw and record any violation), extract non-circular blocks

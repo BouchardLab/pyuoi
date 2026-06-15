@@ -11,6 +11,12 @@ from matplotlib.ticker import MaxNLocator
 import matplotlib.colors as colors
 
 
+def real_fit_metadata(md):
+    if "bagsFDR_stageA" in md:
+        return md["bagsFDR_stageA"]["real_fit"]
+    return md
+
+
 class Plotter(PlotterBackbone):
     def __init__(self, args):
         PlotterBackbone.__init__(self, args)
@@ -64,7 +70,7 @@ class Plotter(PlotterBackbone):
         fig = self.plt.figure(figId, facecolor='white', figsize=(12, 6))
         fig.subplots_adjust(hspace=0.45, wspace=0.35)
 
-        trainMD = md["train"]
+        trainMD = real_fit_metadata(md)["train"]
         short_name = md["short_name"]
 
         e_nll = np.asarray(fitD["e_nll_em"])
@@ -167,7 +173,7 @@ class Plotter(PlotterBackbone):
         # ── Row 2, Col 1: non-zero off-diag edges vs M-epoch ────────
         ax = self.plt.subplot(2, 3, 4)
         ax.plot(m_epochs[jSkipM:], nz[jSkipM:], color='tab:purple', linewidth=1)
-        ax.set(title=f"Non-zero off-diag edges (|A|>{trainMD['minW']})",
+        ax.set(title="Non-zero off-diag edges",
                xlabel="M-epoch (global)", ylabel="count")
         ax.grid(True, alpha=0.3)
         draw_threshold_marker(ax, prune_m_epoch, n_m_total, "start Aprune", "k")
@@ -226,7 +232,7 @@ class Plotter(PlotterBackbone):
         fig = self.plt.figure(figId, facecolor='white', figsize=(13.5, 8.0))
         gs = fig.add_gridspec(3, 3, height_ratios=[1.0, 1.0, 0.85], hspace=0.75, wspace=0.35)
 
-        trainMD = md["train"]
+        trainMD = real_fit_metadata(md)["train"]
         t0_bin, t1_bin = trainMD["time_range_bins"]
         dt = float(trainMD["time_step_sec"])
 
@@ -282,7 +288,7 @@ class Plotter(PlotterBackbone):
 
         # Bottom row, left: histogram of classification frequency with thresholds.
         ax = fig.add_subplot(gs[2, 0])
-        init_state_md = md["init_state"]
+        init_state_md = real_fit_metadata(md)["init_state"]
 
         freq_h1d = np.asarray(fitD["freq_h1d"], dtype=np.float64).ravel()
         bins = min(40, max(10, int(np.sqrt(max(1, freq_h1d.size)))))
@@ -443,35 +449,23 @@ class Plotter(PlotterBackbone):
         ax.set_xlabel('true weight')
         ax.set_ylabel('fitted')
 
-    def _count_A_edges(self, A, minW=0.0):
+    def _count_A_edges(self, A):
         A = np.asarray(A)
         N = A.shape[0]
         off_mask = ~np.eye(N, dtype=bool)
         n_diag = int(np.eye(N, dtype=bool).sum())
-        if minW > 0:
-            n_off = int(np.sum(off_mask & (np.abs(A) >= minW)))
-        else:
-            n_off = int(np.count_nonzero(A[off_mask]))
+        n_off = int(np.count_nonzero(A[off_mask]))
         return N, n_diag, n_off
-
-    def _A_for_display_minW(self, A, minW):
-        """Zero off-diagonal entries with |A_ij| < minW; keep diagonal."""
-        A = np.asarray(A, dtype=np.float64).copy()
-        N = A.shape[0]
-        off_mask = ~np.eye(N, dtype=bool)
-        A[off_mask & (np.abs(A) < float(minW))] = 0.0
-        return A
 
     def _A_prune_from_fitD(self, fitD):
         """Saved A_prune matrix."""
         return np.asarray(fitD["A_prune"], dtype=np.float64)
 
-    def _postsyn_nz_edge_stats(self, A, minW):
-        """Per postsynaptic row: count and sum of off-diagonal edges with |A| >= minW."""
+    def _postsyn_nz_edge_stats(self, A):
+        """Per postsynaptic row: count and sum of nonzero off-diagonal edges."""
         A = np.asarray(A, dtype=np.float64)
         N = A.shape[0]
-        minW = float(minW)
-        strong = ~np.eye(N, dtype=bool) & (np.abs(A) >= minW)
+        strong = ~np.eye(N, dtype=bool) & (A != 0)
         cnt = strong.sum(axis=1).astype(np.int64)
         sum_post = np.where(strong, A, 0.0).sum(axis=1)
         return cnt, sum_post
@@ -484,7 +478,7 @@ class Plotter(PlotterBackbone):
         ax2.tick_params(axis='y', labelcolor='tab:orange')
         return ax2
 
-    def _draw_A_offdiag_hist(self, ax, A, title, minW=0.02, diagnostics_txt=None):
+    def _draw_A_offdiag_hist(self, ax, A, title, diagnostics_txt=None):
         A = np.asarray(A)
         N = A.shape[0]
         off_mask = ~np.eye(N, dtype=bool)
@@ -493,8 +487,6 @@ class Plotter(PlotterBackbone):
         ax.hist(A_off_nz, bins=120, color='saddlebrown', alpha=0.85)
         ax.set_yscale('log')
         ax.grid(True, alpha=0.35)
-        ax.axvline(float(minW), color='green', ls='--', lw=1.0, alpha=0.9)
-        ax.axvline(-float(minW), color='green', ls='--', lw=1.0, alpha=0.9)
         ax.set_title(title)
         ax.set_xlabel("edge value")
         ax.set_ylabel("edges")
@@ -507,7 +499,7 @@ class Plotter(PlotterBackbone):
             )
 
     def _A_init_diagnostics_txt(self, md):
-        initA = md["init_A"]
+        initA = real_fit_metadata(md)["init_A"]
         return (
             "A-init diagnostics:\n"
             f"  cond(YpYp) = {initA['cond_YpYp']:.2e}\n"
@@ -517,16 +509,15 @@ class Plotter(PlotterBackbone):
             f"  bins_used  = {initA['num_bins_used']}/{initA['num_bins_total']}"
         )
 
-    def A_fitted_prismEM(self, fitD, md, single_rates, minW=0.02, figId=8):
+    def A_fitted_prismEM(self, fitD, md, single_rates, figId=8):
         """Fitted A only: 2 rows x 4 cols.
 
         Cols: heatmap | off-diagonal histogram | # non-zero edges vs postsyn |
               sum non-zero edge vs postsyn.
-        Non-zero edge: off-diagonal with |A_ij| >= minW.
+        Non-zero edge: off-diagonal with A_ij != 0.
         Neuron axes use frequency-sorted indices as stored in the fit (no truth).
         Bottom-row cols 3-4 overlay single_rates (Hz) on right y-axis.
         """
-        minW = float(minW)
         A_init = np.asarray(fitD["A_init"])
         A_hat = np.asarray(fitD["A_hat"])
         assert A_init.shape == A_hat.shape and A_init.ndim == 2, "A_init and A_hat must match"
@@ -549,18 +540,16 @@ class Plotter(PlotterBackbone):
             (A_init, "A_init", self._A_init_diagnostics_txt(md)),
             (A_hat, "A_hat", None),
         ]):
-            _, n_diag, n_off = self._count_A_edges(A, minW=minW)
+            _, n_diag, n_off = self._count_A_edges(A)
             mat_title = f"{label}, nEdges={n_diag}+{n_off}"
-            A_disp = self._A_for_display_minW(A, minW)
-            cnt_post, sum_post = self._postsyn_nz_edge_stats(A, minW)
+            cnt_post, sum_post = self._postsyn_nz_edge_stats(A)
 
             ax = fig.add_subplot(gs[row, 0])
-            self._draw_A_matrix(ax, A_disp, mat_title, num_exc=num_exc)
+            self._draw_A_matrix(ax, A, mat_title, num_exc=num_exc)
 
             ax = fig.add_subplot(gs[row, 1])
             self._draw_A_offdiag_hist(
-                ax, A, f"{label} off-diagonal",
-                minW=minW, diagnostics_txt=diag_txt
+                ax, A, f"{label} off-diagonal", diagnostics_txt=diag_txt
             )
 
             ax = fig.add_subplot(gs[row, 2])
@@ -589,7 +578,7 @@ class Plotter(PlotterBackbone):
                 self._overlay_single_rates(ax, single_rates, x_post)
 
         fig.suptitle(
-            f"A fitted summary: {md['short_name']},  minW={minW:g}, neur. freq. sorted",
+            f"A fitted summary: {md['short_name']}, neur. freq. sorted",
             fontsize=13,
         )
         fig.tight_layout(rect=[0, 0, 1, 0.95])
@@ -674,17 +663,16 @@ class Plotter(PlotterBackbone):
         """Wrapper for current EM use case; reusable for A_hat later."""
         self.compare_A_vs_truth(fitD[est_key], md, cmp_label=est_label, figId=figId)
 
-    def _node_outgoing_edge_stats(self, A, minW):
-        """Per postsynaptic row: Nedge count and Sedge sum, |A|>minW off-diag."""
+    def _node_outgoing_edge_stats(self, A):
+        """Per postsynaptic row: Nedge count and Sedge sum, nonzero off-diag."""
         A = np.asarray(A, dtype=np.float64)
         N = A.shape[0]
-        minW = float(minW)
-        strong = ~np.eye(N, dtype=bool) & (np.abs(A) > minW)
+        strong = ~np.eye(N, dtype=bool) & (A != 0)
         Nedge = strong.sum(axis=1).astype(np.int64)
         Sedge = np.where(strong, A, 0.0).sum(axis=1)
         return Nedge, Sedge
 
-    def edge_recovery_prismEM(self, fitD, md, minW=0.02, figId=4, est_key="A_hat", est_label="A_hat"):
+    def edge_recovery_prismEM(self, fitD, md, figId=4, est_key="A_hat", est_label="A_hat"):
         """One-row, four-panel edge recovery: A_true | A_est edges | confusion | stats."""
         A_true, N, num_exc, n_diag, n_off, shared_norm = self._get_A_true_info(md)
         A_est = np.asarray(fitD[est_key])
@@ -697,7 +685,7 @@ class Plotter(PlotterBackbone):
 
         off_diag = ~np.eye(N, dtype=bool)
         E_t = E_true & off_diag
-        E_hat = (np.abs(A_est) > float(minW)) & off_diag
+        E_hat = (A_est != 0) & off_diag
 
         TP = E_t & E_hat
         FP = (~E_t) & E_hat
@@ -727,7 +715,7 @@ class Plotter(PlotterBackbone):
 
         ax = self.plt.subplot(1, 4, 2)
         ax.imshow(E_hat.astype(float), cmap='Greys', vmin=0, vmax=1, **kw)
-        ax.set(title=f"{est_label} edges  (n={int(E_hat.sum())},  minW={float(minW):g})",
+        ax.set(title=f"{est_label} edges  (n={int(E_hat.sum())})",
                xlabel='presyn. neuron (output)', ylabel='postsyn. neuron (input)')
         ax.plot([0, N-1], [0, N-1], '--', lw=0.8, color='magenta')
 
@@ -755,36 +743,34 @@ class Plotter(PlotterBackbone):
         ax.text(0.55, 0.60, txt, transform=ax.transAxes, fontsize=9)
 
         fig.suptitle(
-            f"A-matrix edge recovery, minW={float(minW):g} (off-diag only): {md['short_name']}",
+            f"A-matrix edge recovery (off-diag only): {md['short_name']}",
             fontsize=12)
         fig.tight_layout()
 
     def _draw_A_matrix_summary_3cols(
-        self, fig, gs, row, A, label, minW, single_rates, num_exc=None,
+        self, fig, gs, row, A, label, single_rates, num_exc=None,
     ):
         """Heatmap, off-diagonal hist, # non-zero edges (as in -p i bottom row, cols 0-2)."""
         A = np.asarray(A, dtype=np.float64)
         N = A.shape[0]
-        minW = float(minW)
         x_post = np.arange(N, dtype=np.int64)
         single_rates = np.asarray(single_rates, dtype=np.float64).ravel()
         assert single_rates.shape[0] == N, (
             f"single_rates length {single_rates.shape[0]} != N={N}"
         )
 
-        _, n_diag, n_off = self._count_A_edges(A, minW=minW)
-        A_disp = self._A_for_display_minW(A, minW)
-        cnt_post, _ = self._postsyn_nz_edge_stats(A, minW)
+        _, n_diag, n_off = self._count_A_edges(A)
+        cnt_post, _ = self._postsyn_nz_edge_stats(A)
         sum_Nedge = int(np.sum(cnt_post))
 
         ax = fig.add_subplot(gs[row, 0])
         self._draw_A_matrix(
-            ax, A_disp, f"{label}, nEdges={n_diag}+{n_off}", num_exc=num_exc,
-            exc_inh_from_offdiag=(num_exc is None), exc_inh_min_abs=minW,
+            ax, A, f"{label}, nEdges={n_diag}+{n_off}", num_exc=num_exc,
+            exc_inh_from_offdiag=(num_exc is None), exc_inh_min_abs=0.0,
         )
 
         ax = fig.add_subplot(gs[row, 1])
-        self._draw_A_offdiag_hist(ax, A, f"{label} off-diagonal", minW=minW)
+        self._draw_A_offdiag_hist(ax, A, f"{label} off-diagonal")
         ax.text(
             0.98, 0.97, f"sum Nedge={sum_Nedge:d}", transform=ax.transAxes,
             va="top", ha="right", fontsize=9, color="k",
@@ -807,7 +793,7 @@ class Plotter(PlotterBackbone):
 
     def node_outgoing_edge_stats_prismEM(
         self, fitD, md, single_rates, neuron_type,
-        minW=0.02, figId=12, est_key="A_hat", est_label="A_hat",
+        figId=12, est_key="A_hat", est_label="A_hat",
     ):
         """2x3 canvas: row0 Nedge/Sedge stats; row1 A_prune summary (-p i style)."""
         A_est = np.asarray(fitD[est_key], dtype=np.float64)
@@ -815,9 +801,8 @@ class Plotter(PlotterBackbone):
         assert A_est.ndim == 2 and A_est.shape[0] == A_est.shape[1], "A_est must be square"
         assert A_prune.shape == A_est.shape, "A_prune shape must match A_hat"
         N = A_est.shape[0]
-        minW = float(minW)
 
-        Nedge, Sedge = self._node_outgoing_edge_stats(A_est, minW)
+        Nedge, Sedge = self._node_outgoing_edge_stats(A_est)
         r_ns = self._corrcoef_safe(Nedge, Sedge)
         n_bins = max(10, min(40, int(np.sqrt(N)) * 2))
         neuron_type = np.asarray(neuron_type, dtype=np.int8)
@@ -904,11 +889,11 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.35)
 
         self._draw_A_matrix_summary_3cols(
-            fig, gs, 1, A_prune, "A_prune", minW, single_rates, num_exc=num_exc,
+            fig, gs, 1, A_prune, "A_prune", single_rates, num_exc=num_exc,
         )
 
         fig.suptitle(
-            f"{est_label} per-node outgoing edges, minW={minW:g} (row=postsynaptic): "
+            f"{est_label} per-node outgoing edges (row=postsynaptic): "
             f"{md['short_name']}",
             fontsize=12,
         )
@@ -1080,7 +1065,7 @@ class Plotter(PlotterBackbone):
         ax.grid(False)
         self.plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
-    def initA_quality_prismEM(self, fitD, md, minW=0.02, figId=7):
+    def initA_quality_prismEM(self, fitD, md, figId=7):
         """Three-row diagnostics for A_init vs A_true with diag/exc/inh categories."""
         A_true, N, num_exc, n_diag, n_off, shared_norm = self._get_A_true_info(md)
         A_init = np.asarray(fitD["A_init"], dtype=np.float64)
@@ -1094,7 +1079,7 @@ class Plotter(PlotterBackbone):
         diag_mask = np.eye(N, dtype=bool)
         off_diag = ~diag_mask
         E_t = E_true & off_diag
-        E_hat = (np.abs(A_init) > float(minW)) & off_diag
+        E_hat = (A_init != 0) & off_diag
         TP = E_t & E_hat
         FP = (~E_t) & E_hat
         FN = E_t & (~E_hat)
@@ -1197,7 +1182,7 @@ class Plotter(PlotterBackbone):
         tp_i = int(tp_inh.sum())
         n_d = int(cat_diag.sum())
         fig.suptitle(
-            f"A_init TP quality vs A_true, minW={float(minW):g}: {md['short_name']}\n"
+            f"A_init TP quality vs A_true: {md['short_name']}\n"
             f"off-diag TP={tp} (exc={tp_e}, inh={tp_i}), FP={fp}, FN={fn}; diag n={n_d}",
             fontsize=12,
         )
@@ -1256,20 +1241,18 @@ class Plotter(PlotterBackbone):
         assert np.isfinite(divide), "Computed non-finite bimodal divider"
         return float(divide)
 
-    def _plot_corr_A_regions(self, ax, xV, yV, minW, title, xlab, ylab, s=6, alpha=0.5, color=None):
+    def _plot_corr_A_regions(self, ax, xV, yV, title, xlab, ylab, s=6, alpha=0.5, color=None):
         x = np.asarray(xV)
         y = np.asarray(yV)
         ax.scatter(x, y, s=s, alpha=alpha, color=color)
         self._add_x45_lins(ax, only45=True)
-        ax.axvline(-minW, color="red", linestyle="--", linewidth=1)
-        ax.axvline(minW, color="red", linestyle="--", linewidth=1)
         ax.set(title=title, xlabel=xlab, ylabel=ylab)
         ax.set_aspect("equal", adjustable="box")
         ax.grid(True, alpha=0.4)
 
-        mask_left = x < -minW
-        mask_mid = (x >= -minW) & (x <= minW)
-        mask_right = x > minW
+        mask_left = x < 0
+        mask_mid = x == 0
+        mask_right = x > 0
         r_left = self._corrcoef_safe(x[mask_left], y[mask_left])
         r_mid = self._corrcoef_safe(x[mask_mid], y[mask_mid])
         r_right = self._corrcoef_safe(x[mask_right], y[mask_right])
@@ -1308,7 +1291,6 @@ class Plotter(PlotterBackbone):
         B_hat = np.asarray(fitD["B_hat"])
         A_true = np.asarray(md["A_true"])
         B_true = np.asarray(md["B_true"])
-        minW = float(self.args.minW)
 
         assert A_true.ndim == 2, f"A_true must be 2D, got shape={A_true.shape}"
         assert A_hat.ndim == 2, f"A_hat must be 2D, got shape={A_hat.shape}"
@@ -1327,7 +1309,7 @@ class Plotter(PlotterBackbone):
 
         ax = self.plt.subplot(1, ncol, 1)
         self._plot_corr_A_regions(
-            ax, A_true.ravel(), A_hat.ravel(), minW,
+            ax, A_true.ravel(), A_hat.ravel(),
             "A fit, non-zero ,", "A_true", "A_hat", s=6, alpha=0.4, color="green"
         )
 
@@ -1339,12 +1321,12 @@ class Plotter(PlotterBackbone):
                 s=8, alpha=0.5, color="blue"
             )
 
-        fig.suptitle(f"2D correlations, minW={minW:g}: {md['short_name']}", fontsize=12)
+        fig.suptitle(f"2D correlations: {md['short_name']}", fontsize=12)
         fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.92])
 
     def state_seq_prismEM(self, fitD, md, figId=5, time_range_sec=None):
         """4-row state-sequence canvas in the style of prism_Estep_eval -p b."""
-        trainMD = md["train"]
+        trainMD = real_fit_metadata(md)["train"]
         dt = float(trainMD["time_step_sec"])
         t0_bin, t1_bin = [int(x) for x in trainMD["time_range_bins"]]
 
@@ -1418,7 +1400,7 @@ class Plotter(PlotterBackbone):
         ax2.legend(loc="lower right", bbox_to_anchor=(1.0, 1.02), ncol=4, fontsize=8)
 
         # Row 1: diagnostics panels (occupancy, state accuracy, confidence)
-        srec = md["states_recovery_eval"]
+        srec = real_fit_metadata(md)["states_recovery_eval"]
         acc_avg = float(srec["avg_acc"])
         state_acc_cl = np.asarray(srec["state_acc_cl"], dtype=np.float64)
         acc_ps = state_acc_cl[:, 0]
@@ -1538,8 +1520,8 @@ class Plotter(PlotterBackbone):
     ):
         """4-row canvas: init/fit states + bioExp sum-rate + heatmap (no truth)."""
         if time_range_sec is None:
-            time_range_sec = md["train"]["time_range_sec"]
-        trainMD = md["train"]
+            time_range_sec = real_fit_metadata(md)["train"]["time_range_sec"]
+        trainMD = real_fit_metadata(md)["train"]
         i0, i1, t_bins = self._state_seq_time_slice(trainMD, time_range_sec)
 
         S_init = np.asarray(fitD["S_init"], dtype=np.float64)[i0:i1 + 1]
@@ -1585,7 +1567,7 @@ class Plotter(PlotterBackbone):
         fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.94])
 
     def _bioexp_Ahat_topology_ax(
-        self, ax, loc_x, loc_y, A_hat, minW, sign=None, neuron_type=None,
+        self, ax, loc_x, loc_y, A_hat, sign=None, neuron_type=None,
         node_size=16, row_select=None, und_color="salmon",
     ):
         """Neuron layout with A_hat edges; sign is 'pos', 'neg', or None for both."""
@@ -1604,7 +1586,7 @@ class Plotter(PlotterBackbone):
                 loc_x, loc_y, s=node_size, marker="o", c=node_color,
                 edgecolors="k", linewidths=0.4, alpha=0.95, zorder=3,
             )
-        edge_mask = np.abs(A_hat) > float(minW)
+        edge_mask = A_hat != 0
         np.fill_diagonal(edge_mask, False)
         if sign == "pos":
             edge_mask &= A_hat > 0
@@ -1644,7 +1626,7 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.35)
         return n_total, int(post_draw.size)
 
-    def neuron_spatial_Ahat_edges(self, fitD, bioD, bioMD, minW=0.02, figId=10):
+    def neuron_spatial_Ahat_edges(self, fitD, bioD, bioMD, figId=10):
         """MEA layout plus fitted A_hat edges for bioExp data."""
         loc_x = PlotterBioExp._metrics_column(self, bioD, bioMD, "loc_x")
         loc_y = PlotterBioExp._metrics_column(self, bioD, bioMD, "loc_y")
@@ -1679,8 +1661,8 @@ class Plotter(PlotterBackbone):
         cb.ax.tick_params(labelsize=9)
 
         ax = fig.add_subplot(gs[0, 2])
-        n_edges, _ = self._bioexp_Ahat_topology_ax(ax, loc_x, loc_y, A_hat, minW, sign=None)
-        ax.set_title(f"A_hat edges, |A|>{float(minW):g}, n={n_edges}", fontsize=11, pad=8)
+        n_edges, _ = self._bioexp_Ahat_topology_ax(ax, loc_x, loc_y, A_hat, sign=None)
+        ax.set_title(f"A_hat nonzero edges, n={n_edges}", fontsize=11, pad=8)
         ax.plot([], [], color="red", alpha=0.7, label="A_hat > 0")
         ax.plot([], [], color="blue", alpha=0.7, label="A_hat < 0")
         ax.legend(loc="best", fontsize=9)
@@ -1690,7 +1672,7 @@ class Plotter(PlotterBackbone):
 
     def neuron_spatial_Ahat_edges_split(
         self, fitD, bioD, bioMD, neuron_type, neuron_Sedge,
-        minW=0.02, maxNeurons=30, figId=11,
+        maxNeurons=30, figId=11,
     ):
         """Two panels: positive-only and negative-only A_prune edges (bioExp)."""
         loc_x = PlotterBioExp._metrics_column(self, bioD, bioMD, "loc_x")
@@ -1731,7 +1713,7 @@ class Plotter(PlotterBackbone):
 
         ax = fig.add_subplot(gs[0, 0])
         n_pos, n_pos_show = self._bioexp_Ahat_topology_ax(
-            ax, loc_x, loc_y, A_prune, 0.0, sign="pos",
+            ax, loc_x, loc_y, A_prune, sign="pos",
             neuron_type=neuron_type, node_size=32, row_select=exc_rows,
             und_color="yellow",
         )
@@ -1746,7 +1728,7 @@ class Plotter(PlotterBackbone):
 
         ax = fig.add_subplot(gs[0, 1])
         n_neg, n_neg_show = self._bioexp_Ahat_topology_ax(
-            ax, loc_x, loc_y, A_prune, 0.0, sign="neg",
+            ax, loc_x, loc_y, A_prune, sign="neg",
             neuron_type=neuron_type, node_size=32, row_select=inh_rows,
             und_color="yellow",
         )

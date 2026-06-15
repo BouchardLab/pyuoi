@@ -1,0 +1,107 @@
+#!/bin/bash
+#SBATCH -N 1
+#SBATCH -C gpu
+#SBATCH -A m2043
+#SBATCH  --time=30:00 -q debug
+# SBATCH --time 2:28:00  -q regular 
+#SBATCH --array=0-1
+#SBATCH --output=outj/%x_%A_%a.out
+#SBATCH --licenses=scratch
+
+set -euo pipefail
+
+cd "${SLURM_SUBMIT_DIR:-$PWD}"
+mkdir -p out
+
+module load pytorch
+
+# One SLURM array task runs one Stage (a) bag fit.
+bag_idx=${SLURM_ARRAY_TASK_ID:-0}
+
+# Defaults mirrored from big_fit_bags.sh.
+#basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3 ; shortN=Canine_260324_r23_w0_1hz
+basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3c; shortN=daleN100_2ba29b_c47b43
+
+
+time_range_sec=(300 1200)
+bagsTag=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --time_range_sec)
+      if [[ $# -lt 3 ]]; then
+        echo "ERROR: --time_range_sec requires 2 values: <t0> <t1>" >&2
+        exit 1
+      fi
+      time_range_sec=("$2" "$3")
+      shift 3
+      ;;
+    --time_range_sec=*)
+      range_val="${1#*=}"
+      range_val="${range_val/,/ }"
+      read -r t0_sec t1_sec extra <<< "${range_val}"
+      if [[ -n "${extra:-}" || -z "${t0_sec:-}" || -z "${t1_sec:-}" ]]; then
+        echo "ERROR: --time_range_sec requires exactly 2 values" >&2
+        exit 1
+      fi
+      time_range_sec=("${t0_sec}" "${t1_sec}")
+      shift
+      ;;
+    --bagsTag)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --bagsTag requires a value" >&2
+        exit 1
+      fi
+      bagsTag="$2"
+      shift 2
+      ;;
+    --bagsTag=*)
+      bagsTag="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      echo "Usage: sbatch [--array=0-N] batchFitBags.slr [--time_range_sec t0 t1] [--bagsTag TAG]"
+      exit 0
+      ;;
+    *)
+      echo "ERROR: Unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -z "${bagsTag}" || "${bagsTag,,}" == "none" ]]; then
+  if [[ -n "${SLURM_JOB_ID:-}" ]]; then
+    bagsTag="j${SLURM_JOB_ID: -4}"
+  elif [[ -n "${SLURM_JOBID:-}" ]]; then
+    bagsTag="j${SLURM_JOBID: -4}"
+  else
+    bagsTag="local"
+  fi
+fi
+
+echo "S: job=${SLURM_JOB_ID:-local} array_task=${SLURM_ARRAY_TASK_ID:-none} host=$(hostname)"
+echo "S: basePath=${basePath}"
+echo "S: dataName=${shortN}"
+echo "S: bag_idx=${bag_idx}"
+echo "S: time_range_sec=${time_range_sec[*]}"
+echo "S: bagsTag=${bagsTag}"
+
+time torchrun --standalone --nnodes=1 --nproc_per_node=4 \
+  ./prism_EM_FDR_Bags_train3c.py \
+  --basePath "${basePath}" \
+  --dataName "${shortN}" \
+  --bag_idx "${bag_idx}" \
+  --bagsTag "${bagsTag}" \
+  --time_range_sec "${time_range_sec[@]}" \
+  --num_blocks 15 \
+  --num_scrambles 4 \
+  --num_states 2 \
+  --num_em_iters 40 \
+  --batch_size 4096 \
+  --delay_em_iter_4_lrDecay 10 \
+  --delay_em_iter_4_ArhoMax 20 \
+  --delay_em_iter_4_Aprune 30
+
+echo
+echo "S: Stage (a) bag fit done for bag_idx=${bag_idx}"

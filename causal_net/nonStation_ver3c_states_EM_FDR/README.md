@@ -74,13 +74,13 @@ Useful optional controls:
   initialization.
 
 Training defaults used by both entry points include `--m_epochs 2`,
-`--pgd_iter 5`, `--prescale_m_step_4_ArhoMax 120`, and `--minW 0.0`.
+`--pgd_iter 5`, and `--prescale_m_step_4_ArhoMax 120`.
 
 ## EM-FDR-Bags Stage (a)
 
 Run `prism_EM_FDR_Bags_train3c.py` once per bag. Each invocation:
 
-1. Draws `--num_blocks` contiguous blocks from `--source_window_sec`.
+1. Draws `--num_blocks` contiguous blocks from `--time_range_sec`.
 2. Concatenates them into one bag.
 3. Runs a real, time-ordered PRISM-EM fit on that bag.
 4. Freezes the decoded state sequence `S_hat`.
@@ -91,8 +91,18 @@ Run `prism_EM_FDR_Bags_train3c.py` once per bag. Each invocation:
 The output file is:
 
 ```bash
-$basePath/prismFDR/<dataName>.bag<bag_idx:03d>.prismFDRbag.npz
+$basePath/prismFDR/<dataName>_<bagsTag>.bag<bag_idx:03d>.prismFDRbag.npz
 ```
+
+Pass `--bagsTag TAG` to choose the tag. If `--bagsTag` is omitted or set to
+`None`, Stage (a) derives a deterministic four-character alphanumeric tag
+from the shared bagging/training configuration, excluding `bag_idx`, so array
+tasks for different bags use the same tag.
+
+For `--bag_idx 0`, blocks are assembled chronologically on the input-data
+timeline: block 0 starts at the beginning of `--time_range_sec`, block 1
+starts one block length later, and so on. Other bag indices use the random
+block-bootstrap sampler.
 
 Example using 4 GPUs for bag 3:
 
@@ -105,7 +115,8 @@ time torchrun --standalone --nnodes=1 --nproc_per_node=4 \
   --basePath $basePath \
   --dataName $shortN \
   --bag_idx 3 \
-  --source_window_sec 300 900 \
+  --bagsTag testA \
+  --time_range_sec 300 900 \
   --num_blocks 10 \
   --num_scrambles 4 \
   --num_states 2 \
@@ -120,8 +131,10 @@ The bag driver inherits the ordinary EM controls and adds these FDR-bagging
 controls:
 
 - `--bag_idx`: integer bag index used in the output filename and RNG stream.
+- `--bagsTag TAG`: alphanumeric tag appended after `dataName` in Stage (a)
+  output names. Use `None` or omit it for the deterministic four-character tag.
 - `--fdr_out_dir`: optional output directory; default is `$basePath/prismFDR`.
-- `--source_window_sec START END`: source time window for block starts.
+- `--time_range_sec START END`: time range for block starts.
 - `--num_blocks`: number of contiguous blocks in the bag.
 - `--block_len_sec`: block length in seconds; default `60`.
 - `--min_block_start_sep_sec`: preferred minimum separation between block
@@ -154,7 +167,7 @@ for bag in 0 1 2 3 4; do
     --basePath $basePath \
     --dataName $shortN \
     --bag_idx $bag \
-    --source_window_sec 300 900 \
+    --time_range_sec 300 900 \
     --num_blocks 10 \
     --num_scrambles 4 \
     --num_states 2 \
@@ -173,11 +186,12 @@ the bag files with:
 ```bash
 basePath=/path/to/run
 shortN=myDataset
+bagsTag=testA
 num_bags=5
 
 ./prism_EM_FDR_Bags_agregate3c.py \
   --basePath $basePath \
-  --dataName $shortN \
+  --dataName ${shortN}_${bagsTag} \
   --num_bags $num_bags \
   --per_bag_quantile 0.99 \
   --sel_prob 0.7
@@ -218,6 +232,16 @@ You can then run:
   -p a e f g
 ```
 
+To inspect one Stage (a) time-ordered bag fit directly, pass the bag stem as
+`--dataName`; names containing `bagNNN` are loaded from `prismFDR`:
+
+```bash
+./prism_EM_eval3c.py \
+  --basePath $basePath \
+  --dataName ${shortN}.bag000 \
+  -p a e f g
+```
+
 Stage (b) also saves FDR diagnostics such as `selection_frequency`,
 `selected_mask`, `A_mean_selected`, `A_sd_selected`, `A_mean_all`, `A_sd_all`,
 `row_null_mean`, `row_null_sd`, `row_null_tau_mean`, `z_null`, and a compact
@@ -238,6 +262,12 @@ Each `.prismFDRbag.npz` contains the real fit fields in the same style as
 - `block_retry_violations`: accepted starts that violated the separation
   constraint after exhausting `--max_block_draw_trials`.
 - `null_*_epoch`: locked M-step histories for the null refits.
+
+Metadata from the bagging workflow are grouped by stage. `bagsFDR_stageA`
+contains the bag assembly settings, null-refit settings, per-scramble null
+initialization diagnostics, and `real_fit.{train,init_A,init_B,init_state,
+states_recovery_eval}` for the real fit on that bag. The aggregate file also
+adds `bagsFDR_stageB` for the cross-bag selection and output settings.
 
 The assembled bag spike train is not saved. It can be reconstructed from the
 original spike file and the ordered block starts.

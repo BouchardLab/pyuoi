@@ -62,22 +62,19 @@ def bag_file_name(data_name, bag_idx):
     return f"{data_name}.bag{int(bag_idx):03d}.prismFDRbag.npz"
 
 
-def source_type_prune(A_hat, minW):
+def source_type_prune(A_hat):
     """Compute source-neuron signs and Dale-style pruned A using columns."""
     A_hat = np.asarray(A_hat, dtype=np.float32)
     n_neuron = A_hat.shape[0]
-    off_mask = ~np.eye(n_neuron, dtype=bool)
     A_thr = A_hat.copy()
-    A_thr[off_mask & (np.abs(A_thr) < float(minW))] = 0.0
     np.fill_diagonal(A_thr, 0.0)
 
     neuron_sedge = A_thr.sum(axis=0)
     neuron_type = np.zeros((n_neuron,), dtype=np.int8)
-    neuron_type[neuron_sedge > float(minW)] = 1
-    neuron_type[neuron_sedge < -float(minW)] = -1
+    neuron_type[neuron_sedge > 0.0] = 1
+    neuron_type[neuron_sedge < 0.0] = -1
 
     A_prune = A_hat.copy()
-    A_prune[off_mask & (np.abs(A_prune) < float(minW))] = 0.0
     diag_A = np.diag(A_hat).copy()
     exc_cols = neuron_type > 0
     inh_cols = neuron_type < 0
@@ -327,7 +324,7 @@ def main():
     )
 
     a_hat = agg["A_hat_final"].astype(np.float32)
-    a_prune, neuron_type, neuron_sedge = source_type_prune(a_hat, 0.0)
+    a_prune, neuron_type, neuron_sedge = source_type_prune(a_hat)
     b_hat = np.mean(b_aligned, axis=0).astype(np.float32)
 
     ref_d = bag_data[0]
@@ -374,7 +371,7 @@ def main():
 
     out_md = dict(ref_md)
     out_md["fit_type"] = "prismEM_FDRbags_stageB"
-    out_md["stageB"] = {
+    out_md["bagsFDR_stageB"] = {
         "program": "prism_EM_FDR_Bags_agregate3c.py",
         "dataName": args.dataName,
         "output_name": out_name,
@@ -400,15 +397,11 @@ def main():
         "stability_false_edge_bound": float(agg["stability_false_edge_bound"]),
         "elapsed_sec": float(time.perf_counter() - t0),
     }
-    out_md["train"] = dict(out_md["train"])
-    out_md["train"]["EMtrain_file"] = out_name
-    out_md["train"]["stageB_reference_bag_idx"] = 0
-    out_md["train"]["stageB_num_bags"] = int(args.num_bags)
 
     prov = dict(out_md.get("provenance", {}))
     prov["EMtrain_file"] = out_name
-    prov["FDR_stageB_file"] = out_name
-    prov["FDR_stageB_dataName"] = args.dataName
+    prov["bagsFDR_stageB_file"] = out_name
+    prov["bagsFDR_stageB_dataName"] = args.dataName
     out_md["provenance"] = prov
 
     if args.verb > 0:

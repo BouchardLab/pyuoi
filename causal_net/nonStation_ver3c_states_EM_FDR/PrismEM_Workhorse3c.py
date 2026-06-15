@@ -102,8 +102,6 @@ def add_prism_em_args(parser, include_time_range=True):
     g.add_argument("--delay_em_iter_4_Aprune", type=int, default=1,
                    help="EM iter after which L1 proximal pruning starts")
     g.add_argument("--batch_size", type=int, default=2048)
-    g.add_argument("--minW", type=float, default=0.0,
-                   help="Threshold for edge counting/reporting")
 
     g = parser.add_argument_group("initialization")
     g.add_argument("--init_states", type=str, default="data",
@@ -392,7 +390,7 @@ def sync_AB_via_rank0_avg_then_broadcast_(mdl, rho_max, correction_strength=1.0)
 def run_mstep_epoch(model, loader, optimizer, device, dt,
                     l1_wt, lambda3, rho_max, rho_every,
                     apply_prune, apply_rho, rho_correction_strength,
-                    off_mask, minW):
+                    off_mask):
     model.train()
     mdl = model.module if hasattr(model, "module") else model
     s_tot = s_nll = s_l1 = 0.0
@@ -438,7 +436,7 @@ def run_mstep_epoch(model, loader, optimizer, device, dt,
         nb = int(v[3].item())
 
     with torch.no_grad():
-        nz = int((mdl.A[off_mask].abs() > minW).sum().item())
+        nz = int((mdl.A[off_mask] != 0).sum().item())
         rho = float(torch.linalg.eigvals(mdl.A).abs().max().item())
     return dict(loss=s_tot / nb, nll=s_nll / nb, l1=s_l1 / nb, rho=rho, nz=nz)
 
@@ -524,22 +522,19 @@ def init_model(N, M, eta_clip, A_init, B_init, ctx):
     return model
 
 
-def source_type_prune(A_hat, minW):
+def source_type_prune(A_hat):
     """Compute source-neuron signs and Dale-style pruned A using columns."""
     A_hat = np.asarray(A_hat, dtype=np.float32)
     N = A_hat.shape[0]
-    off_mask = ~np.eye(N, dtype=bool)
     A_thr = A_hat.copy()
-    A_thr[off_mask & (np.abs(A_thr) < float(minW))] = 0.0
     np.fill_diagonal(A_thr, 0.0)
 
     neuron_Sedge = A_thr.sum(axis=0)
     neuron_type = np.zeros((N,), dtype=np.int8)
-    neuron_type[neuron_Sedge > float(minW)] = 1
-    neuron_type[neuron_Sedge < -float(minW)] = -1
+    neuron_type[neuron_Sedge > 0.0] = 1
+    neuron_type[neuron_Sedge < 0.0] = -1
 
     A_prune = A_hat.copy()
-    A_prune[off_mask & (np.abs(A_prune) < float(minW))] = 0.0
     diag_A = np.diag(A_hat).copy()
     exc_cols = neuron_type > 0
     inh_cols = neuron_type < 0
@@ -700,7 +695,7 @@ def run_full_fit(spikes, spikeMD, single_rates, args, ctx,
                 model, loader, optimizer, ctx.device, dt,
                 l1_wt, args.lambda3, args.rho_max,
                 args.prescale_m_step_4_ArhoMax, apply_prune, apply_rho,
-                rho_correction_strength, off_mask, args.minW
+                rho_correction_strength, off_mask
             )
             if em > int(args.delay_em_iter_4_lrDecay):
                 scheduler.step()
@@ -730,7 +725,7 @@ def run_full_fit(spikes, spikeMD, single_rates, args, ctx,
     S_hat_CL = (1.0 - c_hat_np.max(axis=1)).astype(np.float32)
     A_hat = mdl.A.detach().cpu().numpy().astype(np.float32)
     B_hat = mdl.B.detach().cpu().numpy().astype(np.float32)
-    A_prune, neuron_type, neuron_Sedge = source_type_prune(A_hat, args.minW)
+    A_prune, neuron_type, neuron_Sedge = source_type_prune(A_hat)
 
     hist = _history_arrays(h)
     outD = {
@@ -783,7 +778,6 @@ def run_full_fit(spikes, spikeMD, single_rates, args, ctx,
         "delay_em_iter_4_Aprune": int(args.delay_em_iter_4_Aprune),
         "mstep_state_mode": "viterbi_onehot_prevbin",
         "batch_size": int(args.batch_size),
-        "minW": float(args.minW),
         "num_states": int(M),
         "num_neurons": int(N),
         "num_time_bins": int(T_full),
@@ -841,7 +835,7 @@ def run_locked_mstep(Y_prev, Y_curr, S_lock, A_init, B_init, spikeMD, args, ctx)
             l1_wt, args.lambda3, args.rho_max,
             args.prescale_m_step_4_ArhoMax,
             apply_prune=True, apply_rho=True, rho_correction_strength=1.0,
-            off_mask=off_mask, minW=args.minW
+            off_mask=off_mask
         )
         scheduler.step()
         h["m_loss_epoch"].append(met["loss"])

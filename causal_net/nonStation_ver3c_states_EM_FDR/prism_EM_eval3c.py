@@ -5,11 +5,18 @@ Evaluation and plotting for prism EM results.
 
 import os
 import argparse
+import re
 import numpy as np
 from pprint import pprint
 from toolbox.Util_NumpyIO import read_data_npz
 from PlotterPrismEM import Plotter
 from UtilBioExp import detect_spike_bursts
+
+
+def real_fit_metadata(md):
+    if "bagsFDR_stageA" in md:
+        return md["bagsFDR_stageA"]["real_fit"]
+    return md
 
 
 def compute_ll_gap(spikes_sub, A_true, B_true, dt, eta_clip):
@@ -40,7 +47,7 @@ def compute_ll_gap(spikes_sub, A_true, B_true, dt, eta_clip):
 
 def eval_em_metrics_time(fitD, md, spikes):
     """Compute per-time metrics for -p f canvas."""
-    trainMD = md["train"]
+    trainMD = real_fit_metadata(md)["train"]
     t0_bin, t1_bin = [int(x) for x in trainMD["time_range_bins"]]
     dt = float(trainMD["time_step_sec"])
     eta_clip = float(trainMD["eta_clip"])
@@ -89,7 +96,7 @@ def eval_em_metrics_time(fitD, md, spikes):
 
 def eval_true_state_recovery(fitD, md):
     """Compute state recovery table on full training window."""
-    trainMD = md["train"]
+    trainMD = real_fit_metadata(md)["train"]
     t0_bin, t1_bin = [int(x) for x in trainMD["time_range_bins"]]
     s_true = np.asarray(md["S_true"], dtype=np.int64)[t0_bin : t1_bin + 1]
     s_hat = np.asarray(fitD["S_hat"], dtype=np.int64)
@@ -130,35 +137,28 @@ def eval_true_state_recovery(fitD, md):
     }
 
 
-def compute_neuron_type(fitD, minW):
+def compute_neuron_type(fitD):
     """Compute and store neuron_type vector: -1=inh, 0=und, +1=exc."""
     A_hat = np.asarray(fitD["A_hat"], dtype=np.float64)
     assert A_hat.ndim == 2 and A_hat.shape[0] == A_hat.shape[1], "A_hat must be square"
     N = A_hat.shape[0]
-    minW = float(minW)
-    off_mask = ~np.eye(N, dtype=bool)
     A_thr = A_hat.copy()
-    A_thr[off_mask & (np.abs(A_thr) < minW)] = 0.0
     np.fill_diagonal(A_thr, 0.0)
     Sedge = A_thr.sum(axis=1)
     neuron_type = np.zeros((N,), dtype=np.int8)
-    neuron_type[Sedge > minW] = 1
-    neuron_type[Sedge < -minW] = -1
+    neuron_type[Sedge > 0.0] = 1
+    neuron_type[Sedge < 0.0] = -1
     fitD["neuron_Sedge"] = Sedge.astype(np.float32)
     fitD["neuron_type"] = neuron_type
     return neuron_type
 
 
-def compute_A_prune(fitD, neuron_type, minW):
+def compute_A_prune(fitD, neuron_type):
     """Compute and store A_prune from A_hat and neuron_type."""
     A_hat = np.asarray(fitD["A_hat"], dtype=np.float64)
     neuron_type = np.asarray(neuron_type, dtype=np.int8)
     assert neuron_type.shape[0] == A_hat.shape[0], "neuron_type length must match A_hat rows"
-    minW = float(minW)
-    N = A_hat.shape[0]
-    off_mask = ~np.eye(N, dtype=bool)
     A_prune = A_hat.copy()
-    A_prune[off_mask & (np.abs(A_prune) < minW)] = 0.0
     diag_A = np.diag(A_hat).copy()
     exc_rows = neuron_type > 0
     inh_rows = neuron_type < 0
@@ -167,6 +167,22 @@ def compute_A_prune(fitD, neuron_type, minW):
     np.fill_diagonal(A_prune, diag_A)
     fitD["A_prune"] = A_prune.astype(np.float32)
     return fitD["A_prune"]
+
+
+def resolve_fit_file(base_path, data_name):
+    if re.search(r"bag\d{3}", data_name):
+        if data_name.endswith(".prismFDRbag.npz"):
+            fname = data_name
+        elif data_name.endswith(".prismFDRbag"):
+            fname = f"{data_name}.npz"
+        elif data_name.endswith(".npz"):
+            fname = data_name
+        else:
+            fname = f"{data_name}.prismFDRbag.npz"
+        fit_f = fname if os.path.isabs(fname) else os.path.join(base_path, "prismFDR", fname)
+        return fit_f, "prismFDR"
+    fit_f = os.path.join(base_path, "prismFit", f"{data_name}.prismEM.npz")
+    return fit_f, "prismFit"
 
 
 def main():
@@ -180,8 +196,6 @@ def main():
     parser.add_argument("-p", "--showPlots", type=str, nargs='+',
                         default="a",
                         help="Plot types: a=EM convergence summary, b=init-vs-truth states, c=A_init-vs-truth, d=A_hat-vs-truth, e=A_hat edge recovery, f=state sequence, g=2D correlations (A/B), h=A_init TP quality (diag/exc/inh), i=A_init/A_hat fitted-only, j=state+bioExp rates (no truth), k=bioExp spatial A_hat edges, m=Nedge/Sedge node stats, n=bioExp A_prune pos/neg edges")
-    parser.add_argument("--minW", type=float, default=0.02,
-                        help="Threshold for A-matrix edge eval")
     parser.add_argument("--timeReb", type=int, default=20,
                         help="Time rebin factor for time-axis plots")
     g = parser.add_argument_group("data")
@@ -206,13 +220,14 @@ def main():
     print("EM-eval args:",  vars(args), "\n")
 
     # ── load EM fit ──────────────────────────────────────────────────
-    fitFF = os.path.join(args.inpPath, f"{args.dataName}.prismEM.npz")
+    fitFF, fit_source = resolve_fit_file(args.basePath, args.dataName)
+    args.inpPath = os.path.dirname(fitFF)
     fitD, fitMD = read_data_npz(fitFF)
     assert isinstance(fitMD, dict), "Expected metadata dict in prismEM file"
 
     if args.verb > 1:  pprint(fitMD)
 
-    MD = {**fitMD, "short_name": args.dataName}
+    MD = {**fitMD, "short_name": args.dataName, "fit_source": fit_source}
 
     is_bioexp = fitMD.get("data_type") == "bioExp"
     prov = fitMD["provenance"]
@@ -255,8 +270,9 @@ def main():
 
     if not is_bioexp:
         reco = eval_true_state_recovery(fitD, MD)
-        MD["states_recovery_eval"]["avg_acc"] = reco["avg_acc"]
-        MD["states_recovery_eval"]["state_acc_cl"] = reco["state_acc_cl"]
+        srec = real_fit_metadata(MD)["states_recovery_eval"]
+        srec["avg_acc"] = reco["avg_acc"]
+        srec["state_acc_cl"] = reco["state_acc_cl"]
 
         print(f"state reco avr acc {reco['avg_acc']:.3f}, {args.dataName}")
         print(f"  {'state':>5s}  {'acc':>5s}  {'CL':>6s}  {'bins_hat':>8s}  {'enter_hat':>9s}")
@@ -275,8 +291,8 @@ def main():
             print(row)
 
     MD["short_name"] = args.dataName
-    neuron_type = compute_neuron_type(fitD, args.minW)
-    compute_A_prune(fitD, neuron_type, args.minW)
+    neuron_type = compute_neuron_type(fitD)
+    compute_A_prune(fitD, neuron_type)
 
     # ── plot ───────────────────────────
     if is_bioexp:
@@ -300,7 +316,7 @@ def main():
 
     if 'e' in args.showPlots:
         plot.edge_recovery_prismEM(
-            fitD, MD, minW=args.minW, figId=4, est_key="A_hat", est_label="A_hat"
+            fitD, MD, figId=4, est_key="A_hat", est_label="A_hat"
         )
 
     if 'f' in args.showPlots:
@@ -312,11 +328,11 @@ def main():
         plot.eval_ABcorr_prismEM(fitD, MD, figId=6)
 
     if 'h' in args.showPlots:
-        plot.initA_quality_prismEM(fitD, MD, minW=args.minW, figId=7)
+        plot.initA_quality_prismEM(fitD, MD, figId=7)
 
     if 'i' in args.showPlots:
         plot.A_fitted_prismEM(
-            fitD, MD, spikeD["single_rates"], minW=args.minW, figId=8
+            fitD, MD, spikeD["single_rates"], figId=8
         )
 
     if 'j' in args.showPlots:
@@ -333,13 +349,13 @@ def main():
     if 'k' in args.showPlots:
         assert is_bioexp, "plot k requires bioExp data (experiment_name in provenance)"
         plot.neuron_spatial_Ahat_edges(
-            fitD, bioD, bio_plot_md, minW=args.minW, figId=10
+            fitD, bioD, bio_plot_md, figId=10
         )
 
     if 'm' in args.showPlots:
         plot.node_outgoing_edge_stats_prismEM(
             fitD, MD, spikeD["single_rates"], neuron_type,
-            minW=args.minW, figId=11,
+            figId=11,
             est_key="A_hat", est_label="A_hat",
         )
 
@@ -347,7 +363,7 @@ def main():
         assert is_bioexp, "plot n requires bioExp data (experiment_name in provenance)"
         plot.neuron_spatial_Ahat_edges_split(
             fitD, bioD, bio_plot_md, neuron_type, fitD["neuron_Sedge"],
-            minW=args.minW, maxNeurons=24, figId=12
+            maxNeurons=24, figId=12
         )
 
     plot.display_all()
