@@ -116,20 +116,24 @@ hyperparameters (number of EM iterations, M-step epochs, learning rates,
 
 \begin{quote}
 \(\textsf{mstep\_locked}(\,Y_{\text{prev}},\,Y_{\text{curr}},\,\hat S^{\text{lock}},\,
-\hat{\mathbf B}^{\text{init}},\,\theta_{\text{M}}\,)
+A^{\text{init}},\,\hat{\mathbf B}^{\text{init}},\,\theta_{\text{M}}\,)
 \;\longrightarrow\;(A,\mathbf B)\)
 \end{quote}
 
 This entry point runs \emph{only} the M-step. It accepts spike pairs
 \((Y_{\text{prev}},Y_{\text{curr}})\), an externally supplied and
 \emph{frozen} state sequence \(\hat S^{\text{lock}}\) (used directly as the
-one-hot assignment, with no E-step and no Viterbi re-decoding), and returns
+one-hot assignment, with no E-step and no Viterbi re-decoding), initial
+parameters \((A^{\text{init}},\hat{\mathbf B}^{\text{init}})\), and returns
 the re-estimated connectivity \(A\) and the refit state biases
-\(\mathbf B\). The supplied \(\hat{\mathbf B}^{\text{init}}\) is the
-time-ordered fit's \(\hat{\mathbf B}\); it initializes the locked M-step but
-is not frozen. Re-fitting \(\mathbf B\) in the scrambled context lets the
-null absorb state-specific baseline effects, so the test of \(A\) is not
-made artificially harsh by a bias mismatch.
+\(\mathbf B\). In the null workflow the initial \(A\) and \(\mathbf B\) are
+not copied from the real time-ordered fit. Instead, for every scramble they
+are initialized freshly from the scrambled data, or randomly, according to
+\texttt{null\_A\_init} and \texttt{null\_B\_init}. Re-fitting
+\(\mathbf B\) in the scrambled context lets the null absorb state-specific
+baseline effects, so the test of \(A\) is not made artificially harsh by a
+bias mismatch; fresh \(A\) initialization avoids seeding the null from the
+real edge pattern.
 
 \paragraph{Locked-state time indexing.} For each lag-1 training pair
 \((Y_{t-1},Y_t)\), the locked state used by the M-step is
@@ -157,9 +161,10 @@ produced internally by the E-step. To support entry point~2, the M-step
 must be exposed as a standalone callable that consumes an externally
 supplied \(\hat S^{\text{lock}}\) and externally supplied spike pairs. This
 includes making the lag-1 state alignment explicit as
-\(\hat S^{\text{lock}}_{t-1}\) for pair \((Y_{t-1},Y_t)\). This
-is a small refactor of existing code rather than new modeling work; the rest
-of this document assumes both entry points exist with the signatures above.
+\(\hat S^{\text{lock}}_{t-1}\) for pair \((Y_{t-1},Y_t)\), and allowing
+the caller to provide explicit initial \(A\) and \(\mathbf B\). This is a
+small refactor of existing code rather than new modeling work; the rest of
+this document assumes both entry points exist with the signatures above.
 
 % ===============================================================
 \section{Method Overview}
@@ -343,9 +348,14 @@ The locked state attached to pair
 \((\tilde Y^{(p)}_{t-1},\tilde Y^{(p)}_t)\) is
 \(\hat S^{(b)}_{t-1}\). The state sequence itself remains the decoded
 sequence from the real, time-ordered bag fit; only the spike counts entering
-the null M-step are circularly shifted. The biases
-\(\mathbf B^{\text{null},(b,p)}\) are initialized from
-\(\hat{\mathbf B}^{(b)}\) and refit under that frozen state timeline.
+the null M-step are circularly shifted. The null initialization is fresh for
+each scramble: \(A^{\text{init},(b,p)}\) is either computed from the
+scrambled spike train (\texttt{null\_A\_init=scrambled\_data}, the default) or drawn
+randomly (\texttt{null\_A\_init=rand}), and
+\(\mathbf B^{\text{init},(b,p)}\) is likewise initialized from scrambled
+data (\texttt{null\_B\_init=scrambled\_data}, the default) or randomly
+(\texttt{null\_B\_init=rand}). The real time-ordered
+\(\hat A^{(b)}\) is deliberately not used to seed the null refit.
 The configuration \(\theta_{\text{M}}\) matches the real pipeline exactly
 (Section~\ref{sec:ep2}): identical \(\lambda_3\), identical \(\rho_{\max}\),
 identical learning-rate decay, all active from the first epoch. This is the
@@ -393,13 +403,42 @@ state sequence \(\hat S^{(b)}\); the realized block start indices and the
 assembled-sequence boundary pair indices; any block-start constraint
 violations caused by exhausting \texttt{max\_block\_draw\_trials}; the
 realized per-neuron shifts (for reproducibility and for the data-reuse
-study); optionally the refit null biases
-\(\{\mathbf B^{\text{null},(b,p)}\}_{p=1}^{P}\) for diagnostics; the fitted
+study); the stack of refit null biases
+\(\{\mathbf B^{\text{null},(b,p)}\}_{p=1}^{P}\) of shape \((P,M,N)\); the fitted
 off-diagonal sparsity of \(\hat A^{(b)}\) (number and
 fraction of surviving edges) as a sanity cross-check; and the PRISM-EM
 training-history summary (final objective, iteration count, whether each
-delayed schedule fired, final state occupancy). Stage~(b) consumes only
-these files and never re-runs PRISM-EM.
+delayed schedule fired, final state occupancy). The assembled bag spike
+train itself is not saved, because the ordered block starts are sufficient
+to reconstruct it from the original input spikes if needed. Stage~(b)
+consumes only these files and never re-runs PRISM-EM.
+
+\paragraph{Per-bag program output naming.} One invocation of
+\texttt{prism\_EM\_FDR\_Bags\_train3c.py} produces one bag file containing
+the real time-ordered fit and all \(P\) scramble refits for that bag. The
+filename is deterministic and includes both \texttt{dataName} and
+\texttt{bag\_idx}, for example
+\texttt{<dataName>.bag003.prismFDRbag.npz}. The real fit fields are written
+in the same schema as the standalone \texttt{prism\_EM\_train3c.py} output,
+so the usual baseline fit evaluation can be run on the real part of a bag
+without a separate training job.
+
+\paragraph{Per-bag driver runtime controls.} The bag driver inherits the
+ordinary PRISM-EM training controls (\texttt{num\_states},
+\texttt{num\_em\_iters}, \texttt{m\_epochs}, learning rates,
+\(\lambda_2,\lambda_3,\rho_{\max}\), schedule delays, batch size, and
+initialization modes for the real fit). Its additional controls are:
+\texttt{bag\_idx}, \texttt{source\_window\_sec},
+\texttt{num\_blocks}, \texttt{block\_len\_sec},
+\texttt{min\_block\_start\_sep\_sec},
+\texttt{max\_block\_draw\_trials}, \texttt{num\_scrambles},
+\texttt{min\_roll\_shift\_sec}, \texttt{null\_A\_init}, and
+\texttt{null\_B\_init}. There is no separate \texttt{null\_m\_epochs}
+parameter: the locked null M-step always inherits the M-step epoch count and
+optimizer configuration from the real time-ordered fit, with pruning,
+spectral projection, and learning-rate decay active from the first locked
+epoch. There is also no option to save the assembled bag spike train; the
+ordered block starts are the reproducible representation of the bag.
 
 \paragraph{Compute layout.} Each per-bag job is a single SLURM job on a
 single node using \(4\times\)A100, matching the existing PRISM-EM launch
@@ -605,12 +644,18 @@ comparable to its magnitude, is flagged as unreliable.
   \(\textsf{mstep\_locked}\to(A^{\text{null},(b,p)},\mathbf B^{\text{null},(b,p)})\)
   with the real pipeline's \(\lambda_3,\rho_{\max}\), decay active from epoch
   one, \(\hat S^{(b)}\) frozen and aligned as \(\hat S^{(b)}_{t-1}\) for pair
-  \((Y_{t-1},Y_t)\), and \(\mathbf B\) initialized from
-  \(\hat{\mathbf B}^{(b)}\) but refit.
-  \item Write \(\hat A^{(b)}\), \(\{A^{\text{null},(b,p)}\}\), \(\hat S^{(b)}\),
+  \((Y_{t-1},Y_t)\), fresh \(A\) initialization controlled by
+  \texttt{null\_A\_init}\(\in\{\texttt{scrambled\_data},\texttt{rand}\}\),
+  and fresh \(\mathbf B\) initialization controlled by
+  \texttt{null\_B\_init}\(\in\{\texttt{scrambled\_data},\texttt{rand}\}\).
+  The number of locked M-step epochs and all other M-step hyperparameters
+  are inherited from the real time-ordered fit configuration.
+  \item Write one file for bag \(b\), named from \texttt{dataName} and
+  \texttt{bag\_idx}, containing \(\hat A^{(b)}\),
+  \(\{A^{\text{null},(b,p)}\}\), \(\{\mathbf B^{\text{null},(b,p)}\}\), \(\hat S^{(b)}\),
   realized block starts, boundary pair indices, block-start retry violations,
-  realized shifts, fitted sparsity, and history summary, with a bag-indexed
-  filename.
+  realized shifts, fitted sparsity, and history summary. Do not save the
+  assembled bag spike train.
 \end{enumerate}
 
 \paragraph{Stage (b), single postprocessing job.}

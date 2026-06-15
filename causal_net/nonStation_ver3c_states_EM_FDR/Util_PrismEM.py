@@ -240,7 +240,8 @@ def init_A_from_spikes(spikes, args):
         return None, None
     if opt != "data":
         raise ValueError(f"Unsupported --init_A option: {opt}")
-    A_init, meta = init_edgesA(spikes, verbose=False)
+    init_A_Tmax = int(getattr(args, "init_A_Tmax", 50000))
+    A_init, meta = init_edgesA(spikes, Tmax=init_A_Tmax, verbose=False)
 
     if 1:  # rescale A 
         offDiagFact = 3
