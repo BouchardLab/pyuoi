@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """
- ./gen_daleMatrices3.py --num_neurons 100 --num_excite 70 --num_steps 10000 --dataName test1
- ./gen_daleMatrices3.py --num_neurons 100 --num_excite 70 --spectral_radius 0.5 --Boffsets 0 10 20 --dataName test2
+ ./gen_daleMatrices3c.py --num_neurons 100 --num_excite 70 --num_steps 10000 --dataName test1
+ ./gen_daleMatrices3c.py --num_neurons 100 --num_excite 70 --spectral_radius 0.5 --Boffsets 0 10 20 --dataName test2
 
 Primary purpose: generate the ground-truth dictionary (A_true, B_true) for use
-by gen_nonStationarySpikes3.py.  The stationary spike generation performed here
+by gen_nonStationarySpikes3c.py.  The stationary spike generation performed here
 is for evaluation only (firing-rate sanity check per B-vector).
 
-Dale's principle: each neuron is either excitatory (positive outgoing
-weights) or inhibitory (negative outgoing weights), never both.
+Dale's principle follows the paper/model convention
+    eta_t = A @ Y_{t-1} + B.
+Thus A[i, j] is the effect from source neuron j to target neuron i, and a
+source neuron's outgoing weights are stored in column j. Excitatory source
+columns have positive off-diagonal weights; inhibitory source columns have
+negative off-diagonal weights. Diagonal self-history terms are forced
+non-positive for stability and are not used to define source type.
 
 Pipeline:
 1. Sparse connectivity mask E_true (N, N).
@@ -16,8 +21,8 @@ Pipeline:
    --edge_prob [lo, hi].  Self-loops (diagonal) are always included.
 
 2. Generate ONE weight matrix A_true for --spectral_radius R:
-   - Excitatory rows (0..N_E-1): weights ~ Uniform(1-v, 1+v), v=0.2.
-   - Inhibitory rows (N_E..N-1): weights ~ Uniform(-r-rv, -r+rv),
+   - Excitatory columns (0..N_E-1): weights ~ Uniform(1-v, 1+v), v=0.2.
+   - Inhibitory columns (N_E..N-1): weights ~ Uniform(-r-rv, -r+rv),
      r = N_E/N_I (balance ratio).
    - Mask with E_true, then rescale so rho(A_true) = R exactly.
 
@@ -70,36 +75,41 @@ def generate_sparse_mask(n_units, edge_prob):
 # Generate an initial network connectivity matrix
 def init_W(n_units, n_excite, E_true, R, varyW, verb=1):
     """
-    Generalized weight initialization with E-I row-based balancing,
-    zero-diagonal, spectral radius conserved.
+    Generalized weight initialization with source-column Dale convention.
+
+    Model convention is eta = A @ y_prev + B, so A[i, j] is source j to
+    target i. Dale's law therefore constrains columns: one source neuron
+    can only excite or only inhibit all downstream targets. Diagonal
+    self-history terms are forced non-positive after masking.
     """
     # 1. Assertions to ensure valid population counts
     n_inhib = n_units - n_excite
     assert n_excite > 0, "n_excite must be greater than 0"
     assert n_inhib > 0, "n_inhib must be greater than 0 (n_units > n_excite)"
     
-    # 2. Balance ratio: ensures the expected sum of the matrix is zero
+    # 2. Balance ratio: each target row receives N_E positive source columns
+    #    and N_I negative source columns with approximately zero net mean.
     ie_ratio = n_excite / n_inhib
     
     # 3. Initialize the weight container
     W = np.zeros((n_units, n_units))
     
-    # 4. Assign Excitatory Weights (Rows 0 to n_excite-1)
-    W[:n_excite, :] = np.random.uniform(1.0 - varyW, 
-                                        1.0 + varyW, 
-                                        (n_excite, n_units))
+    # 4. Assign excitatory source columns (0 to n_excite-1).
+    W[:, :n_excite] = np.random.uniform(1.0 - varyW,
+                                        1.0 + varyW,
+                                        (n_units, n_excite))
     
-    # 5. Assign Inhibitory Weights (Rows n_excite to n_units-1)
+    # 5. Assign inhibitory source columns (n_excite to n_units-1).
     i_center = -ie_ratio
     i_vary = varyW * ie_ratio
-    W[n_excite:, :] = np.random.uniform(i_center - i_vary, 
-                                        i_center + i_vary, 
-                                        (n_inhib, n_units))
+    W[:, n_excite:] = np.random.uniform(i_center - i_vary,
+                                        i_center + i_vary,
+                                        (n_units, n_inhib))
     
     # 6. Apply the connectivity mask (Topology)
     W = W * E_true
 
-    # 7. Enforce negative diagonal: flip sign of any positive self-loop.
+    # 7. Enforce stabilizing diagonal: flip sign of any positive self-loop.
     d_idx = np.diag_indices(n_units)
     W[d_idx] = np.where(W[d_idx] > 0.0, -W[d_idx], W[d_idx])
         

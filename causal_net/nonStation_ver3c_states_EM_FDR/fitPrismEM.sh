@@ -80,7 +80,7 @@ export OPENBLAS_NUM_THREADS=1
 export CUDA_VISIBLE_DEVICES=$CUDA_DEVICES
 
 # Execute the training command
-echo "Running: ./prism_EM_train.py  $fixArgs $varArgs"
+echo "Running: ./prism_EM_train3c.py  $fixArgs $varArgs"
 echo ""
 
-time torchrun --standalone  --nnodes=1 --nproc_per_node=4  ./prism_EM_train.py $fixArgs $varArgs 
+time torchrun --standalone  --nnodes=1 --nproc_per_node=4  ./prism_EM_train3c.py $fixArgs $varArgs

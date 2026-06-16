@@ -57,15 +57,18 @@ class Plotter(PlotterBackbone):
         #.... Position 1: Dale matrix (natural order) ......
         ax = self.plt.subplot(nrow,ncol,1)
         im=ax.imshow(A, aspect=1., origin='lower', cmap='bwr', norm=normMap, interpolation='nearest')
-        ax.set( xlabel='presyn. neuron index (output)', ylabel='postsyn. neuron index (input)')
+        ax.set(
+            xlabel='source / presynaptic neuron index (column)',
+            ylabel='target / postsynaptic neuron index (row)',
+        )
         ax.set_aspect(1.0)
         ax.grid()
         cbar = fig.colorbar(im, ax=ax, extend="both", shrink=0.7)
         
         tit='True Dale, N%d%s, %s'%(A.shape[0], R_tag, md['short_name'])
         ax.set(title=tit)
-        ax.axhline(numExc-0.5,color='k',ls='--', label='E/I boundary')
-        ax.axvline(numExc-0.5,color='k',ls='--')
+        ax.axvline(numExc-0.5,color='k',ls='--', label='source E/I boundary')
+        ax.axhline(numExc-0.5,color='0.5',ls=':', label='same index boundary')
         ax.plot([0,numNeur],[0,numNeur],'--',lw=0.8,color='magenta')
         
         #..... Position 2: Eigenvalues......
@@ -156,8 +159,8 @@ class Plotter(PlotterBackbone):
         wMax = max(np.max(EposT[:,2]), np.max(A_diag))
                 
         def count_elements(E, Nn=numNeur):
-            i_indices = E[:, 0].astype(int)
-            counts = np.bincount(i_indices, minlength=Nn)
+            source_indices = E[:, 1].astype(int)
+            counts = np.bincount(source_indices, minlength=Nn)
             return counts
         
         edgeCount=count_elements(EnegT)  + count_elements(EposT)
@@ -194,7 +197,7 @@ class Plotter(PlotterBackbone):
         inh_mask = np.zeros(numNeur, dtype=bool)
         inh_mask[numExc:] = True
         exc_mask = ~inh_mask
-        neurXlab = 'neuron index'
+        neurXlab = 'source neuron index'
         
         x_vals = np.arange(numNeur)         
         #....  edge count

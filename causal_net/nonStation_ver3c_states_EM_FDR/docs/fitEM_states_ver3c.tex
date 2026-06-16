@@ -1,0 +1,475 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+
+\geometry{margin=0.8in}
+
+\title{PRISM-EM for Non-Stationary Poisson GLMs with States from Spike Trains:\\
+Model, Objective, and Implementation. Ver3c}
+\author{Jan Balewski, NERSC}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This document describes the current \texttt{prism\_EM\_train3c.py} implementation
+for fitting a non-stationary
+Poisson GLM with latent state mixing (PRISM-EM)~\footnote{PRISM: PRobabilistic Inference of Sparse Mixed-state dynamics; ~~EM: Expectations Maximization}. Input spike trains are read from \texttt{spikesData/<dataName>.spikes.npz} (non-stationary output of \texttt{gen\_nonStationarySpikes3c.py}). The model uses a shared connectivity matrix across states, state-specific bias vectors, and time-varying simplex coefficients. Training is performed by block coordinate descent: a sequential projected-gradient E-step for coefficients followed by Viterbi decoding to one-hot state assignments, and an Adam-based M-step for model parameters with off-diagonal L1 shrinkage and spectral-radius projection. Spectral-radius enforcement, L1 pruning, and learning-rate decay are each activated after a configurable number of EM iterations. Distributed training (\texttt{torchrun}) shards the E-step over time bins and synchronizes \(A\), \(B\), and \(c\) across GPUs. We summarize the exact objective used in code, the decoding method, all current default hyperparameters, initialization modes (data-driven vs random) for \(A\), \(B\), and \(C\), and the saved fit file layout.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ---------------------------------------------------------------
+\section{EM Training for Non-Stationary Poisson GLM with states}
+\label{sec:em}
+% ---------------------------------------------------------------
+
+\subsection{Introduction and Model Assumptions}
+
+We consider a population of \(N\) neurons observed over \(T\) discrete time
+bins of width \(\Delta t\) (seconds). The population activity is governed
+by \(M\) latent dynamical states that switch over time. The key
+structural assumption is that all states share a single
+connectivity matrix \(A \in \mathbb{R}^{N \times N}\) but differ in
+baseline excitability through per-state bias vectors
+\(B_m \in \mathbb{R}^N,\; m = 0, \dots, M-1\) (0-based state indices in code).
+
+At each time bin \(t\), a coefficient vector
+\(c_t \in \mathbb{R}^M\), constrained to the probability simplex
+(\(c_{mt}\ge 0,\; \sum_m c_{mt}=1\)), selects the effective bias as a
+convex combination:
+\begin{equation}
+  B_t = \sum_{m=1}^{M} c_{mt}\, B_m = c_t^\top \mathbf{B},
+\end{equation}
+where \(\mathbf{B} \in \mathbb{R}^{M \times N}\) stacks the \(M\) bias
+vectors row-wise.
+
+Spike counts follow
+\begin{equation}
+  \eta_t = A\,Y_{t-1} + B_t,\qquad
+  \tilde{\eta}_t = \min(\eta_t,\eta_{\mathrm{clip}}),\qquad
+  \mu_t = \exp(\tilde{\eta}_t)\,\Delta t,\qquad
+  Y_t \sim \mathrm{Poisson}(\mu_t).
+  \label{eq:glm}
+\end{equation}
+
+\paragraph{Notation summary.}
+\(N\): number of neurons; 
+\(M\): number of latent states; 
+\(T\): number of time bins;
+\(\Delta t\): time-bin width (from metadata);
+\(\eta_{\mathrm{clip}}\): clipping threshold (from metadata);
+\(Y_t \in \mathbb{N}_0^N\): observed spikes;
+\(\mu_t \in \mathbb{R}_+^N\): expected spike count per bin.
+
+% ---------------------------------------------------------------
+\subsection{Objective Function}
+
+The training objective uses uniformly weighted (unweighted) Poisson NLL in both the E-step and M-step:
+\begin{equation}
+\mathcal{J}
+=
+\underbrace{\sum_{t=2}^{T}\sum_{i=1}^{N}
+\left[\mu_{t,i}-Y_{t,i}\left(\tilde{\eta}_{t,i}+\log\Delta t\right)\right]}_{\text{Poisson NLL}}
++
+\underbrace{\lambda_2\sum_{t=2}^{T}\|\vec c_t- \vec c_{t-1}\|^2}_{\text{temporal smoothness (E-step only)}}
++
+\underbrace{\lambda_3\,\overline{|A_{\mathrm{off}}|}}_{\text{L1 sparsity on off-diagonal (M-step only)}},
+\label{eq:objective}
+\end{equation}
+with simplex constraints \(c_t\in\Delta^{M-1}\) and spectral constraint
+\(\rho(A)\le \rho_{\max}\), where the off-diagonal L1 term is
+\begin{equation}
+  \overline{|A_{\mathrm{off}}|}
+  =
+  \frac{1}{N(N-1)}
+  \sum_{\substack{i,j=1\\i\neq j}}^{N}|A_{ij}|.
+  \label{eq:l1_offdiag}
+\end{equation}
+In the $\lambda_2$ term, the sum over states $m$
+is already implicit in the $L_2$ norm.
+
+
+\subsection{Why Block Coordinate Descent (EM) over Joint Optimization}
+
+In principle one could jointly optimize \(A\), \(\mathbf{B}\), and
+\(c_{1:T}\) by simultaneous gradient descent on the full objective
+\(\mathcal{J}\).  In practice, the EM-style alternation is preferable
+for three structural reasons.
+
+\paragraph{Breaking the bilinear coupling.}
+The coefficients \(c_t\) and the bias matrix \(\mathbf{B}\) enter the
+log-rate linearly through the product \(c_t^\top\mathbf{B}\), which
+then passes through an exponential.  When both are free to move, the
+landscape contains saddle points and flat valleys: a large \(c_{tm}\)
+paired with a small \(B_m\) produces the same likelihood as the
+reverse.  Fixing one side at each step eliminates this ambiguity.  The
+Viterbi hard-assignment variant sharpens the separation further:
+with one-hot \(c_t = e_{\hat{S}_t}\), each time bin selects exactly one
+bias row, so the M-step reduces to \(M\) independent Poisson GLM
+regressions and the bilinear degeneracy vanishes entirely.
+
+\paragraph{Exploiting temporal structure in the E-step.}
+The coefficient vectors \(c_{1:T}\) number \(O(TM)\) and vastly
+outnumber the \(O(N^2+MN)\) model parameters.  Joint optimization
+would need to balance learning rates across these disparate groups
+while enforcing a simplex constraint at every time bin.  By contrast,
+the E-step decomposes into a single forward sweep of cheap
+\(M\)-dimensional simplex-projected gradient updates, naturally
+incorporating the temporal smoothness penalty
+\(\lambda_2\|c_t-c_{t-1}\|^2\) through the sequential dependence on the
+previous accepted \(c_{t-1}\).
+
+\paragraph{Avoiding the log-sum-exp mismatch.}
+Under soft (probabilistic) state assignments the M-step must fit
+parameters to the mixture rate
+\(\sum_m c_{tm}\exp(\eta_{tm})\), whereas the model parameterizes the
+log-rate as \(\sum_m c_{tm}\,\eta_{tm}\) inside a single exponential.
+These two quantities differ whenever the assignment is not one-hot,
+creating a systematic bias in the gradient signal for \(\mathbf{B}\).
+The hard-EM strategy—Viterbi decode followed by one-hot
+encoding—eliminates this mismatch by construction, at the cost of
+losing the monotonic likelihood improvement guarantee of soft EM, a
+trade-off that is empirically favorable.
+
+% ---------------------------------------------------------------
+\subsection{Algorithm: Block Coordinate Descent (EM)}
+
+The non-convex problem is solved by alternating:
+\begin{itemize}
+  \item E-step: update \(c_{1:T}\) with \(A,\mathbf{B}\) fixed, then Viterbi-decode to one-hot state assignments.
+  \item M-step: update \(A,\mathbf{B}\) with one-hot \(c_{1:T}\) fixed.
+\end{itemize}
+for \(K_{\mathrm{EM}}\) outer iterations.
+
+\subsubsection{E-step: Coefficient Inference via Simplex PGD, then One-Hot Encoding}
+
+Holding \((A,\mathbf{B})\) fixed, coefficients are inferred by one forward
+sweep from \(t=2\) to \(T\). At each time bin:
+\begin{enumerate}
+  \item Build \(Z_t[m,:] = A\,Y_{t-1}+B_m\in\mathbb{R}^{M\times N}\).
+  \item Run \texttt{pgd\_iter} projected-gradient iterations:
+  \[
+    \eta_t = c_t^\top Z_t,\quad
+    \tilde{\eta}_t = \min(\eta_t,\eta_{\mathrm{clip}}),\quad
+    \mu_t = \exp(\tilde{\eta}_t)\Delta t,
+  \]
+  \[
+    g_t = Z_t\left(\mu_t-Y_t\right) + 2\lambda_2(c_t-c_{t-1}),
+    \qquad
+    c_t \leftarrow \Pi_{\Delta^{M-1}}(c_t-\alpha_E g_t).
+  \]
+  \item Accept \(c_t\), continue to next time bin.
+\end{enumerate}
+Projection uses the sort-based simplex projection (Duchi et al., \(O(M\log M)\)).
+Bin \(t=0\) is not updated; the sweep starts at \(t=1\) (first lag pair
+\((Y_0,Y_1)\)), matching the objective sum over \(t=2,\dots,T\) in
+1-based notation.
+In the distributed setting, each rank updates a disjoint time shard of
+\(c_{1:T}\); shard results are averaged where multiple ranks overlap at
+shard boundaries, then broadcast so all ranks share the same \(c\).
+
+After the forward sweep completes, the soft coefficients \(c_{1:T}\) are decoded into a hard state sequence via Viterbi (Section~\ref{sec:decode}). The M-step then receives one-hot encoded state assignments rather than the soft simplex probabilities:
+\begin{equation}
+  \hat{S}_{1:T} = \mathrm{Viterbi}(c_{1:T}), \qquad
+  c_t^{\mathrm{(M\text{-}step)}} = e_{\hat{S}_t},
+\end{equation}
+where \(e_m\) is the \(m\)-th standard basis vector. This ensures the M-step fits each state's parameters from cleanly separated data rather than from soft mixtures.
+
+\subsubsection{M-step: Dictionary Update via Adam}
+
+Holding \(c_t\) fixed (as one-hot vectors), update \(A,\mathbf{B}\) for \(K_M\) epochs using
+Adam over shuffled mini-batches of \((Y_{t-1},Y_t,c_t)\).
+
+Per mini-batch:
+\begin{equation}
+  \ell_{\mathrm{M}} =
+  \frac{1}{|\mathcal{B}|}
+  \sum_{t\in\mathcal{B}}\sum_{i=1}^{N}
+  \left[-Y_{t,i}\log(\mu_{t,i}+\varepsilon)+\mu_{t,i}\right]
+  + \lambda_3\,\overline{|A_{\mathrm{off}}|},
+\end{equation}
+with \(\varepsilon=10^{-8}\).
+
+Then, subject to delay scheduling (operations are activated only after a configurable number of EM iterations have passed):
+\begin{enumerate}
+  \item Off-diagonal soft-thresholding (activated after \(K_{\mathrm{prune}}\) EM iterations):
+  \[
+    A_{ij}\leftarrow \operatorname{sign}(A_{ij})
+    \left(|A_{ij}|-\alpha_M\lambda_3\right)_+,\quad i\neq j.
+  \]
+  \item Periodic spectral-radius projection (activated after \(K_{\rho}\) EM iterations, applied every \(R\) batches). On each application, in the multi-GPU setting, \(A\) and \(B\) are first averaged across ranks, then the spectral constraint is enforced, and the result is broadcast:
+  \[
+    A \leftarrow A\cdot \min\!\left(1,\frac{\rho_{\max}}{\rho(A)}\right).
+  \]
+\end{enumerate}
+
+Learning rate follows linear decay from \(\alpha_M^{(0)}\) to
+\(\alpha_M^{(0)}f_{\mathrm{end}}\). The decay is activated only after \(K_{\mathrm{lr}}\) EM iterations have passed; the total number of decay steps spans the remaining M-step epochs.
+
+% ---------------------------------------------------------------
+\subsection{State Decoding}
+\label{sec:decode}
+
+Viterbi decoding is applied both within the EM loop (after each E-step, to produce one-hot assignments for the M-step) and after the final EM iteration (to produce the output state sequence). The decoder uses a homogeneous transition prior with
+\(\tau_{\mathrm{dwell}}=\texttt{decode\_dwell\_sec}\):
+\begin{equation}
+  p_{\mathrm{stay}}=\exp\!\left(-\frac{\Delta t}{\tau_{\mathrm{dwell}}}\right),
+  \qquad
+  p_{\mathrm{switch}}=\frac{1-p_{\mathrm{stay}}}{M-1}.
+\end{equation}
+The decoded sequence is
+\begin{equation}
+  \hat{S}_{1:T}=\arg\max_{\{s_t\}}
+  \sum_t\left[\log c_{t,s_t}+\log p(s_t\mid s_{t-1})\right].
+\end{equation}
+Per-bin confidence is
+\[
+\mathrm{CL}_t = 1-\max_m c_{t,m}.
+\]
+
+% ---------------------------------------------------------------
+\section{Input and Output File Pattern}
+\label{sec:io}
+% ---------------------------------------------------------------
+
+The ordinary EM trainer is \texttt{prism\_EM\_train3c.py}. It is self-contained
+through \texttt{PrismEM\_Workhorse3c.py}; no code from older
+\texttt{ver3} trainers is required.
+
+\paragraph{Input.}
+The required input spike file is
+\[
+\texttt{<basePath>/spikesData/<dataName>.spikes.npz}.
+\]
+The file must contain \texttt{spikes} with shape \((T,N)\) and
+\texttt{single\_rates} with shape \((N,)\). Metadata must provide
+\texttt{time\_step\_sec} and \texttt{poisson\_eta\_clip}. Synthetic files
+from \texttt{gen\_nonStationarySpikes3c.py} also carry provenance metadata,
+which is copied into the fit output.
+
+For real experimental recordings, the preprocessing program is
+\texttt{prep\_bioexp3c.py}. Its output arrays are compatible with the EM
+trainer, but the output directory must be chosen to match the EM file
+layout. Run preprocessing with
+\[
+\texttt{--dataPath <basePath>/spikesData}
+\]
+and choose \texttt{--shortName <dataName>} if an explicit EM data name is
+desired. The resulting files are
+\[
+\texttt{<basePath>/spikesData/<dataName>.spikes.npz},
+\qquad
+\texttt{<basePath>/spikesData/<dataName>.bioExp.npz}.
+\]
+The \texttt{.spikes.npz} file is the direct EM input. The companion
+\texttt{.bioExp.npz} file is not read during training, but it is expected by
+the biological-data evaluation and plotting path to sit next to the spike
+file with the same stem. In the spike metadata,
+\texttt{provenance.experiment\_name} must therefore match
+\texttt{<dataName>}.
+
+\paragraph{Output.}
+Rank~0 creates \texttt{<basePath>/prismFit/} if needed and writes
+\[
+\texttt{<basePath>/prismFit/<fitName>.prismEM.npz}.
+\]
+If \texttt{--fitName} is omitted, the program generates
+\[
+\texttt{<dataName>-EM-<6hex>}.
+\]
+The metadata provenance field \texttt{EMtrain\_file} is set to the same
+output stem.
+
+\paragraph{Canonical commands.}
+\begin{verbatim}
+torchrun --standalone --nnodes=1 --nproc_per_node=4 \
+  ./prism_EM_train3c.py \
+  --basePath $basePath \
+  --dataName <dataName> \
+  --num_states <M> \
+  --time_range_sec 0 80
+
+./prism_EM_train3c.py \
+  --basePath $basePath \
+  --dataName <dataName> \
+  --num_states <M> \
+  --fitName <fitName>
+\end{verbatim}
+
+The first form uses distributed GPU training when launched under
+\texttt{torchrun}; the second form runs on a single process, using CUDA if a
+GPU is visible and CPU otherwise.
+
+% ---------------------------------------------------------------
+\section{Default Hyperparameters and Runtime Settings}
+\label{sec:defaults}
+% ---------------------------------------------------------------
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Group & Parameter (\texttt{CLI}) & Default \\
+\midrule
+EM structure & \texttt{--num\_em\_iters} & 20 \\
+ & \texttt{--m\_epochs} & 2 \\
+E-step & \texttt{--pgd\_iter} & 5 \\
+ & \texttt{--lr\_estep} & 0.03 \\
+ & \texttt{--lambda2} & 2.0 \\
+M-step & \texttt{--lr\_mstep} & \(3 \times 10^{-3}\) \\
+ & \texttt{--lr\_end\_factor} & 0.1 \\
+ & \texttt{--lambda3} & 0.02 \\
+ & \texttt{--rho\_max} & 0.95 \\
+ & \texttt{--prescale\_m\_step\_4\_ArhoMax} & 120 (batches) \\
+ & \texttt{--delay\_em\_iter\_4\_ArhoMax} & [3] \\
+ & \texttt{--delay\_em\_iter\_4\_lrDecay} & [1] \\
+ & \texttt{--delay\_em\_iter\_4\_Aprune} & 1 \\
+ & \texttt{--batch\_size} & 2048 \\
+Data window & \texttt{--time\_range\_sec} & [0.0, 60.0] s \\
+Decoding & \texttt{--decode\_dwell\_sec} & 0.3 s \\
+Init & \texttt{--init\_A} & data (or rand)\\
+ & \texttt{--init\_B} & data (or rand) \\
+ & \texttt{--init\_states} & data (or rand) \\
+\bottomrule
+\end{tabular}
+\caption{Current defaults in \texttt{PrismEM\_Workhorse3c.py}, as used by
+\texttt{prism\_EM\_train3c.py}. The two delay arguments may be given as one
+or two integers: start iteration, and optionally target iteration. If the
+target is omitted, the code uses \texttt{num\_em\_iters}.}
+\end{table}
+
+\paragraph{Required input.}
+\texttt{--num\_states} (\texttt{-M}) is required (no default).
+\texttt{--dataName} and \texttt{--basePath} locate input spikes under
+\texttt{<basePath>/spikesData/}; fits are written to
+\texttt{<basePath>/prismFit/<fitName>.prismEM.npz}.
+
+\paragraph{Dataset-provided values.}
+\(\Delta t\) (\texttt{time\_step\_sec}) and \(\eta_{\mathrm{clip}}\)
+(\texttt{poisson\_eta\_clip}) are loaded from spike-file metadata.
+
+% ---------------------------------------------------------------
+\section{Initialization of Model}
+\label{sec:init}
+% ---------------------------------------------------------------
+
+Initialization is controlled by:
+\[
+\texttt{--init\_states},\quad \texttt{--init\_B},\quad  \texttt{--init\_A}
+\in \{\texttt{data},\texttt{rand}\},
+\]
+with default \texttt{data} for all three.
+
+\subsection{State-Coefficient Initialization (\(C\equiv\{c_t\}\))}
+
+\paragraph{random mode:}
+\[
+c_t = \frac{1}{M}\mathbf{1},\quad S_t=-1 \;\; \forall t.
+\]
+So coefficients start uniform over states.
+
+\paragraph{data mode:}
+\begin{enumerate}
+  \item Aggregate spikes into coarse blocks of length
+  \(\lceil\tau_{\mathrm{dwell}}/\Delta t\rceil\) bins, where
+  \(\tau_{\mathrm{dwell}}=\texttt{decode\_dwell\_sec}\) (default 0.3\,s).
+  \item For each block, compute a scalar mean population firing rate.
+  \item Find \(M-1\) thresholds minimizing within-cluster variance
+  (dynamic-programming segmentation on unique rate values).
+  \item Assign each block to a state by thresholds.
+  \item Convert block states to soft probabilities:
+  dominant state gets \(0.8\), remainder \(0.2\) split across others,
+  with transition smoothing (\(2/3\) vs \(1/3\) at boundaries).
+  \item Map block-level \(c\) and \(S\) back to original bin resolution.
+\end{enumerate}
+
+\subsection{Bias Initialization (\(B\))}
+
+\paragraph{random mode:}
+No external seed is applied; model keeps random Gaussian initialization from
+\texttt{torch.randn(...)*0.1}.
+
+\paragraph{data mode:}
+For each neuron \(n\):
+\[
+r_n = \frac{1}{T}\sum_t Y_{t,n}\,/\,\Delta t,\qquad
+b_n = \log(\max(r_n,10^{-6})).
+\]
+The same \(b\)-vector is assigned to every state row of \(B\).
+
+\subsection{Connectivity Initialization (\(A\))}
+
+\paragraph{random mode:}
+No external seed is applied; model keeps random Gaussian initialization from
+\texttt{torch.randn(...)*0.1}.
+
+\paragraph{data mode (covariance/OLS):}
+Using first \(T_{\max}=50{,}000\) bins (or fewer if shorter):
+\[
+A_{\mathrm{ols}}
+=
+\left(\sum_t Y_tY_{t-1}^\top\right)
+\left(\sum_t Y_{t-1}Y_{t-1}^\top\right)^{\dagger}.
+\]
+Then all elements of \(A_{\mathrm{ols}}\) are scaled by a factor of 3:
+\[
+A \leftarrow 3\,A_{\mathrm{ols}}.
+\]
+No spectral-radius rescaling is applied at initialization; the spectral constraint is enforced later during training via the delayed projection mechanism.
+
+Diagnostics (condition number, spectral radius, one-step \(R^2\), Frobenius norm,
+bins used) are computed on the pre-scaled OLS estimate and saved in metadata
+(\texttt{init\_A} sub-dictionary of the output metadata).
+
+% ---------------------------------------------------------------
+\section{Output File and Evaluation}
+\label{sec:output}
+% ---------------------------------------------------------------
+
+After training, rank~0 writes \texttt{<basePath>/prismFit/<fitName>.prismEM.npz}.
+If \texttt{--fitName} is omitted, the name is
+\texttt{<dataName>-EM-<6hex>}.
+Key arrays (shapes for \(T\) time bins, \(N\) neurons, \(M\) states):
+\begin{itemize}
+  \item \texttt{A\_init}, \texttt{A\_hat}: \((N,N)\);
+  \item \texttt{B\_init}: \((N,)\) --- first row of the initialized \(B\) matrix
+        (common across states in \texttt{data} mode);
+  \item \texttt{B\_hat}: \((M,N)\) --- full per-state bias matrix;
+  \item \texttt{c\_init}, \texttt{c\_hat}: \((T,M)\);
+  \item \texttt{S\_init}, \texttt{S\_hat}: \((T,)\) integer state labels
+        (\texttt{S\_init} is \(-1\) in \texttt{rand} init mode);
+  \item \texttt{S\_hat\_CL}: \((T,)\) per-bin confidence
+        \(\mathrm{CL}_t = 1-\max_m c_{t,m}\);
+  \item \texttt{e\_nll\_em}, \texttt{m\_loss\_epoch}, \texttt{m\_nll\_epoch},
+        \texttt{m\_l1\_epoch}, \texttt{rho\_epoch},
+        \texttt{rho\_correction\_strength\_epoch},
+        \texttt{nz\_edges\_epoch}, \texttt{learning\_rates}: training history;
+  \item \texttt{freq\_h1d}: coarse firing-rate trace used by
+        \texttt{init\_states=data};
+  \item \texttt{single\_rates}: \((N,)\), copied from the input spike file;
+  \item \texttt{neuron\_type}, \texttt{neuron\_Sedge}, \texttt{A\_prune}:
+        source-column Dale-style postprocessing derived from fitted
+        \texttt{A\_hat}. Here \texttt{neuron\_Sedge} is the off-diagonal
+        column sum for each source neuron, \texttt{neuron\_type} is inferred
+        from that source-column sum, and \texttt{A\_prune} preserves
+        positive outgoing columns for excitatory sources and negative
+        outgoing columns for inhibitory sources.
+\end{itemize}
+Metadata records all CLI hyperparameters, time-window bins, initialization
+dictionaries, and \texttt{mstep\_state\_mode=viterbi\_onehot\_prevbin}.
+Suggested evaluation:
+\begin{verbatim}
+./prism_EM_eval3c.py --basePath $basePath --dataName <fitName> -p a e f g
+\end{verbatim}
+
+\end{document}

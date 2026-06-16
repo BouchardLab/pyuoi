@@ -1,0 +1,295 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+
+\geometry{margin=0.8in}
+
+\title{Preprocessing Experimental Spike Recordings for PRISM-EM\\
+\large Ver3c biological-data input preparation}
+\author{Jan Balewski, NERSC}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This document describes the current \texttt{prep\_bioexp3c.py}
+preprocessing program for biological spike recordings. The script reads
+raw experimental spike times and a per-channel metrics spreadsheet,
+converts spike times into a binned spike-count matrix, filters channels by
+firing-rate range, orders accepted neurons by firing rate, and writes two
+companion files. The first file, \texttt{.spikes.npz}, contains only the
+data needed by the EM fitter. The second file, \texttt{.bioExp.npz},
+contains experimental metadata, MEA identifiers, metrics-table rows, and
+other biological bookkeeping used by inspection, plotting, and downstream
+interpretation.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ===============================================================
+\section{Purpose and Scope}
+\label{sec:scope}
+% ===============================================================
+
+\texttt{prep\_bioexp3c.py} converts one experimental recording session into
+the same spike-file contract used elsewhere in the ver3c pipeline:
+rows are time bins and columns are neurons. The preprocessing script does
+not fit a model and does not estimate connectivity. Its job is to make the
+experimental recording usable by the EM fitter while keeping
+experiment-specific information outside the fitter input.
+
+The key design choice is a two-file output:
+\begin{itemize}
+  \item \texttt{<dataName>.spikes.npz}: compact fitter input;
+  \item \texttt{<dataName>.bioExp.npz}: biological/session metadata and
+        channel annotations.
+\end{itemize}
+The files share the same stem and are written to the same directory.
+
+% ===============================================================
+\section{Command-Line Inputs}
+\label{sec:cli}
+% ===============================================================
+
+The command-line arguments are:
+\begin{itemize}
+  \item \texttt{--expPath}: root directory containing the raw experimental
+        session directory;
+  \item \texttt{--sessionName}: session path below \texttt{--expPath};
+  \item \texttt{--dataPath}: output directory for both generated
+        \texttt{.npz} files;
+  \item \texttt{--shortName}: optional output stem. If omitted, the script
+        uses \texttt{<recording\_date>-<6hex>};
+  \item \texttt{--inpFormat}: metrics-spreadsheet selector,
+        \texttt{1} for \texttt{metrics\_curated.xlsx} and
+        \texttt{2} for \texttt{quality\_metrics.xlsx};
+  \item \texttt{--samp\_freq}: binning frequency in Hz, default
+        \texttt{100};
+  \item \texttt{--freqRange}: inclusive accepted firing-rate range in Hz,
+        default \texttt{1 50};
+  \item \texttt{--verb}: diagnostic verbosity.
+\end{itemize}
+
+The raw session is expected to contain
+\[
+\texttt{<expPath>/<sessionName>/spike\_times.npy}
+\]
+and one metrics spreadsheet:
+\[
+\texttt{metrics\_curated.xlsx}
+\quad\hbox{or}\quad
+\texttt{quality\_metrics.xlsx}.
+\]
+
+The session name is parsed as a slash-separated path whose fields include
+cell line, recording date, chip ID, run number, and well number. These
+values are stored in the biological metadata.
+
+% ===============================================================
+\section{Preprocessing Steps}
+\label{sec:steps}
+% ===============================================================
+
+\subsection{Read Raw Spike Times}
+
+The input \texttt{spike\_times.npy} is loaded as a Python dictionary keyed
+by MEA feature/channel identifiers. The keys are sorted once, and this
+sorted key order defines the initial raw channel order.
+
+For each channel, spike times are multiplied by \texttt{--samp\_freq} and
+cast to integer bin indices. Thus \texttt{--samp\_freq=100} corresponds to
+\(\Delta t=0.01\,\mathrm{s}\). Repeated bin indices are retained and later
+become spike counts larger than one in a bin.
+
+The script computes:
+\begin{itemize}
+  \item the total number of time bins;
+  \item the recording duration in seconds;
+  \item one firing rate per raw channel.
+\end{itemize}
+
+\subsection{Filter by Firing Rate}
+
+Channels are retained if their firing rate lies inside the inclusive range
+\[
+\texttt{freqRange[0]} \le r_i \le \texttt{freqRange[1]}.
+\]
+The metadata records how many channels were dropped below and above this
+range. The remaining channels define the population used downstream.
+
+\subsection{Sort Accepted Neurons by Firing Rate}
+
+After rate filtering, accepted channels are sorted by firing rate in
+ascending order. This frequency-sorted order becomes the primary neuron
+index used in the saved spike matrix. The \texttt{.bioExp.npz} file stores
+both the frequency-sort index and the inverse map so that downstream tools
+can relate the saved columns back to the accepted-channel order.
+
+\subsection{Build the Spike-Count Matrix}
+
+For each accepted, frequency-sorted channel, the script forms a
+length-\(T\) spike-count vector using \texttt{numpy.bincount}. These vectors
+are stacked into
+\[
+Y \in \mathbb{N}_0^{T\times N},
+\]
+where rows are time bins and columns are accepted neurons.
+
+The maximum pre-clipping count in any bin is recorded in the biological
+metadata. The matrix written to the fitter-facing file is clipped to
+\([0,255]\) and stored as \texttt{uint8}. This keeps the spike file compact
+while preserving ordinary binned spike counts.
+
+\subsection{Load and Align Metrics}
+
+The metrics spreadsheet is loaded with \texttt{pandas}. For input format 1,
+the file name is \texttt{metrics\_curated.xlsx}. For input format 2, the
+file name is \texttt{quality\_metrics.xlsx}; location columns named
+\texttt{location\_X}, \texttt{location\_Y}, and \texttt{location\_Z} are
+renamed to \texttt{loc\_x}, \texttt{loc\_y}, and \texttt{loc\_z} when
+present.
+
+Rows are matched by \texttt{MEA\_idx} and reordered to match the final
+frequency-sorted neuron order. Duplicate \texttt{MEA\_idx} rows are treated
+as an error, and every retained channel must have a corresponding metrics
+row.
+
+\subsection{Compute Summary Statistics}
+
+The script computes summary statistics from the accepted channels:
+mean, standard deviation, median, minimum, and maximum firing rate, plus
+the mean and standard deviation of the per-neuron Fano factor. These values
+are stored in the biological metadata.
+
+% ===============================================================
+\section{Output File Pattern}
+\label{sec:files}
+% ===============================================================
+
+Let \texttt{<dataName>} denote the output stem. It is equal to
+\texttt{--shortName} when that argument is supplied; otherwise it is
+generated as
+\[
+\texttt{<recording\_date>-<6hex>}.
+\]
+
+The script writes both output files directly into \texttt{--dataPath}:
+\[
+\texttt{<dataPath>/<dataName>.bioExp.npz},
+\qquad
+\texttt{<dataPath>/<dataName>.spikes.npz}.
+\]
+
+The order is deliberate: the \texttt{.spikes.npz} file is the direct input
+to numerical fitters, while the \texttt{.bioExp.npz} file stores
+experimental context that should not be required by the EM training code.
+
+% ===============================================================
+\section{Saved Contents}
+\label{sec:saved}
+% ===============================================================
+
+\subsection{\texttt{<dataName>.spikes.npz}}
+
+The fitter-facing data dictionary contains:
+\begin{itemize}
+  \item \texttt{spikes}: \texttt{uint8} array with shape \((T,N)\);
+  \item \texttt{single\_rates}: floating-point array with shape \((N,)\),
+        ordered exactly like the spike-matrix columns.
+\end{itemize}
+
+The metadata contains:
+\begin{itemize}
+  \item \texttt{time\_step\_sec}: bin width, equal to
+        \(1/\texttt{samp\_freq}\);
+  \item \texttt{provenance.experiment\_name}: the output stem
+        \texttt{<dataName>};
+  \item \texttt{poisson\_eta\_clip}: clipping value expected by the EM
+        fitter, currently \texttt{5};
+  \item \texttt{data\_type}: \texttt{bioExp};
+  \item \texttt{num\_neurons}: number of accepted channels \(N\).
+\end{itemize}
+
+\subsection{\texttt{<dataName>.bioExp.npz}}
+
+The biological data dictionary contains:
+\begin{itemize}
+  \item \texttt{neur\_freqIdx}: index vector that sorts accepted channels
+        by firing rate;
+  \item \texttt{neur\_revFreqIdx}: inverse map from accepted-channel order
+        to frequency-sorted order;
+  \item \texttt{single\_rates}: firing rates in the final saved neuron
+        order;
+  \item \texttt{MEA\_idx}: MEA identifiers reordered to match the final
+        neuron order;
+  \item \texttt{spike\_key}: raw \texttt{spike\_times.npy} keys reordered
+        to match the final neuron order;
+  \item \texttt{metrics\_curated}: metrics-spreadsheet rows reordered to
+        match the final neuron order.
+\end{itemize}
+
+The biological metadata contains:
+\begin{itemize}
+  \item \texttt{bioexp}: raw-data provenance such as
+        \texttt{raw\_bioexp\_path}, \texttt{session\_name},
+        \texttt{inp\_format}, \texttt{cell\_line\_name},
+        \texttt{recording\_date}, \texttt{chip\_ID}, \texttt{run\_num},
+        \texttt{well\_num}, \texttt{sampling\_freq},
+        \texttt{num\_feature}, \texttt{num\_time\_bin}, and
+        \texttt{max\_time};
+  \item \texttt{data\_selector}: selection parameters and results,
+        including \texttt{freq\_range},
+        \texttt{num\_drop\_neur\_lo\_hi\_freq}, \texttt{num\_chan}, and
+        \texttt{max\_spike\_per\_bin};
+  \item \texttt{hash}: random six-character hash used when
+        \texttt{--shortName} is omitted;
+  \item \texttt{short\_name}: output stem \texttt{<dataName>};
+  \item \texttt{metrics\_curated\_columns}: spreadsheet column names after
+        any input-format normalization;
+  \item \texttt{rate\_summary}: firing-rate and Fano-factor summary
+        statistics for the accepted population.
+\end{itemize}
+
+% ===============================================================
+\section{Example Commands}
+\label{sec:commands}
+% ===============================================================
+
+For inspection or plotting only, the output directory can be any directory
+chosen by \texttt{--dataPath}. For use with the ver3c EM fitter, choose the
+same \texttt{spikesData} layout used by \texttt{fitEM\_states\_ver3c.tex}:
+\begin{verbatim}
+basePath=/path/to/analysis
+
+./prep_bioexp3c.py \
+  --expPath /path/to/raw/experiments \
+  --sessionName <cellLine>/<recordingDate>/<chipID>/<assay>/<run>/<well> \
+  --dataPath $basePath/spikesData \
+  --shortName <dataName> \
+  --inpFormat 1 \
+  --samp_freq 100 \
+  --freqRange 1 50
+\end{verbatim}
+
+This produces:
+\[
+\texttt{\$basePath/spikesData/<dataName>.spikes.npz},
+\qquad
+\texttt{\$basePath/spikesData/<dataName>.bioExp.npz}.
+\]
+
+The \texttt{.spikes.npz} file is then the input selected by
+\texttt{--basePath \$basePath --dataName <dataName>} in the EM training
+workflow. See \texttt{fitEM\_states\_ver3c.tex} for the EM model, fitting
+options, and fit-output file pattern.
+
+\end{document}

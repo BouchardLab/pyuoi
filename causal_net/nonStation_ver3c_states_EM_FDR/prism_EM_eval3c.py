@@ -149,13 +149,13 @@ def eval_true_state_recovery(fitD, md):
 
 
 def compute_neuron_type(fitD):
-    """Compute and store neuron_type vector: -1=inh, 0=und, +1=exc."""
+    """Compute source-neuron type from A columns: -1=inh, 0=und, +1=exc."""
     A_hat = np.asarray(fitD["A_hat"], dtype=np.float64)
     assert A_hat.ndim == 2 and A_hat.shape[0] == A_hat.shape[1], "A_hat must be square"
     N = A_hat.shape[0]
     A_thr = A_hat.copy()
     np.fill_diagonal(A_thr, 0.0)
-    Sedge = A_thr.sum(axis=1)
+    Sedge = A_thr.sum(axis=0)
     neuron_type = np.zeros((N,), dtype=np.int8)
     neuron_type[Sedge > 0.0] = 1
     neuron_type[Sedge < 0.0] = -1
@@ -165,16 +165,16 @@ def compute_neuron_type(fitD):
 
 
 def compute_A_prune(fitD, neuron_type):
-    """Compute and store A_prune from A_hat and neuron_type."""
+    """Compute and store A_prune from source-column neuron_type."""
     A_hat = np.asarray(fitD["A_hat"], dtype=np.float64)
     neuron_type = np.asarray(neuron_type, dtype=np.int8)
-    assert neuron_type.shape[0] == A_hat.shape[0], "neuron_type length must match A_hat rows"
+    assert neuron_type.shape[0] == A_hat.shape[1], "neuron_type length must match A_hat columns"
     A_prune = A_hat.copy()
     diag_A = np.diag(A_hat).copy()
-    exc_rows = neuron_type > 0
-    inh_rows = neuron_type < 0
-    A_prune[exc_rows, :] = np.where(A_prune[exc_rows, :] > 0, A_prune[exc_rows, :], 0.0)
-    A_prune[inh_rows, :] = np.where(A_prune[inh_rows, :] < 0, A_prune[inh_rows, :], 0.0)
+    exc_cols = neuron_type > 0
+    inh_cols = neuron_type < 0
+    A_prune[:, exc_cols] = np.where(A_prune[:, exc_cols] > 0, A_prune[:, exc_cols], 0.0)
+    A_prune[:, inh_cols] = np.where(A_prune[:, inh_cols] < 0, A_prune[:, inh_cols], 0.0)
     np.fill_diagonal(A_prune, diag_A)
     fitD["A_prune"] = A_prune.astype(np.float32)
     return fitD["A_prune"]

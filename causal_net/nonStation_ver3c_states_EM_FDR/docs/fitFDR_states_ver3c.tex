@@ -155,16 +155,13 @@ rationale is that the null estimate must traverse the same shrinkage and
 constraint geometry as the converged real estimate, which lives in the
 late-EM regime where all schedules have already fired.
 
-\paragraph{Implementation note (prerequisite).} The current PRISM-EM code
-inlines the M-step inside the EM loop and feeds it the one-hot sequence
-produced internally by the E-step. To support entry point~2, the M-step
-must be exposed as a standalone callable that consumes an externally
-supplied \(\hat S^{\text{lock}}\) and externally supplied spike pairs. This
-includes making the lag-1 state alignment explicit as
-\(\hat S^{\text{lock}}_{t-1}\) for pair \((Y_{t-1},Y_t)\), and allowing
-the caller to provide explicit initial \(A\) and \(\mathbf B\). This is a
-small refactor of existing code rather than new modeling work; the rest of
-this document assumes both entry points exist with the signatures above.
+\paragraph{Implementation note.} In the current \texttt{ver3c} code these
+two entry points live in \texttt{PrismEM\_Workhorse3c.py}:
+\texttt{run\_full\_fit} and \texttt{run\_locked\_mstep}. The locked M-step
+consumes externally supplied spike pairs, an externally supplied
+\(\hat S^{\text{lock}}\), and explicit initial \(A\) and \(\mathbf B\). Its
+lag-1 state alignment is \(\hat S^{\text{lock}}_{t-1}\) for pair
+\((Y_{t-1},Y_t)\), implemented by \texttt{onehot\_from\_prev\_states}.
 
 % ===============================================================
 \section{Method Overview}
@@ -340,9 +337,8 @@ validity. This matters in practice: with a \(10\)-minute bag and a
 \(2\,\text{s}\) separation there would be only \(\sim300\) ``slots,'' yet a
 bag may contain up to \(500\) neurons, so any attempt to enforce pairwise
 distinct shifts would be infeasible by pigeonhole. We deliberately avoid
-that requirement. A lightweight \texttt{max\_retries} guard on the per-neuron
-draw is retained only to handle a pathological window, not to enforce mutual
-spacing.
+that requirement. The implemented draw routine simply samples independently
+from the allowed two-sided interval for each neuron.
 
 \subsection{Null re-estimation through the locked M-step}
 
@@ -351,7 +347,8 @@ frozen, via entry point~2:
 \[
 (A^{\text{null},(b,p)},\mathbf B^{\text{null},(b,p)})
 =\textsf{mstep\_locked}\!\big(\tilde Y^{(p)}_{\text{prev}},\ \tilde Y^{(p)}_{\text{curr}},\
-\hat S^{(b)},\ \hat{\mathbf B}^{(b)},\ \theta_{\text{M}}\big).
+\hat S^{(b)},\ A^{\text{init},(b,p)},\
+\mathbf B^{\text{init},(b,p)},\ \theta_{\text{M}}\big).
 \]
 The locked state attached to pair
 \((\tilde Y^{(p)}_{t-1},\tilde Y^{(p)}_t)\) is
@@ -528,29 +525,22 @@ per-bag null threshold. Bags where the edge did not pass the per-bag selector
 do not enter this final \texttt{A\_hat} value, although the all-bag mean is
 also saved as a diagnostic.
 
-\paragraph{Two ways to set the knobs (one reported, one derived).} The
-operational default exposes the pair \((q,\ \pi_{\text{thr}})\): a per-bag
-per-row quantile level \(q\) and a cross-bag frequency threshold
-\(\pi_{\text{thr}}\). A more compact, single-knob alternative collapses these
-using the stability-selection error bound,
+\paragraph{Reported stability bound.} The implementation exposes the pair
+\((q,\ \pi_{\text{thr}})\): a per-bag per-row quantile level \(q\) and a
+cross-bag frequency threshold \(\pi_{\text{thr}}\). It also reports the
+Meinshausen--B\"uhlmann-style stability-selection diagnostic
 \[
 \mathbb{E}[V]\;\le\;\frac{1}{2\pi_{\text{thr}}-1}\cdot\frac{q_\Lambda^{2}}{p_{\text{cand}}},
 \]
 where \(\mathbb{E}[V]\) is the expected number of false edges,
 \(q_\Lambda\) is the \emph{measured} average number of edges selected per bag,
 and \(p_{\text{cand}}=N(N-1)\) is the number of candidate off-diagonal edges.
-In this mode the user fixes only a single target,
-\texttt{target\_false\_edges}, interpreted as a target upper bound on
-\(\mathbb{E}[V]\). The per-bag quantile is set loose and merely determines
-\(q_\Lambda\), and \(\pi_{\text{thr}}\) is then \emph{derived} from the
-bound rather than tuned. We document this route because it reduces the
-user's choice to the expected number of false retained edges, but adopt the
-explicit \((q,\pi_{\text{thr}})\) pair as the default for transparency. The
-honest caveat applies to either route: the bound assumes independent
-(exchangeable) bags, whereas our overlapping-block bags are positively
-correlated, so a derived \(\pi_{\text{thr}}\) and any implied false-edge
-control should be read as approximate and reported as such, not as a
-guaranteed FDR.
+The current program does not derive \(\pi_{\text{thr}}\) from a target false-edge
+count; the user sets \texttt{--per\_bag\_quantile} and \texttt{--sel\_prob}
+directly, and the bound is saved as a diagnostic. The honest caveat is that
+the bound assumes independent exchangeable bags, whereas overlapping-block
+bags are positively correlated, so the reported value should be read as an
+approximate stability diagnostic rather than as a guaranteed FDR.
 
 % ===============================================================
 \section{Per-Edge Uncertainty: Two Distinct Errors}
@@ -702,11 +692,6 @@ under \texttt{prismFit}.
   filename and in the per-bag RNG seed. For \texttt{bag\_idx=0}, the bag
   blocks are chronological, starting at the time-range start and advancing
   by one block length per block; other bag indices draw random block starts.
-  \item[\texttt{--bagsTag TAG}] Alphanumeric tag appended after
-  \texttt{dataName} in Stage~(a) output names. If omitted or set to
-  \texttt{None}, the program derives a deterministic four-character
-  alphanumeric tag from the shared bagging/training configuration, excluding
-  \texttt{bag\_idx}.
   \item[\texttt{--time\_range\_sec START END}] Time range, in
   seconds, from which block starts are drawn.
 \end{description}
@@ -715,6 +700,11 @@ under \texttt{prismFit}.
 \begin{description}
   \item[\texttt{--fdr\_out\_dir}] Optional output directory for Stage~(a)
   bag files. Default: \texttt{<basePath>/prismFDR}.
+  \item[\texttt{--bagsTag TAG}] Optional alphanumeric tag appended after
+  \texttt{dataName} in Stage~(a) output names. If omitted or set to
+  \texttt{None}, the program derives a deterministic four-character
+  alphanumeric tag from the shared bagging/training configuration, excluding
+  \texttt{bag\_idx}.
   \item[\texttt{--num\_blocks}] Number of contiguous blocks concatenated
   into one bag. Default: \(10\).
   \item[\texttt{--block\_len\_sec}] Length of each contiguous block in
@@ -807,6 +797,38 @@ holding the usual PRISM-EM \texttt{train}, \texttt{init\_A},
 \texttt{init\_B}, \texttt{init\_state}, and \texttt{states\_recovery\_eval}
 metadata for the real time-ordered fit on that bag.
 
+\paragraph{\texttt{big\_fit\_bags.sh} launch pattern.}
+The helper script \texttt{big\_fit\_bags.sh} is a concrete multi-bag launch
+example for one dataset. It sets
+\[
+\texttt{basePath=/pscratch/sd/b/balewski/2026\_causalNet\_exp\_ver3c}
+\]
+and a short input spike name such as
+\texttt{daleN100\_2ba29b\_c47b43}. It then defines
+\[
+\texttt{bagTag="j\$\{SLURM\_JOB\_ID: -4\}"},
+\]
+so all bags launched inside one SLURM job share the same Stage~(a) extended
+name
+\[
+\texttt{<shortN>\_<bagTag>}.
+\]
+For each requested bag index, the script runs
+\texttt{torchrun --standalone --nnodes=1 --nproc\_per\_node=4} on
+\texttt{prism\_EM\_FDR\_Bags\_train3c.py}. With the current loop
+\texttt{for bag in 3 4 5}, the expected output files are
+\begin{verbatim}
+<basePath>/prismFDR/<shortN>_<bagTag>.bag003.prismFDRbag.npz
+<basePath>/prismFDR/<shortN>_<bagTag>.bag004.prismFDRbag.npz
+<basePath>/prismFDR/<shortN>_<bagTag>.bag005.prismFDRbag.npz
+\end{verbatim}
+If the commented loop \texttt{for bag in 0 1 2} is used instead, the files
+are \texttt{bag000}, \texttt{bag001}, and \texttt{bag002}; \texttt{bag000}
+is the chronological reference bag. To aggregate the full set, Stage~(b)
+must be called with \texttt{--dataName <shortN>\_<bagTag>} and
+\texttt{--num\_bags} equal to the number of contiguous bags starting from
+\texttt{bag000} that are present on disk.
+
 \subsection{\texttt{prism\_EM\_FDR\_Bags\_agregate3c.py}: Stage (b)}
 
 This program is a single CPU postprocessing step. It reads the Stage~(a)
@@ -856,8 +878,10 @@ It can then be opened by
   \item[\texttt{--basePath}] Root run directory. The default input is
   \texttt{<basePath>/prismFDR}; the aggregate output is written to
   \texttt{<basePath>/prismFit}.
-  \item[\texttt{--dataName}] Original dataset short name used by Stage~(a).
-  This is the prefix of all bag files.
+  \item[\texttt{--dataName}] Extended Stage~(a) output data name, normally
+  \texttt{<originalDataName>\_<bagsTag>}. This exact string is the prefix of
+  all bag files consumed by Stage~(b), e.g.\
+  \texttt{<dataName>.bag000.prismFDRbag.npz}.
   \item[\texttt{--num\_bags}] Number of Stage~(a) bag files to read. The
   implementation expects bags numbered contiguously from \texttt{bag000}.
   \item[\texttt{--per\_bag\_quantile}] Quantile \(q\) used for the per-row
@@ -877,7 +901,11 @@ are the selection-conditional bagged means for edges with
 \(70\%\) of bags; the retained edge value is the unweighted mean over only
 those bag instances where the edge was selected. Diagonal entries are
 the all-bag mean diagonals. \texttt{A\_prune}, \texttt{neuron\_type}, and
-\texttt{neuron\_Sedge} are recomputed from this aggregate \texttt{A\_hat}.
+\texttt{neuron\_Sedge} are recomputed from this aggregate \texttt{A\_hat}
+using the same source-column Dale convention as the ordinary EM output:
+\texttt{neuron\_Sedge} is the off-diagonal column sum for each source
+neuron, \texttt{neuron\_type} is inferred from that source-column sum, and
+\texttt{A\_prune} keeps signs by source columns.
 The output \texttt{B\_hat} is the mean across bags after aligning state rows
 to bag~0 by the fitted \(\mathbf B\) vectors. The time-series fields
 \texttt{S\_hat}, \texttt{c\_hat}, \texttt{S\_hat\_CL}, and the EM histories

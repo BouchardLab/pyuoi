@@ -3,9 +3,9 @@
 Visualization tool for simulated Dale Poisson network data.
 
 Loads simulation output (simTruth.npz and spikes.npz) produced by
-gen_daleMatrices.py and plots analysis figures for a selected state
+gen_daleMatrices3c.py and plots analysis figures for a selected state
 index (--idxState).  All arrays use natural neuron indexing
-(first num_excite neurons are excitatory, remainder inhibitory).
+(first num_excite source columns are excitatory, remainder inhibitory).
 
 Available plots (-p flag):
   a  Dale connectivity matrix (color-coded) + eigenvalue scatter
@@ -17,7 +17,7 @@ Available plots (-p flag):
   e  Pseudospectral contour plot with eigenvalue overlay
 
 Usage:
-    ./view_daleMatrix.py --dataName daleN100_9fbe7f -i 0 -p a b d e
+    ./view_daleMatrix3.py --dataName daleN100_9fbe7f -m 0 -p a b d e
 """
 
 __author__ = "Jan Balewski"
