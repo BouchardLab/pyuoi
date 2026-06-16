@@ -19,6 +19,17 @@ def real_fit_metadata(md):
     return md
 
 
+def default_plot_time_range_sec(md, duration_sec=60.0):
+    trainMD = real_fit_metadata(md)["train"]
+    if "time_range_sec" in trainMD:
+        t0_sec = float(trainMD["time_range_sec"][0])
+    else:
+        dt = float(trainMD["time_step_sec"])
+        t0_bin = int(trainMD["time_range_bins"][0])
+        t0_sec = float(t0_bin * dt)
+    return [t0_sec, t0_sec + float(duration_sec)]
+
+
 def compute_ll_gap(spikes_sub, A_true, B_true, dt, eta_clip):
     """Per-time LL gap between best and 2nd-best true-state likelihood."""
     y_prev = np.asarray(spikes_sub[:-1], dtype=np.float64)
@@ -199,7 +210,7 @@ def main():
     parser.add_argument("--timeReb", type=int, default=20,
                         help="Time rebin factor for time-axis plots")
     g = parser.add_argument_group("data")
-    g.add_argument("-T", "--time_range_sec", default=[0.0, 65.0],
+    g.add_argument("-T", "--time_range_sec", default=None,
                    nargs=2, type=float,
                    help="Time window [t0, t1] in seconds")
     g.add_argument("-R", "--time_rebin2", default=50, type=int,
@@ -228,6 +239,10 @@ def main():
     if args.verb > 1:  pprint(fitMD)
 
     MD = {**fitMD, "short_name": args.dataName, "fit_source": fit_source}
+    if args.time_range_sec is None:
+        args.time_range_sec = default_plot_time_range_sec(MD)
+        if args.verb > 0:
+            print(f"default --time_range_sec from fitted data start: {args.time_range_sec}")
 
     is_bioexp = fitMD.get("data_type") == "bioExp"
     prov = fitMD["provenance"]

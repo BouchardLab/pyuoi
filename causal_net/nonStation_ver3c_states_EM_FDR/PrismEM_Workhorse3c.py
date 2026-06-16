@@ -95,10 +95,10 @@ def add_prism_em_args(parser, include_time_range=True):
                    help="Spectral radius target for soft correction of A")
     g.add_argument("--prescale_m_step_4_ArhoMax", type=int, default=120,
                    help="Spectral projection frequency in M-step batches")
-    g.add_argument("--delay_em_iter_4_ArhoMax", type=int, default=3,
-                   help="EM iter after which rho_max enforcement starts")
-    g.add_argument("--delay_em_iter_4_lrDecay", type=int, default=1,
-                   help="EM iter after which LR decay starts")
+    g.add_argument("--delay_em_iter_4_ArhoMax", type=int, nargs="+", default=[3],
+                   help="One or two EM iters: start rho_max enforcement; optional target iter for full correction")
+    g.add_argument("--delay_em_iter_4_lrDecay", type=int, nargs="+", default=[1],
+                   help="One or two EM iters: start LR decay; optional target iter for final LR")
     g.add_argument("--delay_em_iter_4_Aprune", type=int, default=1,
                    help="EM iter after which L1 proximal pruning starts")
     g.add_argument("--batch_size", type=int, default=2048)
@@ -137,11 +137,43 @@ def add_prism_em_args(parser, include_time_range=True):
 def normalize_delay_args(args):
     if args.delay_em_iter_4_Aprune is None:
         args.delay_em_iter_4_Aprune = int(args.num_em_iters * 0.3)
-    if args.delay_em_iter_4_ArhoMax is None:
-        args.delay_em_iter_4_ArhoMax = int(args.num_em_iters * 0.6)
-    if args.delay_em_iter_4_lrDecay is None:
-        args.delay_em_iter_4_lrDecay = int(args.num_em_iters * 0.7)
+    if not hasattr(args, "target_em_iter_4_ArhoMax"):
+        args.delay_em_iter_4_ArhoMax, args.target_em_iter_4_ArhoMax = normalize_start_target_arg(
+            args.delay_em_iter_4_ArhoMax,
+            int(args.num_em_iters * 0.6),
+            int(args.num_em_iters),
+            "--delay_em_iter_4_ArhoMax",
+        )
+    if not hasattr(args, "target_em_iter_4_lrDecay"):
+        args.delay_em_iter_4_lrDecay, args.target_em_iter_4_lrDecay = normalize_start_target_arg(
+            args.delay_em_iter_4_lrDecay,
+            int(args.num_em_iters * 0.7),
+            int(args.num_em_iters),
+            "--delay_em_iter_4_lrDecay",
+        )
     return args
+
+
+def normalize_start_target_arg(value, default_start, default_target, name):
+    if value is None:
+        start = int(default_start)
+        target = int(default_target)
+    elif isinstance(value, (list, tuple)):
+        if len(value) < 1 or len(value) > 2:
+            raise ValueError(f"{name} expects 1 or 2 integers")
+        start = int(value[0])
+        target = int(value[1]) if len(value) == 2 else int(default_target)
+    else:
+        start = int(value)
+        target = int(default_target)
+
+    if start < 0:
+        raise ValueError(f"{name} start must be non-negative")
+    if target <= start:
+        raise ValueError(f"{name} target must be greater than start")
+    if target > int(default_target):
+        raise ValueError(f"{name} target must be <= num_em_iters ({default_target})")
+    return start, target
 
 
 def init_distributed():
@@ -496,11 +528,13 @@ def make_pair_loader(yp_np, yc_np, c_pairs_np, args, ctx, shuffle=True):
     return loader, sampler
 
 
-def make_optimizer_and_scheduler(model, args, total_epochs, decay_from_epoch=0):
+def make_optimizer_and_scheduler(model, args, total_epochs, decay_from_epoch=0, decay_to_epoch=None):
     first_param = next(model.parameters())
     fused_ok = bool(first_param.is_cuda)
     optimizer = optim.Adam(model.parameters(), lr=args.lr_mstep, fused=fused_ok)
-    decay_epochs = max(1, int(total_epochs) - int(decay_from_epoch))
+    if decay_to_epoch is None:
+        decay_to_epoch = int(total_epochs)
+    decay_epochs = max(1, int(decay_to_epoch) - int(decay_from_epoch))
     scheduler = optim.lr_scheduler.LinearLR(
         optimizer, start_factor=1.0, end_factor=args.lr_end_factor,
         total_iters=decay_epochs, last_epoch=-1
@@ -622,8 +656,11 @@ def run_full_fit(spikes, spikeMD, single_rates, args, ctx,
 
     total_m_epochs = int(args.num_em_iters) * int(args.m_epochs)
     decay_start_m_epoch = int(args.delay_em_iter_4_lrDecay) * int(args.m_epochs)
+    decay_target_m_epoch = int(args.target_em_iter_4_lrDecay) * int(args.m_epochs)
     optimizer, scheduler = make_optimizer_and_scheduler(
-        model, args, total_m_epochs, decay_from_epoch=decay_start_m_epoch
+        model, args, total_m_epochs,
+        decay_from_epoch=decay_start_m_epoch,
+        decay_to_epoch=decay_target_m_epoch,
     )
 
     off_mask = ~torch.eye(N, dtype=torch.bool, device=ctx.device)
@@ -632,12 +669,33 @@ def run_full_fit(spikes, spikeMD, single_rates, args, ctx,
     h = _history_dict()
     m_epoch_global = 0
     t_start = time.time()
+    reported_rho_activation = False
+    reported_lr_activation = False
 
     for em in range(1, int(args.num_em_iters) + 1):
         apply_prune = em > int(args.delay_em_iter_4_Aprune)
         apply_rho = em > int(args.delay_em_iter_4_ArhoMax)
-        em_iters_left = max(1, int(args.num_em_iters) - em + 1)
+        em_iters_left = max(1, int(args.target_em_iter_4_ArhoMax) - em + 1)
         rho_correction_strength = 1.0 / float(em_iters_left) if apply_rho else 0.0
+        apply_lr_decay = int(args.delay_em_iter_4_lrDecay) < em <= int(args.target_em_iter_4_lrDecay)
+
+        if is_rank0(ctx) and args.verb > 0 and apply_rho and not reported_rho_activation:
+            print(
+                f"ArhoMax activated at EM iter {em} "
+                f"(start_after={int(args.delay_em_iter_4_ArhoMax)}, "
+                f"target_iter={int(args.target_em_iter_4_ArhoMax)}, "
+                f"target_rho={float(args.rho_max):.6g})"
+            )
+            reported_rho_activation = True
+        if is_rank0(ctx) and args.verb > 0 and apply_lr_decay and not reported_lr_activation:
+            target_lr = float(args.lr_mstep) * float(args.lr_end_factor)
+            print(
+                f"lrDecay activated at EM iter {em} "
+                f"(start_after={int(args.delay_em_iter_4_lrDecay)}, "
+                f"target_iter={int(args.target_em_iter_4_lrDecay)}, "
+                f"target_lr={target_lr:.6g})"
+            )
+            reported_lr_activation = True
 
         te0 = time.time()
         with torch.no_grad():
@@ -697,7 +755,7 @@ def run_full_fit(spikes, spikeMD, single_rates, args, ctx,
                 args.prescale_m_step_4_ArhoMax, apply_prune, apply_rho,
                 rho_correction_strength, off_mask
             )
-            if em > int(args.delay_em_iter_4_lrDecay):
+            if apply_lr_decay:
                 scheduler.step()
             h["m_loss_epoch"].append(met["loss"])
             h["m_nll_epoch"].append(met["nll"])
@@ -773,8 +831,10 @@ def run_full_fit(spikes, spikeMD, single_rates, args, ctx,
         "rho_projection_mode": "soft_inverse_em_iters_left",
         "prescale_m_step_4_ArhoMax": int(args.prescale_m_step_4_ArhoMax),
         "delay_em_iter_4_ArhoMax": int(args.delay_em_iter_4_ArhoMax),
+        "target_em_iter_4_ArhoMax": int(args.target_em_iter_4_ArhoMax),
         "rho_sync_mode": "broadcast",
         "delay_em_iter_4_lrDecay": int(args.delay_em_iter_4_lrDecay),
+        "target_em_iter_4_lrDecay": int(args.target_em_iter_4_lrDecay),
         "delay_em_iter_4_Aprune": int(args.delay_em_iter_4_Aprune),
         "mstep_state_mode": "viterbi_onehot_prevbin",
         "batch_size": int(args.batch_size),

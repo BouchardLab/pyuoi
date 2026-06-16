@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument("--dataName", required=True,
                         help="Original spike dataset short name")
     parser.add_argument("--num_bags", type=int, required=True,
-                        help="Number of bag files bag000..bag{num_bags-1}")
+                        help="Number of bag files to aggregate; e.g. 2 means bag000 and bag001")
     parser.add_argument("--per_bag_quantile", type=float, default=0.99,
                         help="Per-row null magnitude quantile for bag selection")
     parser.add_argument("--sel_prob", type=float, default=0.7,
@@ -60,6 +60,10 @@ def parse_args():
 
 def bag_file_name(data_name, bag_idx):
     return f"{data_name}.bag{int(bag_idx):03d}.prismFDRbag.npz"
+
+
+def bag_indices_from_count(num_bags):
+    return list(range(int(num_bags)))
 
 
 def source_type_prune(A_hat):
@@ -92,7 +96,7 @@ def load_bags(args):
     bag_data = []
     bag_meta = []
     bag_files = []
-    for bag_idx in range(int(args.num_bags)):
+    for bag_idx in bag_indices_from_count(args.num_bags):
         inp_f = os.path.join(inp_dir, bag_file_name(args.dataName, bag_idx))
         if not os.path.exists(inp_f):
             raise FileNotFoundError(f"Missing Stage (a) bag file: {inp_f}")
@@ -376,6 +380,7 @@ def main():
         "dataName": args.dataName,
         "output_name": out_name,
         "num_bags": int(args.num_bags),
+        "expected_bag_indices": bag_indices_from_count(args.num_bags),
         "per_bag_quantile": float(args.per_bag_quantile),
         "sel_prob": float(args.sel_prob),
         "fdr_out_dir": inp_dir,
