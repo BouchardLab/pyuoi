@@ -391,7 +391,7 @@ def main():
         print(f"{ib:5d} {float(offset):9.1f} {s['avg_spike_rate_all']:14.1f} {s['avg_spike_rate_excit']:14.1f} {s['avg_spike_rate_inhib']:14.1f}")
     print("\nNext step commands:")
     print("     basePath="+args.basePath)
-    print("  ./view_daleMatrix3.py  --basePath $basePath   --dataName %s  -p b -m 0   -X  -p a c d  " % args.dataName)
+    print("  ./view_daleMatrix3.py  --basePath $basePath   --dataName %s  -p b a c d -m 0   -X   " % args.dataName)
     print("  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --time_range_sec 0 20 -p b -m 0   -X " % args.dataName)
     print("  ./gen_nonStationarySpikes3c.py  --basePath $basePath   --inputStates %s     --true_dwell_sec 1.0 " % args.dataName)
     print("  ./fit_lassoPoisson.py  --basePath $basePath  --inpPath ${basePath}/truthDale --dataName   %s   --num_epochs  50  " % args.dataName)
