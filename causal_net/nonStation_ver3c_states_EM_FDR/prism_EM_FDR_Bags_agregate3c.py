@@ -298,6 +298,131 @@ def edge_table(final_sel, agg):
     }
 
 
+def real_fit_metadata(md):
+    if "bagsFDR_stageA" in md:
+        return md["bagsFDR_stageA"]["real_fit"]
+    return md
+
+
+def eval_loss_time(fitD, md, spikes):
+    """Precompute per-time fit-loss diagnostics for plotting."""
+    trainMD = real_fit_metadata(md)["train"]
+    t0_bin, t1_bin = [int(x) for x in trainMD["time_range_bins"]]
+    dt = float(trainMD["time_step_sec"])
+    eta_clip = float(trainMD["eta_clip"])
+    lambda2 = float(trainMD["lambda2"])
+
+    spikes_sub = np.asarray(spikes[t0_bin:t1_bin + 1], dtype=np.float64)
+    yp = spikes_sub[:-1]
+    yc = spikes_sub[1:]
+
+    a_hat = np.asarray(fitD["A_hat"], dtype=np.float64)
+    b_hat = np.asarray(fitD["B_hat"], dtype=np.float64)
+    if b_hat.ndim == 1:
+        b_hat = b_hat[None, :]
+    c_hat = np.asarray(fitD["c_hat"], dtype=np.float64)
+    assert c_hat.shape[0] == spikes_sub.shape[0], "c_hat and spikes_sub must have matching time bins"
+    c_pairs = c_hat[1:]
+    c_prev = c_hat[:-1]
+
+    rates = np.asarray(fitD["single_rates"], dtype=np.float64)
+    w = 1.0 / np.maximum(rates, 0.1)
+    w /= w.mean()
+
+    eta = yp @ a_hat.T + c_pairs @ b_hat
+    eta_c = np.minimum(eta, eta_clip)
+    lam = np.exp(eta_c) * dt
+    log_dt = np.log(dt)
+    nll_t = np.sum(w[None, :] * (lam - yc * (eta + log_dt)), axis=1)
+
+    dc = c_pairs - c_prev
+    l2_t = lambda2 * np.sum(dc * dc, axis=1)
+
+    return {
+        "loss_nll_time": nll_t.astype(np.float32),
+        "loss_l2_time": l2_t.astype(np.float32),
+    }
+
+
+def eval_true_state_recovery(fitD, md):
+    """Precompute state-recovery table for plotting."""
+    trainMD = real_fit_metadata(md)["train"]
+    t0_bin, t1_bin = [int(x) for x in trainMD["time_range_bins"]]
+    s_true = np.asarray(md["S_true"], dtype=np.int64)[t0_bin:t1_bin + 1]
+    s_hat = np.asarray(fitD["S_hat"], dtype=np.int64)
+    s_hat_cl = np.asarray(fitD["S_hat_CL"], dtype=np.float64)
+    n_state = int(trainMD["num_states"])
+
+    assert s_true.shape[0] == s_hat.shape[0] == s_hat_cl.shape[0], \
+        "S_true/S_hat/S_hat_CL length mismatch on training window"
+
+    state_acc_cl = []
+    bins_hat = np.bincount(s_hat, minlength=n_state).astype(np.int64)
+    enter_hat = np.zeros(n_state, dtype=np.int64)
+    if s_hat.shape[0] > 1:
+        enter_idx = np.where(s_hat[1:] != s_hat[:-1])[0] + 1
+        if enter_idx.size > 0:
+            enter_hat = np.bincount(s_hat[enter_idx], minlength=n_state).astype(np.int64)
+
+    for m in range(n_state):
+        mask = (s_hat == m)
+        if int(mask.sum()) > 0:
+            acc_m = float((s_true[mask] == m).mean())
+            cl_m = float(s_hat_cl[mask].mean())
+        else:
+            acc_m = float("nan")
+            cl_m = float("nan")
+        state_acc_cl.append([acc_m, cl_m, int(bins_hat[m]), int(enter_hat[m])])
+
+    return {
+        "avg_acc": float((s_true == s_hat).mean()),
+        "state_acc_cl": state_acc_cl,
+    }
+
+
+def source_spike_file(base_path, out_md):
+    prov = out_md["provenance"]
+    if out_md.get("data_type") == "bioExp":
+        data_name = prov["experiment_name"]
+    else:
+        data_name = prov["state_transition_file"]
+    return os.path.join(base_path, "spikesData", f"{data_name}.spikes.npz")
+
+
+def add_fit_eval_metadata(out_d, out_md, base_path, verb=1):
+    """Attach display metrics to the aggregate output metadata."""
+    spike_f = source_spike_file(base_path, out_md)
+    spike_d, _ = read_data_npz(spike_f, verb=verb > 1)
+
+    eval_f = eval_loss_time(out_d, out_md, spike_d["spikes"])
+    out_d["loss_nll_time"] = eval_f.pop("loss_nll_time")
+    out_d["loss_l2_time"] = eval_f.pop("loss_l2_time")
+    out_md["eval_f"] = {
+        **eval_f,
+        "loss_nll_time_key": "loss_nll_time",
+        "loss_l2_time_key": "loss_l2_time",
+    }
+
+    if out_md.get("data_type") == "bioExp":
+        return out_md
+
+    prov = out_md["provenance"]
+    st_name = prov["state_transition_file"]
+    truth_f = os.path.join(base_path, "spikesData", f"{st_name}.prismTruth.npz")
+
+    truth_d, _ = read_data_npz(truth_f, verb=verb > 1)
+
+    md_eval = dict(out_md)
+    md_eval["S_true"] = truth_d["S_true"]
+    md_eval["C_true"] = truth_d["C_true"]
+
+    srec = real_fit_metadata(out_md)["states_recovery_eval"]
+    reco = eval_true_state_recovery(out_d, md_eval)
+    srec.update(reco)
+    out_md["eval_f"]["acc"] = reco["avg_acc"]
+    return out_md
+
+
 def main():
     args = parse_args()
     if args.num_bags < 1:
@@ -408,6 +533,7 @@ def main():
     prov["bagsFDR_stageB_file"] = out_name
     prov["bagsFDR_stageB_dataName"] = args.dataName
     out_md["provenance"] = prov
+    out_md = add_fit_eval_metadata(out_d, out_md, args.basePath, verb=args.verb)
 
     if args.verb > 0:
         print(

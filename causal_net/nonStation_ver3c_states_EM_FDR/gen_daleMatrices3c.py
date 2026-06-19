@@ -34,13 +34,16 @@ Pipeline:
    - Firing-rate statistics (rate, variance, Fano factor) computed.
 
 Output files saved to <basePath>/truthDale/:
-  <dataName>.simTruth.npz   — A_true, B_true, E_true + metadata
+  <dataName>.simTruth.npz   — A_true, B_true, E_true, node_positions + metadata
   <dataName>.spikes.npz     — stationary spikes + rate statistics
 
 Output shapes (M = len(Boffsets), N = num_neurons, T = num_steps):
   E_true        (N, N)    int    — shared binary connectivity mask
   A_true        (N, N)    float  — single shared weight matrix
   B_true        (M, N)    float  — one bias vector per state/offset
+  node_positions (N, 2)   float  — static 2D node coordinates
+  node_is_inhibitory (N,) int    — static Dale type label, 0=exc, 1=inh
+  node_distance_matrix (N, N) float — pairwise Euclidean distances
   spikes        (M, T, N) uint8  — stationary spikes per bias vector
   single_rates  (M, N)    float  — mean firing rates (Hz) per bias vector
 """
@@ -58,6 +61,58 @@ from toolbox.Util_NumpyIO import write_data_npz
 from UtilDalePoisson import estimate_rates
 
 ###### Matrix generation ##################
+
+def _build_placement_grid(L, H, d_min):
+    """Rectangular grid nodes on [0,L] x [0,H] with spacing d_min."""
+    m_max = int(np.floor(L / d_min))
+    n_max = int(np.floor(H / d_min))
+    gx = (np.arange(0, m_max + 1, dtype=float) * d_min).reshape(-1, 1)
+    gy = (np.arange(0, n_max + 1, dtype=float) * d_min).reshape(1, -1)
+    xs = np.broadcast_to(gx, (gx.size, gy.size)).ravel()
+    ys = np.broadcast_to(gy, (gx.size, gy.size)).ravel()
+    G = np.column_stack([xs, ys])
+    return G, (m_max + 1) * (n_max + 1)
+
+
+def generate_node_locations(n_units, L, H, d_min, rng=None):
+    """Sample 2D node locations and return positions plus pairwise distances."""
+    if rng is None:
+        rng = np.random.default_rng()
+    G, n_grid = _build_placement_grid(L, H, d_min)
+    if n_grid < n_units:
+        raise ValueError(
+            "grid has only %d nodes; need N <= N_G (reduce placement_min_dist or increase L/H)"
+            % n_grid
+        )
+    idx = rng.choice(n_grid, size=n_units, replace=False)
+    P = G[idx].astype(np.float64)
+
+    diff = P[:, np.newaxis, :] - P[np.newaxis, :, :]
+    D = np.sqrt(np.sum(diff * diff, axis=2))
+    np.fill_diagonal(D, 0.0)
+    return P, D
+
+
+def summarize_pairwise_distances(D, verb=1):
+    """Mean and median Euclidean distance over unique unordered pairs."""
+    D = np.asarray(D, dtype=np.float64)
+    assert D.ndim == 2 and D.shape[0] == D.shape[1], "D must be square"
+    n_units = D.shape[0]
+    if n_units < 2:
+        return {"mean": float("nan"), "median": float("nan"), "n_pairs": 0}
+    iu = np.triu_indices(n_units, k=1)
+    distances = D[iu]
+    stats = {
+        "mean": float(np.mean(distances)),
+        "median": float(np.median(distances)),
+        "n_pairs": int(distances.size),
+    }
+    if verb > 0:
+        print(
+            "Pairwise distance (unique pairs): mean=%.6g  median=%.6g  (N=%d, pairs=%d)"
+            % (stats["mean"], stats["median"], n_units, stats["n_pairs"])
+        )
+    return stats
 
 def generate_sparse_mask(n_units, edge_prob):
     """
@@ -246,6 +301,11 @@ def main():
     parser = argparse.ArgumentParser(description="Simulate a recurrent neural network with Dale's principle.")
     parser.add_argument("--num_neurons", type=int, default=50, help="Total number of neurons in the network.")
     parser.add_argument("--num_excite", type=int, default=None, help="Number of excitatory neurons.")
+    parser.add_argument("--placement_H_L_delta", type=float, nargs=3, default=[1.0, 2.0, 2.0],
+                        metavar=("placement_H", "placement_L", "placement_ker_delta"),
+                        help="Node placement: [0,H] height, [0,L] width, distance-kernel exponent delta. Delta is recorded for topology provenance.")
+    parser.add_argument("--placement_min_dist", type=float, default=0.01,
+                        help="Grid spacing d_min; minimum inter-neuron distance.")
     parser.add_argument("--edge_prob", type=float, nargs=2, default=[0.05, 0.2], help="Range of edge probability [min, max]; mean is used as mask connectivity.")
     parser.add_argument("--num_steps", type=int, default=10_001, help="Number of time steps for simulation.")
     parser.add_argument("--step_size", type=float, default=0.01, help="Integration time step size (dt) in seconds.")
@@ -259,6 +319,19 @@ def main():
     np.set_printoptions(precision=3, suppress=True)
 
     args = parser.parse_args()
+    placement_H, placement_L, placement_ker_delta = (
+        float(args.placement_H_L_delta[0]),
+        float(args.placement_H_L_delta[1]),
+        float(args.placement_H_L_delta[2]),
+    )
+    if not (placement_H > 0 and placement_L > 0):
+        raise ValueError("placement_H_L_delta requires positive H and L")
+    if placement_ker_delta <= 0:
+        raise ValueError("placement_H_L_delta third value (placement_ker_delta) must be positive")
+    placement_min_dist = float(args.placement_min_dist)
+    if placement_min_dist <= 0:
+        raise ValueError("placement_min_dist must be positive")
+
     args.varTwindow=5 #(sec)
     args.poisson_eta_clip=5  #~ [1e-3Hz , 1e3Hz]
     if args.dataName is None:
@@ -281,6 +354,14 @@ def main():
     assert args.idleRate[0]>=0.5
     assert args.idleRate[1]>args.idleRate[0]
     assert len(args.Boffsets) >= 1
+
+    node_positions, node_distance_matrix = generate_node_locations(
+        Nn, placement_L, placement_H, placement_min_dist
+    )
+    node_is_inhibitory = np.zeros(Nn, dtype=np.int32)
+    node_is_inhibitory[args.num_excite:] = 1
+    distance_stats = summarize_pairwise_distances(node_distance_matrix, verb=args.verb)
+
     # Generate sparse connectivity mask (per-neuron random connectivity in edge_prob range)
     E_true = generate_sparse_mask(Nn, args.edge_prob)
     print(f"\n=== Generated sparse mask: edge_prob={args.edge_prob}, actual={np.mean(E_true):.3f}, non-zero={np.sum(E_true)} ===")
@@ -289,6 +370,11 @@ def main():
         'num_neurons': args.num_neurons,
         'num_excite': args.num_excite,
         'spectral_radius': args.spectral_radius,
+        'placement_L': placement_L,
+        'placement_H': placement_H,
+        'placement_min_dist': placement_min_dist,
+        'placement_ker_delta': placement_ker_delta,
+        'node_distance_stats': distance_stats,
         'edge_prob': args.edge_prob,
         'idleRate': args.idleRate,
         'Boffsets': args.Boffsets,
@@ -359,7 +445,10 @@ def main():
     trueD = {
         'A_true': A_dale,
         'B_true': B_all,
-        'E_true': E_true
+        'E_true': E_true,
+        'node_positions': node_positions,
+        'node_is_inhibitory': node_is_inhibitory,
+        'node_distance_matrix': node_distance_matrix,
     }
     
     trueMD = {'dale_conf': dale_conf, 'evol_conf': evol_conf, 'short_name': args.dataName,

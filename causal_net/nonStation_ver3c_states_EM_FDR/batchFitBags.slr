@@ -20,7 +20,8 @@ bag_idx=${SLURM_ARRAY_TASK_ID:-0}
 
 # Defaults mirrored from big_fit_bags.sh.
 #basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3 ; shortN=Canine_260324_r23_w0_1hz
-basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3c; shortN=daleN100_d4a192_30db68
+#OLD basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3c; shortN=daleN100_d4a192_30db68
+basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3c; shortN=daleN200_102308_a5d24b
 
 bagsTag=""
 time_range_sec=(300 1200)

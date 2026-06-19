@@ -38,11 +38,11 @@ class Plotter(PlotterBackbone):
         PlotterBackbone.__init__(self,args)
 
 #...!...!..................
-    def Dale_matrix_and_eigen(self,A,md,trueD,figId=3):
+    def Dale_matrix_and_eigen(self, A, md, trueD, spikeD, figId=3):
         
         figId=self.smart_append(figId)        
-        nrow,ncol=1,2
-        fig=self.plt.figure(figId,facecolor='white', figsize=(12,5.))
+        nrow,ncol=1,3
+        fig=self.plt.figure(figId,facecolor='white', figsize=(17,5.))
 
         dmd=md['dale_conf']
         numExc=dmd['num_excite']
@@ -90,6 +90,38 @@ class Plotter(PlotterBackbone):
             ax.plot(R_sel*np.cos(theta), R_sel*np.sin(theta), color='magenta', linestyle='--', lw=1.5, label='R=%.3f'%R_sel)
             ax.legend()
         ax.grid(True)
+
+        #..... Position 3: spatial node locations, signed by Dale type ......
+        assert 'node_positions' in trueD, (
+            'Dale_matrix_and_eigen requires node_positions in simTruth; regenerate with gen_daleMatrices3c.py'
+        )
+        node_pos = np.asarray(trueD['node_positions'], dtype=np.float64)
+        assert node_pos.shape == (numNeur, 2), (
+            f"node_positions shape {node_pos.shape} does not match expected {(numNeur, 2)}"
+        )
+        single_rates = np.asarray(spikeD['single_rates'], dtype=np.float64).reshape(-1)
+        assert single_rates.shape[0] == numNeur, (
+            f"single_rates length {single_rates.shape[0]} does not match N={numNeur}"
+        )
+        signed_rates = single_rates.copy()
+        signed_rates[numExc:] *= -1.0
+        vmax_rate = float(np.max(np.abs(signed_rates)))
+        assert vmax_rate > 0.0, "signed firing rates are all zero"
+        rate_norm = colors.TwoSlopeNorm(vmin=-vmax_rate, vcenter=0.0, vmax=vmax_rate)
+
+        ax = self.plt.subplot(nrow, ncol, 3)
+        sc = ax.scatter(
+            node_pos[:, 0], node_pos[:, 1],
+            c=signed_rates, cmap='bwr', norm=rate_norm,
+            s=14, marker='s', edgecolors='k', linewidths=0.15, alpha=0.95,
+        )
+        ax.set_xlabel('node x')
+        ax.set_ylabel('node y')
+        ax.set_title('Node locations, signed rate')
+        ax.grid(True, alpha=0.35)
+        ax.set_aspect('equal', adjustable='box')
+        cbar = fig.colorbar(sc, ax=ax, extend='both', shrink=0.8)
+        cbar.set_label('signed firing rate (Hz)')
       
     def Dale_matrix_pseudospectra(self, A, md, trueD, figId=5):  # p=e
         figId = self.smart_append(figId)

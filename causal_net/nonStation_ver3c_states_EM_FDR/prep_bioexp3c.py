@@ -296,6 +296,13 @@ def unroll_bioexp(rawD, bioMD, args):
     bioD['spike_key'] = spike_key
     bioD['metrics_curated'] = metrics_2d
     bioMD['metrics_curated_columns'] = metrics_cols
+    metrics_col_map = {str(c): i for i, c in enumerate(metrics_cols)}
+    assert "loc_x" in metrics_col_map and "loc_y" in metrics_col_map, (
+        f"metrics_curated must contain loc_x and loc_y columns; have {metrics_cols}"
+    )
+    loc_x = metrics_2d[:, metrics_col_map["loc_x"]].astype(np.float64)
+    loc_y = metrics_2d[:, metrics_col_map["loc_y"]].astype(np.float64)
+    bioD['node_positions'] = np.column_stack([loc_x, loc_y])
 
     #.... compute neural statistics for spikeMD
     num_neurons = nchan

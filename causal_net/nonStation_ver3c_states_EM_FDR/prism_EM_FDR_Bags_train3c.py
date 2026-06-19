@@ -211,6 +211,99 @@ def stack_history(null_histories, key, dtype):
     return np.stack(vals, axis=0) if vals else np.zeros((0, 0), dtype=dtype)
 
 
+def eval_loss_time_on_bag(fitD, fitMD, bag_spikes):
+    """Precompute per-time fit-loss diagnostics on the assembled bag timeline."""
+    trainMD = fitMD["train"]
+    dt = float(trainMD["time_step_sec"])
+    eta_clip = float(trainMD["eta_clip"])
+    lambda2 = float(trainMD["lambda2"])
+
+    spikes = np.asarray(bag_spikes, dtype=np.float64)
+    c_hat = np.asarray(fitD["c_hat"], dtype=np.float64)
+    assert c_hat.shape[0] == spikes.shape[0], (
+        f"c_hat length {c_hat.shape[0]} does not match bag spikes length {spikes.shape[0]}"
+    )
+
+    yp = spikes[:-1]
+    yc = spikes[1:]
+    c_pairs = c_hat[1:]
+    c_prev = c_hat[:-1]
+
+    a_hat = np.asarray(fitD["A_hat"], dtype=np.float64)
+    b_hat = np.asarray(fitD["B_hat"], dtype=np.float64)
+    if b_hat.ndim == 1:
+        b_hat = b_hat[None, :]
+
+    rates = np.asarray(fitD["single_rates"], dtype=np.float64)
+    w = 1.0 / np.maximum(rates, 0.1)
+    w /= w.mean()
+
+    eta = yp @ a_hat.T + c_pairs @ b_hat
+    eta_c = np.minimum(eta, eta_clip)
+    lam = np.exp(eta_c) * dt
+    log_dt = np.log(dt)
+    nll_t = np.sum(w[None, :] * (lam - yc * (eta + log_dt)), axis=1)
+
+    dc = c_pairs - c_prev
+    l2_t = lambda2 * np.sum(dc * dc, axis=1)
+    return nll_t.astype(np.float32), l2_t.astype(np.float32)
+
+
+def load_bag_truth(base_path, spikeMD, starts, block_len_bins, verb=1):
+    """Load and assemble simulation truth on the same block timeline as the bag."""
+    if spikeMD.get("data_type") == "bioExp":
+        return None
+    prov = spikeMD["provenance"]
+    st_name = prov["state_transition_file"]
+    truth_f = os.path.join(base_path, "spikesData", f"{st_name}.prismTruth.npz")
+    truthD, _ = read_data_npz(truth_f, verb=verb > 1)
+    starts = np.asarray(starts, dtype=np.int64)
+    block_len_bins = int(block_len_bins)
+    out = {}
+    for key in ("S_true", "C_true", "S_oracle"):
+        if key in truthD:
+            arr = np.asarray(truthD[key])
+            out[key] = np.concatenate(
+                [arr[int(s):int(s) + block_len_bins] for s in starts],
+                axis=0,
+            )
+    return out
+
+
+def eval_true_state_recovery_on_bag(fitD, fitMD, S_true):
+    """Precompute state-recovery table for one assembled simulation bag."""
+    s_true = np.asarray(S_true, dtype=np.int64)
+    s_hat = np.asarray(fitD["S_hat"], dtype=np.int64)
+    s_hat_cl = np.asarray(fitD["S_hat_CL"], dtype=np.float64)
+    assert s_true.shape[0] == s_hat.shape[0] == s_hat_cl.shape[0], (
+        "S_true/S_hat/S_hat_CL length mismatch on bag timeline"
+    )
+    n_state = int(fitMD["train"]["num_states"])
+
+    bins_hat = np.bincount(s_hat, minlength=n_state).astype(np.int64)
+    enter_hat = np.zeros(n_state, dtype=np.int64)
+    if s_hat.shape[0] > 1:
+        enter_idx = np.where(s_hat[1:] != s_hat[:-1])[0] + 1
+        if enter_idx.size > 0:
+            enter_hat = np.bincount(s_hat[enter_idx], minlength=n_state).astype(np.int64)
+
+    state_acc_cl = []
+    for m in range(n_state):
+        mask = s_hat == m
+        if int(mask.sum()) > 0:
+            acc_m = float((s_true[mask] == m).mean())
+            cl_m = float(s_hat_cl[mask].mean())
+        else:
+            acc_m = float("nan")
+            cl_m = float("nan")
+        state_acc_cl.append([acc_m, cl_m, int(bins_hat[m]), int(enter_hat[m])])
+
+    return {
+        "avg_acc": float((s_true == s_hat).mean()),
+        "state_acc_cl": state_acc_cl,
+    }
+
+
 def main():
     job_t0 = time.perf_counter()
     args = normalize_delay_args(parse_args())
@@ -341,7 +434,10 @@ def main():
 
         if is_rank0(ctx):
             outD = dict(fitD)
+            loss_nll_time, loss_l2_time = eval_loss_time_on_bag(fitD, fitMD, bag_spikes)
             outD.update({
+                "loss_nll_time": loss_nll_time,
+                "loss_l2_time": loss_l2_time,
                 "A_null": np.stack(A_null, axis=0).astype(np.float32),
                 "B_null": np.stack(B_null, axis=0).astype(np.float32),
                 "roll_shifts_bin": np.stack(roll_shifts, axis=0).astype(np.int64),
@@ -359,6 +455,21 @@ def main():
                 "null_nz_edges_epoch": stack_history(null_histories, "nz_edges_epoch", np.int64),
                 "null_learning_rates": stack_history(null_histories, "learning_rates", np.float64),
             })
+
+            bag_truth = load_bag_truth(
+                args.basePath,
+                spikeMD,
+                bag_info["block_start_bins"],
+                int(bag_info["block_len_bins"][0]),
+                verb=args.verb,
+            )
+            if bag_truth is not None:
+                for key, val in bag_truth.items():
+                    outD[key] = val.astype(np.float32) if key == "C_true" else val.astype(np.int32)
+                if "S_true" in bag_truth:
+                    fitMD["states_recovery_eval"].update(
+                        eval_true_state_recovery_on_bag(fitD, fitMD, bag_truth["S_true"])
+                    )
 
             real_fit_md = {
                 "train": fitMD["train"],
@@ -399,9 +510,16 @@ def main():
                     "B_init_md": null_B_init_md,
                 },
                 "saved_bag_spikes": False,
+                "saved_bag_truth": bool(bag_truth is not None),
                 "output_schema": "real_fit_fields_plus_A_null_B_null",
                 "seed_base": int(seed_base),
             }
+            outMD["eval_f"] = {
+                "loss_nll_time_key": "loss_nll_time",
+                "loss_l2_time_key": "loss_l2_time",
+            }
+            if bag_truth is not None and "S_true" in bag_truth:
+                outMD["eval_f"]["acc"] = float(fitMD["states_recovery_eval"]["avg_acc"])
 
             outF = os.path.join(out_dir, f"{out_stem}.prismFDRbag.npz")
             write_data_npz(outD, outF, metaD=outMD)

@@ -8,8 +8,8 @@ index (--idxState).  All arrays use natural neuron indexing
 (first num_excite source columns are excitatory, remainder inhibitory).
 
 Available plots (-p flag):
-  a  Dale connectivity matrix (color-coded) + eigenvalue scatter
-     with spectral-radius circle
+  a  Dale connectivity matrix, eigenvalue scatter with spectral-radius
+     circle, and node-location map colored by signed firing rate
   b  Weight histogram, firing-rate histogram, outgoing-edge count
      per neuron, and per-neuron firing-rate bar chart
   d  B_idle vs firing rate / SNR scatter, plus excitatory and
@@ -34,7 +34,7 @@ import argparse
 def get_parser():
     parser = argparse.ArgumentParser(description="Visualize simulated Dale Poisson network data")
     parser.add_argument("-v","--verbosity",type=int,  help="increase output verbosity", default=1, dest='verb')
-    parser.add_argument("-p", "--showPlots",  default='a b', nargs='+',help="abc-string listing shown plots: a=Dale_matrix_and_eigen, b=histo_weights_rates, d=rates_study, e=pseudospectra")
+    parser.add_argument("-p", "--showPlots",  default='a b', nargs='+',help="abc-string listing shown plots: a=Dale_matrix_eigen_locations, b=histo_weights_rates, c=rates_study, d=pseudospectra")
     parser.add_argument('-X',"--noXterm", action="store_true", help="Disable X terminal for plotting")
     parser.add_argument("--basePath",default='/pscratch/sd/b/balewski/2025_causalNet_tmp/',help="head dir for input data")
     parser.add_argument("--dataName",  default='daleN150_448b86',help='simulated Dale network base name')
@@ -89,6 +89,9 @@ if __name__=="__main__":
     
     # Slice stacked arrays along axis 0 for the selected B offset
     trueD_r = { 'A_true': trueD['A_true'], 'B_true': trueD['B_true'][ib], 'E_true': trueD['E_true'] }
+    for key in ('node_positions', 'node_is_inhibitory', 'node_distance_matrix'):
+        if key in trueD:
+            trueD_r[key] = trueD[key]
     spikeD_r = { k: spikeD[k][ib] for k in spikeD }
     trueMD['sel_spect_radius'] = R_sel
     trueMD['sel_Boffset'] = B_offset
@@ -100,7 +103,7 @@ if __name__=="__main__":
     plot=Plotter(args)
     
     if 'a' in args.showPlots:
-        plot.Dale_matrix_and_eigen(trueD_r['A_true'],trueMD,trueD_r,figId=1)
+        plot.Dale_matrix_and_eigen(trueD_r['A_true'], trueMD, trueD_r, spikeD_r, figId=1)
     
     if 'b' in args.showPlots:
         plot.histo_weights_rates(trueD_r,spikeD_r,trueMD,figId=2)

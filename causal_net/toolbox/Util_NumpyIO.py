@@ -19,6 +19,7 @@ from pprint import pprint
 def write_data_npz(dataD,outF,metaD=None,verb=1):
     assert type(dataD)!=type(None)
     assert len(outF)>0
+    start = time.time()
     
     # Create a copy to avoid modifying original data
     saveD = dataD.copy()
@@ -31,7 +32,6 @@ def write_data_npz(dataD,outF,metaD=None,verb=1):
     
     if verb>0:
             print('saving data as npz:',outF)
-            start = time.time()
     
     # Process data to ensure all items are numpy arrays
     for item in list(saveD.keys()):
@@ -51,7 +51,8 @@ def write_data_npz(dataD,outF,metaD=None,verb=1):
     np.savez_compressed(outF, **saveD)
     
     xx=os.path.getsize(outF)/1048576
-    print('closed  npz:',outF,' size=%.2f MB, elaT=%.1f sec'%(xx,(time.time() - start)))
+    if verb>0:
+        print('closed  npz:',outF,' size=%.2f MB, elaT=%.1f sec'%(xx,(time.time() - start)))
 
     
 #...!...!..................
