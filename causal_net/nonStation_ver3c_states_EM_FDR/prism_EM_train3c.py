@@ -94,7 +94,7 @@ def main():
         time_range_bins = broadcast_object(time_range_bins, ctx)
 
         if args.fitName is None:
-            outF = f"{args.dataName}-EM-{secrets.token_hex(3)}" if is_rank0(ctx) else None
+            outF = f"{args.dataName}_{secrets.token_hex(2)}" if is_rank0(ctx) else None
             outF = broadcast_object(outF, ctx)
         else:
             outF = args.fitName

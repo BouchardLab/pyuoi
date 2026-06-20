@@ -58,7 +58,7 @@ def get_parser():
     parser.add_argument("--dataName", default="HET_80k_1-fc62ef",
                         help="preprocessed session name")
 
-    parser.add_argument("-R", "--time_rebin2", default=50, type=int,
+    parser.add_argument("-R", "--time_rebin2", default=10, type=int,
                         help="rebin current time axis for burst panels")
 
     args = parser.parse_args()

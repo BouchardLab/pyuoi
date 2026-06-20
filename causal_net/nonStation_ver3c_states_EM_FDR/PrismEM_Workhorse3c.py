@@ -508,6 +508,24 @@ def onehot_from_prev_states(S, M):
     return eye[S[:-1]]
 
 
+def onehot_from_curr_states(S, M):
+    """Return one-hot rows aligned as S[t] for lag pair (Y[t-1], Y[t])."""
+    S = np.asarray(S, dtype=np.int64)
+    if S.ndim != 1 or S.shape[0] < 2:
+        raise ValueError("S must be 1D with at least two time bins")
+    eye = np.eye(M, dtype=np.float32)
+    return eye[S[1:]]
+
+
+def onehot_from_pair_states(S_pair, M):
+    """Return one-hot rows from one state label per supplied lag pair."""
+    S_pair = np.asarray(S_pair, dtype=np.int64)
+    if S_pair.ndim != 1:
+        raise ValueError("S_pair must be 1D")
+    eye = np.eye(M, dtype=np.float32)
+    return eye[S_pair]
+
+
 def make_pair_loader(yp_np, yc_np, c_pairs_np, args, ctx, shuffle=True):
     dataset = PairDataset(yp_np, yc_np, c_pairs_np)
     if ctx.is_dist:
@@ -860,25 +878,32 @@ def run_full_fit(spikes, spikeMD, single_rates, args, ctx,
 
 
 def run_locked_mstep(Y_prev, Y_curr, S_lock, A_init, B_init, spikeMD, args, ctx):
-    """Run locked M-step with state covariate S[t-1], no E-step/Viterbi."""
+    """Run locked M-step with fixed destination-bin state labels, no E-step/Viterbi.
+
+    S_lock may contain one state label per pair, or one full timeline whose
+    destination-bin labels S[1:] match the supplied lag pairs.
+    """
     Y_prev = np.asarray(Y_prev, dtype=np.float32)
     Y_curr = np.asarray(Y_curr, dtype=np.float32)
     S_lock = np.asarray(S_lock, dtype=np.int64)
     if Y_prev.shape != Y_curr.shape:
         raise ValueError("Y_prev and Y_curr must have matching shape")
     T_pairs, N = Y_prev.shape
-    if S_lock.shape[0] != T_pairs + 1:
-        raise ValueError("S_lock must have length T_pairs + 1")
+    if S_lock.shape[0] not in (T_pairs, T_pairs + 1):
+        raise ValueError("S_lock must have length T_pairs or T_pairs + 1")
 
     M = int(args.num_states)
     dt = float(spikeMD["time_step_sec"])
     eta_clip = float(spikeMD["poisson_eta_clip"])
-    c_pairs_np = onehot_from_prev_states(S_lock, M)
+    if S_lock.shape[0] == T_pairs:
+        c_pairs_np = onehot_from_pair_states(S_lock, M)
+    else:
+        c_pairs_np = onehot_from_curr_states(S_lock, M)
     loader, sampler = make_pair_loader(Y_prev, Y_curr, c_pairs_np, args, ctx, shuffle=True)
     model = init_model(N, M, eta_clip, A_init, B_init, ctx)
     mdl = model.module if hasattr(model, "module") else model
 
-    total_epochs = int(args.num_em_iters) * int(args.m_epochs)
+    total_epochs = int(getattr(args, "epochs", int(args.num_em_iters) * int(args.m_epochs)))
     optimizer, scheduler = make_optimizer_and_scheduler(
         model, args, total_epochs, decay_from_epoch=0
     )

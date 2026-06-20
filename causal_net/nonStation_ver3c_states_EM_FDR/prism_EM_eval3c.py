@@ -15,11 +15,11 @@ from UtilBioExp import detect_spike_bursts
 
 PLOT_FIG_ID = {chr(ord("a") + i): chr(ord("a") + i) for i in range(18)}
 SIM_ONLY_PLOTS = set("mnopqr")
-IMPLEMENTED_PLOTS = {"a", "b", "c", "d", "e", "f", "m", "n", "o", "p"}
+IMPLEMENTED_PLOTS = {"a", "b", "c", "d", "e", "f", "g", "m", "n", "o", "p", "r"}
 
 
 def real_fit_metadata(md):
-    if "bagsFDR_stageA" in md:
+    if "bagsFDR_stageA" in md and "real_fit" in md["bagsFDR_stageA"]:
         return md["bagsFDR_stageA"]["real_fit"]
     return md
 
@@ -164,6 +164,107 @@ def normalize_plot_letters(show_plots):
     return letters
 
 
+def _binned_acceptance(x, accepted, bins):
+    total, _ = np.histogram(x, bins=bins)
+    passed, _ = np.histogram(x[accepted], bins=bins)
+    prob = np.full(total.shape, np.nan, dtype=np.float64)
+    m = total > 0
+    prob[m] = passed[m].astype(np.float64) / total[m].astype(np.float64)
+    centers = 0.5 * (bins[:-1] + bins[1:])
+    return centers, prob, total.astype(np.int64), passed.astype(np.int64)
+
+
+def compute_fdr_acceptance_truth(fitD, md):
+    assert "bagsFDR_stageB" in md, "Plot o requires a Stage (b) FDR aggregate"
+    for key in ("A_prune", "single_rates"):
+        assert key in fitD, f"Plot o requires {key} in fit data"
+    for key in ("A_true", "E_true", "dale_conf"):
+        assert key in md, f"Plot o requires simulation truth metadata {key}"
+
+    A_true = np.asarray(md["A_true"], dtype=np.float64)
+    if A_true.ndim == 3:
+        A_true = A_true[0]
+    E_true = np.asarray(md["E_true"]) != 0
+    if E_true.ndim == 3:
+        E_true = E_true[0] != 0
+    A_prune = np.asarray(fitD["A_prune"], dtype=np.float64)
+    assert A_prune.shape == A_true.shape and A_true.ndim == 2, (
+        f"A_prune shape {A_prune.shape} must match 2D A_true shape {A_true.shape}"
+    )
+    assert E_true.shape == A_true.shape, f"E_true shape {E_true.shape} must match A_true {A_true.shape}"
+    n_neur = A_true.shape[0]
+    rates = np.asarray(fitD["single_rates"], dtype=np.float64).reshape(-1)
+    assert rates.shape[0] == n_neur, "single_rates length must match A_true columns"
+
+    num_exc = int(md["dale_conf"]["num_excite"])
+    assert 0 < num_exc < n_neur, "dale_conf.num_excite must split excitatory/inhibitory source columns"
+
+    off_mask = ~np.eye(n_neur, dtype=bool)
+    true_edge_mask = off_mask & E_true
+    assert np.any(true_edge_mask), "Plot o requires at least one true off-diagonal edge"
+    src_idx = np.broadcast_to(np.arange(n_neur, dtype=np.int64)[None, :], A_true.shape)
+    x_w = A_true[true_edge_mask]
+    accepted = (np.abs(A_prune) > 1e-12)[true_edge_mask]
+    src = src_idx[true_edge_mask]
+    src_rate = rates[src]
+    src_is_exc = src < num_exc
+
+    w_step = 0.01
+    w_lo = np.floor(float(np.min(x_w)) / w_step) * w_step
+    w_hi = np.ceil(float(np.max(x_w)) / w_step) * w_step
+    if np.isclose(w_lo, w_hi):
+        w_hi = w_lo + w_step
+    w_bins = np.arange(w_lo, w_hi + 1.5 * w_step, w_step, dtype=np.float64)
+    w_center, w_prob, w_total, w_pass = _binned_acceptance(x_w, accepted, w_bins)
+
+    r_min = float(np.min(src_rate))
+    r_max = float(np.max(src_rate))
+    n_rate_bins = 10
+    r_pos = src_rate[src_rate > 0.0]
+    if r_min > 0.0 and r_pos.size > 0 and r_max / float(np.min(r_pos)) > 20.0:
+        r_lo = float(np.min(r_pos))
+        r_bins = np.geomspace(r_lo, r_max, n_rate_bins + 1)
+        r_scale = "log"
+    else:
+        if np.isclose(r_min, r_max):
+            r_max = r_min + 1.0
+        r_bins = np.linspace(r_min, r_max, n_rate_bins + 1)
+        r_scale = "linear"
+
+    rate_by_type = {}
+    for label, mask in (("exc", src_is_exc), ("inh", ~src_is_exc)):
+        c, p, t, a = _binned_acceptance(src_rate[mask], accepted[mask], r_bins)
+        rate_by_type[label] = {
+            "center": c,
+            "prob": p,
+            "total": t,
+            "passed": a,
+        }
+
+    return {
+        "weight": {
+            "bin_edges": w_bins,
+            "center": w_center,
+            "prob": w_prob,
+            "total": w_total,
+            "passed": w_pass,
+            "bin_width": w_step,
+        },
+        "rate": {
+            "bin_edges": r_bins,
+            "scale": r_scale,
+            "exc": rate_by_type["exc"],
+            "inh": rate_by_type["inh"],
+        },
+        "summary": {
+            "num_candidates": int(x_w.size),
+            "num_accepted": int(np.sum(accepted)),
+            "num_exc": num_exc,
+            "num_inh": int(n_neur - num_exc),
+        },
+    }
+
+
 def main():
     args = parse_args()
     args.showPlots = normalize_plot_letters(args.showPlots)
@@ -187,9 +288,9 @@ def main():
         f"{''.join(requested_sim_only)} for data_type={fitMD.get('data_type')!r}"
     )
     md = {**fitMD, "short_name": args.dataName}
-    if any(c in args.showPlots for c in "nop"):
+    if any(c in args.showPlots for c in "nopr"):
         md = load_simu_static_truth(args.basePath, fitMD, md, verb=args.verb)
-    if any(c in args.showPlots for c in "mnopqr"):
+    if "m" in args.showPlots:
         md = load_simu_truth(args.basePath, fitD, fitMD, md, verb=args.verb)
     if any(c in args.showPlots for c in "cdm") and args.time_range_sec is None:
         args.time_range_sec = default_plot_time_range_sec(md)
@@ -226,6 +327,8 @@ def main():
             fitD, nodeD, nodeMD, fitD["neuron_type"], fitD["neuron_Sedge"],
             maxNeurons=args.maxNeurons, figId=PLOT_FIG_ID["f"],
         )
+    if "g" in args.showPlots:
+        plot.fdr_selection_summary(fitD, md, figId=PLOT_FIG_ID["g"])
     if "m" in args.showPlots:
         plot.state_seq_simu(fitD, md, figId=PLOT_FIG_ID["m"], time_range_sec=args.time_range_sec)
     if "n" in args.showPlots:
@@ -234,6 +337,9 @@ def main():
         plot.matrix_init(fitD, md, figId=PLOT_FIG_ID["o"])
     if "p" in args.showPlots:
         plot.matrix_init(fitD, md, figId=PLOT_FIG_ID["p"], est_key="A_hat", est_label="A_hat")
+    if "r" in args.showPlots:
+        acceptD = compute_fdr_acceptance_truth(fitD, md)
+        plot.fdr_acceptance_truth(acceptD, md, figId=PLOT_FIG_ID["r"])
 
     plot.display_all()
 

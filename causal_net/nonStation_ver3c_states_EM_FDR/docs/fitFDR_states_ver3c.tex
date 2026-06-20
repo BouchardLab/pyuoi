@@ -26,20 +26,20 @@ the PRISM-EM fitter that aims to recover the shared connectivity matrix
 \(A\in\mathbb{R}^{N\times N}\) of a non-stationary, multi-state Poisson GLM
 \emph{robustly}, i.e.\ with explicit control of false edges and with
 per-edge uncertainty estimates, on real data where no ground truth exists.
-The method combines three ideas. First, \emph{block bagging}: the recording
-is resampled into multiple overlapping bags built from spaced contiguous
-time blocks, and PRISM-EM is fit independently on each bag. Second, a
-\emph{circular-shift null}: within each bag the fitted state sequence is
-frozen and the connectivity and state biases are re-estimated many times on per-neuron
-time-scrambled spikes, producing a null distribution of edge weights that
-have been passed through exactly the same estimation machinery as the real
-weights. Third, \emph{per-row pooled significance with cross-bag stability
-selection}: edges are tested against a row-pooled null and retained only if
-they are selected reliably across bags. The procedure yields, for every
+The method combines three ideas. First, one ordinary PRISM-EM run is made on
+the requested time range to discover a reference hard Viterbi state sequence.
+Second, \emph{reference-labeled pair bagging}: every FDR bag draws the same
+fraction of lag pairs \((\hat S_t,Y_{t-1},Y_t)\) from that reference window
+and re-estimates only \(A\) and \(\mathbf B\) with the state labels locked.
+No bag performs a new E-step. Third, a \emph{per-neuron time-shuffle null}
+and \emph{per-source pooled significance with cross-bag stability selection}:
+inside each bag, independently time-scrambled neurons are refit by the same
+locked M-step, edges are tested against a source-column pooled null, and retained only
+if they recur reliably across bags. The procedure yields, for every
 surviving edge, a selection frequency, a bagged point estimate, a bootstrap
-SD, and a null-referenced effect size. We treat PRISM-EM as a
-black box exposed through two entry points and specify everything needed for
-an implementer who has the PRISM-EM code in hand.
+SD, and a null-referenced effect size. We treat PRISM-EM as a black box
+exposed through two entry points and specify everything needed for an
+implementer who has the PRISM-EM code in hand.
 \end{abstract}
 
 \tableofcontents
@@ -127,7 +127,7 @@ one-hot assignment, with no E-step and no Viterbi re-decoding), initial
 parameters \((A^{\text{init}},\hat{\mathbf B}^{\text{init}})\), and returns
 the re-estimated connectivity \(A\) and the refit state biases
 \(\mathbf B\). In the null workflow the initial \(A\) and \(\mathbf B\) are
-not copied from the real time-ordered fit. Instead, for every scramble they
+not copied from the real locked fit. Instead, for every scramble they
 are initialized freshly from the scrambled data, or randomly, according to
 \texttt{null\_A\_init} and \texttt{null\_B\_init}. Re-fitting
 \(\mathbf B\) in the scrambled context lets the null absorb state-specific
@@ -137,12 +137,12 @@ real edge pattern.
 
 \paragraph{Locked-state time indexing.} For each lag-1 training pair
 \((Y_{t-1},Y_t)\), the locked state used by the M-step is
-\(\hat S^{\text{lock}}_{t-1}\), i.e.\ the state attached to the input/history
-bin. Equivalently, if the spike pairs have length \(T-1\), the state
-covariate rows are formed from \(\hat S^{\text{lock}}_{0:T-2}\), converted
-to one-hot vectors. This convention is part of the model definition for
-lag-1 fitting and must be used identically for the real time-ordered fit and
-for every scrambled locked refit.
+\(\hat S^{\text{lock}}_{t}\), i.e.\ the state attached to the destination
+or current bin whose conditional rate is being modeled. Equivalently, if the
+spike pairs have length \(T-1\), the state covariate rows are formed from
+\(\hat S^{\text{lock}}_{1:T-1}\), converted to one-hot vectors. This
+convention is part of the FDR bagging definition and must be used
+identically for every real and scrambled locked refit.
 
 The locked M-step is configured to reproduce the real
 pipeline exactly: the same \(L_1\) strength \(\lambda_3\), the same spectral
@@ -160,8 +160,10 @@ two entry points live in \texttt{PrismEM\_Workhorse3c.py}:
 \texttt{run\_full\_fit} and \texttt{run\_locked\_mstep}. The locked M-step
 consumes externally supplied spike pairs, an externally supplied
 \(\hat S^{\text{lock}}\), and explicit initial \(A\) and \(\mathbf B\). Its
-lag-1 state alignment is \(\hat S^{\text{lock}}_{t-1}\) for pair
-\((Y_{t-1},Y_t)\), implemented by \texttt{onehot\_from\_prev\_states}.
+lag-1 state alignment for the new FDR bagging path must be
+\(\hat S^{\text{lock}}_{t}\) for pair \((Y_{t-1},Y_t)\). If existing helper
+names still refer to ``previous states'', their use must be audited while
+implementing this plan.
 
 % ===============================================================
 \section{Method Overview}
@@ -170,16 +172,31 @@ lag-1 state alignment is \(\hat S^{\text{lock}}_{t-1}\) for pair
 EM-FDR-Bagging has two stages, and the document is organized to match the
 intended software structure.
 
+\textbf{Reference EM fit} (performed before Stage~(a)). Run
+\texttt{prism\_EM\_train3c.py} once on the desired \texttt{--time\_range\_sec}.
+This discovers the reference state sequence
+\(\hat S^{\text{ref}}_{0:T_{\rm ref}-1}\)
+and writes a tagged reference fit, for example
+\texttt{prismFit/<dataName>\_jXXXX.prismEM.npz}. Its EM hyperparameters
+control state discovery; once the reference state labels are good enough, the
+final precision of \(A\) and \(\mathbf B\) is delegated to the locked bag
+fits.
+
 \textbf{Stage~(a), per-bag fitting} (Sections~\ref{sec:bagging}--\ref{sec:bagout}).
-For a single bag: assemble a resampled time series from spaced blocks, run
-\textsf{full\_fit} to obtain the real \((\hat A^{(b)},\hat S^{(b)})\), then run
-\(P\) scramble refits through \textsf{mstep\_locked} with the state sequence
-frozen, obtaining a set of null connectivity matrices. Write everything to
-disk. This stage is one self-contained program; it is run \(N_{\text{bag}}\)
-times, once per bag, as independent jobs.
+For a single bag: load the reference EM fit and original spikes, draw a
+fixed-size random subset of reference-labeled lag pairs
+\((\hat S^{\text{ref}}_t,Y_{t-1},Y_t)\), re-estimate only
+\((\hat A^{(b)},\hat{\mathbf B}^{(b)})\) by \textsf{mstep\_locked}, then run
+\(P\) independently time-scrambled locked-M-step null refits on the same
+selected pair indices. Write everything to disk. This stage is one
+self-contained program; it is run \(N_{\text{bag}}\) times, once per bag, as
+independent jobs. The bag trainer has its own locked-M-step training
+hyperparameters. Their defaults are read from the reference EM metadata for
+continuity, but they may be overridden on the Stage~(a) command line and the
+effective values are saved in every bag file.
 
 \textbf{Stage~(b), aggregation and pruning} (Section~\ref{sec:aggregate}).
-Read all per-bag outputs from a directory, build per-row pooled null
+Read all per-bag outputs from a directory, build per-source pooled null
 distributions, perform per-bag selection and cross-bag stability selection,
 and emit the final vetted edge list with uncertainties.
 
@@ -192,15 +209,14 @@ The symbols introduced for the wrapper, kept distinct from PRISM-EM's
 \toprule
 Symbol & Meaning & Nominal value \\
 \midrule
-\(N_{\text{blk}}\) & blocks per bag & \(10\) \\
-\(L_{\text{blk}}\) & block length (s) & \(60\) \\
-\(L_{\text{blk}}^{\text{bin}}\) & block length (bins) \(=L_{\text{blk}}/\Delta t\) & \(6000\) \\
-\(R_{\text{time}}\) & time range for block starts (s) & e.g.\ \([1000,1600]\) \\
+\(T_{\rm ref}\) & bins in the reference EM time window & from reference fit \\
+\(N_{\rm pair}\) & lag pairs in the reference window, \(T_{\rm ref}-1\) & from reference fit \\
+\(f_{\rm bag}\) & pair fraction per bag, \texttt{--bag\_frac} & \(0.8\) \\
+\(K_{\rm bag}\) & pairs sampled per bag, \(\lfloor f_{\rm bag}N_{\rm pair}\rfloor\) & from \texttt{--bag\_frac} \\
 \(N_{\text{bag}}\) & number of bags & \(5\)--\(10\) \\
 \(P\) & scrambles per bag & \(4\)--\(8\) \\
-\(\delta_{\text{blk}}^{\min}\) & min separation between block starts (s) & \(1\) \\
 \(\delta_{\text{roll}}^{\min}\) & roll exclusion-zone half-width (s) & \(2\) \\
-\(q\) & per-bag per-row selection quantile level & e.g.\ \(0.99\) \\
+\(q\) & per-bag per-source selection quantile level & e.g.\ \(0.99\) \\
 \(\pi_{\text{thr}}\) & cross-bag selection-frequency threshold & \(0.6\)--\(0.8\) \\
 \(M,N,T\) & states, neurons, bins (PRISM-EM) & \(\approx3\); \(50\)--\(500\); \(6\!\times\!10^4\)--\(3.6\!\times\!10^5\) \\
 \bottomrule
@@ -212,87 +228,67 @@ be adjusted.}
 \end{table}
 
 % ===============================================================
-\section{Stage (a.1): Block Bagging}
+\section{Stage (a.1): Reference-Labeled Pair Bagging}
 \label{sec:bagging}
 % ===============================================================
 
-A bag is a surrogate recording assembled by concatenating
-\(N_{\text{blk}}=10\) contiguous blocks, each of length
-\(L_{\text{blk}}=60\,\text{s}\) (i.e.\ \(L_{\text{blk}}^{\text{bin}}=6000\)
-bins at \(\Delta t=10\,\text{ms}\)), drawn from a designated time range
-\(R_{\text{time}}\) of the original recording. The reassembled bag has length
-\(N_{\text{blk}}\times L_{\text{blk}}^{\text{bin}}\) bins (here
-\(6\times10^4\) bins, i.e.\ \(10\) minutes), which is the sequence PRISM-EM
-fits.
+A reference EM fit is produced before any bag job is launched:
+\[
+\texttt{prism\_EM\_train3c.py}\quad
+\text{on}\quad \texttt{--time\_range\_sec}=[t_0,t_1].
+\]
+The reference output fixes the training window, the fitted soft state
+coefficients \(\hat c^{\text{ref}}\), and the hard Viterbi labels
+\(\hat S^{\text{ref}}_{0:T_{\rm ref}-1}\). The bag driver does not accept a
+new \texttt{--time\_range\_sec}; it inherits the reference fit's saved
+window and therefore uses the same source data for simulations and
+experiments.
 
-\paragraph{Block placement.} Block start positions are bin indices drawn
-from the time range. The range \(R_{\text{time}}\) is given in seconds and
-must leave room for a full block, so admissible starts (in bins) lie in
-\([\,R_{\text{time}}^{\text{start}}/\Delta t,\;
-R_{\text{time}}^{\text{end}}/\Delta t - L_{\text{blk}}^{\text{bin}}\,]\).
-Within that range a start may fall on essentially any bin, so the number of
-candidate starts is large (tens of thousands), and exact collisions between
-two chosen starts are vanishingly unlikely. The genuine hazard is not
-identical starts but \emph{near-identical, heavily overlapping} blocks: two
-starts one bin apart share all but one bin of content and would inject a
-near-duplicate stretch into the bag. We therefore impose a minimum
-separation \(\delta_{\text{blk}}^{\min}=1\,\text{s}\) (\(100\) bins) between
-any two chosen starts and sample by rejection: draw \(N_{\text{blk}}\)
-starts uniformly from the admissible range, reject and redraw any draw that
-violates the minimum-separation constraint, and try up to
-\texttt{max\_block\_draw\_trials}=30 times for each new block. If all 30
-attempts fail, accept the 31st draw regardless of the separation constraint
-and mark the violation in the job metadata. This bounded retry policy avoids
-silent infinite loops while still giving the ordinary case many chances to
-avoid near-duplicates.
+From the reference window we form a table of lag pairs
+\[
+X_t=Y_{t-1},\qquad Z_t=Y_t,\qquad H_t=\hat S^{\text{ref}}_t,
+\qquad t=1,\dots,T_{\rm ref}-1.
+\]
+Here \(X_t\) is the source/history spike vector, \(Z_t\) is the
+destination/current spike vector, and \(H_t\) is the destination-bin state
+label that controls the conditional rate for \(Z_t\). This table contains
+\(N_{\rm pair}=T_{\rm ref}-1\) rows.
 
-\paragraph{Reference chronological bag.} The special job
-\texttt{bag\_idx=0} is not randomly resampled. Its block starts follow the
-input-data timeline: block 0 begins at the start of \texttt{--time\_range\_sec},
-block 1 begins one block length later, and so on. This bag is used as the Stage~(b)
-reference for time-series fields, so state-assignment plots from the
-aggregate output remain aligned to the original simulation timeline when
-ground truth is available. All \texttt{bag\_idx>0} jobs use the random
-block-bootstrap sampler described above.
+For bag \(b\), draw an index set \(I_b\subset\{1,\dots,N_{\rm pair}\}\)
+without replacement, with
+\[
+|I_b|=K_{\rm bag}=\lfloor f_{\rm bag}N_{\rm pair}\rfloor,
+\qquad f_{\rm bag}=\texttt{--bag\_frac}.
+\]
+The same row index set is used for all neurons. This preserves the
+within-time synchrony between neurons in the real bag fit while giving every
+bag the same statistical precision. All bag indices are equivalent:
+\texttt{bag\_idx=0} is no longer chronological or special; it is simply the
+first random subset in the reproducible bag-indexed RNG stream.
 
-\paragraph{Blocks are non-circular.} Each block is a literal contiguous slice
-of the recording, clipped at the window end; no wrap-around is used in block
-extraction. Lag structure within a block is preserved exactly, so the first
-lag pair \((Y_0,Y_1)\) at a block boundary is the only mild discontinuity,
-and with \(L_{\text{blk}}^{\text{bin}}=6000\) bins per block the boundary
-fraction is negligible. By default these cross-block boundary pairs are
-included rather than masked, because the assembled bag is passed to
-\textsf{full\_fit} as an ordinary spike sequence and the number of such
-pairs is only \(N_{\text{blk}}-1\) out of \(T_b-1\). The realized block
-start offsets and the assembled-sequence boundary pair indices are stored
-in the per-bag job record so their influence can be audited, or a stricter
-masked-pair variant can be evaluated later.
-
-\paragraph{Why overlapping bags.} Bags are deliberately allowed to overlap
-in source time across the \(N_{\text{bag}}\) runs; this is a block bootstrap
-on a single finite recording. Overlap induces positive correlation between
-bags, which has consequences for the uncertainty estimates
-(Section~\ref{sec:errors}) and the stability bound
-(Section~\ref{sec:aggregate}); these are stated honestly where they bite.
-The overlap can be reduced --- and its impact studied --- by lengthening the
-total recording while holding \(N_{\text{blk}}\) small, which the parameter
-layout supports directly.
+This design deliberately drops the previous block-concatenation machinery.
+There are no block starts, no block boundaries, no minimum block-start
+separation, and no bag-specific E-step. The only perturbation defining a
+real bag is the random subset of already-labeled lag-pair rows.
 
 % ===============================================================
 \section{Stage (a.2): Real Fit and the Circular-Shift Null}
 \label{sec:null}
 % ===============================================================
 
-\subsection{Real fit on the bag}
+\subsection{Real locked M-step on the selected pairs}
 
-For bag \(b\), call entry point~1 on the assembled bag:
+For bag \(b\), run entry point~2 on the selected rows:
 \[
-(\hat A^{(b)},\ \hat S^{(b)}_{1:T_b},\ \hat{\mathbf B}^{(b)})
-=\textsf{full\_fit}(\text{bag}_b,\,M,\,\theta_{\text{EM}}),
-\qquad T_b=N_{\text{blk}}L_{\text{blk}}^{\text{bin}}.
+(\hat A^{(b)},\ \hat{\mathbf B}^{(b)})
+=\textsf{mstep\_locked}\!\big(
+X_{I_b},\ Z_{I_b},\ H_{I_b},\
+A^{\text{init},(b)},\ \mathbf B^{\text{init},(b)},\ \theta_{\text{M}}\big).
 \]
-This \(\hat A^{(b)}\) is the bag's real connectivity estimate; the frozen
-state sequence \(\hat S^{(b)}\) is reused unchanged for all scrambles below.
+This \(\hat A^{(b)}\) is the bag's real connectivity estimate. The state
+labels are the locked hard labels from the reference EM fit; there is no
+E-step, no Viterbi decoding, and no re-estimation of \(\hat c_t\) inside a
+bag.
 
 \subsection{The null: per-neuron independent circular shifts}
 
@@ -301,16 +297,19 @@ The null hypothesis for an edge is ``no directed lag-1 coupling from neuron
 We realize it by destroying cross-neuron temporal alignment while preserving
 each neuron's own marginal statistics and the state timeline. Concretely,
 for scramble \(p=1,\dots,P\) we draw an independent integer circular shift
-\(\delta_n^{(p)}\) for each neuron \(n\) and roll that neuron's spike train:
+\(\delta_n^{(b,p)}\) for each neuron \(n\) and roll that neuron's spike
+train over the full reference window:
 \[
-\tilde Y^{(p)}_{t,n} = Y_{(t-\delta_n^{(p)})\bmod T_b,\ n}.
+\tilde Y^{(b,p)}_{t,n}
+=Y_{(t-\delta_n^{(b,p)})\bmod T_{\rm ref},\ n}.
 \]
 Because every neuron is shifted by a different random amount, the precise
 lag-1 relationship that \(A\) captures is broken, while each neuron's firing
 rate, burstiness, and count distribution are untouched (a circular roll is a
-pure permutation of a neuron's own time axis). The state sequence
-\(\hat S^{(b)}\) is \emph{not} rolled: it is held fixed so that the null asks
-specifically about coupling, not about state structure.
+pure permutation of a neuron's own time axis). The locked reference state
+labels \(H_t=\hat S^{\text{ref}}_t\) are \emph{not} rolled: they are held
+fixed so that the null asks specifically about coupling, not about state
+structure.
 
 \paragraph{Two-sided exclusion zone on each shift.} A shift near \(0\) leaves
 the data almost unshifted and a shift near \(T_b\) wraps back to almost
@@ -318,9 +317,9 @@ unshifted; both leave the real lag structure largely intact and would
 contaminate the null toward the alternative. We therefore restrict each
 shift to
 \[
-\delta_n^{(p)}\in
+\delta_n^{(b,p)}\in
 \big[\,\delta_{\text{roll}}^{\min,\text{bin}},\ \
-T_b-\delta_{\text{roll}}^{\min,\text{bin}}\,\big],
+T_{\rm ref}-\delta_{\text{roll}}^{\min,\text{bin}}\,\big],
 \qquad
 \delta_{\text{roll}}^{\min,\text{bin}}=\delta_{\text{roll}}^{\min}/\Delta t,
 \]
@@ -334,8 +333,8 @@ each neuron's shift is individually non-trivial (the two-sided zone above)
 and that shifts are drawn independently across neurons; a coincidence in
 which two neurons happen to share the same shift is harmless to null
 validity. This matters in practice: with a \(10\)-minute bag and a
-\(2\,\text{s}\) separation there would be only \(\sim300\) ``slots,'' yet a
-bag may contain up to \(500\) neurons, so any attempt to enforce pairwise
+\(2\,\text{s}\) separation there would be only a finite number of effective
+``slots,'' and a bag may contain up to \(500\) neurons, so any attempt to enforce pairwise
 distinct shifts would be infeasible by pigeonhole. We deliberately avoid
 that requirement. The implemented draw routine simply samples independently
 from the allowed two-sided interval for each neuron.
@@ -346,26 +345,37 @@ For each scramble \(p\) we recompute connectivity with the state sequence
 frozen, via entry point~2:
 \[
 (A^{\text{null},(b,p)},\mathbf B^{\text{null},(b,p)})
-=\textsf{mstep\_locked}\!\big(\tilde Y^{(p)}_{\text{prev}},\ \tilde Y^{(p)}_{\text{curr}},\
-\hat S^{(b)},\ A^{\text{init},(b,p)},\
+=\textsf{mstep\_locked}\!\big(\tilde X^{(b,p)}_{I_b},\ \tilde Z^{(b,p)}_{I_b},\
+H_{I_b},\ A^{\text{init},(b,p)},\
 \mathbf B^{\text{init},(b,p)},\ \theta_{\text{M}}\big).
 \]
-The locked state attached to pair
-\((\tilde Y^{(p)}_{t-1},\tilde Y^{(p)}_t)\) is
-\(\hat S^{(b)}_{t-1}\). The state sequence itself remains the decoded
-sequence from the real, time-ordered bag fit; only the spike counts entering
-the null M-step are circularly shifted. The null initialization is fresh for
-each scramble: \(A^{\text{init},(b,p)}\) is either computed from the
+The scrambled pair arrays \(\tilde X^{(b,p)}_t=\tilde Y^{(b,p)}_{t-1}\) and
+\(\tilde Z^{(b,p)}_t=\tilde Y^{(b,p)}_t\) are formed from the rolled
+reference-window spikes, and the same selected row indices \(I_b\) are used
+as in the real fit. The locked state attached to pair
+\((\tilde Y^{(b,p)}_{t-1},\tilde Y^{(b,p)}_t)\) is
+\(H_t=\hat S^{\text{ref}}_t\). Only the spike counts entering the null
+M-step are circularly shifted. The null initialization is fresh for each
+scramble: \(A^{\text{init},(b,p)}\) is either computed from the
 scrambled spike train (\texttt{null\_A\_init=scrambled\_data}, the default) or drawn
 randomly (\texttt{null\_A\_init=rand}), and
 \(\mathbf B^{\text{init},(b,p)}\) is likewise initialized from scrambled
 data (\texttt{null\_B\_init=scrambled\_data}, the default) or randomly
-(\texttt{null\_B\_init=rand}). The real time-ordered
+(\texttt{null\_B\_init=rand}). The real locked
 \(\hat A^{(b)}\) is deliberately not used to seed the null refit.
-The configuration \(\theta_{\text{M}}\) matches the real pipeline exactly
-(Section~\ref{sec:ep2}): identical \(\lambda_3\), identical \(\rho_{\max}\),
-identical learning-rate decay, all active from the first epoch. This is the
-crux of the calibration: the real \(\hat A^{(b)}\) and the null
+
+The real locked fit defaults to data-driven initialization
+(\texttt{init\_A=data}, \texttt{init\_B=data}) rather than reference-fit
+initialization. This sacrifices some computational convenience, but it makes
+each bag start from its own sampled lag-pair evidence and therefore preserves
+more of the sampling variance that the FDR/stability procedure is designed
+to expose.
+
+The configuration \(\theta_{\text{M}}\) matches the real locked-M-step
+pipeline exactly (Section~\ref{sec:ep2}): identical \(\lambda_3\),
+identical \(\rho_{\max}\), identical learning-rate decay, all active from
+the first epoch. This is the crux of the calibration: the real
+\(\hat A^{(b)}\) and the null
 \(A^{\text{null},(b,p)}\) are both outputs of the \emph{same} regression,
 shrinkage, and spectral projection, applied to the same state timeline,
 differing only in whether cross-neuron alignment was destroyed and in the
@@ -378,21 +388,21 @@ quantity and invalidate the test.
 \subsection{How many scrambles are needed}
 \label{sec:howmanyscrambles}
 
-A useful efficiency follows from testing significance per row rather than
-per edge (Section~\ref{sec:aggregate}). For row \(i\) we pool the
-\((N-1)\) off-diagonal null weights of that row across all scrambles. A
-\emph{single} scramble therefore already contributes \(\sim(N-1)\) null
-samples to row \(i\)'s distribution --- of order \(199\) for \(N=200\). With
-a modest \(P=4\)--\(8\) the pooled per-row null holds
-\((N-1)\times P\approx800\)--\(1600\) samples, ample to resolve a \(1\%\)
-tail. By contrast a \emph{per-edge} null would need on the order of hundreds
-of scrambles just to populate a single edge's distribution, which is
-infeasible at this budget. The two regimes are not equivalent: the
+A useful efficiency follows from testing significance per source column
+rather than per edge (Section~\ref{sec:aggregate}). For source neuron \(j\)
+we pool the \((N-1)\) off-diagonal null weights of that column across all
+scrambles. A \emph{single} scramble therefore already contributes
+\(\sim(N-1)\) null samples to source \(j\)'s distribution --- of order
+\(199\) for \(N=200\). With a modest \(P=4\)--\(8\), the pooled per-source
+null holds \((N-1)\times P\approx800\)--\(1600\) samples, ample to resolve a
+\(1\%\) tail. By contrast a \emph{per-edge} null would need on the order of
+hundreds of scrambles just to populate a single edge's distribution, which
+is infeasible at this budget. The two regimes are not equivalent: the
 \((N-1)\) samples within one scramble are not independent (they share a
 single scrambled realization of the data), so increasing \(P\) still helps
 by adding genuinely independent null realizations and by averaging out
 scramble-to-scramble variability. The recommendation is to keep \(P\) small
-(\(4\)--\(8\)) but greater than one, precisely because per-row pooling
+(\(4\)--\(8\)) but greater than one, precisely because per-source pooling
 supplies the raw sample count while extra scrambles supply independence.
 
 % ===============================================================
@@ -405,52 +415,48 @@ with a name carrying the bag index so that \(N_{\text{bag}}\) parallel jobs
 do not collide. The file contains, at minimum: the real connectivity
 \(\hat A^{(b)}\in\mathbb{R}^{N\times N}\); the stack of null connectivities
 \(\{A^{\text{null},(b,p)}\}_{p=1}^{P}\) of shape \((P,N,N)\); the frozen
-state sequence \(\hat S^{(b)}\); the realized block start indices and the
-assembled-sequence boundary pair indices; any block-start constraint
-violations caused by exhausting \texttt{max\_block\_draw\_trials}; the
-realized per-neuron shifts (for reproducibility and for the data-reuse
-study); the stack of refit null biases
-\(\{\mathbf B^{\text{null},(b,p)}\}_{p=1}^{P}\) of shape \((P,M,N)\); the fitted
-off-diagonal sparsity of \(\hat A^{(b)}\) (number and
-fraction of surviving edges) as a sanity cross-check; and the PRISM-EM
-training-history summary (final objective, iteration count, whether each
-delayed schedule fired, final state occupancy). The assembled bag spike
-train itself is not saved, because the ordered block starts are sufficient
-to reconstruct it from the original input spikes if needed. Stage~(b)
-consumes only these files and never re-runs PRISM-EM.
+reference state labels used by the selected pairs; the selected pair indices
+\(I_b\); \texttt{bag\_frac}; the reference fit filename and reference
+time-range metadata; the realized per-neuron shifts (for reproducibility
+and for the data-reuse study); the stack of refit null biases
+\(\{\mathbf B^{\text{null},(b,p)}\}_{p=1}^{P}\) of shape \((P,M,N)\); the
+fitted off-diagonal sparsity of \(\hat A^{(b)}\) (number and fraction of
+surviving edges) as a sanity cross-check; and the locked-M-step history
+summary. Stage~(b) consumes only these files and never re-runs PRISM-EM.
 
 \paragraph{Per-bag program output naming.} One invocation of
 \texttt{prism\_EM\_FDR\_Bags\_train3c.py} produces one bag file containing
-the real time-ordered fit and all \(P\) scramble refits for that bag. The
-filename is deterministic and includes \texttt{dataName}, \texttt{bagsTag},
-and \texttt{bag\_idx}, for example
-\texttt{<dataName>\_<bagsTag>.bag003.prismFDRbag.npz}. The real fit fields are written
-in the same schema as the standalone \texttt{prism\_EM\_train3c.py} output,
-so the usual baseline fit evaluation can be run on the real part of a bag
-without a separate training job.
+the real locked-M-step fit and all \(P\) scramble refits for that bag. The
+filename is deterministic and includes \texttt{outFitName} and
+\texttt{bag\_idx}, for example
+\texttt{<outFitName>.bag003.prismFDRbag.npz}. The real fit fields are written
+in the same outer schema as the standalone \texttt{prism\_EM\_train3c.py}
+output where practical, so the usual plotting code can inspect the real
+part of a bag. Time-series fields used for plotting are copied from the
+reference EM fit or explicitly marked as reference-derived; they are not
+newly inferred in the bag job.
 
-\paragraph{Per-bag driver runtime controls.} The bag driver inherits the
-ordinary PRISM-EM training controls (\texttt{num\_states},
-\texttt{num\_em\_iters}, \texttt{m\_epochs}, learning rates,
-\(\lambda_2,\lambda_3,\rho_{\max}\), schedule delays, batch size, and
-initialization modes for the real fit). Its additional controls are:
-\texttt{bag\_idx}, \texttt{bagsTag}, \texttt{time\_range\_sec},
-\texttt{num\_blocks}, \texttt{block\_len\_sec},
-\texttt{min\_block\_start\_sep\_sec},
-\texttt{max\_block\_draw\_trials}, \texttt{num\_scrambles},
+\paragraph{Per-bag driver runtime controls.} The bag driver uses the locked
+M-step controls needed to estimate \(A\) and \(\mathbf B\)
+(\texttt{m\_epochs}, learning rates, \(\lambda_3,\rho_{\max}\), schedule
+controls as applicable, batch size, and initialization modes for the locked
+real fit). Its additional controls are: \texttt{bag\_idx},
+\texttt{outFitName}, \texttt{bag\_frac}, \texttt{num\_scrambles},
 \texttt{min\_roll\_shift\_sec}, \texttt{null\_A\_init}, and
-\texttt{null\_B\_init}. There is no separate \texttt{null\_m\_epochs}
-parameter: the locked null M-step always inherits the M-step epoch count and
-optimizer configuration from the real time-ordered fit, with pruning,
-spectral projection, and learning-rate decay active from the first locked
-epoch. There is also no option to save the assembled bag spike train; the
-ordered block starts are the reproducible representation of the bag.
+\texttt{null\_B\_init}. It does not accept
+\texttt{--time\_range\_sec}, \texttt{--num\_blocks},
+\texttt{--block\_len\_sec}, \texttt{--min\_block\_start\_sep\_sec}, or
+\texttt{--max\_block\_draw\_trials}. There is no separate
+\texttt{null\_m\_epochs} parameter: the locked null M-step inherits the
+M-step epoch count and optimizer configuration from the locked real fit,
+with pruning, spectral projection, and learning-rate decay active from the
+first locked epoch.
 
 \paragraph{Compute layout.} Each per-bag job is a single SLURM job on a
 single node using \(4\times\)A100, matching the existing PRISM-EM launch
 (\texttt{torchrun --standalone --nnodes=1 --nproc\_per\_node=4}). The
-\(P\) scramble refits reuse the same node and the frozen \(\hat S^{(b)}\),
-so they are cheap relative to the full fit. The \(N_{\text{bag}}\) jobs are
+\(P\) scramble refits reuse the same node and the frozen reference labels,
+so they are cheap relative to a full EM fit. The \(N_{\text{bag}}\) jobs are
 mutually independent and submitted in parallel.
 
 % ===============================================================
@@ -459,47 +465,45 @@ mutually independent and submitted in parallel.
 % ===============================================================
 
 Stage~(b) is a single postprocessing program pointed at the results
-directory. It performs per-row null pooling, per-bag selection, and
+directory. It performs per-source null pooling, per-bag selection, and
 cross-bag stability selection, then reports the vetted edge list with
 uncertainties.
 
-\subsection{Per-row pooled null and per-bag selection}
-\label{sec:perrow}
+\subsection{Per-source pooled null and per-bag selection}
+\label{sec:persource}
 
-We test significance \emph{per row}, exploiting the assumption that the
-incoming edges to a given target neuron \(i\) are exchangeable under the null:
-they share that target neuron's firing statistics, state occupancy, and
-observation scale. This is a much milder assumption than per-edge normality.
-The row convention is \(A_{ij}\) = effect of source neuron \(j\) on target
-neuron \(i\); therefore this row-pooled test calibrates the incoming weights
-to one target neuron. The separate biological interpretation of a source
-neuron as broadly excitatory or inhibitory is read down a column of retained
-edges, across the downstream targets it controls. The per-row exchangeability
+We test significance \emph{per source column}, exploiting the assumption that
+the outgoing edges from a given source neuron \(j\) are exchangeable under
+the null: they share that source neuron's spike statistics and shuffled
+history stream. This matches the source-column convention
+\(A_{ij}\) = effect of source neuron \(j\) on target neuron \(i\), and aligns
+the null threshold with source-neuron quantities such as firing rate, Dale
+type, outgoing edge count, and \texttt{Sedge}. The per-source exchangeability
 assumption is what makes the small scramble budget viable
 (Section~\ref{sec:howmanyscrambles}).
 
-For bag \(b\) and row \(i\), pool the off-diagonal null weights across all
+For bag \(b\) and source column \(j\), pool the off-diagonal null weights across all
 scrambles of that bag,
 \[
-\mathcal{N}^{(b)}_i
-=\big\{\,A^{\text{null},(b,p)}_{ij}\ :\ j\neq i,\ p=1,\dots,P\,\big\},
-\qquad |\mathcal{N}^{(b)}_i| = (N-1)\,P,
+\mathcal{N}^{(b)}_j
+=\big\{\,A^{\text{null},(b,p)}_{ij}\ :\ i\neq j,\ p=1,\dots,P\,\big\},
+\qquad |\mathcal{N}^{(b)}_j| = (N-1)\,P,
 \]
-and form a per-row threshold as the upper-\(q\) quantile of the magnitudes,
+and form a per-source threshold as the upper-\(q\) quantile of the magnitudes,
 \[
-\tau^{(b)}_i = \mathrm{Quantile}_{q}\!\big(\,\{|x| : x\in\mathcal{N}^{(b)}_i\}\,\big),
+\tau^{(b)}_j = \mathrm{Quantile}_{q}\!\big(\,\{|x| : x\in\mathcal{N}^{(b)}_j\}\,\big),
 \qquad q = 0.99 \ \text{(nominal)}.
 \]
 An edge is \emph{selected in bag \(b\)} if its real magnitude exceeds the
-row threshold,
+source threshold,
 \[
-\text{sel}^{(b)}_{ij} = \mathbb{1}\!\big[\,|\hat A^{(b)}_{ij}| > \tau^{(b)}_i\,\big],
+\text{sel}^{(b)}_{ij} = \mathbb{1}\!\big[\,|\hat A^{(b)}_{ij}| > \tau^{(b)}_j\,\big],
 \qquad i\neq j.
 \]
-Equivalently, each real edge can be converted to a within-row \(p\)-value
+Equivalently, each real edge can be converted to a within-source \(p\)-value
 against the pooled null and the Benjamini--Hochberg procedure applied within
-the row; the quantile-threshold form above is the operational default. The
-expected number of edges selected per bag and per row is recorded as a
+the source column; the quantile-threshold form above is the operational default. The
+expected number of edges selected per bag and per source is recorded as a
 diagnostic (it is the quantity \(q_\Lambda\) of the stability bound below);
 it is \emph{measured}, never prescribed, so the algorithm discovers how many
 edges it keeps rather than being told a target sparsity.
@@ -526,7 +530,7 @@ do not enter this final \texttt{A\_hat} value, although the all-bag mean is
 also saved as a diagnostic.
 
 \paragraph{Reported stability bound.} The implementation exposes the pair
-\((q,\ \pi_{\text{thr}})\): a per-bag per-row quantile level \(q\) and a
+\((q,\ \pi_{\text{thr}})\): a per-bag per-source quantile level \(q\) and a
 cross-bag frequency threshold \(\pi_{\text{thr}}\). It also reports the
 Meinshausen--B\"uhlmann-style stability-selection diagnostic
 \[
@@ -538,9 +542,11 @@ and \(p_{\text{cand}}=N(N-1)\) is the number of candidate off-diagonal edges.
 The current program does not derive \(\pi_{\text{thr}}\) from a target false-edge
 count; the user sets \texttt{--per\_bag\_quantile} and \texttt{--sel\_prob}
 directly, and the bound is saved as a diagnostic. The honest caveat is that
-the bound assumes independent exchangeable bags, whereas overlapping-block
-bags are positively correlated, so the reported value should be read as an
-approximate stability diagnostic rather than as a guaranteed FDR.
+the bound assumes independent exchangeable bags, whereas all bags are random
+subsets from the same finite reference-labeled pair table and can overlap in
+selected rows. They are therefore positively correlated, so the reported
+value should be read as an approximate stability diagnostic rather than as a
+guaranteed FDR.
 
 % ===============================================================
 \section{Per-Edge Uncertainty: Two Distinct Errors}
@@ -575,9 +581,9 @@ a per-edge signal-to-noise ratio against the scramble null, where
 The quantity one usually means by ``the statistical error of an edge'' is the
 sampling variability of its fitted weight, and bagging estimates it directly.
 Each bag yields a real fitted weight \(\hat A^{(b)}_{ij}\) on a different
-resampled stretch of data; their spread across bags is a block-bootstrap
-estimate of the estimator's sampling distribution. We report the bagged mean
-and bootstrap SD,
+random subset of the reference-labeled lag pairs; their spread across bags
+is a pair-subsampling estimate of the estimator's sampling distribution. We
+report the bagged mean and bootstrap SD,
 \[
 \bar A_{ij}=\frac{1}{B_{ij}}\sum_{b\in\mathcal{B}_{ij}}\hat A^{(b)}_{ij},
 \qquad
@@ -601,18 +607,18 @@ recommend reporting the selection-conditional mean and bootstrap SD
 rather than hidden: \(\pi_{ij}\) and \(\bar A_{ij}\) together convey both how
 often and how strongly an edge appears.
 
-\paragraph{Honest caveat on calibration.} The bags are overlapping
-block-bootstrap samples from one finite recording, not independent datasets.
-Overlap makes bags more alike than independent draws, so the naive across-bag
-SD \emph{underestimates} the true sampling error; with only
+\paragraph{Honest caveat on calibration.} The bags are overlapping random
+subsets from one finite reference window, not independent datasets. Shared
+reference state labels and repeated use of many of the same lag pairs make
+bags more alike than independent draws, so the naive across-bag SD can
+\emph{underestimate} the true sampling error; with only
 \(N_{\text{bag}}=5\)--\(10\) bags it is additionally coarse (few degrees of
 freedom). Accordingly \(\widehat{\mathrm{SD}}_{ij}\) should be used as a
 \emph{relative} reliability measure --- excellent for ranking edges and for
 flagging unstable ones --- rather than as a calibrated frequentist standard
 error supporting a strict confidence interval. The degree of underestimation
-can be probed empirically by lengthening the recording and shrinking the
-block overlap (Section~\ref{sec:bagging}), which is a deliberate affordance
-of the design.
+can be probed empirically by changing \texttt{--bag\_frac} and the number of
+bags.
 
 \subsection{Reported per-edge record}
 
@@ -621,8 +627,8 @@ For every edge that passes stability selection
 \[
 \big(\,i,\ j,\ \pi_{ij},\ \bar A_{ij},\ \widehat{\mathrm{SD}}_{ij},\ z_{ij}\,\big),
 \]
-together with the all-bag mean for comparison and the row null summary
-\((m^{\text{null}}_i,s^{\text{null}}_i)\). The selection frequency
+together with the all-bag mean for comparison and the source null summary
+\((m^{\text{null}}_j,s^{\text{null}}_j)\). The selection frequency
 \(\pi_{ij}\), the bagged point estimate, the bootstrap SD, and the
 null-referenced effect size are complementary: an edge that is frequently
 selected, large relative to its bootstrap SD, and far into the null tail is
@@ -647,31 +653,35 @@ This program is run once per bag, normally as one multi-GPU job:
 \texttt{torchrun --standalone --nnodes=1 --nproc\_per\_node=4
 ./prism\_EM\_FDR\_Bags\_train3c.py ...}
 \]
-It assembles one block-resampled bag, performs the real time-ordered
-PRISM-EM fit on that bag, runs the requested circular-shift locked-M-step
-null refits, and writes one self-contained bag file.
+It loads the reference EM output from \texttt{prismFit}, loads the original
+spikes from \texttt{spikesData}, samples a fixed-size subset of
+reference-labeled lag pairs, performs one real locked-M-step fit on that
+subset, runs the requested circular-shift locked-M-step null refits, and
+writes one self-contained bag file.
 
 \paragraph{Input and output naming.}
 The input spike file is
 \[
 \texttt{<basePath>/spikesData/<dataName>.spikes.npz}.
 \]
+The reference EM fit is
+\[
+\texttt{<basePath>/prismFit/<emFitName>.prismEM.npz}.
+\]
 The output directory is \texttt{fdr\_out\_dir} if supplied, otherwise
 \[
 \texttt{<basePath>/prismFDR}.
 \]
-The output file is deterministic in \texttt{dataName}, \texttt{bagsTag}, and
-\texttt{bag\_idx}:
+The output file is deterministic in \texttt{outFitName} and \texttt{bag\_idx}:
 \[
-\texttt{<basePath>/prismFDR/<dataName>\_<bagsTag>.bag003.prismFDRbag.npz}
+\texttt{<basePath>/prismFDR/<outFitName>.bag003.prismFDRbag.npz}
 \]
 for \(\texttt{bag\_idx}=3\) and default output directory. The bag index is
 not only a label: it also enters the random seed stream, so rerunning the
 same command with the same \texttt{bag\_idx} reproduces the same bag and
 scramble shifts, while changing only \texttt{bag\_idx} produces a different
-bag file. The one exception is \texttt{bag\_idx=0}: its block starts are
-chronological by construction, while its scramble shifts still use the
-bag-indexed random seed.
+bag file. There is no special chronological bag; \texttt{bag\_idx=0} is the
+first random pair subset.
 
 A single Stage~(a) bag can be evaluated directly by passing the bag stem to
 \texttt{prism\_EM\_eval3c.py}; if \texttt{dataName} contains a
@@ -686,35 +696,25 @@ under \texttt{prismFit}.
   the plain PRISM-EM trainer.
   \item[\texttt{--dataName}] Short dataset name. The program reads
   \texttt{<dataName>.spikes.npz} from \texttt{spikesData/}.
-  \item[\texttt{--num\_states}] Number \(M\) of latent states in the
-  switching Poisson GLM.
+  \item[\texttt{--emFitName}] EM-train input fit stem in \texttt{prismFit/}.
+  This file supplies the hard Viterbi state labels used by the locked
+  M-step.
+  \item[\texttt{--outFitName}] Stage~(a) output stem in \texttt{prismFDR/}.
+  The program writes
+  \texttt{<outFitName>.bag<bag\_idx>.prismFDRbag.npz}. If omitted, the
+  output stem defaults to \texttt{<emFitName>\_<hash4>} with a random
+  four-character hexadecimal suffix.
   \item[\texttt{--bag\_idx}] Integer bag index. It is used in the output
-  filename and in the per-bag RNG seed. For \texttt{bag\_idx=0}, the bag
-  blocks are chronological, starting at the time-range start and advancing
-  by one block length per block; other bag indices draw random block starts.
-  \item[\texttt{--time\_range\_sec START END}] Time range, in
-  seconds, from which block starts are drawn.
+  filename and in the per-bag RNG seed. All bag indices, including
+  \texttt{bag\_idx=0}, draw random pair subsets.
 \end{description}
 
 \paragraph{Bagging and scramble arguments.}
 \begin{description}
   \item[\texttt{--fdr\_out\_dir}] Optional output directory for Stage~(a)
   bag files. Default: \texttt{<basePath>/prismFDR}.
-  \item[\texttt{--bagsTag TAG}] Optional alphanumeric tag appended after
-  \texttt{dataName} in Stage~(a) output names. If omitted or set to
-  \texttt{None}, the program derives a deterministic four-character
-  alphanumeric tag from the shared bagging/training configuration, excluding
-  \texttt{bag\_idx}.
-  \item[\texttt{--num\_blocks}] Number of contiguous blocks concatenated
-  into one bag. Default: \(10\).
-  \item[\texttt{--block\_len\_sec}] Length of each contiguous block in
-  seconds. Default: \(60\).
-  \item[\texttt{--min\_block\_start\_sep\_sec}] Desired minimum separation
-  between block starts. Default: \(1\) second.
-  \item[\texttt{--max\_block\_draw\_trials}] Number of rejection-sampling
-  attempts used to satisfy the block-start separation constraint. If no
-  candidate passes after this many attempts, the next draw is accepted and
-  the violation is recorded in the output. Default: \(30\).
+  \item[\texttt{--bag\_frac}] Fraction \(f_{\rm bag}\) of reference-window
+  lag pairs selected without replacement for each bag. Default: \(0.8\).
   \item[\texttt{--num\_scrambles}] Number \(P\) of circular-shift null
   refits saved in this bag file. Default: \(4\).
   \item[\texttt{--min\_roll\_shift\_sec}] Two-sided exclusion zone around
@@ -723,29 +723,27 @@ under \texttt{prismFit}.
   to a full wrap. Default: \(2\) seconds.
   \item[\texttt{--null\_A\_init}] Fresh \(A\) initialization mode for every
   null refit. Values: \texttt{scrambled\_data} (default) or \texttt{rand}.
-  The real-time \(\hat A\) is deliberately not used to seed the null.
+  The real locked-fit \(\hat A\) is deliberately not used to seed the null.
   \item[\texttt{--null\_B\_init}] Fresh \(\mathbf B\) initialization mode for
   every null refit. Values: \texttt{scrambled\_data} (default) or
   \texttt{rand}. The null \(\mathbf B\) is refit and saved as
   \texttt{B\_null}.
 \end{description}
 
-\paragraph{Inherited EM and M-step arguments.}
-The Stage~(a) driver shares the ordinary PRISM-EM workhorse with
-\texttt{prism\_EM\_train3c.py}.
+\paragraph{Inherited locked-M-step arguments.}
+The Stage~(a) driver shares the M-step machinery with
+\texttt{prism\_EM\_train3c.py}, but it does not run a bag-specific E-step.
+The default values are loaded from the reference EM metadata so a bag job is
+reproducible from the reference fit alone. Any argument listed here may be
+redefined on the \texttt{prism\_FDR\_Bags\_train3c.py} command line; the
+resolved values are saved in the bag metadata and used identically for the
+real locked fit and all null locked fits in that bag. This lets the
+reference EM run be tuned for state assignment while the bag jobs are tuned
+for conditional \(A,\mathbf B\) estimation.
 \begin{description}
-  \item[\texttt{--num\_em\_iters}] Number of outer EM iterations for the real
-  time-ordered bag fit. Default: \(20\).
-  \item[\texttt{--m\_epochs}] M-step Adam epochs per EM iteration. Default:
-  \(2\). The null locked M-step uses the total count
-  \(\texttt{num\_em\_iters}\times\texttt{m\_epochs}\); there is no separate
+  \item[\texttt{--m\_epochs}] M-step Adam epochs for each locked fit. The
+  null locked M-step uses the same count; there is no separate
   \texttt{null\_m\_epochs}.
-  \item[\texttt{--pgd\_iter}] PGD iterations per time bin in the E-step.
-  Default: \(5\).
-  \item[\texttt{--lr\_estep}] PGD learning rate in the E-step. Default:
-  \(0.03\).
-  \item[\texttt{--lambda2}] Temporal smoothness weight for the state
-  probabilities. Default: \(2.0\).
   \item[\texttt{--lr\_mstep}] Adam learning rate for the M-step. Default:
   \(0.003\).
   \item[\texttt{--lr\_end\_factor}] Final learning-rate multiplier after
@@ -756,83 +754,97 @@ The Stage~(a) driver shares the ordinary PRISM-EM workhorse with
   \(A\). Default: \(0.95\).
   \item[\texttt{--prescale\_m\_step\_4\_ArhoMax}] M-step batch interval for
   spectral-radius projection checks. Default: \(120\).
-  \item[\texttt{--delay\_em\_iter\_4\_ArhoMax}] First real-fit EM iteration
-  after which \(\rho_{\max}\) correction is active. Default: \(3\).
-  \item[\texttt{--delay\_em\_iter\_4\_lrDecay}] First real-fit EM iteration
-  after which learning-rate decay advances. Default: \(1\).
-  \item[\texttt{--delay\_em\_iter\_4\_Aprune}] First real-fit EM iteration
-  after which L1 proximal pruning is active. Default: \(1\).
+  \item[\texttt{--delay\_em\_iter\_4\_ArhoMax},
+  \texttt{--delay\_em\_iter\_4\_lrDecay},
+  \texttt{--delay\_em\_iter\_4\_Aprune}] Accepted by the shared M-step
+  configuration. For locked FDR refits, schedule-gated operations are active
+  from the first locked epoch unless the implementation explicitly maps
+  these controls to locked-epoch delays.
   \item[\texttt{--batch\_size}] M-step minibatch size. Default: \(2048\).
-  \item[\texttt{--init\_states}] Initial latent-state mode for the real fit:
-  \texttt{data} (default) or \texttt{rand}.
-  \item[\texttt{--init\_A}] Initial \(A\) mode for the real fit:
-  \texttt{data} (default) or \texttt{rand}.
-  \item[\texttt{--init\_B}] Initial \(\mathbf B\) mode for the real fit:
-  \texttt{data} (default) or \texttt{rand}.
+  \item[\texttt{--init\_A}] Initial \(A\) mode for the locked real fit:
+  \texttt{data} (default), \texttt{ref}, or \texttt{rand}.
+  \item[\texttt{--init\_B}] Initial \(\mathbf B\) mode for the locked real fit:
+  \texttt{data} (default), \texttt{ref}, or \texttt{rand}.
+  The default \texttt{data} mode is chosen to capture bag-to-bag sampling
+  variance in the FDR procedure. Initializing every real bag from the same
+  reference EM \(\hat A,\hat{\mathbf B}\) is faster and stable, but it can
+  make bags overly correlated with the reference solution and understate the
+  variability that the stability filter is meant to measure.
   \item[\texttt{--init\_A\_Tmax}] Maximum number of bins used for
   data-driven \(A\) initialization. Default: \(50000\).
-  \item[\texttt{--decode\_dwell\_sec}] Dwell-time prior used in Viterbi
-  decoding. Default: \(0.3\) seconds.
   \item[\texttt{--seed}] Base random seed. Default: \(42\); the effective
   seed is offset by \texttt{bag\_idx}.
-  \item[\texttt{--fitName}] Accepted by the shared parser for ordinary EM
-  compatibility, but Stage~(a) output naming is determined by
-  \texttt{dataName} and \texttt{bag\_idx}.
   \item[\texttt{--verb}] Verbosity level. With the default verbosity, rank
   \(0\) reports runtime device information, real-fit elapsed time, and
   elapsed time for each scramble refit.
 \end{description}
 
+The bag trainer does not expose state-discovery controls such as
+\texttt{--num\_em\_iters}, \texttt{--pgd\_iter}, \texttt{--lr\_estep},
+\texttt{--lambda2}, \texttt{--init\_states}, \texttt{--decode\_dwell\_sec},
+or \texttt{--num\_states}. These belong to the reference
+\texttt{prism\_EM\_train3c.py} run. In particular, \texttt{--num\_states}
+is inferred from the locked reference labels.
+
 \paragraph{Saved Stage (a) contents.}
-The file has the normal real-fit fields (\texttt{A\_hat}, \texttt{B\_hat},
-\texttt{S\_hat}, \texttt{c\_hat}, training histories, etc.) plus
-\texttt{A\_null}, \texttt{B\_null}, \texttt{roll\_shifts\_bin},
-\texttt{block\_start\_bins}, \texttt{block\_start\_sec},
-\texttt{boundary\_pair\_indices}, \texttt{block\_retry\_violations}, and
-locked null M-step histories. The assembled bag spike train is not saved.
+The file has the real locked-fit fields (\texttt{A\_hat}, \texttt{B\_hat})
+plus reference-derived time-series fields needed for plotting
+(\texttt{S\_hat}, \texttt{c\_hat}, and confidence/loss summaries when saved
+upstream). It also contains \texttt{A\_null}, \texttt{B\_null},
+\texttt{roll\_shifts\_bin}, \texttt{bag\_pair\_indices},
+\texttt{bag\_frac}, reference fit provenance, and locked M-step histories.
 Stage~(a) metadata are grouped under \texttt{bagsFDR\_stageA}. This includes
-the bag assembly controls, the circular-shift null-refit controls and
-per-scramble initialization diagnostics, and a \texttt{real\_fit} sub-dict
-holding the usual PRISM-EM \texttt{train}, \texttt{init\_A},
-\texttt{init\_B}, \texttt{init\_state}, and \texttt{states\_recovery\_eval}
-metadata for the real time-ordered fit on that bag.
+the pair-sampling controls, the circular-shift null-refit controls,
+per-scramble initialization diagnostics, and a reference-fit sub-dict
+recording the \texttt{prismFit} file and time range used to make the locked
+state labels. It also includes the effective locked-M-step hyperparameters
+after applying command-line overrides to the metadata defaults.
 
 \paragraph{\texttt{big\_fit\_bags.sh} launch pattern.}
-The helper script \texttt{big\_fit\_bags.sh} is a concrete multi-bag launch
+The helper script \texttt{big\_fit\_bags.sh} is a concrete end-to-end launch
 example for one dataset. It sets
 \[
 \texttt{basePath=/pscratch/sd/b/balewski/2026\_causalNet\_exp\_ver3c}
 \]
 and a short input spike name such as
-\texttt{daleN100\_2ba29b\_c47b43}. It then defines
+\texttt{daleN200\_102308\_a5d24b}. The script derives
 \[
-\texttt{bagTag="j\$\{SLURM\_JOB\_ID: -4\}"},
+\texttt{bagTag=jXXXX,\qquad emFitName=<shortN>\_em<bagTag>}
 \]
-so all bags launched inside one SLURM job share the same Stage~(a) extended
+from the SLURM job id, or uses \texttt{local} outside SLURM. It first runs
+\texttt{prism\_EM\_train3c.py} on the configured \texttt{timeRange} and
+writes
+\[
+\texttt{<basePath>/prismFit/<emFitName>.prismEM.npz}.
+\]
+Then all bags launched inside the same script use the same Stage~(a) extended
 name
 \[
-\texttt{<shortN>\_<bagTag>}.
+\texttt{<shortN>\_em<bagTag>\_rmf<bagTag>}.
 \]
 For each requested bag index, the script runs
 \texttt{torchrun --standalone --nnodes=1 --nproc\_per\_node=4} on
-\texttt{prism\_EM\_FDR\_Bags\_train3c.py}. With the current loop
-\texttt{for bag in 3 4 5}, the expected output files are
+\texttt{prism\_FDR\_Bags\_train3c.py} with
+\texttt{--dataName <shortN>}, \texttt{--emFitName <emFitName>}, and
+\texttt{--outFitName <shortN>\_em<bagTag>\_rmf<bagTag>}. With
+\texttt{numBags=6}, the expected Stage~(a) output files are
 \begin{verbatim}
-<basePath>/prismFDR/<shortN>_<bagTag>.bag003.prismFDRbag.npz
-<basePath>/prismFDR/<shortN>_<bagTag>.bag004.prismFDRbag.npz
-<basePath>/prismFDR/<shortN>_<bagTag>.bag005.prismFDRbag.npz
+<basePath>/prismFDR/<shortN>_em<bagTag>_rmf<bagTag>.bag000.prismFDRbag.npz
+<basePath>/prismFDR/<shortN>_em<bagTag>_rmf<bagTag>.bag001.prismFDRbag.npz
+...
+<basePath>/prismFDR/<shortN>_em<bagTag>_rmf<bagTag>.bag005.prismFDRbag.npz
 \end{verbatim}
-If the commented loop \texttt{for bag in 0 1 2} is used instead, the files
-are \texttt{bag000}, \texttt{bag001}, and \texttt{bag002}; \texttt{bag000}
-is the chronological reference bag. To aggregate the full set, Stage~(b)
-must be called with \texttt{--dataName <shortN>\_<bagTag>} and
+These are all equivalent random locked-M-step bags; \texttt{bag000} is not a
+chronological reference. If aggregation is enabled, Stage~(b) is called with
+\texttt{--dataName <shortN>\_em<bagTag>\_rmf<bagTag>}, \texttt{--outAgrName}
+\texttt{<shortN>\_em<bagTag>\_rmf<bagTag>\_agr<bagTag>}, and
 \texttt{--num\_bags} equal to the number of contiguous bags starting from
 \texttt{bag000} that are present on disk.
 
 \subsection{\texttt{prism\_EM\_FDR\_Bags\_agregate3c.py}: Stage (b)}
 
 This program is a single CPU postprocessing step. It reads the Stage~(a)
-files, performs the per-row null thresholding and cross-bag stability
+files, performs the per-source null thresholding and cross-bag stability
 selection, and writes one aggregate file in the same outer format expected
 by \texttt{prism\_EM\_eval3c.py}. The filename contains
 \texttt{agregate} with one ``g'' because that is the implemented script
@@ -850,26 +862,28 @@ For \texttt{num\_bags} \(=B\), the program expects the contiguous file set
 ...
 <dataName>.bag{num_bags-1, zero padded}.prismFDRbag.npz
 \end{verbatim}
-Here \texttt{dataName} is the extended Stage~(a) name, i.e.\
-\texttt{<originalDataName>\_<bagsTag>}.
-The output stem is
+Here \texttt{dataName} is the Stage~(a) output stem, i.e. the same value
+passed as \texttt{--outFitName} to \texttt{prism\_FDR\_Bags\_train3c.py}.
+The output stem is set explicitly by
+\texttt{--outAgrName}; this makes it easy to rerun only the aggregation with
+different thresholds while preserving the same input bag stem.
+If \texttt{--outAgrName} is omitted, the output stem defaults to
+\texttt{<dataName>\_<hash4>} with a random four-character hexadecimal suffix.
+The output file is written to
 \[
-\texttt{<dataName>\_bags<num\_bags>},
+\texttt{<basePath>/prismFit/<outAgrName>.prismEM.npz}.
 \]
-and the output file is written to
+For example, with
+\texttt{dataName=daleN100\_2ba29b\_c47b43\_emj1234\_rmfj1234}, one possible
+output stem is
 \[
-\texttt{<basePath>/prismFit/<dataName>\_bags<num\_bags>.prismEM.npz}.
-\]
-For example, with \texttt{dataName=daleN100\_2ba29b\_c47b43} and
-\texttt{num\_bags=5}, the output stem is
-\[
-\texttt{daleN100\_2ba29b\_c47b43\_bags5}.
+\texttt{daleN100\_2ba29b\_c47b43\_emj1234\_rmfj1234\_agrA}.
 \]
 It can then be opened by
 \begin{verbatim}
 ./prism_EM_eval3c.py \
   --basePath <basePath> \
-  --dataName <dataName>_bags5 \
+  --dataName <outAgrName> \
   -p a e f g
 \end{verbatim}
 
@@ -879,14 +893,19 @@ It can then be opened by
   \texttt{<basePath>/prismFDR}; the aggregate output is written to
   \texttt{<basePath>/prismFit}.
   \item[\texttt{--dataName}] Extended Stage~(a) output data name, normally
-  \texttt{<originalDataName>\_<bagsTag>}. This exact string is the prefix of
+  the Stage~(a) output stem. This exact string is the prefix of
   all bag files consumed by Stage~(b), e.g.\
   \texttt{<dataName>.bag000.prismFDRbag.npz}.
+  \item[\texttt{--outAgrName}] Aggregate output stem written to
+  \texttt{prismFit/<outAgrName>.prismEM.npz}. This is intentionally separate
+  from \texttt{--dataName} so repeated aggregation choices can create
+  differently named outputs from the same bag files. If omitted, the program
+  appends a random \texttt{\_<hash4>} suffix to \texttt{dataName}.
   \item[\texttt{--num\_bags}] Number of Stage~(a) bag files to read. The
   implementation expects bags numbered contiguously from \texttt{bag000}.
-  \item[\texttt{--per\_bag\_quantile}] Quantile \(q\) used for the per-row
-  null magnitude threshold \(\tau^{(b)}_i\). Default: \(0.99\).
-  \item[\texttt{--sel\_prob}] Cross-bag selection-frequency threshold
+  \item[\texttt{--per\_bag\_quantile}] Quantile \(q\) used for the per-source
+  null magnitude threshold \(\tau^{(b)}_j\). Default: \(0.99\).
+  \item[\texttt{--stab\_sel\_thresh}] Cross-bag stability selection-frequency threshold
   \(\pi_{\text{thr}}\). Default: \(0.7\).
   \item[\texttt{--fdr\_out\_dir}] Optional override for the Stage~(a) bag
   directory. Default: \texttt{<basePath>/prismFDR}.
@@ -896,8 +915,8 @@ It can then be opened by
 \paragraph{Aggregate output schema.}
 The output \texttt{A\_hat} is the final stable matrix: off-diagonal entries
 are the selection-conditional bagged means for edges with
-\(\pi_{ij}\ge\texttt{sel\_prob}\), and zero otherwise. With the default
-\texttt{--sel\_prob 0.7}, this means retaining only edges present in at least
+\(\pi_{ij}\ge\texttt{stab\_sel\_thresh}\), and zero otherwise. With the default
+\texttt{--stab\_sel\_thresh 0.7}, this means retaining only edges present in at least
 \(70\%\) of bags; the retained edge value is the unweighted mean over only
 those bag instances where the edge was selected. Diagonal entries are
 the all-bag mean diagonals. \texttt{A\_prune}, \texttt{neuron\_type}, and
@@ -906,89 +925,101 @@ using the same source-column Dale convention as the ordinary EM output:
 \texttt{neuron\_Sedge} is the off-diagonal column sum for each source
 neuron, \texttt{neuron\_type} is inferred from that source-column sum, and
 \texttt{A\_prune} keeps signs by source columns.
-The output \texttt{B\_hat} is the mean across bags after aligning state rows
-to bag~0 by the fitted \(\mathbf B\) vectors. The time-series fields
+The output \texttt{B\_hat} is the mean across bags in the reference state
+order. Because every bag uses the hard labels from the same reference EM fit,
+state rows are already aligned; no bag-to-bag state permutation is needed
+other than an optional sanity check. The time-series fields
 \texttt{S\_hat}, \texttt{c\_hat}, \texttt{S\_hat\_CL}, and the EM histories
-are copied from reference bag~0 to preserve compatibility with the existing
-plotting code; those plots should therefore be interpreted as reference-bag
-diagnostics, while the connectivity fields are Stage~(b) aggregates.
-Because \texttt{bag000} is chronological, these copied state assignments
-are aligned to the original input timeline for simulation truth comparisons.
-Stage~(b) metadata are grouped under \texttt{bagsFDR\_stageB}; Stage~(a)
-metadata copied from reference bag~0 remain under \texttt{bagsFDR\_stageA}.
+are copied from the reference EM output to preserve compatibility with the
+existing plotting code; those plots should therefore be interpreted as
+reference-fit diagnostics, while the connectivity fields are Stage~(b)
+aggregates. Stage~(b) metadata are grouped under
+\texttt{bagsFDR\_stageB}; reference provenance and sampled-pair metadata
+from Stage~(a) remain under \texttt{bagsFDR\_stageA}.
 
 Additional Stage~(b) arrays include \texttt{A\_bag},
-\texttt{B\_bag\_aligned}, \texttt{state\_permutation\_to\_ref},
+\texttt{B\_bag},
 \texttt{selected\_mask}, \texttt{selected\_in\_bag},
 \texttt{selection\_count}, \texttt{selection\_frequency},
 \texttt{A\_mean\_selected}, \texttt{A\_sd\_selected},
-\texttt{A\_mean\_all}, \texttt{A\_sd\_all}, \texttt{row\_null\_tau\_bag},
-\texttt{row\_null\_tau\_mean}, \texttt{row\_null\_mean},
-\texttt{row\_null\_sd}, \texttt{z\_null}, and a compact selected-edge table
+\texttt{A\_mean\_all}, \texttt{A\_sd\_all}, \texttt{src\_null\_tau\_bag},
+\texttt{src\_null\_tau\_mean}, \texttt{src\_null\_mean},
+\texttt{src\_null\_sd}, \texttt{z\_null}, and a compact selected-edge table
 with \texttt{edge\_i}, \texttt{edge\_j}, \texttt{edge\_sel\_freq},
 \texttt{edge\_A\_mean}, \texttt{edge\_A\_sd\_boot}, and
-\texttt{edge\_z\_null}.
+\texttt{edge\_z\_null}, plus \texttt{edge\_src\_null\_mean},
+\texttt{edge\_src\_null\_sd}, and \texttt{edge\_src\_tau\_mean}.
 
 % ===============================================================
 \section{End-to-End Summary}
 % ===============================================================
 
+\paragraph{Reference EM fit, run once.}
+\begin{enumerate}
+  \item Run \texttt{prism\_EM\_train3c.py} on the desired
+  \texttt{--time\_range\_sec}; save
+  \texttt{prismFit/<emFitName>.prismEM.npz}, for example
+  \texttt{prismFit/<dataName>\_emjXXXX.prismEM.npz}.
+  \item Use its saved reference window, \(\hat S^{\text{ref}}\), and
+  \(\hat c^{\text{ref}}\) as the only state timeline for all FDR bags.
+\end{enumerate}
+
 \paragraph{Stage (a), run \(N_{\text{bag}}\) times in parallel (one node,
 \(4\times\)A100 each).}
 \begin{enumerate}
-  \item Assemble bag \(b\): draw \(N_{\text{blk}}=10\) block starts in the
-  time range \(R_{\text{time}}\), enforce
-  \(\delta_{\text{blk}}^{\min}=1\,\text{s}\) separation by rejection sampling
-  (up to \texttt{max\_block\_draw\_trials}=30 attempts per new block, then
-  accept the next draw and record any violation), extract non-circular blocks
-  of \(L_{\text{blk}}=60\,\text{s}\), concatenate, and record the block
-  offsets and boundary pair indices.
-  \item \(\textsf{full\_fit}\to(\hat A^{(b)},\hat S^{(b)},\hat{\mathbf B}^{(b)})\).
+  \item Load \texttt{prismFit/<emFitName>.prismEM.npz} and
+  \texttt{spikesData/<dataName>.spikes.npz}; form the reference-labeled
+  pair table \((H_t,X_t,Z_t)=(\hat S^{\text{ref}}_t,Y_{t-1},Y_t)\).
+  \item Draw \(K_{\rm bag}=\lfloor\texttt{bag\_frac}(T_{\rm ref}-1)\rfloor\)
+  pair indices without replacement, using the same selected rows for all
+  neurons.
+  \item Run
+  \(\textsf{mstep\_locked}\to(\hat A^{(b)},\hat{\mathbf B}^{(b)})\) on the
+  selected real rows with \(H_t=\hat S^{\text{ref}}_t\) fixed.
   \item For \(p=1,\dots,P\): draw independent per-neuron circular shifts in
   the two-sided zone
-  \([\delta_{\text{roll}}^{\min,\text{bin}},T_b-\delta_{\text{roll}}^{\min,\text{bin}}]\),
-  roll spikes, and
+  \([\delta_{\text{roll}}^{\min,\text{bin}},T_{\rm ref}-\delta_{\text{roll}}^{\min,\text{bin}}]\),
+  roll each neuron's reference-window spikes, form scrambled pair rows using
+  the same selected indices, and
   \(\textsf{mstep\_locked}\to(A^{\text{null},(b,p)},\mathbf B^{\text{null},(b,p)})\)
-  with the real pipeline's \(\lambda_3,\rho_{\max}\), decay active from epoch
-  one, \(\hat S^{(b)}\) frozen and aligned as \(\hat S^{(b)}_{t-1}\) for pair
-  \((Y_{t-1},Y_t)\), fresh \(A\) initialization controlled by
+  with the locked labels \(H_t=\hat S^{\text{ref}}_t\), fresh \(A\)
+  initialization controlled by
   \texttt{null\_A\_init}\(\in\{\texttt{scrambled\_data},\texttt{rand}\}\),
   and fresh \(\mathbf B\) initialization controlled by
   \texttt{null\_B\_init}\(\in\{\texttt{scrambled\_data},\texttt{rand}\}\).
-  The number of locked M-step epochs and all other M-step hyperparameters
-  are inherited from the real time-ordered fit configuration.
   \item Write one file for bag \(b\), named from \texttt{dataName} and
   \texttt{bag\_idx}, containing \(\hat A^{(b)}\),
-  \(\{A^{\text{null},(b,p)}\}\), \(\{\mathbf B^{\text{null},(b,p)}\}\), \(\hat S^{(b)}\),
-  realized block starts, boundary pair indices, block-start retry violations,
-  realized shifts, fitted sparsity, and history summary. Do not save the
-  assembled bag spike train.
+  \(\{A^{\text{null},(b,p)}\}\), \(\{\mathbf B^{\text{null},(b,p)}\}\),
+  sampled pair indices, realized shifts, fitted sparsity, reference-fit
+  provenance, and history summary.
 \end{enumerate}
 
 \paragraph{Stage (b), single postprocessing job.}
 \begin{enumerate}
-  \item Per bag and row, pool the \((N-1)P\) off-diagonal null weights, form
-  the upper-\(q\) magnitude threshold \(\tau^{(b)}_i\), and select edges with
-  \(|\hat A^{(b)}_{ij}|>\tau^{(b)}_i\); record \(q_\Lambda\).
+  \item Per bag and source column, pool the \((N-1)P\) off-diagonal null
+  weights, form the upper-\(q\) magnitude threshold \(\tau^{(b)}_j\), and
+  select edges with \(|\hat A^{(b)}_{ij}|>\tau^{(b)}_j\); record
+  \(q_\Lambda\).
   \item Compute selection frequencies \(\pi_{ij}\) and keep edges with
   \(\pi_{ij}\ge\pi_{\text{thr}}\) (or use the
   \texttt{target\_false\_edges}-derived \(\pi_{\text{thr}}\)).
   \item For surviving edges, compute the bagged mean \(\bar A_{ij}\),
   bootstrap SD \(\widehat{\mathrm{SD}}_{ij}\) (selection-conditional and
-  all-bag), and effect size \(z_{ij}\) against the pooled row null.
+  all-bag), and effect size \(z_{ij}\) against the pooled source null.
   \item Emit the vetted edge list
   \((i,j,\pi_{ij},\bar A_{ij},\widehat{\mathrm{SD}}_{ij},z_{ij})\) plus
   diagnostics.
 \end{enumerate}
 
-\paragraph{Closing note.} The method's robustness comes from never trusting a
-single fit: connectivity is asserted only when it survives data resampling
-(bagging), exceeds a null built by the identical estimation machinery
-(scramble calibration), and recurs across bags (stability selection). Its
+\paragraph{Closing note.} The method's robustness comes from separating
+state discovery from edge testing: connectivity is asserted only when it
+survives repeated random subsampling of reference-labeled lag pairs,
+exceeds a null built by the identical locked-M-step machinery (scramble
+calibration), and recurs across bags (stability selection). Its
 two reported uncertainties --- the null spread and the across-bag bootstrap
 SD --- are deliberately kept distinct, and their known limitations under
-overlapping bags are stated rather than papered over, so that the resulting
-edge list can be read with appropriate confidence on real data where no
-ground truth is available to check it.
+overlapping pair subsets are stated rather than papered over, so that the
+resulting edge list can be read with appropriate confidence on real data
+where no ground truth is available to check it.
 
 \end{document}

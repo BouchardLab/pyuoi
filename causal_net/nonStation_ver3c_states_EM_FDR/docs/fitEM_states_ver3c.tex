@@ -285,7 +285,7 @@ Rank~0 creates \texttt{<basePath>/prismFit/} if needed and writes
 \]
 If \texttt{--fitName} is omitted, the program generates
 \[
-\texttt{<dataName>-EM-<6hex>}.
+\texttt{<dataName>\_<hash4>}.
 \]
 The metadata provenance field \texttt{EMtrain\_file} is set to the same
 output stem.
@@ -438,7 +438,7 @@ bins used) are computed on the pre-scaled OLS estimate and saved in metadata
 
 After training, rank~0 writes \texttt{<basePath>/prismFit/<fitName>.prismEM.npz}.
 If \texttt{--fitName} is omitted, the name is
-\texttt{<dataName>-EM-<6hex>}.
+\texttt{<dataName>\_<hash4>}.
 Key arrays (shapes for \(T\) time bins, \(N\) neurons, \(M\) states):
 \begin{itemize}
   \item \texttt{A\_init}, \texttt{A\_hat}: \((N,N)\);

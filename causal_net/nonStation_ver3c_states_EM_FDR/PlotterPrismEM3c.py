@@ -9,7 +9,7 @@ from UtilBioExp import clip_rebD_time
 
 def real_fit_metadata(md):
     """Return the real-fit metadata block for ordinary or FDR-aggregated fits."""
-    if "bagsFDR_stageA" in md:
+    if "bagsFDR_stageA" in md and "real_fit" in md["bagsFDR_stageA"]:
         return md["bagsFDR_stageA"]["real_fit"]
     return md
 
@@ -47,11 +47,12 @@ class Plotter(PlotterBackbone):
         nz = np.asarray(fitD["nz_edges_epoch"])
         lr = np.asarray(fitD["learning_rates"])
 
-        n_em = int(trainMD["num_em_iters"])
+        n_em = int(trainMD.get("num_em_iters", 0))
         m_per_em = int(trainMD["m_epochs"])
         n_m_total = len(m_nll)
         m_epochs = np.arange(1, n_m_total + 1)
         em_iters = np.arange(1, len(e_nll) + 1)
+        is_locked_fdr = n_em < 1 or md.get("fit_type", "").startswith("prismEM_FDRbags")
 
         prune_em = int(trainMD["delay_em_iter_4_Aprune"])
         rho_start_em = int(trainMD["delay_em_iter_4_ArhoMax"])
@@ -75,8 +76,19 @@ class Plotter(PlotterBackbone):
             )
 
         ax = self.plt.subplot(2, 3, 1)
-        ax.plot(em_iters, e_nll, "o-", color="tab:blue", markersize=3, linewidth=1.2)
-        ax.set(title="E-step NLL", xlabel="EM iteration", ylabel="NLL / bin")
+        if len(e_nll) > 0:
+            ax.plot(em_iters, e_nll, "o-", color="tab:blue", markersize=3, linewidth=1.2)
+            ax.set(title="E-step NLL", xlabel="EM iteration", ylabel="NLL / bin")
+        else:
+            txt = "FDR locked M-step fit\nstate labels from reference EM\nno bag E-step"
+            if "bagsFDR_stageB" in md:
+                stg = md["bagsFDR_stageB"]
+                txt += f"\nbags={stg.get('num_bags', '?')}  stab_sel_thresh={stg.get('stab_sel_thresh', '?')}"
+            ax.text(0.5, 0.55, txt, transform=ax.transAxes, ha="center", va="center",
+                    fontsize=10, bbox=dict(facecolor="white", alpha=0.75, edgecolor="0.8"))
+            ax.set(title="Fit mode", xlabel="", ylabel="")
+            ax.set_xticks([])
+            ax.set_yticks([])
         ax.grid(True, alpha=0.3)
         draw_threshold_marker(ax, prune_em, len(e_nll), "start Aprune", "k")
         draw_threshold_marker(ax, rho_start_em, len(e_nll), "start rhoMax", "tab:brown")
@@ -162,7 +174,11 @@ class Plotter(PlotterBackbone):
                xlabel="edge value", ylabel="edges")
         ax.grid(True, alpha=0.3)
 
-        fig.suptitle(f"{title_prefix}, Prism EM: K_EM={n_em} x K_M={m_per_em}", fontsize=12)
+        if is_locked_fdr:
+            title_tail = f"FDR locked M-step: K_epoch={n_m_total}"
+        else:
+            title_tail = f"Prism EM: K_EM={n_em} x K_M={m_per_em}"
+        fig.suptitle(f"{title_prefix}, {title_tail}", fontsize=12)
         fig.tight_layout(rect=[0, 0, 1, 0.95])
 
     def _draw_A_matrix(self, ax, A, title, num_exc=None, norm_map=None):
@@ -484,7 +500,7 @@ class Plotter(PlotterBackbone):
         ax2.tick_params(axis="y", labelcolor="tab:orange")
         return ax2
 
-    def _draw_A_offdiag_hist(self, ax, A, title, diagnostics_txt=None):
+    def _draw_A_offdiag_hist(self, ax, A, title, diagnostics_txt=None, weight_lines=None):
         A = np.asarray(A)
         n_neuron = A.shape[0]
         off_mask = ~np.eye(n_neuron, dtype=bool)
@@ -496,6 +512,16 @@ class Plotter(PlotterBackbone):
         ax.set_title(title)
         ax.set_xlabel("edge value")
         ax.set_ylabel("edges")
+        if weight_lines is not None:
+            for y_pos, w in zip([0.88, 0.78], weight_lines):
+                if np.isfinite(w):
+                    ax.axvline(w, color="tab:blue", ls="--", lw=0.8, alpha=0.9)
+                    ax.text(
+                        w, y_pos, f"{w:.3f}", transform=ax.get_xaxis_transform(),
+                        va="top", ha="center", fontsize=8, color="tab:blue",
+                        rotation=90,
+                        bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=1),
+                    )
         if diagnostics_txt is not None:
             ax.text(
                 0.05, 0.70, diagnostics_txt, transform=ax.transAxes,
@@ -504,7 +530,7 @@ class Plotter(PlotterBackbone):
                 family="monospace",
             )
 
-    def _draw_A_matrix_summary_3cols(self, fig, gs, row, A, label, single_rates, num_exc=None):
+    def _draw_A_matrix_summary_3cols(self, fig, gs, row, A, label, single_rates, num_exc=None, weight_lines=None):
         A = np.asarray(A, dtype=np.float64)
         n_neuron = A.shape[0]
         x_src = np.arange(n_neuron, dtype=np.int64)
@@ -518,7 +544,7 @@ class Plotter(PlotterBackbone):
         sum_nedge = int(np.sum(cnt_src))
 
         ax = fig.add_subplot(gs[row, 0])
-        self._draw_A_offdiag_hist(ax, A, f"{label} off-diagonal")
+        self._draw_A_offdiag_hist(ax, A, f"{label} off-diagonal", weight_lines=weight_lines)
         ax.text(
             0.98, 0.97, f"sum Nedge={sum_nedge:d}", transform=ax.transAxes,
             va="top", ha="right", fontsize=9, color="k",
@@ -553,8 +579,10 @@ class Plotter(PlotterBackbone):
         n_neuron = A_est.shape[0]
 
         nedge, sedge = self._node_outgoing_edge_stats(A_est)
-        r_ns = self._corrcoef_safe(nedge, sedge)
         n_bins = max(10, min(40, int(np.sqrt(n_neuron)) * 2))
+        stage_b = md["bagsFDR_stageB"]
+        min_posW = float(stage_b["min_posW"])
+        max_negW = float(stage_b["max_negW"])
         neuron_type = np.asarray(neuron_type, dtype=np.int8)
         assert neuron_type.shape[0] == n_neuron, "neuron_type length must match A_hat columns"
         n_exc = int(np.sum(neuron_type > 0))
@@ -604,8 +632,10 @@ class Plotter(PlotterBackbone):
                 )
             else:
                 ax.scatter(nedge[mask], sedge[mask], s=16, marker=".", alpha=0.80, color=color, label=label)
+        ax.axhline(min_posW, color="tab:blue", ls="--", lw=0.8, alpha=0.9)
+        ax.axhline(max_negW, color="tab:blue", ls="--", lw=0.8, alpha=0.9)
         ax.set(
-            title=f"Nedge vs Sedge  r={r_ns:.3f}",
+            title="Nedge vs Sedge",
             xlabel="Nedge (# outgoing edges per source column)",
             ylabel="Sedge",
         )
@@ -624,11 +654,13 @@ class Plotter(PlotterBackbone):
 
         ax = fig.add_subplot(gs[0, 2])
         ax.hist(sedge, bins=n_bins, color="tab:green", alpha=0.85)
-        add_hist_percentile_marker(ax, sedge)
         ax.set(title=f"Sedge distribution, N={n_neuron}", xlabel="Sedge", ylabel="nodes")
         ax.grid(True, alpha=0.35)
 
-        self._draw_A_matrix_summary_3cols(fig, gs, 1, A_prune, "A_prune", single_rates, num_exc=num_exc)
+        self._draw_A_matrix_summary_3cols(
+            fig, gs, 1, A_prune, "A_prune", single_rates,
+            num_exc=num_exc, weight_lines=(max_negW, min_posW),
+        )
 
         title_prefix = self.canvas_title_prefix(md)
         fig.suptitle(
@@ -637,16 +669,294 @@ class Plotter(PlotterBackbone):
         )
         fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.94])
 
-    def _A_init_diagnostics_txt(self, md):
-        initA = real_fit_metadata(md)["init_A"]
-        return (
-            "A-init diagnostics:\n"
-            f"  cond(YpYp) = {initA['cond_YpYp']:.2e}\n"
-            f"  rho(A_ols) = {initA['rho_A_init']:.3f}\n"
-            f"  R2         = {initA['R2_1step']:.3f}\n"
-            f"  ||A||_F    = {initA['fro_A_init']:.3f}\n"
-            f"  bins_used  = {initA['num_bins_used']}/{initA['num_bins_total']}"
+    def fdr_selection_summary(self, fitD, md, figId="g"):
+        """Summarize Stage (b) FDR bag filtering and cross-bag stability."""
+        import matplotlib.colors as colors
+
+        stage_b = md.get("bagsFDR_stageB")
+        assert stage_b is not None, "Plot g requires a Stage (b) aggregate with bagsFDR_stageB metadata"
+        required = (
+            "A_bag", "selected_in_bag", "selection_frequency", "selected_mask",
+            "src_null_tau_bag", "selected_edges_per_bag", "selected_edges_per_bag_src",
+            "A_hat", "A_mean_selected", "single_rates",
         )
+        missing = [key for key in required if key not in fitD]
+        assert not missing, f"Plot g requires Stage (b) diagnostic arrays; missing {missing}"
+
+        A_bag = np.asarray(fitD["A_bag"], dtype=np.float64)
+        selected_in_bag = np.asarray(fitD["selected_in_bag"], dtype=bool)
+        sel_freq = np.asarray(fitD["selection_frequency"], dtype=np.float64)
+        final_sel = np.asarray(fitD["selected_mask"], dtype=bool)
+        tau = np.asarray(fitD["src_null_tau_bag"], dtype=np.float64)
+        selected_edges_per_bag = np.asarray(fitD["selected_edges_per_bag"], dtype=np.int64)
+        A_hat = np.asarray(fitD["A_hat"], dtype=np.float64)
+
+        assert A_bag.ndim == 3 and A_bag.shape[1] == A_bag.shape[2], "A_bag must have shape (bag,N,N)"
+        assert selected_in_bag.shape == A_bag.shape, "selected_in_bag shape must match A_bag"
+        n_bag, n_neur, _ = A_bag.shape
+        assert tau.shape == (n_bag, n_neur), f"src_null_tau_bag shape {tau.shape} != {(n_bag, n_neur)}"
+
+        off_mask = ~np.eye(n_neur, dtype=bool)
+        off3 = np.broadcast_to(off_mask, A_bag.shape)
+        p_cand = int(np.sum(off_mask))
+        per_bag_quantile = float(stage_b["per_bag_quantile"])
+        stab_sel_thresh = float(stage_b["stab_sel_thresh"])
+        final_count = int(np.sum(final_sel & off_mask))
+        ever_count = int(np.sum((sel_freq > 0.0) & off_mask))
+        mean_per_bag = float(np.mean(selected_edges_per_bag))
+        median_per_bag = float(np.median(selected_edges_per_bag))
+
+        with np.errstate(invalid="ignore", divide="ignore"):
+            ratio = np.abs(A_bag) / tau[:, None, :]
+        ratio_all = ratio[off3]
+        ratio_sel = ratio[selected_in_bag & off3]
+        ratio_all = ratio_all[np.isfinite(ratio_all)]
+        ratio_sel = ratio_sel[np.isfinite(ratio_sel)]
+        log_ratio_all = np.log10(np.clip(ratio_all, 1e-8, 1e8))
+        log_ratio_sel = np.log10(np.clip(ratio_sel, 1e-8, 1e8))
+
+        freq_off = sel_freq[off_mask]
+        freq_nonzero = freq_off[freq_off > 0.0]
+        thresholds = np.arange(1, n_bag + 1, dtype=np.float64) / float(n_bag)
+        survivor_counts = np.array([np.sum(freq_off >= th) for th in thresholds], dtype=np.int64)
+
+        A_mean_selected = np.asarray(fitD["A_mean_selected"], dtype=np.float64)
+        amp = np.abs(A_mean_selected[off_mask])
+        final_for_scatter = (final_sel & off_mask)[off_mask]
+        finite_amp = np.isfinite(amp)
+
+        src_tau_mean = np.mean(tau, axis=0)
+        src_tau_sd = np.std(tau, axis=0, ddof=1) if n_bag > 1 else np.zeros_like(src_tau_mean)
+        src_selected_mean = np.mean(np.asarray(fitD["selected_edges_per_bag_src"]), axis=0)
+        single_rates = np.asarray(fitD["single_rates"], dtype=np.float64).ravel()
+        assert single_rates.shape[0] == n_neur, "single_rates length must match A_bag columns"
+        src_order = np.argsort(single_rates)
+
+        figId = self.smart_append(figId)
+        fig = self.plt.figure(figId, facecolor="white", figsize=(17, 12))
+        gs = fig.add_gridspec(3, 3, hspace=0.48, wspace=0.36)
+
+        ax = fig.add_subplot(gs[0, 0])
+        funnel_labels = ["all\npairs", "mean\nbag pass", "ever\npass", "stable\nfinal"]
+        funnel_counts = [p_cand, mean_per_bag, ever_count, final_count]
+        bar_colors = ["0.72", "tab:blue", "tab:orange", "tab:green"]
+        ax.bar(np.arange(4), funnel_counts, color=bar_colors, alpha=0.85)
+        ax.set_yscale("log")
+        ax.set_xticks(np.arange(4))
+        ax.set_xticklabels(funnel_labels)
+        ax.set_ylabel("off-diagonal edges")
+        ax.set_title("FDR reduction funnel")
+        ax.grid(True, axis="y", alpha=0.35)
+        for i, val in enumerate(funnel_counts):
+            ax.text(i, max(val, 1.0), f"{val:.0f}", ha="center", va="bottom", fontsize=9)
+
+        ax = fig.add_subplot(gs[0, 1])
+        xbag = np.arange(n_bag)
+        ax.bar(xbag, selected_edges_per_bag, color="tab:blue", alpha=0.8)
+        ax.axhline(mean_per_bag, color="k", ls="--", lw=1, label=f"mean={mean_per_bag:.1f}")
+        ax.axhline(median_per_bag, color="tab:orange", ls=":", lw=1.4, label=f"median={median_per_bag:.1f}")
+        ax.set(title="Per-bag edges passing source null threshold", xlabel="bag index", ylabel="edges")
+        ax.grid(True, axis="y", alpha=0.35)
+        ax.legend(fontsize=8)
+
+        ax = fig.add_subplot(gs[0, 2])
+        ax.step(thresholds, survivor_counts, where="post", color="tab:green", linewidth=2)
+        ax.axvline(stab_sel_thresh, color="red", ls="--", lw=1.2, label=f"stab_sel_thresh={stab_sel_thresh:g}")
+        ax.axhline(final_count, color="k", ls=":", lw=1.0, label=f"final={final_count}")
+        ax.set(title="Stable edge count", xlabel="stability sel. thres.", ylabel="stable edges")
+        ax.set_xlim(0.0, 1.02)
+        ax.set_ylim(0, max(1, int(np.max(survivor_counts)) + 1))
+        ax.grid(True, alpha=0.35)
+        ax.legend(fontsize=8)
+
+        ax = fig.add_subplot(gs[1, 0])
+        bins = np.linspace(0.05, 1.05, 11)
+        if freq_nonzero.size:
+            ax.hist(freq_nonzero, bins=bins, color="tab:purple", alpha=0.75)
+        ax.axvline(stab_sel_thresh, color="red", ls="--", lw=1.2)
+        ax.set(title=f"Ever-pass edges, n={freq_nonzero.size}",
+               xlabel="stability sel. thres.", ylabel="edges")
+        ax.set_xlim(0.05, 1.05)
+        ax.set_xticks(np.arange(0.1, 1.01, 0.1))
+        ax.grid(True, axis="y", alpha=0.35)
+
+        ax = fig.add_subplot(gs[1, 1])
+        im = ax.imshow(sel_freq, origin="lower", aspect="equal", interpolation="nearest",
+                       cmap="viridis", vmin=0.0, vmax=1.0)
+        if final_count > 0:
+            ax.contour(final_sel.astype(float), levels=[0.5], colors="red", linewidths=0.6)
+        ax.plot([0, n_neur], [0, n_neur], "--", lw=0.7, color="white", alpha=0.9)
+        ax.set(title="Selection frequency matrix", xlabel="source neuron", ylabel="target neuron")
+        self.plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="selected fraction")
+
+        ax = fig.add_subplot(gs[1, 2])
+        vmax = float(np.nanmax(np.abs(A_hat))) if np.any(np.isfinite(A_hat)) else 1.0
+        if vmax <= 0:
+            vmax = 1.0
+        norm = colors.TwoSlopeNorm(vmin=-vmax, vcenter=0.0, vmax=vmax)
+        self._draw_A_matrix(ax, A_hat, f"Final A_hat, stable offdiag={final_count}", norm_map=norm)
+
+        ax = fig.add_subplot(gs[2, 0])
+        bins = np.linspace(-3.0, 3.0, 100)
+        if log_ratio_all.size:
+            ax.hist(log_ratio_all, bins=bins, color="0.65", alpha=0.75, label="all bag-edge tests")
+        if log_ratio_sel.size:
+            ax.hist(log_ratio_sel, bins=bins, color="tab:blue", alpha=0.65, label="per-bag pass")
+        ax.axvline(0.0, color="red", ls="--", lw=1.2, label="|A| = tau")
+        ax.set_yscale("log")
+        ax.set(title=f"Per-bag threshold pressure, q={per_bag_quantile:g}",
+               xlabel="log10(|A_bag| / source tau)", ylabel="bag-edge tests")
+        ax.grid(True, axis="y", alpha=0.35)
+        ax.legend(fontsize=8)
+
+        ax = fig.add_subplot(gs[2, 1])
+        x = np.arange(n_neur)
+        ax.plot(x, src_tau_mean[src_order], color="tab:red", linewidth=1.0, label="mean source tau")
+        ax.fill_between(
+            x,
+            np.maximum(0.0, src_tau_mean[src_order] - src_tau_sd[src_order]),
+            src_tau_mean[src_order] + src_tau_sd[src_order],
+            color="tab:red", alpha=0.18, linewidth=0,
+        )
+        ax.set(title="Source null threshold and outgoing pass count",
+               xlabel="source neuron sorted by firing rate", ylabel="source tau")
+        ax.grid(True, alpha=0.35)
+        ax2 = ax.twinx()
+        ax2.plot(x, src_selected_mean[src_order], color="tab:blue", linewidth=0.9, alpha=0.9, label="mean outgoing pass count")
+        ax2.set_ylabel("mean per-bag outgoing pass count")
+        lines1, lab1 = ax.get_legend_handles_labels()
+        lines2, lab2 = ax2.get_legend_handles_labels()
+        ax.legend(lines1 + lines2, lab1 + lab2, fontsize=8, loc="upper right")
+        rate_min = float(single_rates[src_order[0]])
+        rate_max = float(single_rates[src_order[-1]])
+        ax.text(
+            0.02, 0.96, f"rate: {rate_min:.2g} to {rate_max:.2g} Hz",
+            transform=ax.transAxes, va="top", ha="left", fontsize=8,
+            bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=2),
+        )
+
+        ax = fig.add_subplot(gs[2, 2])
+        positive_amp = finite_amp & (amp > 0.0)
+        nonfinal = positive_amp & ~final_for_scatter & (freq_off > 0.0)
+        final = positive_amp & final_for_scatter
+        ax.scatter(freq_off[nonfinal], amp[nonfinal], s=12, color="0.55", alpha=0.45, label="rejected after bag pass")
+        ax.scatter(freq_off[final], amp[final], s=18, color="tab:green", alpha=0.8, label="final stable")
+        ax.axvline(stab_sel_thresh, color="red", ls="--", lw=1.2)
+        ax.set_yscale("log")
+        ax.set(title="Amplitude vs stability", xlabel="stability sel. thres.", ylabel="|A_mean_selected|")
+        ax.set_xlim(-0.02, 1.02)
+        ax.grid(True, alpha=0.35)
+        ax.legend(fontsize=8)
+
+        false_bound = float(stage_b.get("stability_false_edge_bound", np.nan))
+        title_prefix = self.canvas_title_prefix(md)
+        fig.suptitle(
+            f"{title_prefix}, FDR bag selection: q={per_bag_quantile:g}, "
+            f"stab_sel_thresh={stab_sel_thresh:g}, bags={n_bag}, final={final_count}, "
+            f"bound={false_bound:.3g}",
+            fontsize=13,
+        )
+        fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.955])
+
+    def fdr_acceptance_truth(self, accD, md, figId="o"):
+        """Display simulation-truth FDR/bag acceptance diagnostics precomputed by eval."""
+        weight = accD["weight"]
+        rate = accD["rate"]
+        summary = accD["summary"]
+
+        wc = np.asarray(weight["center"], dtype=np.float64)
+        wprob = np.asarray(weight["prob"], dtype=np.float64)
+        wtotal = np.asarray(weight["total"], dtype=np.int64)
+        wpass = np.asarray(weight["passed"], dtype=np.int64)
+        wbin = float(weight["bin_width"])
+
+        figId = self.smart_append(figId)
+        fig = self.plt.figure(figId, facecolor="white", figsize=(18, 4.2))
+        gs = fig.add_gridspec(1, 4, left=0.055, right=0.99, bottom=0.18, top=0.78, wspace=0.34)
+
+        ax = fig.add_subplot(gs[0, 0])
+        m = np.isfinite(wprob)
+        ax.bar(wc[m], wprob[m], width=0.92 * wbin, color="tab:purple", alpha=0.85, align="center")
+        ax.set(
+            title="Acceptance vs true edge value",
+            xlabel="A_true edge value",
+            ylabel="P(A_prune edge accepted)",
+            ylim=(-0.03, 1.03),
+        )
+        ax.grid(True, alpha=0.35)
+
+        ax = fig.add_subplot(gs[0, 1])
+        for label, color in (("exc", "red"), ("inh", "blue")):
+            d = rate[label]
+            x = np.asarray(d["center"], dtype=np.float64)
+            y = np.asarray(d["prob"], dtype=np.float64)
+            mm = np.isfinite(y)
+            ax.plot(x[mm], y[mm], "o-", color=color, lw=1.2, ms=4, label=label)
+        if rate["scale"] == "log":
+            ax.set_xscale("log")
+        ax.set(
+            title="Acceptance vs source frequency",
+            xlabel="source neuron frequency (Hz)",
+            ylabel="P(A_prune edge accepted)",
+            ylim=(-0.03, 1.03),
+        )
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.35)
+
+        ax = fig.add_subplot(gs[0, 2])
+        mt = wtotal > 0
+        mp = wpass > 0
+        ax.bar(wc[mt], wtotal[mt], width=0.92 * wbin, color="0.75", alpha=0.8, label="true edges")
+        ax.bar(wc[mp], wpass[mp], width=0.55 * wbin, color="tab:green", alpha=0.85, label="accepted")
+        ax.set_yscale("log")
+        ax.set(title="True-edge counts vs value", xlabel="A_true edge value", ylabel="edges")
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.35)
+
+        ax = fig.add_subplot(gs[0, 3])
+        for label, color, ls in (("exc", "red", "-"), ("inh", "blue", "--")):
+            d = rate[label]
+            x = np.asarray(d["center"], dtype=np.float64)
+            total = np.asarray(d["total"], dtype=np.int64)
+            passed = np.asarray(d["passed"], dtype=np.int64)
+            mt = total > 0
+            mp = passed > 0
+            ax.plot(x[mt], total[mt], ls=ls, color=color, lw=1.0, alpha=0.45, label=f"{label} true edges")
+            ax.plot(x[mp], passed[mp], "o-", color=color, lw=1.2, ms=4, label=f"{label} accepted")
+        if rate["scale"] == "log":
+            ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set(title="True-edge counts vs source frequency", xlabel="source neuron frequency (Hz)", ylabel="edges")
+        ax.legend(fontsize=8, ncol=1)
+        ax.grid(True, alpha=0.35)
+
+        title_prefix = self.canvas_title_prefix(md)
+        fig.suptitle(
+            f"{title_prefix}, FDR/bag A_prune acceptance vs truth: "
+            f"{summary['num_accepted']}/{summary['num_candidates']} true edges accepted, "
+            f"truth exc={summary['num_exc']} inh={summary['num_inh']}",
+            fontsize=12,
+        )
+
+    def _A_init_diagnostics_txt(self, md):
+        initA = real_fit_metadata(md).get("init_A", {})
+        if initA is None:
+            initA = {}
+        method = initA.get("method", "unknown")
+        lines = ["A-init diagnostics:", f"  method = {method}"]
+        if "source_key" in initA:
+            lines.append(f"  source = {initA['source_key']}")
+        if "cond_YpYp" in initA:
+            lines.extend([
+                f"  cond(YpYp) = {initA['cond_YpYp']:.2e}",
+                f"  rho(A_ols) = {initA['rho_A_init']:.3f}",
+                f"  R2         = {initA['R2_1step']:.3f}",
+                f"  ||A||_F    = {initA['fro_A_init']:.3f}",
+                f"  bins_used  = {initA['num_bins_used']}/{initA['num_bins_total']}",
+            ])
+        if "reference_file" in initA:
+            lines.append(f"  ref = {initA['reference_file']}")
+        return "\n".join(lines)
 
     def A_fitted(self, fitD, md, single_rates, figId="b"):
         """Fitted A summary using only arrays stored in the prismEM file."""

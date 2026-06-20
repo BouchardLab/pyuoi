@@ -1,9 +1,14 @@
 #!/bin/bash
+# Submit as a SLURM array after the reference EM fit exists:
+#   sbatch --array=0-5 batchFitBags.slr
+
 #SBATCH -N 1
 #SBATCH -C gpu
 #SBATCH -A m2043
-#SBATCH  --time=30:00 -q debug
-# SBATCH --time 2:28:00  -q regular
+#SBATCH --time=30:00
+#SBATCH -q debug
+# SBATCH --time=2:28:00
+# SBATCH -q regular
 #SBATCH --array=0-1
 #SBATCH --output=outj/%A_%a.out
 #SBATCH --licenses=scratch
@@ -11,98 +16,76 @@
 set -euo pipefail
 
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
-mkdir -p out
-
+mkdir -p outj
 module load pytorch
 
-# One SLURM array task runs one Stage (a) bag fit.
 bag_idx=${SLURM_ARRAY_TASK_ID:-0}
 
-# Defaults mirrored from big_fit_bags.sh.
-#basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3 ; shortN=Canine_260324_r23_w0_1hz
-#OLD basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3c; shortN=daleN100_d4a192_30db68
-basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3c; shortN=daleN200_102308_a5d24b
+# Dataset; EM fit must already be:
+#   $basePath/prismFit/${emFitName}.prismEM.npz
+basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3c
+shortN=daleN200_102308_a5d24b
 
-bagsTag=""
-time_range_sec=(300 1200)
-num_blocks=15
-
-mult_iters=1.0
-base_em_iters=50
-base_delay_em_iter_4_lrDecay=(10 30)
-base_delay_em_iter_4_ArhoMax=(15 35)
-base_delay_em_iter_4_Aprune=20
-
-scale_iter_count() {
-  local base_val="$1"
-  awk -v base="${base_val}" -v mult="${mult_iters}" '
-    BEGIN {
-      if (mult <= 0) {
-        exit 2
-      }
-      printf "%d\n", int(base * mult + 0.5)
-    }'
-}
+bagTag=""
+emFitName=""
+outFitName=""
+bagFrac=0.8
+bagEpochs=240
+numScrambles=10
+batchSize=4096
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --time_range_sec)
-      if [[ $# -lt 3 ]]; then
-        echo "ERROR: --time_range_sec requires 2 values: <t0> <t1>" >&2
-        exit 1
-      fi
-      time_range_sec=("$2" "$3")
-      shift 3
-      ;;
-    --time_range_sec=*)
-      range_val="${1#*=}"
-      range_val="${range_val/,/ }"
-      read -r t0_sec t1_sec extra <<< "${range_val}"
-      if [[ -n "${extra:-}" || -z "${t0_sec:-}" || -z "${t1_sec:-}" ]]; then
-        echo "ERROR: --time_range_sec requires exactly 2 values" >&2
-        exit 1
-      fi
-      time_range_sec=("${t0_sec}" "${t1_sec}")
-      shift
-      ;;
-    --num_blocks)
-      if [[ $# -lt 2 ]]; then
-        echo "ERROR: --num_blocks requires a value" >&2
-        exit 1
-      fi
-      num_blocks="$2"
+    --bagTag)
+      bagTag="$2"
       shift 2
       ;;
-    --num_blocks=*)
-      num_blocks="${1#*=}"
+    --bagTag=*)
+      bagTag="${1#*=}"
       shift
       ;;
-    --bagsTag)
-      if [[ $# -lt 2 ]]; then
-        echo "ERROR: --bagsTag requires a value" >&2
-        exit 1
-      fi
-      bagsTag="$2"
+    --emFitName)
+      emFitName="$2"
       shift 2
       ;;
-    --bagsTag=*)
-      bagsTag="${1#*=}"
+    --emFitName=*)
+      emFitName="${1#*=}"
       shift
       ;;
-    --mult_iters)
-      if [[ $# -lt 2 ]]; then
-        echo "ERROR: --mult_iters requires a value" >&2
-        exit 1
-      fi
-      mult_iters="$2"
+    --outFitName)
+      outFitName="$2"
       shift 2
       ;;
-    --mult_iters=*)
-      mult_iters="${1#*=}"
+    --outFitName=*)
+      outFitName="${1#*=}"
+      shift
+      ;;
+    --bag_frac)
+      bagFrac="$2"
+      shift 2
+      ;;
+    --bag_frac=*)
+      bagFrac="${1#*=}"
+      shift
+      ;;
+    --epochs)
+      bagEpochs="$2"
+      shift 2
+      ;;
+    --epochs=*)
+      bagEpochs="${1#*=}"
+      shift
+      ;;
+    --num_scrambles)
+      numScrambles="$2"
+      shift 2
+      ;;
+    --num_scrambles=*)
+      numScrambles="${1#*=}"
       shift
       ;;
     -h|--help)
-      echo "Usage: sbatch [--array=0-N] batchFitBags.slr [--time_range_sec t0 t1] [--num_blocks N] [--bagsTag TAG] [--mult_iters X]"
+      echo "Usage: sbatch [--array=0-N] batchFitBags.slr [--bagTag TAG] [--emFitName NAME] [--outFitName NAME] [--bag_frac F] [--epochs E] [--num_scrambles P]"
       exit 0
       ;;
     *)
@@ -112,64 +95,47 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if ! [[ "${mult_iters}" =~ ^[0-9]+([.][0-9]+)?$ ]] || ! awk -v mult="${mult_iters}" 'BEGIN { exit !(mult > 0) }'; then
-  echo "ERROR: --mult_iters must be a positive number, got '${mult_iters}'" >&2
-  exit 1
-fi
-
-num_em_iters="$(scale_iter_count "${base_em_iters}")"
-delay_em_iter_4_lrDecay=(
-  "$(scale_iter_count "${base_delay_em_iter_4_lrDecay[0]}")"
-  "$(scale_iter_count "${base_delay_em_iter_4_lrDecay[1]}")"
-)
-delay_em_iter_4_ArhoMax=(
-  "$(scale_iter_count "${base_delay_em_iter_4_ArhoMax[0]}")"
-  "$(scale_iter_count "${base_delay_em_iter_4_ArhoMax[1]}")"
-)
-delay_em_iter_4_Aprune="$(scale_iter_count "${base_delay_em_iter_4_Aprune}")"
-
-if [[ -z "${bagsTag}" || "${bagsTag,,}" == "none" ]]; then
+if [[ -z "${bagTag}" || "${bagTag,,}" == "none" ]]; then
   if [[ -n "${SLURM_ARRAY_JOB_ID:-}" ]]; then
-    bagsTag="j${SLURM_ARRAY_JOB_ID: -4}"
+    bagTag="j${SLURM_ARRAY_JOB_ID: -4}"
   else
-    bagsTag="local"
+    bagTag="local"
   fi
 fi
+if [[ -z "${emFitName}" ]]; then
+  emFitName="${shortN}_em${bagTag}"
+fi
+if [[ -z "${outFitName}" ]]; then
+  outFitName="${emFitName}_rmf${bagTag}"
+fi
 
-echo "S: job=${SLURM_JOB_ID:-local}  host=$(hostname)"
+echo "S: job=${SLURM_JOB_ID:-local} host=$(hostname)"
 echo "S: array_job=${SLURM_ARRAY_JOB_ID:-none} array_task=${SLURM_ARRAY_TASK_ID:-none}"
 echo "S: basePath=${basePath}"
 echo "S: dataName=${shortN}"
 echo "S: bag_idx=${bag_idx}"
-echo "S: time_range_sec=${time_range_sec[*]}"
-echo "S: num_blocks=${num_blocks}"
-echo "S: bagsTag=${bagsTag}"
-echo "S: mult_iters=${mult_iters}"
-echo "S: num_em_iters=${num_em_iters}"
-echo "S: delay_em_iter_4_lrDecay=${delay_em_iter_4_lrDecay[*]}"
-echo "S: delay_em_iter_4_ArhoMax=${delay_em_iter_4_ArhoMax[*]}"
-echo "S: delay_em_iter_4_Aprune=${delay_em_iter_4_Aprune}"
+echo "S: bagTag=${bagTag}"
+echo "S: emFitName=${emFitName}"
+echo "S: outFitName=${outFitName}"
+echo "S: bagFrac=${bagFrac}"
+echo "S: bagEpochs=${bagEpochs}"
+echo "S: numScrambles=${numScrambles}"
 
 time torchrun --standalone --nnodes=1 --nproc_per_node=4 \
-  ./prism_EM_FDR_Bags_train3c.py \
+  ./prism_FDR_Bags_train3c.py \
   --basePath "${basePath}" \
   --dataName "${shortN}" \
+  --emFitName "${emFitName}" \
+  --outFitName "${outFitName}" \
   --bag_idx "${bag_idx}" \
-  --bagsTag "${bagsTag}" \
-  --time_range_sec "${time_range_sec[@]}" \
-  --num_blocks "${num_blocks}" \
-  --num_scrambles 10 \
-  --num_states 2 \
-  --num_em_iters "${num_em_iters}" \
-  --batch_size 4096 \
-  --delay_em_iter_4_lrDecay "${delay_em_iter_4_lrDecay[@]}" \
-  --delay_em_iter_4_ArhoMax "${delay_em_iter_4_ArhoMax[@]}" \
-  --delay_em_iter_4_Aprune "${delay_em_iter_4_Aprune}"
+  --bag_frac "${bagFrac}" \
+  --epochs "${bagEpochs}" \
+  --batch_size "${batchSize}" \
+  --num_scrambles "${numScrambles}" \
+  --init_A ref \
+  --init_B ref \
+  --null_A_init scrambled_data \
+  --null_B_init scrambled_data
 
 echo
-echo "S: Stage (a) bag fit done for bag_idx=${bag_idx}"
-#Cancel all my jobs:
-# squeue -u $USER -h | awk '{print $1}' | xargs scancel
-
-# all jobs in the qos
-# squeue --qos=gpu_shared -o "%.7i %.10P %.12j %.8u %.2t %.10M %.6D %R %.20N"
+echo "S: FDR locked-bag fit done for bag_idx=${bag_idx}"

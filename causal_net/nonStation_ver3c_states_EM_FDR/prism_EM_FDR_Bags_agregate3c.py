@@ -4,6 +4,7 @@
 import argparse
 import itertools
 import os
+import secrets
 import time
 
 import numpy as np
@@ -45,13 +46,15 @@ def parse_args():
     parser.add_argument("--basePath", required=True,
                         help="Run directory containing prismFDR/ and prismFit/")
     parser.add_argument("--dataName", required=True,
-                        help="Original spike dataset short name")
+                        help="Stage (a) bag input stem in prismFDR/")
+    parser.add_argument("--outAgrName", default=None,
+                        help="Output aggregate fit stem written to prismFit/; default is dataName plus random _hash4")
     parser.add_argument("--num_bags", type=int, required=True,
                         help="Number of bag files to aggregate; e.g. 2 means bag000 and bag001")
     parser.add_argument("--per_bag_quantile", type=float, default=0.99,
-                        help="Per-row null magnitude quantile for bag selection")
-    parser.add_argument("--sel_prob", type=float, default=0.7,
-                        help="Cross-bag selection frequency threshold")
+                        help="Per-source-column null magnitude quantile for bag selection")
+    parser.add_argument("--stab_sel_thresh", type=float, default=0.7,
+                        help="Cross-bag stability selection frequency threshold")
     parser.add_argument("--fdr_out_dir", default=None,
                         help="Directory containing Stage (a) bag files")
     parser.add_argument("-v", "--verb", type=int, default=1)
@@ -66,7 +69,7 @@ def bag_indices_from_count(num_bags):
     return list(range(int(num_bags)))
 
 
-def source_type_prune(A_hat):
+def source_type_prune(A_hat, min_posW, max_negW):
     """Compute source-neuron signs and Dale-style pruned A using columns."""
     A_hat = np.asarray(A_hat, dtype=np.float32)
     n_neuron = A_hat.shape[0]
@@ -75,8 +78,8 @@ def source_type_prune(A_hat):
 
     neuron_sedge = A_thr.sum(axis=0)
     neuron_type = np.zeros((n_neuron,), dtype=np.int8)
-    neuron_type[neuron_sedge > 0.0] = 1
-    neuron_type[neuron_sedge < 0.0] = -1
+    neuron_type[neuron_sedge > float(min_posW)] = 1
+    neuron_type[neuron_sedge < float(max_negW)] = -1
 
     A_prune = A_hat.copy()
     diag_A = np.diag(A_hat).copy()
@@ -86,6 +89,16 @@ def source_type_prune(A_hat):
     A_prune[:, inh_cols] = np.where(A_prune[:, inh_cols] < 0, A_prune[:, inh_cols], 0.0)
     np.fill_diagonal(A_prune, diag_A)
     return A_prune.astype(np.float32), neuron_type, neuron_sedge.astype(np.float32)
+
+
+def selected_weight_thresholds(A_hat, selected_mask):
+    A = np.asarray(A_hat, dtype=np.float64)
+    mask = np.asarray(selected_mask, dtype=bool)
+    pos = A[mask & (A > 0.0)]
+    neg = A[mask & (A < 0.0)]
+    min_posW = float(np.min(pos)) if pos.size else float("nan")
+    max_negW = float(np.max(neg)) if neg.size else float("nan")
+    return min_posW, max_negW
 
 
 def load_bags(args):
@@ -183,7 +196,7 @@ def sd_or_nan(x, axis):
     return np.std(x, axis=axis, ddof=1)
 
 
-def aggregate_edges(a_bag, a_null, per_bag_quantile, sel_prob):
+def aggregate_edges(a_bag, a_null, per_bag_quantile, stab_sel_thresh):
     """Return Stage (b) matrices and diagnostics."""
     a_bag = np.asarray(a_bag, dtype=np.float64)
     a_null = np.asarray(a_null, dtype=np.float64)
@@ -197,16 +210,16 @@ def aggregate_edges(a_bag, a_null, per_bag_quantile, sel_prob):
     null_sd_bag = np.zeros((n_bag, n), dtype=np.float64)
 
     for ib in range(n_bag):
-        for i in range(n):
-            vals = a_null[ib, :, i, :][:, off_mask[i]].reshape(-1)
-            tau[ib, i] = float(np.quantile(np.abs(vals), per_bag_quantile))
-            null_mean_bag[ib, i] = float(np.mean(vals))
-            null_sd_bag[ib, i] = float(np.std(vals, ddof=1)) if vals.size > 1 else np.nan
+        for j in range(n):
+            vals = a_null[ib, :, :, j][:, off_mask[:, j]].reshape(-1)
+            tau[ib, j] = float(np.quantile(np.abs(vals), per_bag_quantile))
+            null_mean_bag[ib, j] = float(np.mean(vals))
+            null_sd_bag[ib, j] = float(np.std(vals, ddof=1)) if vals.size > 1 else np.nan
 
-    sel = (np.abs(a_bag) > tau[:, :, None]) & off_mask[None, :, :]
+    sel = (np.abs(a_bag) > tau[:, None, :]) & off_mask[None, :, :]
     sel_count = sel.sum(axis=0).astype(np.int64)
     sel_freq = sel_count.astype(np.float64) / float(n_bag)
-    final_sel = (sel_freq >= float(sel_prob)) & off_mask
+    final_sel = (sel_freq >= float(stab_sel_thresh)) & off_mask
 
     a_mean_all = np.mean(a_bag, axis=0)
     a_sd_all = sd_or_nan(a_bag, axis=0)
@@ -227,12 +240,12 @@ def aggregate_edges(a_bag, a_null, per_bag_quantile, sel_prob):
             elif vals.size == 1:
                 a_sd_sel[i, j] = 0.0
 
-    row_null_mean = np.zeros((n,), dtype=np.float64)
-    row_null_sd = np.zeros((n,), dtype=np.float64)
-    for i in range(n):
-        vals = a_null[:, :, i, :][:, :, off_mask[i]].reshape(-1)
-        row_null_mean[i] = float(np.mean(vals))
-        row_null_sd[i] = float(np.std(vals, ddof=1)) if vals.size > 1 else np.nan
+    src_null_mean = np.zeros((n,), dtype=np.float64)
+    src_null_sd = np.zeros((n,), dtype=np.float64)
+    for j in range(n):
+        vals = a_null[:, :, :, j][:, :, off_mask[:, j]].reshape(-1)
+        src_null_mean[j] = float(np.mean(vals))
+        src_null_sd[j] = float(np.std(vals, ddof=1)) if vals.size > 1 else np.nan
 
     a_hat_final = np.zeros((n, n), dtype=np.float64)
     a_hat_final[final_sel] = a_mean_sel[final_sel]
@@ -240,18 +253,18 @@ def aggregate_edges(a_bag, a_null, per_bag_quantile, sel_prob):
     np.fill_diagonal(a_hat_final, diag)
 
     z_null = np.full((n, n), np.nan, dtype=np.float64)
-    denom = row_null_sd[:, None]
+    denom = src_null_sd[None, :]
     with np.errstate(invalid="ignore", divide="ignore"):
-        z_null = (a_mean_sel - row_null_mean[:, None]) / denom
+        z_null = (a_mean_sel - src_null_mean[None, :]) / denom
     z_null[~off_mask] = np.nan
 
-    selected_edges_per_bag_row = sel.sum(axis=2).astype(np.int64)
+    selected_edges_per_bag_src = sel.sum(axis=1).astype(np.int64)
     selected_edges_per_bag = sel.sum(axis=(1, 2)).astype(np.int64)
     p_cand = int(n * (n - 1))
     q_lambda = float(np.mean(selected_edges_per_bag))
-    if float(sel_prob) > 0.5:
+    if float(stab_sel_thresh) > 0.5:
         stability_false_edge_bound = q_lambda * q_lambda / (
-            float(p_cand) * (2.0 * float(sel_prob) - 1.0)
+            float(p_cand) * (2.0 * float(stab_sel_thresh) - 1.0)
         )
     else:
         stability_false_edge_bound = np.inf
@@ -266,14 +279,14 @@ def aggregate_edges(a_bag, a_null, per_bag_quantile, sel_prob):
         "A_sd_selected": a_sd_sel,
         "A_mean_all": a_mean_all,
         "A_sd_all": a_sd_all,
-        "row_null_tau_bag": tau,
-        "row_null_tau_mean": np.mean(tau, axis=0),
-        "row_null_mean": row_null_mean,
-        "row_null_sd": row_null_sd,
-        "row_null_mean_bag": null_mean_bag,
-        "row_null_sd_bag": null_sd_bag,
+        "src_null_tau_bag": tau,
+        "src_null_tau_mean": np.mean(tau, axis=0),
+        "src_null_mean": src_null_mean,
+        "src_null_sd": src_null_sd,
+        "src_null_mean_bag": null_mean_bag,
+        "src_null_sd_bag": null_sd_bag,
         "z_null": z_null,
-        "selected_edges_per_bag_row": selected_edges_per_bag_row,
+        "selected_edges_per_bag_src": selected_edges_per_bag_src,
         "selected_edges_per_bag": selected_edges_per_bag,
         "q_lambda": q_lambda,
         "p_cand": p_cand,
@@ -292,14 +305,14 @@ def edge_table(final_sel, agg):
         "edge_z_null": agg["z_null"][edge_i, edge_j].astype(np.float32),
         "edge_A_mean_all": agg["A_mean_all"][edge_i, edge_j].astype(np.float32),
         "edge_A_sd_all": agg["A_sd_all"][edge_i, edge_j].astype(np.float32),
-        "edge_row_null_mean": agg["row_null_mean"][edge_i].astype(np.float32),
-        "edge_row_null_sd": agg["row_null_sd"][edge_i].astype(np.float32),
-        "edge_row_tau_mean": agg["row_null_tau_mean"][edge_i].astype(np.float32),
+        "edge_src_null_mean": agg["src_null_mean"][edge_j].astype(np.float32),
+        "edge_src_null_sd": agg["src_null_sd"][edge_j].astype(np.float32),
+        "edge_src_tau_mean": agg["src_null_tau_mean"][edge_j].astype(np.float32),
     }
 
 
 def real_fit_metadata(md):
-    if "bagsFDR_stageA" in md:
+    if "bagsFDR_stageA" in md and "real_fit" in md["bagsFDR_stageA"]:
         return md["bagsFDR_stageA"]["real_fit"]
     return md
 
@@ -429,8 +442,8 @@ def main():
         raise ValueError("--num_bags must be at least 1")
     if not (0.0 < float(args.per_bag_quantile) < 1.0):
         raise ValueError("--per_bag_quantile must be between 0 and 1")
-    if not (0.0 < float(args.sel_prob) <= 1.0):
-        raise ValueError("--sel_prob must be in (0, 1]")
+    if not (0.0 < float(args.stab_sel_thresh) <= 1.0):
+        raise ValueError("--stab_sel_thresh must be in (0, 1]")
 
     t0 = time.perf_counter()
     bag_data, bag_meta, bag_files, inp_dir = load_bags(args)
@@ -444,16 +457,18 @@ def main():
         else np.asarray(d["B_hat"], dtype=np.float32)[None, :]
         for d in bag_data
     ], axis=0)
-    b_aligned, state_perms = align_state_rows_to_reference(b_bag)
+    b_aligned = b_bag
+    state_perms = np.tile(np.arange(n_state, dtype=np.int64), (int(args.num_bags), 1))
 
     agg = aggregate_edges(
         a_bag, a_null,
         per_bag_quantile=float(args.per_bag_quantile),
-        sel_prob=float(args.sel_prob),
+        stab_sel_thresh=float(args.stab_sel_thresh),
     )
 
     a_hat = agg["A_hat_final"].astype(np.float32)
-    a_prune, neuron_type, neuron_sedge = source_type_prune(a_hat)
+    min_posW, max_negW = selected_weight_thresholds(a_hat, agg["selected_mask"])
+    a_prune, neuron_type, neuron_sedge = source_type_prune(a_hat, min_posW, max_negW)
     b_hat = np.mean(b_aligned, axis=0).astype(np.float32)
 
     ref_d = bag_data[0]
@@ -471,7 +486,7 @@ def main():
 
     out_d.update({
         "A_bag": a_bag.astype(np.float32),
-        "B_bag_aligned": b_aligned.astype(np.float32),
+        "B_bag": b_aligned.astype(np.float32),
         "state_permutation_to_ref": state_perms.astype(np.int64),
         "selected_mask": agg["selected_mask"].astype(np.bool_),
         "selected_in_bag": agg["selected_in_bag"].astype(np.bool_),
@@ -481,19 +496,19 @@ def main():
         "A_sd_selected": agg["A_sd_selected"].astype(np.float32),
         "A_mean_all": agg["A_mean_all"].astype(np.float32),
         "A_sd_all": agg["A_sd_all"].astype(np.float32),
-        "row_null_tau_bag": agg["row_null_tau_bag"].astype(np.float32),
-        "row_null_tau_mean": agg["row_null_tau_mean"].astype(np.float32),
-        "row_null_mean": agg["row_null_mean"].astype(np.float32),
-        "row_null_sd": agg["row_null_sd"].astype(np.float32),
-        "row_null_mean_bag": agg["row_null_mean_bag"].astype(np.float32),
-        "row_null_sd_bag": agg["row_null_sd_bag"].astype(np.float32),
+        "src_null_tau_bag": agg["src_null_tau_bag"].astype(np.float32),
+        "src_null_tau_mean": agg["src_null_tau_mean"].astype(np.float32),
+        "src_null_mean": agg["src_null_mean"].astype(np.float32),
+        "src_null_sd": agg["src_null_sd"].astype(np.float32),
+        "src_null_mean_bag": agg["src_null_mean_bag"].astype(np.float32),
+        "src_null_sd_bag": agg["src_null_sd_bag"].astype(np.float32),
         "z_null": agg["z_null"].astype(np.float32),
-        "selected_edges_per_bag_row": agg["selected_edges_per_bag_row"].astype(np.int64),
+        "selected_edges_per_bag_src": agg["selected_edges_per_bag_src"].astype(np.int64),
         "selected_edges_per_bag": agg["selected_edges_per_bag"].astype(np.int64),
     })
     out_d.update(edge_table(agg["selected_mask"], agg))
 
-    out_name = f"{args.dataName}_bags{int(args.num_bags)}"
+    out_name = args.outAgrName or f"{args.dataName}_{secrets.token_hex(2)}"
     out_dir = os.path.join(args.basePath, "prismFit")
     os.makedirs(out_dir, exist_ok=True)
     out_f = os.path.join(out_dir, f"{out_name}.prismEM.npz")
@@ -503,25 +518,30 @@ def main():
     out_md["bagsFDR_stageB"] = {
         "program": "prism_EM_FDR_Bags_agregate3c.py",
         "dataName": args.dataName,
+        "input_dataName": args.dataName,
+        "outAgrName": out_name,
         "output_name": out_name,
         "num_bags": int(args.num_bags),
         "expected_bag_indices": bag_indices_from_count(args.num_bags),
         "per_bag_quantile": float(args.per_bag_quantile),
-        "sel_prob": float(args.sel_prob),
+        "stab_sel_thresh": float(args.stab_sel_thresh),
         "fdr_out_dir": inp_dir,
         "input_files": bag_files,
-        "reference_bag_idx": 0,
+        "reference_state_source": "reference_EM_fit_locked_in_stageA",
         "reference_time_fields": [
             "A_init", "B_init", "freq_h1d", "c_init", "c_hat",
             "S_init", "S_hat", "S_hat_CL", "EM histories",
         ],
+        "null_threshold_axis": "source_column",
         "A_hat_meaning": "selection_conditional_bagged_mean_for_stable_edges_zero_elsewhere",
         "A_hat_diagonal": "all_bag_mean_diagonal",
-        "B_hat_meaning": "mean_across_bags_after_B_row_alignment_to_bag0",
+        "B_hat_meaning": "mean_across_bags_in_reference_state_order",
         "state_permutation_to_ref": state_perms.tolist(),
         "num_neurons": int(n_neuron),
         "num_states": int(n_state),
         "num_final_edges": int(np.sum(agg["selected_mask"])),
+        "min_posW": min_posW,
+        "max_negW": max_negW,
         "q_lambda_mean_edges_selected_per_bag": float(agg["q_lambda"]),
         "p_cand": int(agg["p_cand"]),
         "stability_false_edge_bound": float(agg["stability_false_edge_bound"]),
@@ -532,13 +552,14 @@ def main():
     prov["EMtrain_file"] = out_name
     prov["bagsFDR_stageB_file"] = out_name
     prov["bagsFDR_stageB_dataName"] = args.dataName
+    prov["bagsFDR_stageB_outAgrName"] = out_name
     out_md["provenance"] = prov
     out_md = add_fit_eval_metadata(out_d, out_md, args.basePath, verb=args.verb)
 
     if args.verb > 0:
         print(
             f"Stage (b): bags={args.num_bags} N={n_neuron} "
-            f"q={args.per_bag_quantile:g} sel_prob={args.sel_prob:g}"
+            f"q={args.per_bag_quantile:g} stab_sel_thresh={args.stab_sel_thresh:g}"
         )
         print(
             f"  selected final edges: {int(np.sum(agg['selected_mask']))} / "
@@ -548,7 +569,7 @@ def main():
             f"  q_lambda={agg['q_lambda']:.3f} "
             f"stability_false_edge_bound={agg['stability_false_edge_bound']:.3f}"
         )
-    write_data_npz(out_d, out_f, metaD=out_md, verb=args.verb > 0)
+    write_data_npz(out_d, out_f, metaD=out_md, verb=args.verb > 1)
     if args.verb > 0:
         print(f"\nSaved Stage (b) aggregate: {out_f}")
         print(

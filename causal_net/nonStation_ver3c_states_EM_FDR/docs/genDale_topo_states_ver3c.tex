@@ -29,8 +29,9 @@ We describe the two-script pipeline that produces synthetic non-stationary
 neural population spike trains for benchmarking latent-state inference
 algorithms (e.g.\ PRISM-EM).
 \textbf{Stage~1} constructs a source-column Dale-style weight matrix
-$A_{\text{true}}$ with prescribed spectral radius $R<1$ and $M$ bias
-vectors $\{B_m\}_{m=0}^{M-1}$, one per dynamical state.
+$A_{\text{true}}$ with prescribed spectral radius $R<1$, $M$ bias
+vectors $\{B_m\}_{m=0}^{M-1}$, one per dynamical state, and static
+two-dimensional node locations.
 Stationary spike trains under each bias are generated as a
 firing-rate sanity check.
 \textbf{Stage~2} loads the ground-truth dictionary, schedules transitions
@@ -68,6 +69,8 @@ vector $B_m$.
         $\rho(A_{\text{true}}) = R$;
   \item $M$ bias vectors $B_{\text{true}} \in \mathbb{R}^{M \times N}$,
         one per state.
+  \item static node-location arrays: coordinates, Dale type labels, and
+        pairwise Euclidean distances.
 \end{itemize}
 Stationary spikes under each $B_m$ are simulated and their
 firing-rate statistics are reported.
@@ -134,6 +137,9 @@ and
 The \texttt{.simTruth.npz} file is the required input for Stage~2. The
 \texttt{.spikes.npz} file in \texttt{truthDale} contains stationary
 sanity-check spikes, not the final switching dataset.
+The static spatial information for the simulated nodes is also stored in
+\texttt{.simTruth.npz}; it is not duplicated into the stationary
+\texttt{truthDale/*.spikes.npz} file.
 
 \paragraph{Stage 2 input and output.}
 \texttt{gen\_nonStationarySpikes3c.py} reads
@@ -180,6 +186,10 @@ CLI flag & Default & Description \\
   Idle firing-rate band \\
 \texttt{--Boffsets} $\{\delta_m\}$ & $[0.0]$ &
   Per-state log-rate offsets (one bias vector per entry) \\
+\texttt{--placement\_H\_L\_delta} & $[1.0,\,2.0,\,2.0]$ &
+  Node-placement height, width, and recorded distance-kernel exponent \\
+\texttt{--placement\_min\_dist} & $0.01$ &
+  Grid spacing and minimum inter-node separation \\
 \texttt{--num\_steps} $T$ & 10\,001 &
   Steps for the stationary sanity-check simulation \\
 \texttt{--step\_size} $\Delta t$ & 0.01\,s & Time-bin width \\
@@ -187,7 +197,7 @@ CLI flag & Default & Description \\
   Root output directory \\
 \bottomrule
 \end{tabular}
-\caption{Key command-line arguments of \texttt{gen\_daleMatrices3.py}.}
+\caption{Key command-line arguments of \texttt{gen\_daleMatrices3c.py}.}
 \label{tab:dale_args}
 \end{table}
 
@@ -196,24 +206,57 @@ CLI flag & Default & Description \\
 \begin{algorithm}[H]
 \caption{Dale Matrix Generation (\texttt{gen\_daleMatrices3c.py})}
 \begin{algorithmic}[1]
-\STATE \textbf{Step 1:} Generate sparse binary connectivity mask
+\STATE \textbf{Step 1:} Generate static 2D node coordinates on a rectangular
+       placement grid without replacement
+       (\texttt{generate\_node\_locations})
+\STATE \textbf{Step 2:} Generate sparse binary connectivity mask
        $E_{\text{true}} \in \{0,1\}^{N\times N}$
        (\texttt{generate\_sparse\_mask})
-\STATE \textbf{Step 2:} Generate weight matrix $A_{\text{true}}$ with
+\STATE \textbf{Step 3:} Generate weight matrix $A_{\text{true}}$ with
        Dale E/I balance, negative self-loops, and spectral radius $R$
        (\texttt{init\_W})
-\STATE \textbf{Step 3:} For each offset $\delta_m$ in \texttt{Boffsets}:
+\STATE \textbf{Step 4:} For each offset $\delta_m$ in \texttt{Boffsets}:
 \begin{ALC@g}
   \STATE Generate bias vector $B_m$ (\texttt{set\_flat\_selfSpiking})
   \STATE Simulate stationary spikes $Y^{(m)}$
          (\texttt{gen\_stationary\_lag1\_poisson})
   \STATE Compute firing-rate statistics (\texttt{estimate\_rates})
 \end{ALC@g}
-\STATE \textbf{Step 4:} Save ground-truth and spike files
+\STATE \textbf{Step 5:} Save ground-truth and spike files
 \end{algorithmic}
 \end{algorithm}
 
-\subsubsection{Step 1: Sparse Connectivity Mask}
+\subsubsection{Step 1: Static Node Placement}
+\label{sec:node_placement}
+
+The generator samples one fixed two-dimensional location for every neuron
+before constructing the graph. The placement domain is a rectangle
+\([0,L]\times[0,H]\), where \(L\) and \(H\) are taken from
+\texttt{--placement\_H\_L\_delta}. The domain is discretized on a grid with
+spacing
+\[
+d_{\min}=\texttt{placement\_min\_dist},
+\]
+and \(N\) grid points are sampled without replacement. Thus no two neurons
+share a coordinate, and the minimum separation is at least \(d_{\min}\) in
+the grid metric. The saved coordinate array is
+\[
+\texttt{node\_positions}[i] = (x_i,y_i),\qquad
+\texttt{node\_positions}\in\mathbb{R}^{N\times 2}.
+\]
+The script also saves the full Euclidean distance matrix
+\[
+D_{ij} = \sqrt{(x_i-x_j)^2 + (y_i-y_j)^2}
+\]
+as \texttt{node\_distance\_matrix}, with zero diagonal. The third value in
+\texttt{--placement\_H\_L\_delta} is recorded as
+\texttt{placement\_ker\_delta} for topology provenance; in this generator it
+does not alter the Dale matrix, whose connectivity mask is still controlled
+by \texttt{--edge\_prob}. Finally, \texttt{node\_is\_inhibitory} records the
+Dale type of each source neuron, using \(0\) for excitatory and \(1\) for
+inhibitory.
+
+\subsubsection{Step 2: Sparse Connectivity Mask}
 \label{sec:mask}
 
 Each neuron $i$ independently draws its connection probability:
@@ -232,7 +275,7 @@ The binary mask entry is
 Self-loops are \emph{always} included: $(E_{\text{true}})_{ii} = 1$
 for all $i$, encoding the mandatory negative self-connection added below.
 
-\subsubsection{Step 2: Weight Matrix with Dale's Principle}
+\subsubsection{Step 3: Weight Matrix with Dale's Principle}
 \label{sec:weights}
 
 \paragraph{E/I balance ratio.}
@@ -285,7 +328,7 @@ For $R < 1$ the operator $A_{\text{true}}$ is contracting, which is
 a sufficient condition for the stationary Poisson VAR(1) to have a
 well-defined stationary distribution.
 
-\subsubsection{Step 3: Bias Vectors and Stationary Spike Check}
+\subsubsection{Step 4: Bias Vectors and Stationary Spike Check}
 \label{sec:bias}
 
 \paragraph{Bias generation (\texttt{set\_flat\_selfSpiking}).}
@@ -356,13 +399,19 @@ All files are written to \texttt{<basePath>/truthDale/}.
 \toprule
 File & Array key & Shape & Description \\
 \midrule
-\multirow{3}{*}{\texttt{<dataName>.simTruth.npz}}
+\multirow{6}{*}{\texttt{<dataName>.simTruth.npz}}
   & \texttt{A\_true} & $(N,N)$ float &
       Shared weight matrix, $\rho(A_{\text{true}})=R$ \\
   & \texttt{B\_true} & $(M,N)$ float &
       Per-state bias vectors \\
   & \texttt{E\_true} & $(N,N)$ int &
       Binary connectivity mask \\
+  & \texttt{node\_positions} & $(N,2)$ float &
+      Static node coordinates $(x,y)$ \\
+  & \texttt{node\_is\_inhibitory} & $(N,)$ int &
+      Dale type label: 0 excitatory, 1 inhibitory \\
+  & \texttt{node\_distance\_matrix} & $(N,N)$ float &
+      Pairwise Euclidean distances between node positions \\
 \midrule
 \multirow{4}{*}{\texttt{<dataName>.spikes.npz}}
   & \texttt{spikes} & $(M,T,N)$ uint8 &
@@ -562,7 +611,7 @@ File & Array key & Shape & Description \\
   & \texttt{single\_rates} & $(N,)$ float &
       Mean firing rates over the full record (Hz) \\
 \midrule
-\multirow{7}{*}{\texttt{<dataName>.prismTruth.npz}}
+\multirow{8}{*}{\texttt{<dataName>.prismTruth.npz}}
   & \texttt{A\_true} & $(N,N)$ float &
       Shared weight matrix (copy from Stage 1) \\
   & \texttt{B\_true} & $(M,N)$ float &
@@ -585,6 +634,12 @@ File & Array key & Shape & Description \\
   $T = \texttt{num\_steps}$; $M = \texttt{num\_states}$.}
 \label{tab:stage2_output}
 \end{table}
+
+Stage~2 copies the dynamical ground-truth arrays needed for state evaluation
+(\(A_{\text{true}}\), \(B_{\text{true}}\), state labels, and oracle
+quantities) into \texttt{spikesData}. Static node positions are intentionally
+not copied; plotting code that needs spatial coordinates should read
+\texttt{truthDale/<inputStates>.simTruth.npz}.
 
 The metadata dictionary \texttt{evol\_conf} records $T$, $\Delta t$,
 total time, $\nu$, requested and effective dwell times (seconds and bins),
@@ -656,7 +711,9 @@ mkdir -p $basePath/truthDale
     --basePath $basePath
 \end{verbatim}
 Produces \texttt{myData.simTruth.npz} ($A_{\text{true}}$,
-$B_{\text{true}}$, $E_{\text{true}}$; $M=3$ states here) and
+$B_{\text{true}}$, $E_{\text{true}}$, \texttt{node\_positions},
+\texttt{node\_is\_inhibitory}, and \texttt{node\_distance\_matrix};
+$M=3$ states here) and
 \texttt{myData.spikes.npz} (stationary sanity-check arrays,
 shape $(3, T, N)$), both under \texttt{\$basePath/truthDale/}.
 
@@ -670,7 +727,8 @@ Produces \texttt{myData\_sw.spikes.npz} (shape $(T, N)$) and
 \texttt{myData\_sw.prismTruth.npz} ($S_{\text{true}}$,
 $C_{\text{true}}$, $S_{\text{oracle}}$, transition matrix, and
 copies of $A_{\text{true}}$, $B_{\text{true}}$), both under
-\texttt{\$basePath/spikesData/}.
+\texttt{\$basePath/spikesData/}. Static node coordinates remain in
+\texttt{\$basePath/truthDale/myData.simTruth.npz}.
 
 \item \textbf{Fit with PRISM-EM}:
 \begin{verbatim}
