@@ -109,7 +109,7 @@ def main():
 
         if is_rank0(ctx):
             outFF = os.path.join(outPath, f"{outF}.prismEM.npz")
-            write_data_npz(fitD, outFF, metaD=fitMD)
+            write_data_npz(fitD, outFF, metaD=fitMD, verb=args.verb > 1)
             print(f"\nSaved: {outFF}")
             print(f"  basePath={args.basePath}")
             print(

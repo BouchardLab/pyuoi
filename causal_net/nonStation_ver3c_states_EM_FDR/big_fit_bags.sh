@@ -4,6 +4,7 @@
 
 set -euo pipefail
 export OMP_NUM_THREADS=1
+SECONDS=0
 
 module load pytorch
 cd "$(dirname "$0")"
@@ -11,17 +12,18 @@ cd "$(dirname "$0")"
 # ---------- dataset selection ----------
 # Synthetic example
 #basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3c
-#shortN=daleN200_55e5a6_ff089c  # N200 3/21 Hz
+#shortN=daleN200_55e5a6_ff089c  # N200 3/21  Hz
 #shortN=daleN200_f33b3b_7d8ff1  # N200 6/11  Hz
-#shortN=daleN200_74e6d6_e2b7d7 # N200 12/21
-#shortN=daleN100_d4f303_4abc4c  # N100 13/27  Hz
+#shortN=daleN200_74e6d6_e2b7d7  # N200 12/21 Hz
+#shortN=daleN100_d4f303_4abc4c  # N100 13/27 Hz
 #numStates=2
-timeRange=(0 3600)
 
 # Experimental example
 basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3c
-shortN=Canine_260324_r23_w0_1hz
-numStates=2
+#shortN=Canine_260324_r23_w0_1hz; numStates=2
+shortN=Canine_260324_r21_w0_1hz; numStates=1
+#timeRange=(0 3600)
+#timeRange=(0 1800)
 timeRange=(1800 3600)
 #timeRange=(0 300)
 
@@ -31,26 +33,22 @@ numEMepochs=2
 emBatchSize=4096
 
 # ---------- FDR bags: locked A/B fitting ----------
-numBags=6
+numBags=11
 bagFrac=0.8
-bagEpochs=120
-numScrambles=4
+bagEpochs=180
+numScrambles=6
 bagBatchSize=4096
 runAggregate=1
 
-if [[ -n "${SLURM_JOB_ID:-}" ]]; then
-    bagTag="j${SLURM_JOB_ID: -4}"
-else
-    bagTag="local"
-fi
+runTag="$(python3 -c 'import secrets; print(secrets.token_hex(2))')"
 
 echo "basePath=$basePath"
 echo "dataName=$shortN"
-echo "bagTag=$bagTag"
+echo "runTag=$runTag"
 echo "timeRange=${timeRange[*]}  numStates=$numStates"
-emFitName="${shortN}_em${bagTag}"
-fdrFitName="${emFitName}_rmf${bagTag}"
-fdrAgrName="${fdrFitName}_agr${bagTag}"
+emFitName="${shortN}_em${runTag}"
+fdrFitName="${emFitName}_fdr${runTag}"
+fdrAgrName="${fdrFitName}_agr${runTag}"
 
 echo "emFitName=$emFitName"
 echo "fdrFitName=$fdrFitName"
@@ -75,7 +73,7 @@ time torchrun --standalone --nnodes=1 --nproc_per_node=4 \
 echo
 echo "=== FDR bags: locked M-step A/B fits ==="
 for ((bag=0; bag<numBags; bag++)); do
-    printf "\n--- bag %03d/%03d ---\n" "$bag" "$((numBags - 1))"
+    printf "\n--- bag %03d/%03d, elapsed %.1f min ---\n" "$bag" "$((numBags - 1))" "$(awk "BEGIN {print $SECONDS/60.0}")"
     time torchrun --standalone --nnodes=1 --nproc_per_node=4 \
       ./prism_FDR_Bags_train3c.py \
       --basePath "$basePath" \
@@ -97,7 +95,7 @@ if [[ "$runAggregate" == "1" ]]; then
       --dataName "$fdrFitName" \
       --outAgrName "$fdrAgrName" \
       --num_bags "$numBags" \
-      --per_bag_quantile 0.99 \
+      --per_bag_quantile 0.97 \
       --stab_sel_thresh 0.7
 fi
 

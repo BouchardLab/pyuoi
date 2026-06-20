@@ -19,6 +19,8 @@ class Plotter(PlotterBackbone):
         PlotterBackbone.__init__(self, args)
 
     def figId2name(self, fid):
+        if isinstance(fid, str):
+            return f"{self.jobName}_{fid}"
         return f"{self.jobName}_f{fid}"
 
     def smart_append(self, fig_id):
@@ -617,6 +619,11 @@ class Plotter(PlotterBackbone):
         fig = self.plt.figure(figId, facecolor="white", figsize=(14, 8))
         gs = fig.add_gridspec(2, 3, height_ratios=[1.0, 1.15], hspace=0.45, wspace=0.35)
 
+        _, n_diag_prune, n_off_prune = self._count_A_edges(A_prune)
+        cnt_src_prune, _ = self._source_nz_edge_stats(A_prune)
+        sum_nedge_prune = int(np.sum(cnt_src_prune))
+        x_src = np.arange(n_neuron, dtype=np.int64)
+
         ax = fig.add_subplot(gs[0, 0])
         for cls, color, label in [
             (1, "magenta", f"exc={n_exc}"),
@@ -643,28 +650,180 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.35)
 
         ax = fig.add_subplot(gs[0, 1])
-        ax.hist(nedge, bins=n_bins, color="tab:blue", alpha=0.85)
-        add_hist_percentile_marker(ax, nedge, fmt=".0f")
-        ax.set(
-            title=f"Nedge, N={n_neuron}, sum Nedge={int(np.sum(nedge))}",
-            xlabel="Nedge (# outgoing edges per source column)",
-            ylabel="nodes",
+        self._draw_A_offdiag_hist(ax, A_prune, "A_prune off-diagonal", weight_lines=(max_negW, min_posW))
+        ax.text(
+            0.98, 0.97, f"sum Nedge={sum_nedge_prune:d}", transform=ax.transAxes,
+            va="top", ha="right", fontsize=9, color="k",
+            bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=2),
         )
-        ax.grid(True, alpha=0.35)
 
         ax = fig.add_subplot(gs[0, 2])
-        ax.hist(sedge, bins=n_bins, color="tab:green", alpha=0.85)
-        ax.set(title=f"Sedge distribution, N={n_neuron}", xlabel="Sedge", ylabel="nodes")
+        ax.plot(x_src, cnt_src_prune, color="tab:blue", linewidth=1.0)
+        med_cnt = int(np.median(cnt_src_prune))
+        ax.axhline(med_cnt, color="green", ls="--", lw=1.0, alpha=0.9)
+        ax.text(
+            0.02, 0.95, f"median={med_cnt:d}", transform=ax.transAxes,
+            va="top", ha="left", fontsize=9, color="green",
+        )
+        ax.set_title("A_prune: # non-zero edges")
+        ax.set_xlabel("source neuron index (column)")
+        ax.set_ylabel("# outgoing non-zero edges")
+        ax.grid(True, alpha=0.35)
+        self._overlay_single_rates(ax, single_rates, x_src)
+
+        ax = fig.add_subplot(gs[1, 0])
+        single_rates = np.asarray(single_rates, dtype=np.float64).ravel()
+        for cls, color, label in [
+            (1, "magenta", f"exc={n_exc}"),
+            (-1, "#39FF14", f"inh={n_inh}"),
+            (0, "salmon", f"und={n_und}"),
+        ]:
+            mask = neuron_type == cls
+            if cls == 0:
+                ax.scatter(
+                    nedge[mask], single_rates[mask], s=18, marker="o",
+                    alpha=0.80, color=color, edgecolors="k",
+                    linewidths=0.35, label=label,
+                )
+            else:
+                ax.scatter(nedge[mask], single_rates[mask], s=16, marker=".", alpha=0.80, color=color, label=label)
+        ax.set(title="Nedge vs frequency", xlabel="Nedge (# outgoing edges per source column)", ylabel="frequency (Hz)")
+        ax.legend(loc="best", fontsize=9)
         ax.grid(True, alpha=0.35)
 
-        self._draw_A_matrix_summary_3cols(
-            fig, gs, 1, A_prune, "A_prune", single_rates,
-            num_exc=num_exc, weight_lines=(max_negW, min_posW),
+        ax = fig.add_subplot(gs[1, 1])
+        off_mask = ~np.eye(n_neuron, dtype=bool)
+        med_weight = np.zeros((n_neuron,), dtype=np.float64)
+        for j in range(n_neuron):
+            vals = A_est[off_mask[:, j], j]
+            vals = vals[vals != 0.0]
+            if vals.size:
+                med_weight[j] = float(np.median(vals))
+        for cls, color, label in [
+            (1, "magenta", f"exc={n_exc}"),
+            (-1, "#39FF14", f"inh={n_inh}"),
+            (0, "salmon", f"und={n_und}"),
+        ]:
+            mask = neuron_type == cls
+            if cls == 0:
+                ax.scatter(
+                    med_weight[mask], single_rates[mask], s=18, marker="o",
+                    alpha=0.80, color=color, edgecolors="k",
+                    linewidths=0.35, label=label,
+                )
+            else:
+                ax.scatter(med_weight[mask], single_rates[mask], s=16, marker=".", alpha=0.80, color=color, label=label)
+        ax.axvline(0.0, color="tab:blue", ls="--", lw=0.8, alpha=0.9)
+        ax.set(title="Median weight vs frequency", xlabel="median outgoing edge weight", ylabel="frequency (Hz)")
+        ax.legend(loc="best", fontsize=9)
+        ax.grid(True, alpha=0.35)
+
+        ax = fig.add_subplot(gs[1, 2])
+        self._draw_A_matrix(
+            ax, A_prune, f"A_prune, nEdges={n_diag_prune}+{n_off_prune}",
+            num_exc=num_exc,
         )
 
         title_prefix = self.canvas_title_prefix(md)
         fig.suptitle(
             f"{title_prefix}, {est_label} per-source outgoing edges (column=source)",
+            fontsize=12,
+        )
+        fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.94])
+
+    def final_weight_distributions(self, fitD, md, figId="h"):
+        """Final non-truth weight summaries for FDR aggregate outputs."""
+        required = ("A_prune", "B_hat", "neuron_type", "A_diag_mean", "A_diag_stderr")
+        missing = [key for key in required if key not in fitD]
+        assert not missing, f"Plot h requires regenerated aggregate arrays; missing {missing}"
+
+        A_prune = np.asarray(fitD["A_prune"], dtype=np.float64)
+        B_hat = np.asarray(fitD["B_hat"], dtype=np.float64)
+        neuron_type = np.asarray(fitD["neuron_type"], dtype=np.int8)
+        diag_mean = np.asarray(fitD["A_diag_mean"], dtype=np.float64).ravel()
+        diag_stderr = np.asarray(fitD["A_diag_stderr"], dtype=np.float64).ravel()
+        assert A_prune.ndim == 2 and A_prune.shape[0] == A_prune.shape[1], "A_prune must be square"
+        n_neuron = A_prune.shape[0]
+        assert neuron_type.shape[0] == n_neuron, "neuron_type length must match A_prune"
+        assert diag_mean.shape[0] == n_neuron and diag_stderr.shape[0] == n_neuron, (
+            "A_diag_mean/A_diag_stderr length must match A_prune"
+        )
+        if B_hat.ndim == 1:
+            B_hat = B_hat[None, :]
+        assert B_hat.ndim == 2 and B_hat.shape[1] == n_neuron, "B_hat must have shape (M,N)"
+
+        off_mask = ~np.eye(n_neuron, dtype=bool)
+
+        def outgoing_values_for_type(type_value):
+            src_mask = neuron_type == int(type_value)
+            vals = A_prune[:, src_mask][off_mask[:, src_mask]]
+            return vals[np.abs(vals) > 1e-12]
+
+        exc_w = outgoing_values_for_type(1)
+        inh_w = outgoing_values_for_type(-1)
+        diag_vals = np.diag(A_prune)
+        n_exc = int(np.sum(neuron_type > 0))
+        n_inh = int(np.sum(neuron_type < 0))
+        n_und = int(np.sum(neuron_type == 0))
+
+        def mark_edge(ax, val):
+            if np.isfinite(val):
+                ax.axvline(val, color="tab:blue", ls="--", lw=0.8, alpha=0.9)
+                ax.text(
+                    val, 0.92, f"{val:.3f}", transform=ax.get_xaxis_transform(),
+                    va="top", ha="center", fontsize=8, color="tab:blue",
+                    rotation=90,
+                    bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=1),
+                )
+
+        figId = self.smart_append(figId)
+        fig = self.plt.figure(figId, facecolor="white", figsize=(14, 8))
+        gs = fig.add_gridspec(2, 3, hspace=0.45, wspace=0.35)
+
+        ax = fig.add_subplot(gs[0, 0])
+        ax.hist(exc_w, bins=80, color="magenta", alpha=0.75)
+        ax.axvline(0.0, color="k", ls="--", lw=0.8)
+        mark_edge(ax, float(np.min(exc_w[exc_w > 0.0])) if np.any(exc_w > 0.0) else float("nan"))
+        ax.set(title=f"Exc outgoing weights, neurons={n_exc}", xlabel="A_prune weight", ylabel="edges")
+        ax.grid(True, alpha=0.35)
+
+        ax = fig.add_subplot(gs[0, 1])
+        ax.hist(inh_w, bins=80, color="#39FF14", alpha=0.75)
+        ax.axvline(0.0, color="k", ls="--", lw=0.8)
+        mark_edge(ax, float(np.max(inh_w[inh_w < 0.0])) if np.any(inh_w < 0.0) else float("nan"))
+        ax.set(title=f"Inh outgoing weights, neurons={n_inh}", xlabel="A_prune weight", ylabel="edges")
+        ax.grid(True, alpha=0.35)
+
+        ax = fig.add_subplot(gs[0, 2])
+        ax.hist(diag_vals, bins=80, color="tab:blue", alpha=0.8)
+        ax.axvline(0.0, color="k", ls="--", lw=0.8)
+        ax.set(title="A diagonal", xlabel="A_prune diagonal value", ylabel="neurons")
+        ax.grid(True, alpha=0.35)
+
+        ax = fig.add_subplot(gs[1, 0])
+        ax.hist(B_hat[0], bins=80, color="tab:orange", alpha=0.8)
+        ax.axvline(0.0, color="k", ls="--", lw=0.8)
+        ax.set(title="B_hat mode 0", xlabel="B value", ylabel="neurons")
+        ax.grid(True, alpha=0.35)
+
+        ax = fig.add_subplot(gs[1, 1])
+        if B_hat.shape[0] >= 2:
+            ax.hist(B_hat[1], bins=80, color="tab:purple", alpha=0.8)
+            ax.axvline(0.0, color="k", ls="--", lw=0.8)
+            ax.set(title="B_hat mode 1", xlabel="B value", ylabel="neurons")
+        else:
+            ax.set_axis_off()
+        ax.grid(True, alpha=0.35)
+
+        ax = fig.add_subplot(gs[1, 2])
+        ax.scatter(diag_mean, diag_stderr, s=16, color="tab:blue", alpha=0.75)
+        ax.axvline(0.0, color="k", ls="--", lw=0.8)
+        ax.set(title="A-diag avr over bags", xlabel="mean diagonal A", ylabel="stderr diagonal A")
+        ax.grid(True, alpha=0.35)
+
+        title_prefix = self.canvas_title_prefix(md)
+        fig.suptitle(
+            f"{title_prefix}, final weight distributions: exc={n_exc} inh={n_inh} und={n_und}",
             fontsize=12,
         )
         fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.94])

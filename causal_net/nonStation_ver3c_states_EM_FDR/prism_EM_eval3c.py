@@ -15,7 +15,7 @@ from UtilBioExp import detect_spike_bursts
 
 PLOT_FIG_ID = {chr(ord("a") + i): chr(ord("a") + i) for i in range(18)}
 SIM_ONLY_PLOTS = set("mnopqr")
-IMPLEMENTED_PLOTS = {"a", "b", "c", "d", "e", "f", "g", "m", "n", "o", "p", "r"}
+IMPLEMENTED_PLOTS = {"a", "b", "c", "d", "e", "f", "g", "h", "m", "n", "o", "p", "r"}
 
 
 def real_fit_metadata(md):
@@ -329,6 +329,8 @@ def main():
         )
     if "g" in args.showPlots:
         plot.fdr_selection_summary(fitD, md, figId=PLOT_FIG_ID["g"])
+    if "h" in args.showPlots:
+        plot.final_weight_distributions(fitD, md, figId=PLOT_FIG_ID["h"])
     if "m" in args.showPlots:
         plot.state_seq_simu(fitD, md, figId=PLOT_FIG_ID["m"], time_range_sec=args.time_range_sec)
     if "n" in args.showPlots:

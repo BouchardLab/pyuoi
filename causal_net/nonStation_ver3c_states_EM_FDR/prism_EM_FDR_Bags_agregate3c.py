@@ -496,6 +496,9 @@ def main():
         "A_sd_selected": agg["A_sd_selected"].astype(np.float32),
         "A_mean_all": agg["A_mean_all"].astype(np.float32),
         "A_sd_all": agg["A_sd_all"].astype(np.float32),
+        "A_diag_mean": np.diag(agg["A_mean_all"]).astype(np.float32),
+        "A_diag_std": np.diag(agg["A_sd_all"]).astype(np.float32),
+        "A_diag_stderr": (np.diag(agg["A_sd_all"]) / np.sqrt(float(args.num_bags))).astype(np.float32),
         "src_null_tau_bag": agg["src_null_tau_bag"].astype(np.float32),
         "src_null_tau_mean": agg["src_null_tau_mean"].astype(np.float32),
         "src_null_mean": agg["src_null_mean"].astype(np.float32),
@@ -574,7 +577,7 @@ def main():
         print(f"\nSaved Stage (b) aggregate: {out_f}")
         print(
             f"  ./prism_EM_eval3c.py --basePath $basePath "
-            f"--dataName {out_name} -p a e f g"
+            f"--dataName {out_name} -p  e f g h"
         )
 
 
