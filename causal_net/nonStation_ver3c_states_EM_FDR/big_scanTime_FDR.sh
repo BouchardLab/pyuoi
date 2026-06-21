@@ -42,8 +42,8 @@ shortN=daleN200_55e5a6_ff089c  # N200 3/21  Hz
 numStates=2
 
 # experimental data
-shortN=Canine_260324_r21_w0_1hz; numStates=1 
-#shortN=Canine_260324_r23_w0_1hz; numStates=2 
+#shortN=Canine_260324_r21_w0_1hz; numStates=1 
+shortN=Canine_260324_r23_w0_1hz; numStates=2 
 
 timeRange=($((scanStartMin * 60)) $((scanStopMin * 60)))
 
