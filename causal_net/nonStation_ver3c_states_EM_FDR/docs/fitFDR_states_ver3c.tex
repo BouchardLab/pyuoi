@@ -473,54 +473,81 @@ train over the full reference window:
 
 \begin{figure}[h]
 \centering
-\begin{tikzpicture}[x=0.12cm,y=0.58cm]
-  \node[align=center] at (34,4.9)
-    {\small one selected bag \(b\): real neuron time axes};
-  \node[align=center] at (34,-1.1)
-    {\small one null scramble \(p\): each neuron rolled independently};
-
-  % real bag rows
-  \foreach \y/\lab in {4/{neuron 3},3/{neuron 2},2/{neuron 1}} {
-    \draw[gray!35] (0,\y) -- (68,\y);
-    \node[left] at (0,\y) {\scriptsize \lab};
-  }
+\begin{tikzpicture}[x=0.12cm,y=0.7cm]
+  % Grid lines (0s, 20s, 40s, 60s) crossing the timelines
   \foreach \x in {0,20,40,60} {
-    \draw[gray!40] (\x,1.7) -- (\x,4.25);
-    \node[below] at (\x,1.7) {\scriptsize \x s};
+    \draw[gray!30, line width=0.5pt] (\x, 0.4) -- (\x, 4.0);
+    \node[below, black!70] at (\x, 0.4) {\scriptsize \x s};
   }
-  \foreach \x in {5,14,21,37,46,55,64}     \draw[black, line width=0.7pt] (\x,1.82) -- (\x,2.18);
-  \foreach \x in {3,18,24,31,43,52,59}     \draw[black, line width=0.7pt] (\x,2.82) -- (\x,3.18);
-  \foreach \x in {8,16,29,35,48,57,63}     \draw[black, line width=0.7pt] (\x,3.82) -- (\x,4.18);
 
-  % rolled scramble rows
-  \foreach \y/\lab in {-2/{neuron 3},-3/{neuron 2},-4/{neuron 1}} {
-    \draw[gray!35] (0,\y) -- (68,\y);
-    \node[left] at (0,\y) {\scriptsize \lab};
+  % Horizontal lines for the neurons (custom lengths based on overflow spikes)
+  \draw[gray!35, line width=0.8pt] (0, 3.5) -- (82, 3.5);
+  \node[left, black!85] at (0, 3.5) {\scriptsize neuron 3};
+
+  \draw[gray!35, line width=0.8pt] (0, 2.2) -- (74, 2.2);
+  \node[left, black!85] at (0, 2.2) {\scriptsize neuron 2};
+
+  \draw[gray!35, line width=0.8pt] (0, 0.9) -- (68, 0.9);
+  \node[left, black!85] at (0, 0.9) {\scriptsize neuron 1};
+
+  % Vertical ticks at 0s for each neuron timeline
+  \foreach \y in {0.9, 2.2, 3.5} {
+    \draw[gray!45, line width=0.8pt] (0, \y-0.2) -- (0, \y+0.2);
   }
-  \foreach \x in {0,20,40,60} {
-    \draw[gray!25] (\x,-4.3) -- (\x,-1.75);
+
+  % Original spike positions (light grey ticks)
+  % neuron 3 (y=3.5)
+  \foreach \x in {8,16,29,35,48,57,63} {
+    \draw[gray!40, line width=0.8pt] (\x,3.3) -- (\x,3.7);
   }
-  \foreach \x in {1,10,19,28,37,46,55}     \draw[blue!70, line width=0.7pt] (\x,-4.18) -- (\x,-3.82);
-  \foreach \x in {1,10,17,24,32,47,53}     \draw[green!55!black, line width=0.7pt] (\x,-3.18) -- (\x,-2.82);
-  \foreach \x in {2,8,17,26,39,47,54}      \draw[orange!85!black, line width=0.7pt] (\x,-2.18) -- (\x,-1.82);
+  % neuron 2 (y=2.2)
+  \foreach \x in {3,18,24,31,43,52,59} {
+    \draw[gray!40, line width=0.8pt] (\x,2.0) -- (\x,2.4);
+  }
 
-  % independent roll arrows
-  \draw[->, blue!70, thick] (70,2.0) .. controls (78,0.0) and (78,-4.0) .. (68,-4.0);
-  \node[blue!70, right] at (71,-3.1) {\scriptsize \(\delta_1\)};
-  \draw[->, green!55!black, thick] (70,3.0) .. controls (82,1.0) and (82,-3.0) .. (68,-3.0);
-  \node[green!55!black, right] at (75,-1.5) {\scriptsize \(\delta_2\)};
-  \draw[->, orange!85!black, thick] (70,4.0) .. controls (86,2.0) and (86,-2.0) .. (68,-2.0);
-  \node[orange!85!black, right] at (80,0.1) {\scriptsize \(\delta_3\)};
+  % Shift arrows (blue)
+  % neuron 3 (y=3.5) shift of 18 units
+  \draw[->, blue, line width=0.6pt] (0, 3.75) -- (18, 3.75);
+  \node[above, blue] at (9, 3.75) {\scriptsize \(T_{\text{offset},3}\)};
+  
+  % neuron 2 (y=2.2) shift of 11 units
+  \draw[->, blue, line width=0.6pt] (0, 2.45) -- (11, 2.45);
+  \node[above, blue] at (5.5, 2.45) {\scriptsize \(T_{\text{offset},2}\)};
 
-  \draw[->, thick, gray!70] (34,1.2) -- (34,-1.25);
-  \node[align=center, fill=white, inner sep=1pt] at (34,0.0)
-    {\scriptsize draw independent circular shifts\\[-1mm]\scriptsize for all neurons};
+  % Ticks at the offset positions
+  \draw[gray!45, line width=0.8pt] (18, 3.3) -- (18, 3.7);
+  \draw[gray!45, line width=0.8pt] (11, 2.0) -- (11, 2.4);
+
+  % Shifted spike positions (black ticks)
+  % neuron 3 (y=3.5) shifted by 18 units:
+  \foreach \x in {26,34,47,53,66,75,81} {
+    \draw[black, line width=1.3pt] (\x,3.3) -- (\x,3.7);
+  }
+  
+  % neuron 2 (y=2.2) shifted by 11 units:
+  \foreach \x in {14,29,35,42,54,63,70} {
+    \draw[black, line width=1.3pt] (\x,2.0) -- (\x,2.4);
+  }
+
+  % neuron 1 (y=0.9) unshifted:
+  \foreach \x in {5,14,21,37,46,55,64} {
+    \draw[black, line width=1.3pt] (\x,0.7) -- (\x,1.1);
+  }
+
+  % Dashed vertical boundary line at 68s
+  \draw[dashed, black, line width=0.8pt] (68, 0.4) -- (68, 4.0);
+
+  % Wrap time axis around label (moved up and to the right)
+  \node[blue, align=left, anchor=west] at (71, 1.8) {
+    \scriptsize wrap time\\
+    \scriptsize axis around
+  };
+
+  % A hand-drawn/wavy look wrap arrow
+  \draw[->, blue, thick] (80, 0.9) .. controls (86, 0.9) and (86, 1.9) .. (80, 1.9);
+
 \end{tikzpicture}
-\caption{One circular-shift null scramble for one bag. The selected bag
-fixes the row set and the locked state sequence. For scramble \(p\), every
-neuron's spike train is circularly rolled by its own random shift
-\(\delta_n^{(b,p)}\), so single-neuron spike statistics are preserved while
-cross-neuron timing is broken.}
+\caption{One circular-shift null scramble for one bag. For each neuron, original spike times (grey ticks) are shifted to the right by an independent offset \(T_{\text{offset},n}\) to produce the scrambled spike train (black ticks). Spikes that are shifted beyond the end of the window (dashed line) wrap around to the beginning.}
 \label{fig:circular-shift-null-cartoon}
 \end{figure}
 
@@ -721,6 +748,54 @@ source threshold,
 \text{sel}^{(b)}_{ij} = \mathbb{1}\!\big[\,|\hat A^{(b)}_{ij}| > \tau^{(b)}_j\,\big],
 \qquad i\neq j.
 \]
+See Figure~\ref{fig:edge-selection-cartoon} for a cartoon illustrating this quantile-based selection process.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[x=1.2cm,y=1.2cm]
+  % Draw filled areas for null distribution
+  \path[fill=gray!15] (0,0) -- (0, 2.5) .. controls (1.5, 2.5) and (2.2, 0.5) .. (3.0, 0.2) -- (3.0, 0) -- cycle;
+  \path[fill=red!20] (3.0,0) -- (3.0, 0.2) .. controls (3.4, 0.1) and (3.8, 0.02) .. (4.2, 0) -- cycle;
+
+  % Draw curve of the null distribution
+  \draw[thick, gray!80] (0, 2.5) .. controls (1.5, 2.5) and (2.2, 0.5) .. (3.0, 0.2)
+                        .. controls (3.4, 0.1) and (3.8, 0.02) .. (4.2, 0);
+
+  % Axis
+  \draw[->, thick] (0,0) -- (7.5,0) node[right] {\small weight magnitude \(|A_{ij}|\)};
+  \draw[thick] (0,0) -- (0,2.8);
+
+  % Threshold line
+  \draw[dashed, red, very thick] (3.0, 0) -- (3.0, 2.8) node[above, red, align=center]
+    {\small threshold \(\tau_j^{(b)}\)\\[-0.5mm]\scriptsize (quantile \(q = 0.99\))};
+
+  % Labels for regions
+  \node[gray!80!black] at (1.2, 1.1) {\small Pooled Null};
+  \node[gray!80!black] at (1.2, 0.8) {\small Distribution \(\mathcal{N}_j^{(b)}\)};
+  
+  % Moved higher to avoid collision
+  \node[red!80!black, anchor=west] at (3.2, 1.2) {\scriptsize Significance tail};
+  \node[red!80!black, anchor=west] at (3.2, 1.0) {\scriptsize (fraction \(1-q\))};
+  \draw[->, red!80!black, line width=0.5pt] (3.3, 0.9) -- (3.6, 0.1);
+
+  % Real weight points and labels
+  % Discarded points
+  \fill[red] (0.8, 0) circle (2.5pt) node[above, red] {\scriptsize \(\bm{\times}\)};
+  \fill[red] (2.2, 0) circle (2.5pt) node[above, red] {\scriptsize \(\bm{\times}\)};
+  \node[below, red, align=center] at (1.5, -0.15)
+    {\scriptsize Real weights \(|\hat A_{ij}^{(b)}| < \tau_j^{(b)}\)\\[-0.5mm]\scriptsize \textbf{Discarded} (noise floor)};
+
+  % Selected points
+  \fill[green!60!black] (4.8, 0) circle (2.5pt) node[above, green!60!black] {\scriptsize \(\bm{\checkmark}\)};
+  \fill[green!60!black] (6.5, 0) circle (2.5pt) node[above, green!60!black] {\scriptsize \(\bm{\checkmark}\)};
+  \node[below, green!60!black, align=center] at (5.65, -0.15)
+    {\scriptsize Real weights \(|\hat A_{ij}^{(b)}| > \tau_j^{(b)}\)\\[-0.5mm]\scriptsize \textbf{Selected} (significant)};
+
+\end{tikzpicture}
+\caption{Cartoon of quantile-based edge selection per bag. The magnitude of each real fitted edge weight (dots) is compared against the threshold \(\tau_j^{(b)}\) derived from the pooled null distribution of source neuron \(j\). Real weights below the threshold (red \(\bm{\times}\)) are discarded as noise; only weights exceeding the threshold (green \(\bm{\checkmark}\)) are selected in this bag.}
+\label{fig:edge-selection-cartoon}
+\end{figure}
+
 Equivalently, each real edge can be converted to a within-source \(p\)-value
 against the pooled null and the Benjamini--Hochberg procedure applied within
 the source column; the quantile-threshold form above is the operational default. The
@@ -749,6 +824,87 @@ mean of \(\hat A^{(b)}_{ij}\) over the bags in which that edge passed the
 per-bag null threshold. Bags where the edge did not pass the per-bag selector
 do not enter this final \texttt{A\_hat} value, although the all-bag mean is
 also saved as a diagnostic.
+See Figure~\ref{fig:stability-selection-cartoon} for a cartoon of this
+cross-bag pruning step.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[x=0.95cm,y=0.95cm]
+  \def\bagcols{10}
+  \def\colw{1.05}
+  \def\rowA{1.35}
+  \def\rowB{-0.55}
+  \def\xleft{2.8}
+  \def\xfreq{13.8}
+  \def\xdec{15.7}
+
+  % column headers
+  \foreach \b/\lab in {0/0,1/1,2/2,3/3,4/4,5/5,6/6,7/7,8/8,9/9} {
+    \pgfmathsetmacro{\xc}{\xleft + \b*\colw}
+    \node[gray!70!black] at (\xc, 2.35) {\scriptsize bag \lab};
+  }
+  \node[gray!70!black, align=center] at (\xfreq, 2.35)
+    {\scriptsize selection\\[-1mm]\scriptsize frequency \(\pi_{ij}\)};
+  \node[gray!70!black, align=center] at (\xdec, 2.35)
+    {\scriptsize cross-bag\\[-1mm]\scriptsize decision};
+
+  % threshold annotation
+  \draw[dashed, orange!85!black, very thick] (\xleft-0.35, 2.95) -- (\xdec+0.55, 2.95);
+  \node[orange!85!black, anchor=west] at (\xdec+0.62, 2.95)
+    {\scriptsize \(\pi_{\text{thr}}=0.7\)};
+
+  % row labels
+  \node[left, align=right] at (\xleft-0.15, \rowA)
+    {\scriptsize edge \((i,j)\)};
+  \node[left, align=right] at (\xleft-0.15, \rowB)
+    {\scriptsize edge \((i',j')\)};
+
+  % per-bag selections for edge (i,j): 8/10 selected
+  \foreach \b in {0,1,2,3,4,5,6,7} {
+    \pgfmathsetmacro{\xc}{\xleft + \b*\colw}
+    \node[green!60!black] at (\xc, \rowA) {\scriptsize \(\bm{\checkmark}\)};
+  }
+  \foreach \b in {8,9} {
+    \pgfmathsetmacro{\xc}{\xleft + \b*\colw}
+    \node[red!80!black] at (\xc, \rowA) {\scriptsize \(\bm{\times}\)};
+  }
+  \node at (\xfreq, \rowA) {\scriptsize \(8/10=0.8\)};
+  \draw[rounded corners, thick, green!60!black, fill=green!8]
+    (\xdec-0.55, \rowA-0.28) rectangle (\xdec+0.55, \rowA+0.28);
+  \node[green!45!black] at (\xdec, \rowA) {\scriptsize \textbf{keep}};
+
+  % per-bag selections for edge (i',j'): 3/10 selected
+  \foreach \b in {0,2,5} {
+    \pgfmathsetmacro{\xc}{\xleft + \b*\colw}
+    \node[green!60!black] at (\xc, \rowB) {\scriptsize \(\bm{\checkmark}\)};
+  }
+  \foreach \b in {1,3,4,6,7,8,9} {
+    \pgfmathsetmacro{\xc}{\xleft + \b*\colw}
+    \node[red!80!black] at (\xc, \rowB) {\scriptsize \(\bm{\times}\)};
+  }
+  \node at (\xfreq, \rowB) {\scriptsize \(3/10=0.3\)};
+  \draw[rounded corners, thick, red!75!black, fill=red!8]
+    (\xdec-0.55, \rowB-0.28) rectangle (\xdec+0.55, \rowB+0.28);
+  \node[red!75!black] at (\xdec, \rowB) {\scriptsize \textbf{drop}};
+
+  % legend for per-bag marks
+  \node[green!60!black] at (\xleft+0.2, -1.45) {\scriptsize \(\bm{\checkmark}\)};
+  \node[anchor=west, align=left] at (\xleft+0.55, -1.45)
+    {\scriptsize selected in bag \(b\): \(|\hat A^{(b)}_{ij}|>\tau^{(b)}_j\)};
+  \node[red!80!black] at (\xleft+0.2, -1.95) {\scriptsize \(\bm{\times}\)};
+  \node[anchor=west, align=left] at (\xleft+0.55, -1.95)
+    {\scriptsize not selected in bag \(b\) (below per-bag null threshold)};
+\end{tikzpicture}
+\caption{Cartoon of cross-bag stability selection. Each column is one FDR bag;
+each row is one candidate off-diagonal edge. A green \(\bm{\checkmark}\) means
+the edge passed the per-bag null threshold in that bag (Section~\ref{sec:persource});
+a red \(\bm{\times}\) means it did not. The selection frequency
+\(\pi_{ij}\) is the fraction of bags with a checkmark. Edge \((i,j)\) appears
+in \(8\) of \(10\) bags (\(\pi_{ij}=0.8\ge\pi_{\text{thr}}\)) and is kept in
+the final network; edge \((i',j')\) appears in only \(3\) bags
+(\(\pi_{ij}=0.3<\pi_{\text{thr}}\)) and is removed.}
+\label{fig:stability-selection-cartoon}
+\end{figure}
 
 \paragraph{Reported stability bound.} The implementation exposes the pair
 \((q,\ \pi_{\text{thr}})\): a per-bag per-source quantile level \(q\) and a
@@ -797,8 +953,57 @@ z_{ij}=\frac{\bar A_{ij}-m^{\text{null}}_j}{s^{\text{null}}_j},
 \]
 a per-edge signal-to-noise ratio against the scramble null, where
 \(\bar A_{ij}\) is the bagged point estimate defined next.
+See Figure~\ref{fig:null-effect-cartoon} for a cartoon of this null-referenced
+effect size.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[x=1.1cm,y=1.1cm]
+  % symmetric null distribution around m_null (plot occupies x in [0,6])
+  \path[fill=gray!15]
+    (1.0,0) -- (1.0, 2.15) .. controls (2.0, 2.15) and (2.55, 0.55) .. (3.0, 0.12)
+    .. controls (3.45, 0.55) and (4.0, 2.15) .. (5.0, 2.15) -- (5.0, 0) -- cycle;
+  \draw[thick, gray!80]
+    (1.0, 2.15) .. controls (2.0, 2.15) and (2.55, 0.55) .. (3.0, 0.12)
+    .. controls (3.45, 0.55) and (4.0, 2.15) .. (5.0, 2.15);
+
+  \draw[->, thick] (0,0) -- (6.0,0);
+  \draw[thick] (0,0) -- (0,2.45);
+
+  \draw[dashed, gray!70, thick] (3.0, 0) -- (3.0, 2.45);
+  \node[gray!70!black, above] at (3.0, 2.45) {\scriptsize \(m^{\text{null}}_j\)};
+
+  \draw[<->, gray!70, thick] (2.35, -0.48) -- (3.65, -0.48);
+  \node[gray!70!black, below] at (3.0, -0.48) {\scriptsize \(s^{\text{null}}_j\)};
+
+  \node[gray!80!black, align=left, anchor=west] at (0.15, 1.85)
+    {\small pooled null \(\mathcal{N}_j\)\\[-1mm]\scriptsize (all bags, all scrambles)};
+
+  \fill[blue!70!black] (5.6, 0) circle (2.5pt);
+  \node[blue!70!black, above] at (5.6, 0.08) {\scriptsize \(\bar A_{ij}\)};
+
+  \draw[->, blue!70!black, very thick] (3.12, 0.22) -- (5.45, 0.22);
+
+  \node[blue!70!black, align=left, anchor=west, text width=3.6cm] at (6.75, 1.05)
+    {\scriptsize \(z_{ij}=\dfrac{\bar A_{ij}-m^{\text{null}}_j}{s^{\text{null}}_j}\)};
+
+  \node[below, gray!70!black] at (1.4, -0.48) {\small edge weight \(A_{ij}\)};
+\end{tikzpicture}
+\caption{Cartoon of null spread and null-referenced effect size.
+\textbf{Question answered:} how large does this edge look relative to the
+scramble-noise floor? The gray curve is the pooled per-source null
+distribution \(\mathcal{N}_j\) from all scrambled locked refits. Its mean
+\(m^{\text{null}}_j\) and standard deviation \(s^{\text{null}}_j\) define that
+noise floor: how large an edge weight can appear by chance once cross-neuron
+alignment is destroyed. The real bagged estimate \(\bar A_{ij}\) (blue dot) is
+compared to the floor through \(z_{ij}\), a signal-to-noise ratio against the
+null. This is \emph{not} the sampling error of \(\bar A_{ij}\); that distinct
+quantity is the across-bag bootstrap SD (Section~\ref{sec:bootstrap-sd}).}
+\label{fig:null-effect-cartoon}
+\end{figure}
 
 \subsection{Estimation variability: the across-bag bootstrap SD}
+\label{sec:bootstrap-sd}
 
 The quantity one usually means by ``the statistical error of an edge'' is the
 sampling variability of its fitted weight, and bagging estimates it directly.
@@ -814,6 +1019,53 @@ report the bagged mean and bootstrap SD,
 \]
 where \(\mathcal{B}_{ij}\) is the set of bags entering the average and
 \(B_{ij}=|\mathcal{B}_{ij}|\).
+See Figure~\ref{fig:bootstrap-sd-cartoon} for a cartoon of this across-bag
+estimation variability.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+  \begin{scope}[x=0.82cm, y=0.11cm]
+    \def\ymean{15}
+    \def\ysdlo{12}
+    \def\ysdhi{18}
+
+    \draw[->, thick] (0,0) -- (0,22) node[above, align=center]
+      {\scriptsize fitted weight\\[-1mm]\scriptsize \(\hat A^{(b)}_{ij}\)};
+    \draw[->, thick] (0,0) -- (8.6,0);
+
+    \foreach \b in {0,1,2,3,4,5,6,7} {
+      \node[below, gray!70!black] at (\b+0.55, 0) {\scriptsize \b};
+    }
+    \node[below, gray!70!black] at (8.35, 0) {\scriptsize bag index \(b\)};
+
+    \foreach \b/\val in {0/14, 1/17, 2/13, 3/16, 4/15, 5/18, 6/14, 7/16} {
+      \fill[green!60!black] (\b+0.55, \val) circle (2.2pt);
+    }
+
+    \draw[dashed, blue!70!black, very thick] (-0.25, \ymean) -- (8.45, \ymean);
+    \node[left, blue!70!black, align=right] at (-0.3, \ymean)
+      {\scriptsize \(\bar A_{ij}\)};
+
+    \draw[<->, orange!85!black, very thick] (8.65, \ysdlo) -- (8.65, \ysdhi);
+    \node[orange!85!black, anchor=west, align=left] at (8.75, \ymean)
+      {\scriptsize \(\widehat{\mathrm{SD}}_{ij}\)};
+  \end{scope}
+\end{tikzpicture}
+\caption{Cartoon of across-bag bootstrap SD.
+\textbf{Question answered:} how much does the fitted edge weight move when
+resampling reference-labeled lag pairs across bags? For a surviving edge
+\((i,j)\), each bag produces a real fitted weight \(\hat A^{(b)}_{ij}\) on a
+different random subset of reference-labeled lag pairs. The green dots show
+eight such bag-level estimates; the dashed horizontal line is their mean
+\(\bar A_{ij}\), and the orange bracket is the bootstrap standard deviation
+\(\widehat{\mathrm{SD}}_{ij}\). This spread measures \emph{estimation
+variability}: how reliably the edge weight is estimated under pair resampling.
+It does not describe how large the edge looks under scrambled data; that role
+belongs to the null spread \(s^{\text{null}}_j\) and effect size \(z_{ij}\)
+(Figure~\ref{fig:null-effect-cartoon}).}
+\label{fig:bootstrap-sd-cartoon}
+\end{figure}
 
 \paragraph{Which bags to average over.} A bag in which edge \((i,j)\) was
 pruned to exactly zero by \(L_1\) contributes a structural zero, not a noisy
