@@ -7,6 +7,7 @@
 \usepackage{geometry}
 \usepackage{xcolor}
 \usepackage{booktabs}
+\usepackage{tikz}
 
 \geometry{margin=0.8in}
 
@@ -57,9 +58,64 @@ which sizes every numerical choice below, is:
 \(\Delta t=10\,\text{ms}\), so \(T\) ranges from \(6\times10^{4}\) to
 \(3.6\times10^{5}\) bins; per-neuron firing rates of \(1\)–\(5\,\text{Hz}\);
 state-switching rates of \(5\)–\(15\) transitions per minute; and a small
-number of latent states, typically \(M\approx3\). Crucially, the method is
+number of latent states, typically \(M=2\). Crucially, the method is
 designed for application to \emph{real} data: it never references ground
 truth, and every quantity it reports is computed from the data alone.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[x=0.11cm,y=0.55cm]
+  % axes and neuron labels
+  \draw[->, thick] (0,0) -- (72,0) node[right] {time};
+  \foreach \n/\lab in {1/{neuron 1},2/{neuron 2},3/{neuron 3},4/{neuron 4},5/{neuron 5}} {
+    \draw[gray!35] (0,\n) -- (70,\n);
+    \node[left] at (0,\n) {\scriptsize \lab};
+  }
+  \foreach \x/\txt in {0/{0},20/{20 s},40/{40 s},60/{60 s}} {
+    \draw[gray!60] (\x,-0.08) -- (\x,6.85);
+    \node[below] at (\x,0) {\scriptsize \txt};
+  }
+
+  % hidden two-state timeline
+  \node[left] at (0,6.55) {\scriptsize hidden state};
+  \node[left, green!45!black] at (0,6.25) {\scriptsize 0};
+  \node[left, orange!85!black] at (0,6.85) {\scriptsize 1};
+  \draw[gray!35] (0,6.25) -- (70,6.25);
+  \draw[gray!35] (0,6.85) -- (70,6.85);
+  \draw[green!60!black, very thick] (0,6.25) -- (11,6.25);
+  \draw[orange!85!black, very thick] (11,6.85) -- (23,6.85);
+  \draw[green!60!black, very thick] (23,6.25) -- (36,6.25);
+  \draw[orange!85!black, very thick] (36,6.85) -- (49,6.85);
+  \draw[green!60!black, very thick] (49,6.25) -- (70,6.25);
+  \foreach \x/\ya/\yb in {11/6.25/6.85,23/6.85/6.25,36/6.25/6.85,49/6.85/6.25} {
+    \draw[gray!65, dashed] (\x,0.3) -- (\x,6.95);
+    \draw[black, thick] (\x,\ya) -- (\x,\yb);
+  }
+  \node[align=center, anchor=west] at (47,7.45)
+    {\scriptsize \(M=2\) hidden state};
+
+  % spike ticks, deliberately irregular and sparse
+  \foreach \x in {3,9,18,22,38,44,61,67}       \draw[black, line width=0.7pt] (\x,0.82) -- (\x,1.18);
+  \foreach \x in {5,6,25,31,32,50,57,58,69}    \draw[black, line width=0.7pt] (\x,1.82) -- (\x,2.18);
+  \foreach \x in {11,17,28,41,42,46,63}        \draw[black, line width=0.7pt] (\x,2.82) -- (\x,3.18);
+  \foreach \x in {2,15,16,34,35,36,54,65}      \draw[black, line width=0.7pt] (\x,3.82) -- (\x,4.18);
+  \foreach \x in {8,19,23,39,48,49,53,60,66}   \draw[black, line width=0.7pt] (\x,4.82) -- (\x,5.18);
+
+  % analysis window and lag-pair hint
+  \draw[blue!70, very thick, rounded corners] (14,0.45) rectangle (56,5.45);
+  \node[blue!70, fill=white, inner sep=1pt] at (35,5.72) {\scriptsize selected time range};
+  \draw[->, orange!90!black, thick] (27,-0.55) -- (30,-0.55);
+  \node[orange!90!black, below] at (28.5,-0.62)
+    {\scriptsize lag pair \((Y_{t-1},Y_t)\)};
+\end{tikzpicture}
+\caption{Cartoon of the spike-train input. Rows are neurons, vertical ticks
+are spike events in discrete time bins, and the colored track above the
+raster sketches a hidden \(M=2\) state process switching every few seconds.
+The blue box marks the reference time window supplied to the initial
+PRISM-EM fit. FDR bags later sample lagged pairs
+\((\hat S_t,Y_{t-1},Y_t)\) from this same window.}
+\label{fig:input-spike-cartoon}
+\end{figure}
 
 The deliverable is not a single point estimate of \(A\) but a vetted edge
 list. For each off-diagonal entry \((i,j)\) that survives the procedure we
@@ -95,6 +151,63 @@ number of EM iterations. The fitted \(A\) is therefore the output of a
 specific, deterministic-in-configuration pipeline of regression plus
 shrinkage plus spectral projection --- a fact the null construction below
 depends on.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm]
+  % shared A block
+  \draw[rounded corners, very thick, blue!70] (0,0.4) rectangle (2.6,2.6);
+  \node[blue!70] at (1.3,2.85) {\small shared connectivity};
+  \node at (1.3,1.5) {\Large \(A\)};
+  \node[align=center] at (1.3,0.75) {\scriptsize same for\\[-1mm]\scriptsize both states};
+
+  % two state bias blocks
+  \draw[rounded corners, thick, green!60!black, fill=green!8] (4.0,1.9) rectangle (6.2,3.1);
+  \node[green!45!black] at (5.1,3.35) {\small state 0};
+  \node at (5.1,2.5) {\Large \(B_0\)};
+
+  \draw[rounded corners, thick, orange!85!black, fill=orange!10] (4.0,-0.1) rectangle (6.2,1.1);
+  \node[orange!80!black] at (5.1,1.35) {\small state 1};
+  \node at (5.1,0.5) {\Large \(B_1\)};
+
+  % state timeline
+  \draw[->, thick] (0,-1.05) -- (7.2,-1.05) node[right] {\small time};
+  \foreach \x in {0,1,2,3,4,5,6} {
+    \draw[gray!45] (\x,-1.18) -- (\x,-0.92);
+  }
+  \draw[green!60!black, very thick] (0,-0.75) -- (1.5,-0.75);
+  \draw[orange!85!black, very thick] (1.5,-1.35) -- (3.7,-1.35);
+  \draw[green!60!black, very thick] (3.7,-0.75) -- (5.2,-0.75);
+  \draw[orange!85!black, very thick] (5.2,-1.35) -- (6.7,-1.35);
+  \node[green!45!black] at (0.75,-0.48) {\scriptsize \(\hat S_t=0\)};
+  \node[orange!80!black] at (2.6,-1.62) {\scriptsize \(\hat S_t=1\)};
+
+  % model arrows
+  \draw[->, thick] (2.75,1.5) -- (3.75,2.5);
+  \draw[->, thick] (2.75,1.5) -- (3.75,0.5);
+  \draw[->, thick, gray!80] (6.35,2.5) -- (7.45,1.78);
+  \draw[->, thick, gray!80] (6.35,0.5) -- (7.45,1.22);
+  \draw[rounded corners, thick, gray!80] (7.45,0.85) rectangle (9.75,2.15);
+  \node[align=center] at (8.6,1.5)
+    {\small rate for\\[-1mm]\small \(Y_t\mid Y_{t-1}\)};
+
+  \node[align=center] at (3.6,-1.9)
+    {\scriptsize hard Viterbi state selects which bias vector is active};
+\end{tikzpicture}
+\[
+  \eta_t = A Y_{t-1}+B_{\hat S_t}, \qquad
+  \tilde\eta_t=\min(\eta_t,\eta_{\text{clip}}), \qquad
+  \lambda_t=\exp(\tilde\eta_t)\Delta t, \qquad
+  Y_t\sim\mathrm{Poisson}(\lambda_t).
+\]
+\caption{Two-state PRISM-EM cartoon. This is the EM fitting model, not the
+synthetic data generator. The lagged spike vector \(Y_{t-1}\) always enters
+through the same shared connectivity matrix \(A\). The decoded state
+\(\hat S_t\in\{0,1\}\) selects the active bias vector, \(B_0\) or \(B_1\),
+for the conditional rate of \(Y_t\). FDR bagging later locks this state
+sequence and refits only \(A\) and the two bias vectors.}
+\label{fig:two-state-prism-cartoon}
+\end{figure}
 
 \subsection{Entry point 1: full fit}
 \label{sec:ep1}
@@ -254,6 +367,60 @@ destination/current spike vector, and \(H_t\) is the destination-bin state
 label that controls the conditional rate for \(Z_t\). This table contains
 \(N_{\rm pair}=T_{\rm ref}-1\) rows.
 
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[x=0.13cm,y=0.7cm]
+  % full reference table
+  \draw[rounded corners, thick, gray!70, fill=gray!8] (0,0.2) rectangle (74,2.0);
+  \node[above] at (37,2.1) {\small reference-labeled lag-pair table};
+  \foreach \x in {2,6,...,72} {
+    \draw[gray!45] (\x,0.2) -- (\x,2.0);
+  }
+  \node[rotate=90] at (-2.6,1.1) {\scriptsize neurons};
+  \node[below] at (37,0.18) {\scriptsize time};
+  \node[align=center] at (37,1.1)
+    {\scriptsize \((H_t,X_t,Z_t)=(\hat S^{\text{ref}}_t,Y_{t-1},Y_t)\)};
+
+  % bag subsets as scattered row selections, sampled without replacement
+  \node[left] at (0,-1.0) {\scriptsize bag 0};
+  \draw[gray!25, line width=1.2pt] (2,-1.0) -- (72,-1.0);
+  \node[blue!65, right] at (75,-1.0) {\scriptsize \(f_{\rm bag}=0.8\)};
+
+  \node[left] at (0,-2.0) {\scriptsize bag 1};
+  \draw[gray!25, line width=1.2pt] (2,-2.0) -- (72,-2.0);
+  \node[green!55!black, right] at (75,-2.0) {\scriptsize \(f_{\rm bag}=0.8\)};
+
+  \node[left] at (0,-3.0) {\scriptsize bag 2};
+  \draw[gray!25, line width=1.2pt] (2,-3.0) -- (72,-3.0);
+  \node[orange!85!black, right] at (75,-3.0) {\scriptsize \(f_{\rm bag}=0.8\)};
+  \foreach \x in {2,6,10,14,18,22,30,34,38,42,46,50,54,58,62,66,70} {
+    \draw[blue!65, line width=1.0pt] (\x,-1.23) -- (\x,-0.77);
+  }
+  \draw[->, blue!45, line width=0.8pt, opacity=0.55]
+    (10,0.17) .. controls (10,-0.18) and (10,-0.55) .. (10,-0.86);
+  \draw[->, blue!45, line width=0.8pt, opacity=0.55]
+    (30,0.17) .. controls (30,-0.18) and (30,-0.55) .. (30,-0.86);
+  \draw[->, blue!45, line width=0.8pt, opacity=0.55]
+    (50,0.17) .. controls (50,-0.18) and (50,-0.55) .. (50,-0.86);
+  \foreach \x in {2,6,14,18,22,26,30,34,42,46,50,54,58,62,66,70,72} {
+    \draw[green!55!black, line width=1.0pt] (\x,-2.23) -- (\x,-1.77);
+  }
+  \foreach \x in {2,10,14,18,22,26,30,34,38,42,50,54,58,62,66,70,72} {
+    \draw[orange!85!black, line width=1.0pt] (\x,-3.23) -- (\x,-2.77);
+  }
+  \node[align=center] at (37,-3.85)
+    {\scriptsize each bag samples scattered rows without replacement\\[-1mm]
+     \scriptsize selected row indices are sorted, so time order is preserved};
+\end{tikzpicture}
+\caption{Reference-labeled pair bagging. The initial EM fit defines one
+time window and one table of lagged rows \((\hat S^{\text{ref}}_t,Y_{t-1},Y_t)\).
+Each FDR bag samples a different random 80\% subset of rows without
+replacement; the selected rows are sparse but kept in chronological order.
+The same selected row indices are used for all neurons inside a bag, so
+real cross-neuron synchrony is preserved.}
+\label{fig:bagging-cartoon}
+\end{figure}
+
 For bag \(b\), draw an index set \(I_b\subset\{1,\dots,N_{\rm pair}\}\)
 without replacement, with
 \[
@@ -303,6 +470,60 @@ train over the full reference window:
 \tilde Y^{(b,p)}_{t,n}
 =Y_{(t-\delta_n^{(b,p)})\bmod T_{\rm ref},\ n}.
 \]
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[x=0.12cm,y=0.58cm]
+  \node[align=center] at (34,4.9)
+    {\small one selected bag \(b\): real neuron time axes};
+  \node[align=center] at (34,-1.1)
+    {\small one null scramble \(p\): each neuron rolled independently};
+
+  % real bag rows
+  \foreach \y/\lab in {4/{neuron 3},3/{neuron 2},2/{neuron 1}} {
+    \draw[gray!35] (0,\y) -- (68,\y);
+    \node[left] at (0,\y) {\scriptsize \lab};
+  }
+  \foreach \x in {0,20,40,60} {
+    \draw[gray!40] (\x,1.7) -- (\x,4.25);
+    \node[below] at (\x,1.7) {\scriptsize \x s};
+  }
+  \foreach \x in {5,14,21,37,46,55,64}     \draw[black, line width=0.7pt] (\x,1.82) -- (\x,2.18);
+  \foreach \x in {3,18,24,31,43,52,59}     \draw[black, line width=0.7pt] (\x,2.82) -- (\x,3.18);
+  \foreach \x in {8,16,29,35,48,57,63}     \draw[black, line width=0.7pt] (\x,3.82) -- (\x,4.18);
+
+  % rolled scramble rows
+  \foreach \y/\lab in {-2/{neuron 3},-3/{neuron 2},-4/{neuron 1}} {
+    \draw[gray!35] (0,\y) -- (68,\y);
+    \node[left] at (0,\y) {\scriptsize \lab};
+  }
+  \foreach \x in {0,20,40,60} {
+    \draw[gray!25] (\x,-4.3) -- (\x,-1.75);
+  }
+  \foreach \x in {1,10,19,28,37,46,55}     \draw[blue!70, line width=0.7pt] (\x,-4.18) -- (\x,-3.82);
+  \foreach \x in {1,10,17,24,32,47,53}     \draw[green!55!black, line width=0.7pt] (\x,-3.18) -- (\x,-2.82);
+  \foreach \x in {2,8,17,26,39,47,54}      \draw[orange!85!black, line width=0.7pt] (\x,-2.18) -- (\x,-1.82);
+
+  % independent roll arrows
+  \draw[->, blue!70, thick] (70,2.0) .. controls (78,0.0) and (78,-4.0) .. (68,-4.0);
+  \node[blue!70, right] at (71,-3.1) {\scriptsize \(\delta_1\)};
+  \draw[->, green!55!black, thick] (70,3.0) .. controls (82,1.0) and (82,-3.0) .. (68,-3.0);
+  \node[green!55!black, right] at (75,-1.5) {\scriptsize \(\delta_2\)};
+  \draw[->, orange!85!black, thick] (70,4.0) .. controls (86,2.0) and (86,-2.0) .. (68,-2.0);
+  \node[orange!85!black, right] at (80,0.1) {\scriptsize \(\delta_3\)};
+
+  \draw[->, thick, gray!70] (34,1.2) -- (34,-1.25);
+  \node[align=center, fill=white, inner sep=1pt] at (34,0.0)
+    {\scriptsize draw independent circular shifts\\[-1mm]\scriptsize for all neurons};
+\end{tikzpicture}
+\caption{One circular-shift null scramble for one bag. The selected bag
+fixes the row set and the locked state sequence. For scramble \(p\), every
+neuron's spike train is circularly rolled by its own random shift
+\(\delta_n^{(b,p)}\), so single-neuron spike statistics are preserved while
+cross-neuron timing is broken.}
+\label{fig:circular-shift-null-cartoon}
+\end{figure}
+
 Because every neuron is shifted by a different random amount, the precise
 lag-1 relationship that \(A\) captures is broken, while each neuron's firing
 rate, burstiness, and count distribution are untouched (a circular roll is a
@@ -425,7 +646,7 @@ surviving edges) as a sanity cross-check; and the locked-M-step history
 summary. Stage~(b) consumes only these files and never re-runs PRISM-EM.
 
 \paragraph{Per-bag program output naming.} One invocation of
-\texttt{prism\_EM\_FDR\_Bags\_train3c.py} produces one bag file containing
+\texttt{prism\_FDR\_Bags\_train3c.py} produces one bag file containing
 the real locked-M-step fit and all \(P\) scramble refits for that bag. The
 filename is deterministic and includes \texttt{outFitName} and
 \texttt{bag\_idx}, for example
@@ -520,7 +741,7 @@ and keep edge \((i,j)\) in the final network if
 \(\pi_{\text{thr}}=0.6\)--\(0.8\) (nominal). This is Meinshausen--B\"uhlmann
 stability selection: the data are perturbed by resampling, the base selector
 is run on each perturbation, and only consistently chosen variables survive.
-For example, the implementation default \texttt{--sel\_prob 0.7} means that
+For example, the implementation default \texttt{--stab\_sel\_thresh 0.7} means that
 an off-diagonal edge must be selected in at least \(70\%\) of the bags to
 survive. The value assigned to a surviving edge is not weighted by the
 selection frequency or by any bag quality score; it is the plain arithmetic
@@ -540,7 +761,7 @@ where \(\mathbb{E}[V]\) is the expected number of false edges,
 \(q_\Lambda\) is the \emph{measured} average number of edges selected per bag,
 and \(p_{\text{cand}}=N(N-1)\) is the number of candidate off-diagonal edges.
 The current program does not derive \(\pi_{\text{thr}}\) from a target false-edge
-count; the user sets \texttt{--per\_bag\_quantile} and \texttt{--sel\_prob}
+count; the user sets \texttt{--per\_bag\_quantile} and \texttt{--stab\_sel\_thresh}
 directly, and the bound is saved as a diagnostic. The honest caveat is that
 the bound assumes independent exchangeable bags, whereas all bags are random
 subsets from the same finite reference-labeled pair table and can overlap in
@@ -558,12 +779,13 @@ answer different questions and must not be conflated.
 
 \subsection{Null spread and effect size}
 
-For row \(i\), the pooled null \(\mathcal{N}_i=\bigcup_b\mathcal{N}^{(b)}_i\)
+For source column \(j\), the pooled null
+\(\mathcal{N}_j=\bigcup_b\mathcal{N}^{(b)}_j\)
 has a mean and standard deviation,
 \[
-m^{\text{null}}_i=\operatorname{mean}\big(\mathcal{N}_i\big),
+m^{\text{null}}_j=\operatorname{mean}\big(\mathcal{N}_j\big),
 \qquad
-s^{\text{null}}_i=\operatorname{SD}\big(\mathcal{N}_i\big),
+s^{\text{null}}_j=\operatorname{SD}\big(\mathcal{N}_j\big),
 \]
 which characterize the \emph{noise floor}: how large an edge weight looks
 purely by chance once cross-neuron alignment is destroyed and the same
@@ -571,7 +793,7 @@ machinery is applied. This is not the uncertainty of the estimate; it is the
 spread of the null. It does, however, define a natural null-referenced
 effect size,
 \[
-z_{ij}=\frac{\bar A_{ij}-m^{\text{null}}_i}{s^{\text{null}}_i},
+z_{ij}=\frac{\bar A_{ij}-m^{\text{null}}_j}{s^{\text{null}}_j},
 \]
 a per-edge signal-to-noise ratio against the scramble null, where
 \(\bar A_{ij}\) is the bagged point estimate defined next.
@@ -646,12 +868,12 @@ reads the ordered set of bag files and writes a single aggregate
 \texttt{.prismEM.npz} file that can be opened by the existing
 \texttt{prism\_EM\_eval3c.py} machinery.
 
-\subsection{\texttt{prism\_EM\_FDR\_Bags\_train3c.py}: Stage (a)}
+\subsection{\texttt{prism\_FDR\_Bags\_train3c.py}: Stage (a)}
 
 This program is run once per bag, normally as one multi-GPU job:
 \[
 \texttt{torchrun --standalone --nnodes=1 --nproc\_per\_node=4
-./prism\_EM\_FDR\_Bags\_train3c.py ...}
+./prism\_FDR\_Bags\_train3c.py ...}
 \]
 It loads the reference EM output from \texttt{prismFit}, loads the original
 spikes from \texttt{spikesData}, samples a fixed-size subset of
@@ -660,13 +882,17 @@ subset, runs the requested circular-shift locked-M-step null refits, and
 writes one self-contained bag file.
 
 \paragraph{Input and output naming.}
-The input spike file is
-\[
-\texttt{<basePath>/spikesData/<dataName>.spikes.npz}.
-\]
 The reference EM fit is
 \[
 \texttt{<basePath>/prismFit/<emFitName>.prismEM.npz}.
+\]
+The input spike file is derived from this reference fit's provenance
+metadata, so Stage~(a) cannot accidentally combine an EM fit from one
+dataset with spikes from another. For simulations this provenance points to
+\texttt{state\_transition\_file}; for experiments it points to
+\texttt{experiment\_name}. The corresponding spike file is read from
+\[
+\texttt{<basePath>/spikesData/<sourceSpikeName>.spikes.npz}.
 \]
 The output directory is \texttt{fdr\_out\_dir} if supplied, otherwise
 \[
@@ -694,11 +920,9 @@ under \texttt{prismFit}.
   \item[\texttt{--basePath}] Root directory containing \texttt{spikesData/}
   and receiving \texttt{prismFDR/}. This is the same run directory used by
   the plain PRISM-EM trainer.
-  \item[\texttt{--dataName}] Short dataset name. The program reads
-  \texttt{<dataName>.spikes.npz} from \texttt{spikesData/}.
   \item[\texttt{--emFitName}] EM-train input fit stem in \texttt{prismFit/}.
   This file supplies the hard Viterbi state labels used by the locked
-  M-step.
+  M-step and the provenance record used to locate the original spike file.
   \item[\texttt{--outFitName}] Stage~(a) output stem in \texttt{prismFDR/}.
   The program writes
   \texttt{<outFitName>.bag<bag\_idx>.prismFDRbag.npz}. If omitted, the
@@ -809,9 +1033,9 @@ example for one dataset. It sets
 and a short input spike name such as
 \texttt{daleN200\_102308\_a5d24b}. The script derives
 \[
-\texttt{bagTag=jXXXX,\qquad emFitName=<shortN>\_em<bagTag>}
+\texttt{runTag=<hash4>,\qquad emFitName=<shortN>\_em<runTag>}
 \]
-from the SLURM job id, or uses \texttt{local} outside SLURM. It first runs
+as a random four-character hexadecimal tag. It first runs
 \texttt{prism\_EM\_train3c.py} on the configured \texttt{timeRange} and
 writes
 \[
@@ -820,35 +1044,33 @@ writes
 Then all bags launched inside the same script use the same Stage~(a) extended
 name
 \[
-\texttt{<shortN>\_em<bagTag>\_rmf<bagTag>}.
+\texttt{<shortN>\_em<runTag>\_fdr<runTag>}.
 \]
 For each requested bag index, the script runs
 \texttt{torchrun --standalone --nnodes=1 --nproc\_per\_node=4} on
 \texttt{prism\_FDR\_Bags\_train3c.py} with
-\texttt{--dataName <shortN>}, \texttt{--emFitName <emFitName>}, and
-\texttt{--outFitName <shortN>\_em<bagTag>\_rmf<bagTag>}. With
+\texttt{--emFitName <emFitName>} and
+\texttt{--outFitName <shortN>\_em<runTag>\_fdr<runTag>}. With
 \texttt{numBags=6}, the expected Stage~(a) output files are
 \begin{verbatim}
-<basePath>/prismFDR/<shortN>_em<bagTag>_rmf<bagTag>.bag000.prismFDRbag.npz
-<basePath>/prismFDR/<shortN>_em<bagTag>_rmf<bagTag>.bag001.prismFDRbag.npz
+<basePath>/prismFDR/<shortN>_em<runTag>_fdr<runTag>.bag000.prismFDRbag.npz
+<basePath>/prismFDR/<shortN>_em<runTag>_fdr<runTag>.bag001.prismFDRbag.npz
 ...
-<basePath>/prismFDR/<shortN>_em<bagTag>_rmf<bagTag>.bag005.prismFDRbag.npz
+<basePath>/prismFDR/<shortN>_em<runTag>_fdr<runTag>.bag005.prismFDRbag.npz
 \end{verbatim}
 These are all equivalent random locked-M-step bags; \texttt{bag000} is not a
 chronological reference. If aggregation is enabled, Stage~(b) is called with
-\texttt{--dataName <shortN>\_em<bagTag>\_rmf<bagTag>}, \texttt{--outAgrName}
-\texttt{<shortN>\_em<bagTag>\_rmf<bagTag>\_agr<bagTag>}, and
+\texttt{--dataName <shortN>\_em<runTag>\_fdr<runTag>}, \texttt{--outAgrName}
+\texttt{<shortN>\_em<runTag>\_fdr<runTag>\_agr<runTag>}, and
 \texttt{--num\_bags} equal to the number of contiguous bags starting from
 \texttt{bag000} that are present on disk.
 
-\subsection{\texttt{prism\_EM\_FDR\_Bags\_agregate3c.py}: Stage (b)}
+\subsection{\texttt{prism\_EM\_FDR\_Bags\_aggregate3c.py}: Stage (b)}
 
 This program is a single CPU postprocessing step. It reads the Stage~(a)
 files, performs the per-source null thresholding and cross-bag stability
 selection, and writes one aggregate file in the same outer format expected
-by \texttt{prism\_EM\_eval3c.py}. The filename contains
-\texttt{agregate} with one ``g'' because that is the implemented script
-name.
+by \texttt{prism\_EM\_eval3c.py}.
 
 \paragraph{Input and output naming.}
 The default input directory is
@@ -874,10 +1096,10 @@ The output file is written to
 \texttt{<basePath>/prismFit/<outAgrName>.prismEM.npz}.
 \]
 For example, with
-\texttt{dataName=daleN100\_2ba29b\_c47b43\_emj1234\_rmfj1234}, one possible
+\texttt{dataName=daleN100\_2ba29b\_c47b43\_em1234\_fdr1234}, one possible
 output stem is
 \[
-\texttt{daleN100\_2ba29b\_c47b43\_emj1234\_rmfj1234\_agrA}.
+\texttt{daleN100\_2ba29b\_c47b43\_em1234\_fdr1234\_agrA}.
 \]
 It can then be opened by
 \begin{verbatim}
@@ -919,12 +1141,21 @@ are the selection-conditional bagged means for edges with
 \texttt{--stab\_sel\_thresh 0.7}, this means retaining only edges present in at least
 \(70\%\) of bags; the retained edge value is the unweighted mean over only
 those bag instances where the edge was selected. Diagonal entries are
-the all-bag mean diagonals. \texttt{A\_prune}, \texttt{neuron\_type}, and
+the all-bag mean diagonals from the real bag fits; the corresponding
+diagonal mean, standard deviation, and standard error are also saved as
+\texttt{A\_diag\_mean}, \texttt{A\_diag\_std}, and
+\texttt{A\_diag\_stderr}. \texttt{A\_prune}, \texttt{neuron\_type}, and
 \texttt{neuron\_Sedge} are recomputed from this aggregate \texttt{A\_hat}
-using the same source-column Dale convention as the ordinary EM output:
+using source columns. First \texttt{min\_posW} and \texttt{max\_negW} are
+computed from the stable off-diagonal \texttt{A\_hat} weights. Then
 \texttt{neuron\_Sedge} is the off-diagonal column sum for each source
-neuron, \texttt{neuron\_type} is inferred from that source-column sum, and
-\texttt{A\_prune} keeps signs by source columns.
+neuron, and source columns are classified as excitatory when
+\(\texttt{neuron\_Sedge}>\texttt{min\_posW}\), inhibitory when
+\(\texttt{neuron\_Sedge}<\texttt{max\_negW}\), and undecided otherwise.
+\texttt{A\_prune} preserves the diagonal, keeps only positive outgoing
+weights for excitatory source columns, keeps only negative outgoing weights
+for inhibitory source columns, and leaves undecided source columns
+sign-unpruned.
 The output \texttt{B\_hat} is the mean across bags in the reference state
 order. Because every bag uses the hard labels from the same reference EM fit,
 state rows are already aligned; no bag-to-bag state permutation is needed
@@ -942,7 +1173,8 @@ Additional Stage~(b) arrays include \texttt{A\_bag},
 \texttt{selected\_mask}, \texttt{selected\_in\_bag},
 \texttt{selection\_count}, \texttt{selection\_frequency},
 \texttt{A\_mean\_selected}, \texttt{A\_sd\_selected},
-\texttt{A\_mean\_all}, \texttt{A\_sd\_all}, \texttt{src\_null\_tau\_bag},
+\texttt{A\_mean\_all}, \texttt{A\_sd\_all}, \texttt{A\_diag\_mean},
+\texttt{A\_diag\_std}, \texttt{A\_diag\_stderr}, \texttt{src\_null\_tau\_bag},
 \texttt{src\_null\_tau\_mean}, \texttt{src\_null\_mean},
 \texttt{src\_null\_sd}, \texttt{z\_null}, and a compact selected-edge table
 with \texttt{edge\_i}, \texttt{edge\_j}, \texttt{edge\_sel\_freq},
@@ -968,8 +1200,10 @@ with \texttt{edge\_i}, \texttt{edge\_j}, \texttt{edge\_sel\_freq},
 \(4\times\)A100 each).}
 \begin{enumerate}
   \item Load \texttt{prismFit/<emFitName>.prismEM.npz} and
-  \texttt{spikesData/<dataName>.spikes.npz}; form the reference-labeled
-  pair table \((H_t,X_t,Z_t)=(\hat S^{\text{ref}}_t,Y_{t-1},Y_t)\).
+  recover the input spike stem from its provenance metadata. Then load
+  \texttt{spikesData/<sourceSpikeName>.spikes.npz} and form the
+  reference-labeled pair table
+  \((H_t,X_t,Z_t)=(\hat S^{\text{ref}}_t,Y_{t-1},Y_t)\).
   \item Draw \(K_{\rm bag}=\lfloor\texttt{bag\_frac}(T_{\rm ref}-1)\rfloor\)
   pair indices without replacement, using the same selected rows for all
   neurons.
@@ -1001,8 +1235,8 @@ with \texttt{edge\_i}, \texttt{edge\_j}, \texttt{edge\_sel\_freq},
   select edges with \(|\hat A^{(b)}_{ij}|>\tau^{(b)}_j\); record
   \(q_\Lambda\).
   \item Compute selection frequencies \(\pi_{ij}\) and keep edges with
-  \(\pi_{ij}\ge\pi_{\text{thr}}\) (or use the
-  \texttt{target\_false\_edges}-derived \(\pi_{\text{thr}}\)).
+  \(\pi_{ij}\ge\pi_{\text{thr}}\), where \(\pi_{\text{thr}}\) is supplied
+  by \texttt{--stab\_sel\_thresh}.
   \item For surviving edges, compute the bagged mean \(\bar A_{ij}\),
   bootstrap SD \(\widehat{\mathrm{SD}}_{ij}\) (selection-conditional and
   all-bag), and effect size \(z_{ij}\) against the pooled source null.

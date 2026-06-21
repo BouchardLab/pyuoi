@@ -1,0 +1,247 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{geometry}
+\usepackage{booktabs}
+
+\geometry{margin=0.85in}
+
+\title{Absolute Edge-Meter Diagnostics for Synthetic PRISM-FDR Fits}
+\author{Jan Balewski, NERSC}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\texttt{edgeMaterAbs3c.py} evaluates final aggregate PRISM-FDR connectivity
+fits on synthetic data where the true directed graph is known. The evaluated
+matrix is \texttt{A\_prune}: the final matrix after bagging, FDR thresholding,
+stability selection, source-neuron type classification, and Dale-sign pruning.
+The truth edge mask is \texttt{E\_true}; \texttt{A\_true} supplies the true
+sign of each true edge. All metrics are computed on directed off-diagonal
+pairs only. The default plots \texttt{-p abc} summarize recovery quality,
+raw error counts, and selected confusion matrices.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ===============================================================
+\section{Inputs and Edge Labels}
+\label{sec:inputs}
+% ===============================================================
+
+The script reads one or more aggregate fit files from \texttt{prismFit/},
+using a common \texttt{--fitNameTrunk} and a list of \texttt{--fitTags}. Each
+fit must point through its provenance metadata to the same synthetic truth
+file in \texttt{truthDale/}. The script aborts if different fit tags refer to
+different truth graphs.
+
+The matrix convention is source-column:
+\[
+  A_{ij} = \hbox{effect of source neuron } j
+  \hbox{ on target neuron } i .
+\]
+The candidate graph consists of all off-diagonal directed pairs:
+\[
+  (i,j), \quad i\ne j .
+\]
+Diagonal dynamics are useful for the fitted model, but they are not counted
+as graph-recovery edges.
+
+For each off-diagonal candidate, the true label is
+\[
+\mathrm{label}^{\mathrm{true}}_{ij} =
+\begin{cases}
++ & E^{\mathrm{true}}_{ij}\ne0 \hbox{ and } A^{\mathrm{true}}_{ij}>0,\\
+- & E^{\mathrm{true}}_{ij}\ne0 \hbox{ and } A^{\mathrm{true}}_{ij}<0,\\
+0 & E^{\mathrm{true}}_{ij}=0 .
+\end{cases}
+\]
+The recovered label comes from the final \texttt{A\_prune}:
+\[
+\mathrm{label}^{\mathrm{reco}}_{ij} =
+\begin{cases}
++ & A^{\mathrm{prune}}_{ij} > \varepsilon,\\
+- & A^{\mathrm{prune}}_{ij} < -\varepsilon,\\
+0 & |A^{\mathrm{prune}}_{ij}|\le\varepsilon .
+\end{cases}
+\]
+The default tolerance is \(\varepsilon=10^{-4}\). This keeps the test
+effectively binary while avoiding accidental counting of tiny numerical
+residue as recovered edges.
+
+% ===============================================================
+\section{Plot Group \texttt{-p a}: Metric Curves}
+\label{sec:plot-a}
+% ===============================================================
+
+Plot group \texttt{a} is the main overview canvas. It contains six panels.
+The x-axis is the data duration in minutes when the input fits correspond to
+a scan over recording length.
+
+\subsection{Presence recovery}
+
+The presence panel collapses signed labels to a binary edge-present decision.
+It shows:
+\[
+\mathrm{precision}=\frac{\mathrm{TP}}{\mathrm{TP}+\mathrm{FP}},\qquad
+\mathrm{recall}=\frac{\mathrm{TP}}{\mathrm{TP}+\mathrm{FN}},
+\]
+\[
+\mathrm{F1}=
+\frac{2\,\mathrm{precision}\,\mathrm{recall}}
+{\mathrm{precision}+\mathrm{recall}},
+\]
+and the Matthews correlation coefficient
+\[
+\mathrm{MCC}=
+\frac{\mathrm{TP}\,\mathrm{TN}-\mathrm{FP}\,\mathrm{FN}}
+{\sqrt{(\mathrm{TP}+\mathrm{FP})(\mathrm{TP}+\mathrm{FN})
+(\mathrm{TN}+\mathrm{FP})(\mathrm{TN}+\mathrm{FN})}} .
+\]
+For sparse graphs, MCC is often the best single-number fidelity diagnostic
+because it uses all four confusion counts without being dominated by the
+large number of true negatives. Precision and recall remain essential
+because they identify whether an MCC change is caused mainly by false edges
+or missed true edges.
+
+\subsection{Sign-aware recovery}
+
+The sign-aware panel asks a stricter question: did the reconstruction assign
+the correct signed edge label in \(\{-,0,+\}\)? It shows signed precision,
+signed recall, signed F1, sign-aware multiclass MCC, and sign-flip rate.
+Wrong-sign recovered true edges count as both signed false positives and
+signed false negatives. This panel distinguishes topology recovery from Dale
+sign recovery.
+
+\subsection{Recovered source type}
+
+The source-type panel shows how many neurons were classified by the aggregate
+fit as excitatory, inhibitory, or undecided. This is a neuron-level Dale
+diagnostic, not an edge-level metric. A high undecided count means the fit
+may have recovered some edges but did not collect enough consistent outgoing
+evidence to assign clean source type.
+
+\subsection{False discoveries}
+
+The false-discovery panel shows realized false-discovery proportion:
+\[
+  \mathrm{FDP}=\frac{\mathrm{FP}}{\max(1,\mathrm{TP}+\mathrm{FP})},
+\]
+and compares it to the aggregate file's approximate stability-selection
+bound normalized by selected-edge count. The stability bound is a useful
+conservativeness diagnostic, but it is not a formal proof of FDR control for
+these overlapping bags.
+
+\subsection{Graph density}
+
+The density panel compares true and recovered graph density:
+\[
+  \rho_{\mathrm{true}} =
+  \frac{\#\hbox{ true off-diagonal edges}}{N(N-1)},\qquad
+  \rho_{\mathrm{reco}} =
+  \frac{\#\hbox{ recovered off-diagonal edges}}{N(N-1)} .
+\]
+This panel quickly reveals whether a good recall score is being achieved by
+making the recovered graph too dense.
+
+\subsection{Undecided-source diagnostics}
+
+The undecided-source panel shows the fraction of neurons classified as
+undecided, the fraction of recovered edges emitted by undecided sources, and
+the fraction of true edges whose source was classified as undecided. This is
+important because undecided neurons are treated as an abstention category:
+their nonzero \texttt{A\_prune} edges still count in edge recovery, but they
+are flagged as coming from sources with ambiguous Dale evidence.
+
+% ===============================================================
+\section{Plot Group \texttt{-p b}: Raw Count Bars}
+\label{sec:plot-b}
+% ===============================================================
+
+Plot group \texttt{b} shows two stacked bar charts. The first chart is titled
+\textit{edge is present (counts)}. For each fit tag, the stack is ordered:
+\[
+  \mathrm{TP}\quad \hbox{bottom}, \qquad
+  \mathrm{FN}\quad \hbox{middle}, \qquad
+  \mathrm{FP}\quad \hbox{top}.
+\]
+True negatives are intentionally omitted. In sparse graphs, the number of
+true negatives can be very large and would hide the counts that matter for
+reconstruction failures.
+
+The second chart is titled \textit{edge sign is correct (counts)} and uses
+the same stacked layout for signed TP, signed FN, and signed FP. This shows
+how much of the remaining error comes from missed signed edges, spurious
+signed edges, or wrong signs on recovered true edges.
+
+Raw counts matter because ratio metrics can hide scale. For example, two
+fits can have similar precision but very different numbers of false edges.
+The count canvas is therefore the best place to inspect the absolute error
+budget.
+
+% ===============================================================
+\section{Plot Group \texttt{-p c}: Selected Confusion Matrices}
+\label{sec:plot-c}
+% ===============================================================
+
+Plot group \texttt{c} displays detailed confusion matrices for selected fit
+tags. The current plotting call selects \texttt{tagIdxL=[2,-1]}, meaning the
+third provided tag and the last provided tag. The value \(-1\) always means
+the last tag.
+
+For each selected tag, the left matrix is the edge-label confusion matrix:
+rows are true labels and columns are recovered labels in the order
+\(\{-,0,+\}\). It separates:
+\begin{itemize}
+  \item missed inhibitory and excitatory edges: true \(-\) or \(+\) recovered
+  as \(0\);
+  \item spurious inhibitory and excitatory edges: true \(0\) recovered as
+  \(-\) or \(+\);
+  \item sign flips: true \(+\) recovered as \(-\), or true \(-\) recovered as
+  \(+\).
+\end{itemize}
+
+For each selected tag, the right matrix is the neuron type confusion matrix.
+Rows are true source type, excitatory or inhibitory. Columns are recovered
+source type: excitatory, inhibitory, or undecided. This matrix diagnoses
+Dale source classification separately from edge topology.
+
+% ===============================================================
+\section{Saved Metric File}
+\label{sec:output}
+% ===============================================================
+
+The script always saves the computed metric arrays to
+\texttt{edgeReco/\{outName\}.npz}. The default output name is
+\texttt{\{fitNameTrunk\}\_ermHASH4}. The saved arrays include:
+\begin{itemize}
+  \item fit names, fit tags, input files, and truth file;
+  \item duration, number of neurons, number of bags, bag fraction, FDR
+  quantile, stability threshold, and \(\varepsilon\);
+  \item TP, FP, FN, TN, precision, recall, F1, MCC, FDP, graph densities;
+  \item signed precision, signed recall, signed F1, signed MCC, sign-flip
+  count, and sign-flip rate;
+  \item edge-label confusion matrices and neuron-type confusion matrices for
+  every tag.
+\end{itemize}
+
+% ===============================================================
+\section{Possible Future Upgrade}
+\label{sec:future}
+% ===============================================================
+
+A threshold-free precision--recall study could be added later. The most
+natural candidate score is not final \(|\texttt{A\_prune}|\), because
+\texttt{A\_prune} has already passed per-bag FDR, stability selection, and
+Dale pruning. Better future scores may come from \texttt{selection\_frequency},
+\texttt{A\_mean\_selected}, null thresholds, or per-edge diagnostics saved
+before the final stability cut. Such an upgrade would complement the current
+absolute operating-point metrics rather than replace them.
+
+\end{document}

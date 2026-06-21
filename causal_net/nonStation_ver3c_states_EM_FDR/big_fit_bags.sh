@@ -47,11 +47,11 @@ echo "dataName=$shortN"
 echo "runTag=$runTag"
 echo "timeRange=${timeRange[*]}  numStates=$numStates"
 emFitName="${shortN}_em${runTag}"
-fdrFitName="${emFitName}_fdr${runTag}"
-fdrAgrName="${fdrFitName}_agr${runTag}"
+fdrBagsName="${emFitName}_fdr${runTag}"
+fdrAgrName="${fdrBagsName}_agr${runTag}"
 
 echo "emFitName=$emFitName"
-echo "fdrFitName=$fdrFitName"
+echo "fdrBagsName=$fdrBagsName"
 echo "fdrAgrName=$fdrAgrName"
 
 echo
@@ -77,9 +77,8 @@ for ((bag=0; bag<numBags; bag++)); do
     time torchrun --standalone --nnodes=1 --nproc_per_node=4 \
       ./prism_FDR_Bags_train3c.py \
       --basePath "$basePath" \
-      --dataName "$shortN" \
       --emFitName "$emFitName" \
-      --outFitName "$fdrFitName" \
+      --outFitName "$fdrBagsName" \
       --bag_idx "$bag" \
       --bag_frac "$bagFrac" \
       --epochs "$bagEpochs" \
@@ -90,9 +89,9 @@ done
 if [[ "$runAggregate" == "1" ]]; then
     echo
     echo "=== Aggregate bags ==="
-      ./prism_EM_FDR_Bags_agregate3c.py \
+      ./prism_EM_FDR_Bags_aggregate3c.py \
       --basePath "$basePath" \
-      --dataName "$fdrFitName" \
+      --dataName "$fdrBagsName" \
       --outAgrName "$fdrAgrName" \
       --num_bags "$numBags" \
       --per_bag_quantile 0.97 \
@@ -101,7 +100,7 @@ fi
 
 echo
 echo "Done."
-echo "Bag files: $basePath/prismFDR/${fdrFitName}.bagNNN.prismFDRbag.npz"
+echo "Bag files: $basePath/prismFDR/${fdrBagsName}.bagNNN.prismFDRbag.npz"
 if [[ "$runAggregate" == "1" ]]; then
     echo "Aggregate: $basePath/prismFit/${fdrAgrName}.prismEM.npz"
 fi

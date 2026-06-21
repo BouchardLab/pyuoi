@@ -38,8 +38,6 @@ def parse_args():
         description="PRISM-EM FDR bagging Stage (a): one reference-locked bag",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--dataName", required=True,
-                        help="Input spike dataset stem in spikesData/")
     parser.add_argument("--emFitName", required=True,
                         help="Input EM-train fit stem in prismFit/")
     parser.add_argument("--outFitName", default=None,
@@ -98,7 +96,14 @@ def ref_train_value(train_md, key, default=None):
     return default
 
 
-def effective_locked_args(cli_args, ref_md):
+def source_spike_name(ref_md):
+    prov = ref_md["provenance"]
+    if ref_md.get("data_type") == "bioExp":
+        return prov["experiment_name"]
+    return prov["state_transition_file"]
+
+
+def effective_locked_args(cli_args, ref_md, source_data_name):
     train_md = ref_md["train"]
     epochs = cli_args.epochs
     if epochs is None:
@@ -107,7 +112,7 @@ def effective_locked_args(cli_args, ref_md):
         raise ValueError("--epochs must be >= 1")
 
     vals = {
-        "dataName": cli_args.dataName,
+        "dataName": source_data_name,
         "basePath": cli_args.basePath,
         "num_states": int(train_md["num_states"]),
         "num_em_iters": 1,
@@ -248,8 +253,9 @@ def main():
                 print("Runtime:", runtime_summary(ctx))
 
             ref_f = os.path.join(args.basePath, "prismFit", f"{em_fit_name}.prismEM.npz")
-            spike_f = os.path.join(args.basePath, "spikesData", f"{args.dataName}.spikes.npz")
             ref_d, ref_md = read_data_npz(ref_f, verb=args.verb > 1)
+            source_data_name = source_spike_name(ref_md)
+            spike_f = os.path.join(args.basePath, "spikesData", f"{source_data_name}.spikes.npz")
             spike_d, spike_md = read_data_npz(spike_f, verb=args.verb > 1)
             source_spikes = np.asarray(spike_d["spikes"])
             ref_spikes, ref_bins = slice_reference_spikes(source_spikes, ref_md)
@@ -262,7 +268,7 @@ def main():
             if np.asarray(ref_d["B_hat"]).shape[0] != int(ref_md["train"]["num_states"]):
                 raise ValueError("Reference B_hat row count does not match train.num_states")
 
-            eff_args = effective_locked_args(args, ref_md)
+            eff_args = effective_locked_args(args, ref_md, source_data_name)
             rng = np.random.default_rng(seed_base)
             n_pair = ref_spikes.shape[0] - 1
             pair_idx = draw_pair_indices(rng, n_pair, args.bag_frac)
@@ -272,6 +278,7 @@ def main():
                 print("\nFDR-bag args:", vars(args), "\n")
                 print(
                     f"reference={ref_f}\n"
+                    f"source_spikes={spike_f}\n"
                     f"outFitName={out_fit_name} bag_idx={args.bag_idx} "
                     f"N={ref_spikes.shape[1]} M={eff_args.num_states} "
                     f"T_ref={ref_spikes.shape[0]} pairs={pair_idx.size}/{n_pair} "
@@ -279,8 +286,10 @@ def main():
                 )
         else:
             ref_d = ref_md = spike_md = ref_spikes = pair_idx = single_rates = eff_args = ref_bins = None
+            source_data_name = None
 
         ref_md = broadcast_object(ref_md, ctx)
+        source_data_name = broadcast_object(source_data_name, ctx)
         em_fit_name = broadcast_object(em_fit_name, ctx)
         out_fit_name = broadcast_object(out_fit_name, ctx)
         spike_md = broadcast_object(spike_md, ctx)
@@ -452,7 +461,7 @@ def main():
             }
             prov = dict(ref_md.get("provenance", spike_md.get("provenance", {})))
             prov.update({
-                "dataName": args.dataName,
+                "dataName": source_data_name,
                 "EMtrain_file": out_stem,
                 "emFitName": em_fit_name,
                 "outFitName": out_fit_name,
@@ -463,7 +472,8 @@ def main():
             outMD["bagsFDR_stageA"] = {
                 "program": "prism_FDR_Bags_train3c.py",
                 "method": "reference_locked_pair_subsample",
-                "dataName": args.dataName,
+                "dataName": source_data_name,
+                "source_spike_name": source_data_name,
                 "emFitName": em_fit_name,
                 "outFitName": out_fit_name,
                 "output_dataName": out_data_name,

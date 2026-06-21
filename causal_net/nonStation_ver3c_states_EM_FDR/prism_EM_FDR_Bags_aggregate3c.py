@@ -519,7 +519,7 @@ def main():
     out_md = dict(ref_md)
     out_md["fit_type"] = "prismEM_FDRbags_stageB"
     out_md["bagsFDR_stageB"] = {
-        "program": "prism_EM_FDR_Bags_agregate3c.py",
+        "program": "prism_EM_FDR_Bags_aggregate3c.py",
         "dataName": args.dataName,
         "input_dataName": args.dataName,
         "outAgrName": out_name,

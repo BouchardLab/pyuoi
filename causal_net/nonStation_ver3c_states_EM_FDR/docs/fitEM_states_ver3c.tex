@@ -181,9 +181,15 @@ shard boundaries, then broadcast so all ranks share the same \(c\).
 After the forward sweep completes, the soft coefficients \(c_{1:T}\) are decoded into a hard state sequence via Viterbi (Section~\ref{sec:decode}). The M-step then receives one-hot encoded state assignments rather than the soft simplex probabilities:
 \begin{equation}
   \hat{S}_{1:T} = \mathrm{Viterbi}(c_{1:T}), \qquad
-  c_t^{\mathrm{(M\text{-}step)}} = e_{\hat{S}_t},
+  c_t^{\mathrm{(M\text{-}step)}} = e_{\hat{S}_{t-1}}
+  \quad\hbox{for lag pair }(Y_{t-1},Y_t),
 \end{equation}
-where \(e_m\) is the \(m\)-th standard basis vector. This ensures the M-step fits each state's parameters from cleanly separated data rather than from soft mixtures.
+where \(e_m\) is the \(m\)-th standard basis vector. In the current ordinary
+EM implementation the one-hot row supplied to the M-step for the pair
+\((Y_{t-1},Y_t)\) is the previous-bin decoded state \(\hat S_{t-1}\), matching
+the saved metadata \texttt{mstep\_state\_mode=viterbi\_onehot\_prevbin}.
+This ensures the M-step fits each state's parameters from cleanly separated
+data rather than from soft mixtures.
 
 \subsubsection{M-step: Dictionary Update via Adam}
 

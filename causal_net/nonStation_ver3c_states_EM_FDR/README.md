@@ -10,7 +10,7 @@ The two entry points share the same core implementation in
   discovery.
 - `prism_FDR_Bags_train3c.py`: one FDR-bagging Stage (a) job, i.e. one
   reference-locked A/B refit plus its per-neuron time-shuffle null refits.
-- `prism_EM_FDR_Bags_agregate3c.py`: EM-FDR-bagging Stage (b), i.e.
+- `prism_EM_FDR_Bags_aggregate3c.py`: EM-FDR-bagging Stage (b), i.e.
   aggregate all bag files into one eval-compatible fit.
 
 The code expects input spike files under:
@@ -32,6 +32,45 @@ export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 ```
+
+## Shell Macros
+
+The `.sh` files in this directory are convenience launch macros. They are
+intended to be edited near the top before use, not treated as stable command
+line interfaces.
+
+- `fitPrismEM.sh`: thin wrapper around `prism_EM_train3c.py` for a single
+  distributed EM fit. It checks that `--basePath`, `--dataName`, and
+  `--num_states` were supplied, fixes a short default `--time_range_sec 0 80`,
+  checks that four GPUs are visible, and launches `torchrun`. This is mostly
+  useful for quick trainer smoke tests.
+
+- `big_fit_bags.sh`: end-to-end example for one complete FDR-bagging run on
+  a chosen dataset and time range. It runs one reference EM fit, loops over
+  `numBags` calls to `prism_FDR_Bags_train3c.py`, and optionally runs the
+  Stage (b) aggregator. Edit `basePath`, `shortN`, `numStates`, `timeRange`,
+  and the training/FDR hyperparameters at the top.
+
+- `big_scanTime_FDR.sh`: end-to-end run for a single data-duration point in
+  a scan. It takes three positional arguments:
+  `./big_scanTime_FDR.sh <suffix> <start_min> <stop_min>`. The macro sets
+  `timeRange=(start_min*60 stop_min*60)` seconds, runs reference EM, all FDR
+  bags, and aggregation. The final aggregate name is
+  `<shortN>_<suffix>_<start_min>to<stop_min>min`, which is convenient for
+  later metric scans over duration or time window.
+
+- `scan_FDR_BAG_hpar.sh`: cheap Stage (b)-only hyperparameter scan for an
+  existing set of bag files. It does not rerun EM or bag fitting. It reuses
+  `$basePath/prismFDR/${fdrBagsName}.bagNNN.prismFDRbag.npz` and sweeps
+  `stabSelScan` at fixed `base_per_bag_quantile`, then sweeps
+  `perBagQuantileScan` at fixed `base_stab_sel_thresh`. It writes aggregate
+  files named from `outAgrName` and prints ready-to-run `edgeMaterAbs3c.py`
+  metric commands for the two scans.
+
+- `docs/build3gen.sh`, `docs/build3EM.sh`, `docs/build3FDR.sh`,
+  `docs/build3exper.sh`, and `docs/build3edgeMeter.sh`: LaTeX build helpers
+  for the matching documentation files. They load `texlive` if needed, run
+  `pdflatex` twice, and try to open the produced PDF on supported systems.
 
 ## Plain EM Fit
 
@@ -89,14 +128,15 @@ $basePath/prismFit/<dataName>_jXXXX.prismEM.npz
 
 Then run `prism_FDR_Bags_train3c.py` once per bag. Each invocation:
 
-1. Loads the EM-train output selected by `--emFitName` and the original spike
-   file selected by `--dataName`.
-2. Forms lag pairs `(S_hat[t], spikes[t-1], spikes[t])`.
-3. Samples `--bag_frac` of those pairs without replacement.
-4. Runs a locked M-step to refit only `A,B`.
-5. Runs `--num_scrambles` per-neuron time-shuffle null refits using the same
+1. Loads the EM-train output selected by `--emFitName`.
+2. Recovers the original spike-file stem from that EM fit's provenance
+   metadata.
+3. Forms lag pairs `(S_hat[t], spikes[t-1], spikes[t])`.
+4. Samples `--bag_frac` of those pairs without replacement.
+5. Runs a locked M-step to refit only `A,B`.
+6. Runs `--num_scrambles` per-neuron time-shuffle null refits using the same
    selected pair indices and locked labels.
-6. Writes one self-contained bag file.
+7. Writes one self-contained bag file.
 
 The output file is:
 
@@ -104,10 +144,9 @@ The output file is:
 $basePath/prismFDR/<outFitName>.bag<bag_idx:03d>.prismFDRbag.npz
 ```
 
-When the reference fit stem differs from the spike dataset stem, pass
-`--emFitName <dataName>_emjXXXX`. This keeps input spikes at
-`spikesData/<dataName>.spikes.npz` while reading the reference states from
-`prismFit/<dataName>_emjXXXX.prismEM.npz`.
+The bag trainer does not accept `--dataName`. This is intentional: the source
+spike file is derived from the reference EM metadata, which prevents mixing
+states from one dataset with spikes from another.
 
 All bag indices, including `bag000`, are equivalent random pair subsets.
 
@@ -120,7 +159,6 @@ shortN=myDataset
 time torchrun --standalone --nnodes=1 --nproc_per_node=4 \
   ./prism_FDR_Bags_train3c.py \
   --basePath $basePath \
-  --dataName $shortN \
   --emFitName ${shortN}_emj1234 \
   --outFitName ${shortN}_emj1234_rmfA \
   --bag_idx 3 \
@@ -168,7 +206,6 @@ for bag in 0 1 2 3 4; do
   torchrun --standalone --nnodes=1 --nproc_per_node=4 \
     ./prism_FDR_Bags_train3c.py \
     --basePath $basePath \
-    --dataName $shortN \
     --emFitName ${shortN}_emj1234 \
     --outFitName ${shortN}_emj1234_rmfA \
     --bag_idx $bag \
@@ -189,13 +226,13 @@ the bag files with:
 ```bash
 basePath=/path/to/run
 shortN=myDataset
-fdrFitName=${shortN}_emj1234_rmfA
-agrFitName=${fdrFitName}_agrA
+fdrBagsName=${shortN}_emj1234_rmfA
+agrFitName=${fdrBagsName}_agrA
 num_bags=5
 
-./prism_EM_FDR_Bags_agregate3c.py \
+./prism_EM_FDR_Bags_aggregate3c.py \
   --basePath $basePath \
-  --dataName $fdrFitName \
+  --dataName $fdrBagsName \
   --outAgrName $agrFitName \
   --num_bags $num_bags \
   --per_bag_quantile 0.99 \
@@ -219,8 +256,8 @@ $basePath/prismFit/<outAgrName>.prismEM.npz
 If `--outAgrName` is omitted, the output stem defaults to `<dataName>_<hash4>`
 with a random four-character hex suffix.
 
-For example, with `fdrFitName=daleN100_2ba29b_c47b43_emj1234_rmfA` and
-`outAgrName=${fdrFitName}_agrA`, the output stem is:
+For example, with `fdrBagsName=daleN100_2ba29b_c47b43_emj1234_rmfA` and
+`outAgrName=${fdrBagsName}_agrA`, the output stem is:
 
 ```bash
 daleN100_2ba29b_c47b43_emj1234_rmfA_agrA
