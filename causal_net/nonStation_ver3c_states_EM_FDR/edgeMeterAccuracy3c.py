@@ -97,10 +97,8 @@ def load_truth_once(base_path, truth_name, verb=1):
 
 def as_static_2d(arr, name):
     arr = np.asarray(arr)
-    if arr.ndim == 3:
-        arr = arr[0]
     if arr.ndim != 2 or arr.shape[0] != arr.shape[1]:
-        raise ValueError(f"{name} must be a square 2D matrix after static-slice selection, got {arr.shape}")
+        raise ValueError(f"{name} must be a square 2D matrix, got {arr.shape}")
     return arr
 
 
@@ -288,9 +286,11 @@ def source_type_metrics(true_source_type, reco_source_type, true_lab_2d, est_lab
 
 
 def real_fit_metadata(md):
-    if "bagsFDR_stageA" in md and "real_fit" in md["bagsFDR_stageA"]:
-        return md["bagsFDR_stageA"]["real_fit"]
-    return md
+    if "bagsFDR_stageA" not in md:
+        raise KeyError("fit metadata missing 'bagsFDR_stageA'; was this file produced by prism_EM_FDR_Bags_aggregate3c.py?")
+    if "real_fit" not in md["bagsFDR_stageA"]:
+        raise KeyError("fit metadata missing 'bagsFDR_stageA.real_fit'")
+    return md["bagsFDR_stageA"]["real_fit"]
 
 
 def metric_row(base_path, fit_name, fit_tag, fit_d, fit_md, truth_d, truth_md, truth_f, epsilon):
@@ -433,7 +433,7 @@ def main():
 
     out_d = assemble_metric_arrays(rows)
     out_md = {
-        "program": "edgeMaterAbs3c.py",
+        "program": "edgeMeterAccuracy3c.py",
         "fitNameTrunk": args.fitNameTrunk,
         "fitTags": fit_tags,
         "fit_names": fit_names,
@@ -460,11 +460,11 @@ def main():
 
     plot_letters = normalize_plot_letters(args.showPlots)
     if plot_letters:
-        from PlotterEdgeMeterAbs import Plotter
+        from PlotterEdgeMeterAccuracy import Plotter
 
         unknown = sorted(set(plot_letters) - set("abc"))
         if unknown:
-            raise ValueError(f"Unknown plot letters for edgeMaterAbs3c.py: {unknown}")
+            raise ValueError(f"Unknown plot letters for edgeMeterAccuracy3c.py: {unknown}")
         args.prjName = out_name
         args.outPath = plot_dir
         args.formatVenue = "prod"

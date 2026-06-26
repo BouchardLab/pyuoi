@@ -658,18 +658,27 @@ class Plotter(PlotterBackbone):
         )
 
         ax = fig.add_subplot(gs[0, 2])
-        ax.plot(x_src, cnt_src_prune, color="tab:blue", linewidth=1.0)
-        med_cnt = int(np.median(cnt_src_prune))
+        blk = 10
+        n_blk = n_neuron // blk
+        blk_edges = np.arange(n_blk + 1) * blk
+        blk_cnt = cnt_src_prune[:n_blk * blk].reshape(n_blk, blk).mean(axis=1)
+        ax.stairs(blk_cnt, blk_edges, color="tab:blue", linewidth=1.2)
+        med_cnt = float(np.median(blk_cnt))
         ax.axhline(med_cnt, color="green", ls="--", lw=1.0, alpha=0.9)
         ax.text(
-            0.02, 0.95, f"median={med_cnt:d}", transform=ax.transAxes,
+            0.02, 0.95, f"median={med_cnt:.1f}", transform=ax.transAxes,
             va="top", ha="left", fontsize=9, color="green",
         )
-        ax.set_title("A_prune: # non-zero edges")
-        ax.set_xlabel("source neuron index (column)")
+        ax.set_title(f"A_prune: median non-zero edges={med_cnt:.1f}")
+        ax.set_xlabel(f"source neuron index (column), step={blk}")
         ax.set_ylabel("# outgoing non-zero edges")
         ax.grid(True, alpha=0.35)
-        self._overlay_single_rates(ax, single_rates, x_src)
+        rate = np.asarray(single_rates, dtype=np.float64).ravel()
+        blk_rate = rate[:n_blk * blk].reshape(n_blk, blk).mean(axis=1)
+        ax2 = ax.twinx()
+        ax2.stairs(blk_rate, blk_edges, color="tab:orange", linewidth=1.2, alpha=0.85)
+        ax2.set_ylabel("frequency (Hz)", color="tab:orange")
+        ax2.tick_params(axis="y", labelcolor="tab:orange")
 
         ax = fig.add_subplot(gs[1, 0])
         single_rates = np.asarray(single_rates, dtype=np.float64).ravel()
@@ -795,8 +804,34 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.35)
 
         ax = fig.add_subplot(gs[0, 2])
-        ax.hist(diag_vals, bins=80, color="tab:blue", alpha=0.8)
+        bins = np.linspace(diag_vals.min(), diag_vals.max(), 81)
+        nonneg_counts = []
+        for cls, color, label in [
+            (1,  "magenta", f"exc={n_exc}"),
+            (-1, "#39FF14", f"inh={n_inh}"),
+            (0,  "salmon",  f"und={n_und}"),
+        ]:
+            mask = neuron_type == cls
+            name = label.split("=")[0]
+            nonneg_counts.append((name, int(np.sum(diag_vals[mask] >= 0.0))))
+            if np.any(mask):
+                ec = "k" if cls == 0 else "none"
+                ax.hist(diag_vals[mask], bins=bins, color=color, alpha=0.75, label=label, edgecolor=ec, linewidth=0.5)
         ax.axvline(0.0, color="k", ls="--", lw=0.8)
+        ax.legend(loc="best", fontsize=9)
+        tbl = ax.table(
+            cellText=[[name, f"{cnt:d}"] for name, cnt in nonneg_counts],
+            colLabels=["type", ">=0"],
+            cellLoc="center",
+            colLoc="center",
+            bbox=[0.70, 0.46, 0.27, 0.28],
+        )
+        tbl.auto_set_font_size(False)
+        tbl.set_fontsize(8)
+        for cell in tbl.get_celld().values():
+            cell.set_edgecolor("0.65")
+            cell.set_linewidth(0.5)
+            cell.set_facecolor((1.0, 1.0, 1.0, 0.78))
         ax.set(title="A diagonal", xlabel="A_prune diagonal value", ylabel="neurons")
         ax.grid(True, alpha=0.35)
 
@@ -816,8 +851,18 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.35)
 
         ax = fig.add_subplot(gs[1, 2])
-        ax.scatter(diag_mean, diag_stderr, s=16, color="tab:blue", alpha=0.75)
+        for cls, color, label in [
+            (1,  "magenta", f"exc={n_exc}"),
+            (-1, "#39FF14", f"inh={n_inh}"),
+            (0,  "salmon",  f"und={n_und}"),
+        ]:
+            mask = neuron_type == cls
+            if not np.any(mask):
+                continue
+            kw = dict(s=18, marker="o", edgecolors="k", linewidths=0.5) if cls == 0 else dict(s=16, marker=".")
+            ax.scatter(diag_mean[mask], diag_stderr[mask], alpha=0.80, color=color, label=label, **kw)
         ax.axvline(0.0, color="k", ls="--", lw=0.8)
+        ax.legend(loc="best", fontsize=9)
         ax.set(title="A-diag avr over bags", xlabel="mean diagonal A", ylabel="stderr diagonal A")
         ax.grid(True, alpha=0.35)
 
@@ -827,6 +872,103 @@ class Plotter(PlotterBackbone):
             fontsize=12,
         )
         fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.94])
+
+    def offdiag_weight_investigation(self, fitD, md, figId="i"):
+        """Off-diagonal A_prune weight investigation: histogram and weight-vs-frequency heatmap."""
+        A_prune = np.asarray(fitD["A_prune"], dtype=np.float64)
+        neuron_type = np.asarray(fitD["neuron_type"], dtype=np.int8)
+        single_rates = np.asarray(fitD["single_rates"], dtype=np.float64).ravel()
+        n_neuron = A_prune.shape[0]
+        off_mask = ~np.eye(n_neuron, dtype=bool)
+        n_exc = int(np.sum(neuron_type > 0))
+        n_inh = int(np.sum(neuron_type < 0))
+        n_und = int(np.sum(neuron_type == 0))
+
+        figId = self.smart_append(figId)
+        fig = self.plt.figure(figId, facecolor="white", figsize=(18, 4))
+        gs = fig.add_gridspec(1, 4, wspace=0.38, left=0.05, right=0.97)
+
+        # --- plot 1: off-diagonal weight histogram by type ---
+        ax = fig.add_subplot(gs[0, 0])
+        all_off = A_prune[off_mask]
+        bins = np.linspace(all_off.min(), all_off.max(), 81)
+        edge_counts = {}
+        for cls, color, label in [
+            (1,  "magenta", f"exc={n_exc}"),
+            (-1, "#39FF14", f"inh={n_inh}"),
+            (0,  "salmon",  f"und={n_und}"),
+        ]:
+            src_mask = neuron_type == cls
+            if not np.any(src_mask):
+                continue
+            vals = A_prune[:, src_mask][off_mask[:, src_mask]]
+            vals = vals[np.abs(vals) > 1e-12]
+            edge_counts[label.split("=")[0]] = len(vals)
+            ec = "k" if cls == 0 else "none"
+            ax.hist(vals, bins=bins, color=color, alpha=0.75, label=label, edgecolor=ec, linewidth=0.5)
+        ax.axvline(0.0, color="k", ls="--", lw=0.8)
+        leg = ax.legend(loc="upper left", fontsize=9, title="neurons")
+        leg.get_title().set_fontsize(9)
+        edge_txt = "\n".join(f"{k}: {v}" for k, v in edge_counts.items())
+        ax.text(0.98, 0.97, f"edges:\n{edge_txt}", transform=ax.transAxes,
+                va="top", ha="right", fontsize=9,
+                bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=2))
+        ax.set(title="Off-diag weights by type", xlabel="A_prune weight", ylabel="edges")
+        ax.grid(True, alpha=0.35)
+
+        # --- plot 2: weight vs spike frequency heatmap (column = source neuron) ---
+        import matplotlib.colors as mcolors
+        ax = fig.add_subplot(gs[0, 1])
+        col_idx = np.where(off_mask)[1]   # source column for each off-diag entry
+        w_vals  = A_prune[off_mask]
+        nz = np.abs(w_vals) > 1e-12
+        freq_rep = single_rates[col_idx[nz]]
+        w_nz     = w_vals[nz]
+        h, xedges, yedges = np.histogram2d(w_nz, freq_rep, bins=[80, 40])
+        pcm = ax.pcolormesh(xedges, yedges, h.T, cmap="Blues", shading="flat",
+                            norm=mcolors.LogNorm(vmin=1, vmax=h.max()))
+        fig.colorbar(pcm, ax=ax, label="edges (log)")
+        ax.axvline(0.0, color="k", ls="--", lw=0.8)
+        ax.set(title="Weight vs source frequency", xlabel="A_prune weight", ylabel="spike frequency (Hz)")
+        ax.grid(True, alpha=0.2)
+
+        # --- plot 3: diagonal weight histogram by type ---
+        diag_vals = np.diag(A_prune)
+        ax = fig.add_subplot(gs[0, 2])
+        bins_diag = np.linspace(diag_vals.min(), diag_vals.max(), 81)
+        for cls, color, label in [
+            (1,  "magenta", f"exc={n_exc}"),
+            (-1, "#39FF14", f"inh={n_inh}"),
+            (0,  "salmon",  f"und={n_und}"),
+        ]:
+            mask = neuron_type == cls
+            if not np.any(mask):
+                continue
+            vals = diag_vals[mask]
+            vals = vals[np.abs(vals) > 1e-12]
+            ec = "k" if cls == 0 else "none"
+            ax.hist(vals, bins=bins_diag, color=color, alpha=0.75, label=label, edgecolor=ec, linewidth=0.5)
+        ax.axvline(0.0, color="k", ls="--", lw=0.8)
+        leg = ax.legend(loc="upper center", fontsize=9, title="neurons")
+        leg.get_title().set_fontsize(9)
+        ax.set(title="Diagonal weights by type", xlabel="A_prune diagonal", ylabel="neurons")
+        ax.grid(True, alpha=0.35)
+
+        # --- plot 4: diagonal weight vs spike frequency heatmap ---
+        ax = fig.add_subplot(gs[0, 3])
+        diag_nz_mask = np.abs(diag_vals) > 1e-12
+        h2, xedges2, yedges2 = np.histogram2d(
+            diag_vals[diag_nz_mask], single_rates[diag_nz_mask], bins=[80, 40])
+        pcm2 = ax.pcolormesh(xedges2, yedges2, h2.T, cmap="Blues", shading="flat",
+                             norm=mcolors.LogNorm(vmin=1, vmax=h2.max()))
+        fig.colorbar(pcm2, ax=ax, label="neurons (log)")
+        ax.axvline(0.0, color="k", ls="--", lw=0.8)
+        ax.set(title="Diagonal vs source frequency", xlabel="A_prune diagonal", ylabel="spike frequency (Hz)")
+        ax.grid(True, alpha=0.2)
+
+        title_prefix = self.canvas_title_prefix(md)
+        fig.suptitle(f"{title_prefix}, A_prune off-diagonal weight investigation", fontsize=12)
+        fig.subplots_adjust(top=0.88)
 
     def fdr_selection_summary(self, fitD, md, figId="g"):
         """Summarize Stage (b) FDR bag filtering and cross-bag stability."""

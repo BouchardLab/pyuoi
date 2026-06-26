@@ -499,6 +499,7 @@ def main():
                     "min_roll_shift_bins": int(min_roll_shift_bins),
                 },
                 "seed_base": int(seed_base),
+                "real_fit": {"train": train_md},
             }
 
             outF = os.path.join(out_dir, f"{out_stem}.prismFDRbag.npz")

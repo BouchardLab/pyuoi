@@ -312,9 +312,11 @@ def edge_table(final_sel, agg):
 
 
 def real_fit_metadata(md):
-    if "bagsFDR_stageA" in md and "real_fit" in md["bagsFDR_stageA"]:
-        return md["bagsFDR_stageA"]["real_fit"]
-    return md
+    if "bagsFDR_stageA" not in md:
+        raise KeyError("metadata missing 'bagsFDR_stageA' — was this file produced by prism_FDR_Bags_train3c.py?")
+    if "real_fit" not in md["bagsFDR_stageA"]:
+        raise KeyError("bagsFDR_stageA missing 'real_fit' — re-run prism_FDR_Bags_train3c.py to regenerate bag files")
+    return md["bagsFDR_stageA"]["real_fit"]
 
 
 def eval_loss_time(fitD, md, spikes):
@@ -438,12 +440,16 @@ def add_fit_eval_metadata(out_d, out_md, base_path, verb=1):
 
 def main():
     args = parse_args()
+    if args.outAgrName is None:
+        args.outAgrName = f"{args.dataName}_{secrets.token_hex(2)}"
     if args.num_bags < 1:
         raise ValueError("--num_bags must be at least 1")
     if not (0.0 < float(args.per_bag_quantile) < 1.0):
         raise ValueError("--per_bag_quantile must be between 0 and 1")
     if not (0.0 < float(args.stab_sel_thresh) <= 1.0):
         raise ValueError("--stab_sel_thresh must be in (0, 1]")
+    if args.verb > 0:
+        print("\nFDR-bag aggregate args:", vars(args), "\n")
 
     t0 = time.perf_counter()
     bag_data, bag_meta, bag_files, inp_dir = load_bags(args)
@@ -511,7 +517,7 @@ def main():
     })
     out_d.update(edge_table(agg["selected_mask"], agg))
 
-    out_name = args.outAgrName or f"{args.dataName}_{secrets.token_hex(2)}"
+    out_name = args.outAgrName
     out_dir = os.path.join(args.basePath, "prismFit")
     os.makedirs(out_dir, exist_ok=True)
     out_f = os.path.join(out_dir, f"{out_name}.prismEM.npz")
@@ -577,7 +583,7 @@ def main():
         print(f"\nSaved Stage (b) aggregate: {out_f}")
         print(
             f"  ./prism_EM_eval3c.py --basePath $basePath "
-            f"--dataName {out_name} -p  e f g h"
+            f"--dataName {out_name} -p  e f  h i   g"
         )
 
 

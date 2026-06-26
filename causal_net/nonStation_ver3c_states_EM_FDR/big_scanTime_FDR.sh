@@ -1,27 +1,30 @@
 #!/bin/bash
 # Scan FDR recovery versus amount of data.
 # Usage:
-#   ./big_scanTime_FDR.sh abc 10 30
+#   ./big_scanTime_FDR.sh abc 10 30 120
 #
+# Arguments: SUFFIX START_MIN STOP_MIN BAG_EPOCHS
 # The second and third arguments are start/stop minutes. prism_EM_train3c.py
 # receives this range in seconds through --time_range_sec.
+# BAG_EPOCHS controls --epochs for each FDR bag locked M-step fit.
 
 set -euo pipefail
 export OMP_NUM_THREADS=1
 SECONDS=0
 
-if [[ "$#" -ne 3 ]]; then
-    echo "Usage: $0 SUFFIX START_MIN STOP_MIN"
-    echo "Example: $0 abc 10 30"
+if [[ "$#" -ne 4 ]]; then
+    echo "Usage: $0 SUFFIX START_MIN STOP_MIN BAG_EPOCHS"
+    echo "Example: $0 abc 10 30 120"
     exit 2
 fi
 
 scanSuffix="$1"
 scanStartMin="$2"
 scanStopMin="$3"
-for val in "$scanStartMin" "$scanStopMin"; do
+bagEpochs="$4"
+for val in "$scanStartMin" "$scanStopMin" "$bagEpochs"; do
     if ! [[ "$val" =~ ^[0-9]+$ ]]; then
-        echo "ERROR: START_MIN and STOP_MIN must be non-negative integers, got '$scanStartMin' '$scanStopMin'"
+        echo "ERROR: START_MIN, STOP_MIN, and BAG_EPOCHS must be non-negative integers, got '$scanStartMin' '$scanStopMin' '$bagEpochs'"
         exit 2
     fi
 done
@@ -38,12 +41,12 @@ cd "$(dirname "$0")"
 basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3c
 #shortN=daleN200_74e6d6_e2b7d7  # N200 12/21 Hz
 #shortN=daleN200_f33b3b_7d8ff1  # N200 6/11  Hz
-shortN=daleN200_55e5a6_ff089c  # N200 3/21  Hz
+#shortN=daleN200_55e5a6_ff089c  # N200 3/21  Hz
 numStates=2
 
 # experimental data
-#shortN=Canine_260324_r21_w0_1hz; numStates=1 
-shortN=Canine_260324_r23_w0_1hz; numStates=2 
+shortN=Canine_260324_r21_w0_1hz; numStates=1 
+#shortN=Canine_260324_r23_w0_1hz; numStates=2 
 
 timeRange=($((scanStartMin * 60)) $((scanStopMin * 60)))
 
@@ -53,13 +56,13 @@ numEMepochs=2
 emBatchSize=4096
 
 # ---------- FDR bags: locked A/B fitting ----------
-numBags=10
+numBags=40
 bagFrac=0.8
-bagEpochs=150
-numScrambles=6
+# bagEpochs comes from command-line argument $4
+numScrambles=8
 bagBatchSize=4096
 perBagQuantile=0.95
-stabSelThresh=0.7
+stabSelThresh=0.8
 
 runTag="$(python3 -c 'import secrets; print(secrets.token_hex(2))')"
 
@@ -73,6 +76,7 @@ echo "dataName=$shortN"
 echo "scanSuffix=$scanSuffix"
 echo "scanStartMin=$scanStartMin"
 echo "scanStopMin=$scanStopMin"
+echo "bagEpochs=$bagEpochs"
 echo "runTag=$runTag"
 echo "timeRange=${timeRange[*]} sec  numStates=$numStates"
 echo "emFitName=$emFitName"

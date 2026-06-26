@@ -8,7 +8,7 @@
 
 \geometry{margin=0.85in}
 
-\title{Absolute Edge-Meter Diagnostics for Synthetic PRISM-FDR Fits}
+\title{Metrics for Accuracy of Reconstructed Connectivity Graph by PRISM-FDR Fits\\for Synthetic data}
 \author{Jan Balewski, NERSC}
 \date{\today}
 
@@ -17,7 +17,7 @@
 \maketitle
 
 \begin{abstract}
-\texttt{edgeMaterAbs3c.py} evaluates final aggregate PRISM-FDR connectivity
+\texttt{edgeMeterAccuracy3c.py} evaluates final aggregate PRISM-FDR connectivity
 fits on synthetic data where the true directed graph is known. The evaluated
 matrix is \texttt{A\_prune}: the final matrix after bagging, FDR thresholding,
 stability selection, source-neuron type classification, and Dale-sign pruning.
@@ -28,7 +28,7 @@ raw error counts, and selected confusion matrices.
 \end{abstract}
 
 \tableofcontents
-\newpage
+
 
 % ===============================================================
 \section{Inputs and Edge Labels}
@@ -71,7 +71,7 @@ The recovered label comes from the final \texttt{A\_prune}:
 0 & |A^{\mathrm{prune}}_{ij}|\le\varepsilon .
 \end{cases}
 \]
-The default tolerance is \(\varepsilon=10^{-4}\). This keeps the test
+The default tolerance is \(\varepsilon\) is the minimal edge weights from bagging algorithm. This keeps the test
 effectively binary while avoiding accidental counting of tiny numerical
 residue as recovered edges.
 

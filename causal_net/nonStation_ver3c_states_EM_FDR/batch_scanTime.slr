@@ -1,0 +1,28 @@
+#!/bin/bash
+#SBATCH -N 6
+#SBATCH -C gpu
+#SBATCH --gpus-per-node=4
+#SBATCH -A m2043
+# SBATCH --time=30:00
+# SBATCH -q debug
+#SBATCH --time=20:28:00
+#SBATCH -q regular
+#SBATCH --output=outj/%A.out
+#SBATCH --licenses=scratch
+
+set -uo pipefail
+SCRIPT_DIR=/global/homes/b/balewski/prjs/2026_UoI-VAR/causal_net/nonStation_ver3c_states_EM_FDR
+cd "$SCRIPT_DIR"
+
+SUFFIX=r5b
+LOGDIR="$SCRIPT_DIR"
+
+srun --exclusive -N1 --gpus-per-node=4 time ./big_scanTime_FDR.sh $SUFFIX 25 35 120 >"${LOGDIR}/L10${SUFFIX}" 2>&1 &
+srun --exclusive -N1 --gpus-per-node=4 time ./big_scanTime_FDR.sh $SUFFIX 20 40 100 >"${LOGDIR}/L20${SUFFIX}" 2>&1 &
+srun --exclusive -N1 --gpus-per-node=4 time ./big_scanTime_FDR.sh $SUFFIX 15 45  80 >"${LOGDIR}/L30${SUFFIX}" 2>&1 &
+srun --exclusive -N1 --gpus-per-node=4 time ./big_scanTime_FDR.sh $SUFFIX 10 50  70 >"${LOGDIR}/L40${SUFFIX}" 2>&1 &
+srun --exclusive -N1 --gpus-per-node=4 time ./big_scanTime_FDR.sh $SUFFIX  5 55  60 >"${LOGDIR}/L50${SUFFIX}" 2>&1 &
+srun --exclusive -N1 --gpus-per-node=4 time ./big_scanTime_FDR.sh $SUFFIX  0 60  50 >"${LOGDIR}/L60${SUFFIX}" 2>&1 &
+
+wait
+echo "All 6 scanTime tasks finished."

@@ -1,0 +1,248 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{bm}
+\usepackage[margin=1in]{geometry}
+\usepackage{enumitem}
+\usepackage{hyperref}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    citecolor=blue
+}
+
+\title{Stability Metrics for Reconstructed Connectivity Graphs\\by PRISM-FDR Fits}
+\author{Jan Balewski, NERSC}
+\date{\today}
+
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This document defines the mathematical framework and programmatic specifications for evaluating the stability of sparse directed graphs reconstructed by PRISM-FDR from real or simulated data. The framework is ground-truth-free: it measures how consistently the pipeline recovers the same structure and weights across $K \ge 2$ independent data subsets. It therefore cannot quantify what true graph information may be absent from all subsets simultaneously---only how much the subsets agree with one another. Applications include stationarity testing and determining the minimum data footprint $t_{\text{min}}$ for reliable inference.
+\end{abstract}
+
+\tableofcontents
+
+% ===============================================================
+\section{Input Specifications, Conventions, and Baselines}
+% ===============================================================
+
+The diagnostic code processes $K \ge 2$ reconstructed graph files, one per data subset (e.g., consecutive time blocks, disjoint subsets, or expanding recording durations).
+
+\subsection*{Matrix Convention}
+
+Each data subset $k$ yields an $N \times N$ estimated weight matrix $\mathbf{A}^{(k)}$, where $N$ is the number of neurons ($50 \le N \le 500$). The matrix follows the source-column convention:
+\[
+A_{ij} = \text{directed effect of source neuron } j \text{ on target neuron } i
+\]
+
+\subsection*{Input Data per Data Subset $k$}
+
+For each data subset $k$, the input must supply:
+\begin{itemize}
+    \item $\mathbf{A}^{(k)}_{\text{prune}}$: The final pruned matrix of mean edge weights after bagging, FDR thresholding, and Dale-sign pruning. The matrix is sparse (typical row density between 5\% and 20\%). Non-zero off-diagonal entries are the \emph{selection-conditional} bagged mean: the arithmetic mean of $\hat{A}^{(b)}_{ij}$ over only the bags $b$ in which edge $(i,j)$ passed the per-bag null threshold. Diagonal entries $A^{(k)}_{ii}$ are retained as fitted values; they are not subject to FDR or bagging pruning and may take any real value.
+    \item $\boldsymbol{\Sigma}^{(k)}$: An $N \times N$ matrix containing the selection-conditional bootstrap standard deviation $\sigma_{ij}$ of off-diagonal edge weights computed across bags. Specifically,
+    \[
+    \sigma^{(k)}_{ij} = \widehat{\mathrm{SD}}^{(k)}_{ij}
+    = \sqrt{\frac{1}{B_{ij}-1}\sum_{b \in \mathcal{B}_{ij}} \bigl(\hat{A}^{(b)}_{ij} - \bar{A}^{(k)}_{ij}\bigr)^2},
+    \]
+    where $\mathcal{B}_{ij}$ is the set of bags in which edge $(i,j)$ was selected and $B_{ij} = |\mathcal{B}_{ij}|$. Entries where $B_{ij} \le 1$ are stored as zero. The number of bootstrap bags is fixed at \texttt{numBags = 20}.
+    \item $\mathbf{V}^{(k)}_{\text{node}}$: An $N \times 1$ vector containing the final categorical assignment for each source neuron: Excitatory ($+$), Inhibitory ($-$), or Undecided ($0$).
+\end{itemize}
+
+\subsection*{Numerical Zero-Floor and Global Active Edge Union}
+
+To avoid arbitrary hyperparameters, the numerical zero-floor ($\varepsilon$) is defined dynamically as the minimum non-zero absolute off-diagonal weight across all data subsets:
+\[
+\varepsilon = \min_{k, i \neq j} \left\{ |A^{(k)}_{\text{prune}, ij}| \;\middle|\; A^{(k)}_{\text{prune}, ij} \neq 0 \right\}
+\]
+To protect correlation metrics from zero-inflation (where large blocks of matching zeros artificially inflate consistency scores), the framework constructs a \textbf{Global Active Edge Union} ($E_{\text{global}}$) across all $K$ data subsets:
+\[
+E_{\text{global}} = \bigcup_{k=1}^{K} \left\{ (i,j) \;\middle|\; i \neq j \text{ and } |A^{(k)}_{\text{prune}, ij}| \ge \varepsilon \right\}
+\]
+All off-diagonal metrics are evaluated exclusively on pairs in $E_{\text{global}}$. $E_{\text{global}}$ also serves as the reference topology for the multi-subset comparison strategies in Section~\ref{sec:strategies}.
+
+% ===============================================================
+\section{Off-Diagonal: Topology and Sign Alignment Metrics}
+% ===============================================================
+
+When comparing any pair of data subsets, edge existence and sign consistency are assessed using metrics independent of absolute weight scales.
+
+\subsection*{A. Signed Jaccard Indices}
+
+To measure topological stability without influence from $0 \to 0$ matches, positive and negative edge sets are isolated for each data subset restricted to $E_{\text{global}}$:
+\[
+E_k^+ = \left\{ (i,j) \in E_{\text{global}} \;\middle|\; A^{(k)}_{\text{prune}, ij} > \varepsilon \right\}, \qquad
+E_k^- = \left\{ (i,j) \in E_{\text{global}} \;\middle|\; A^{(k)}_{\text{prune}, ij} < -\varepsilon \right\}
+\]
+Two Jaccard values are reported for every pairwise comparison:
+\[
+J_+ = \frac{|E_1^+ \cap E_2^+|}{|E_1^+ \cup E_2^+|}, \qquad
+J_- = \frac{|E_1^- \cap E_2^-|}{|E_1^- \cup E_2^-|}
+\]
+If either denominator is zero (no positive or no negative edges across both data subsets), the corresponding $J$ is set to \texttt{NaN}.
+
+\subsection*{B. Sign Match Rate (SMR)}
+
+The SMR measures sign consistency on the subset of edges where both data subsets agree a connection exists, ignoring edges absent in either one:
+\[
+\text{SMR} = \frac{|(E_1^+ \cap E_2^+) \cup (E_1^- \cap E_2^-)|}{|(E_1^+ \cup E_1^-) \cap (E_2^+ \cup E_2^-)|}
+\]
+The denominator counts edges that both data subsets call present (regardless of sign); the numerator counts those where both also agree on sign.
+
+% ===============================================================
+\section{Off-Diagonal: Parametric Magnitude Consistency Metrics}
+% ===============================================================
+
+Edge weight magnitudes are extracted as 1D vectors over $E_{\text{global}}$. Let $X$ and $Y$ be the weight vectors from two data subsets; entries are zero for edges absent in a given subset.
+
+\subsection*{A. Unweighted Spearman Rank Correlation ($r_s$)}
+
+Because regularization scales coefficients dynamically with data length, rank-order preservation is prioritized over linear agreement.
+\begin{enumerate}
+    \item Convert $X$ and $Y$ into rank vectors $R_X$ and $R_Y$ (average ranks for ties).
+    \item Compute the Pearson correlation of the rank vectors:
+\end{enumerate}
+\[
+r_s = \frac{\sum_m (R_{X,m} - \bar{R}_X)(R_{Y,m} - \bar{R}_Y)}{\sqrt{\sum_m (R_{X,m} - \bar{R}_X)^2 \sum_m (R_{Y,m} - \bar{R}_Y)^2}}
+\]
+
+\subsection*{B. Error-Aware Weighted Spearman Correlation ($r_s^w$)}
+
+This metric down-weights edges with high estimation instability. The weight for edge $(i,j)$ when comparing data subsets $k_1$ and $k_2$ is the inverse of the mean selection-conditional bootstrap SD across both subsets, regularized by $\varepsilon$:
+\[
+w_{ij} = \frac{1}{\dfrac{\sigma^{(k_1)}_{ij} + \sigma^{(k_2)}_{ij}}{2} + \varepsilon}
+\]
+where $\sigma^{(k)}_{ij} = 0$ for edges absent in data subset $k$. The $+\varepsilon$ floor prevents division by zero using the same dynamically computed value from Section~1, introducing no new hyperparameter.
+
+The weighted Spearman replaces the Pearson step with its weighted analogue on $R_X$ and $R_Y$:
+\[
+r_s^w = \frac{\sum_m w_m (R_{X,m} - \bar{R}_X^w)(R_{Y,m} - \bar{R}_Y^w)}
+             {\sqrt{\sum_m w_m (R_{X,m} - \bar{R}_X^w)^2 \;\cdot\; \sum_m w_m (R_{Y,m} - \bar{R}_Y^w)^2}}
+\]
+where $\bar{R}_X^w = \sum_m w_m R_{X,m} / \sum_m w_m$ and similarly for $\bar{R}_Y^w$.
+
+% ===============================================================
+\section{Diagonal: Self-Coupling Stability Metrics}
+\label{sec:diagonal}
+% ===============================================================
+
+The diagonal entries $A^{(k)}_{ii}$ represent self-coupling of each neuron and are fitted without FDR thresholding or bagging pruning; they may take any real value. One magnitude-change metric is defined for the diagonal.
+
+\subsection*{A. Diagonal Magnitude Change}
+
+Let $d^{(k)} \in \mathbb{R}^N$ be the vector of diagonal entries from data subset $k$, i.e.\ $d^{(k)}_i = A^{(k)}_{ii}$. For each pairwise comparison of data subsets $k_1$ and $k_2$, compute the mean absolute diagonal difference:
+\[
+\Delta_{\text{diag}} = \frac{1}{N}\sum_i \left|d^{(k_1)}_i - d^{(k_2)}_i\right|
+\]
+This metric is sensitive to absolute changes in fitted self-coupling values and is not invariant to global shifts or scaling.
+
+% ===============================================================
+\section{Per-Neuron-Type Breakdown of Off-Diagonal Metrics}
+\label{sec:neurontype}
+% ===============================================================
+
+Off-diagonal Jaccard metrics are computed over three edge scopes:
+\begin{enumerate}
+    \item \textbf{All edges}: the full $E_{\text{global}}$ index.
+    \item \textbf{Excitatory-source edges}: restrict to $(i,j) \in E_{\text{global}}$ where source neuron $j$ is classified as Excitatory ($V^{(k)}_{\text{node},j} = +$) in \emph{either} compared data subset.
+    \item \textbf{Inhibitory-source edges}: restrict to $(i,j) \in E_{\text{global}}$ where source neuron $j$ is classified as Inhibitory ($V^{(k)}_{\text{node},j} = -$) in \emph{either} compared data subset.
+\end{enumerate}
+Undecided-source edges contribute to the all-edges scope but are excluded from the excitatory and inhibitory scopes.
+
+SMR is computed only for the all-edge scope. Spearman metrics are computed only for the excitatory-source and inhibitory-source scopes; all-edge Spearman is intentionally omitted. The compact plot group \texttt{a} displays all-edge topology/sign metrics and source-type Spearman metrics in one canvas.
+
+% ===============================================================
+\section{Multi-Subset Comparison Strategies}
+\label{sec:strategies}
+% ===============================================================
+
+Two comparison strategies are supported, selected by \texttt{--compare\_mode}.
+
+\subsection*{Strategy A: Each Data Subset vs.\ Last Subset (\texttt{--compare\_mode last})}
+
+The last data subset in the ordered list ($k = K$) serves as the reference. All other subsets ($k = 1, \dots, K-1$) are compared against it. The reference is not compared against itself. This mode is designed for studies where the last subset represents the most complete recording (e.g., the full time window $[0, 60]$\,min), and earlier subsets represent restricted windows (e.g., $[10, 50]$\,min, $[20, 40]$\,min). The x-axis is the duration of each non-reference subset, so the plot directly shows how shrinking the time window degrades stability relative to the full recording.
+
+This produces $K-1$ metric values per metric.
+
+\subsection*{Strategy B: Consecutive Pairwise Comparison (\texttt{--compare\_mode consecutive})}
+
+Compare ordered adjacent pairs: $(k=1$ vs.\ $k=2)$, $(k=2$ vs.\ $k=3)$, $\ldots$, $(k=K-1$ vs.\ $k=K)$. This produces $K-1$ metric values per metric and directly measures drift between neighboring data subsets.
+
+% ===============================================================
+% ===============================================================
+\section{Saved Metric File}
+\label{sec:output}
+% ===============================================================
+
+The script always saves the computed metric arrays to \texttt{edgeFidelity/\{outName\}.npz}. The default output name is \texttt{\{fitNameTrunk\}\_efmHASH4}. The saved arrays include:
+\begin{itemize}
+    \item fit name trunk, fit tags, comparison mode, and $\varepsilon$;
+    \item comparison labels and x-axis values (one per comparison);
+    \item data subset tags and x-axis values (one per subset);
+    \item per-comparison pairwise Jaccard metrics for each scope (all, exc, inh): $J_+$, $J_-$;
+    \item all-edge SMR, stored only for the all-edge scope;
+    \item source-type Spearman metrics $r_s$ and $r_s^w$, stored only for excitatory-source and inhibitory-source scopes;
+    \item per-comparison mean absolute diagonal difference $\Delta_{\text{diag}}$.
+\end{itemize}
+
+% ===============================================================
+\section{Plots}
+\label{sec:plots}
+% ===============================================================
+
+Plot groups are selected with \texttt{-p}. The default \texttt{-p a} produces the edge-fidelity summary.
+
+\paragraph{X-axis convention.}
+\begin{itemize}
+    \item \texttt{consecutive}: x-axis is the midpoint duration between the two compared subsets (e.g., midpoint of 10\,min and 20\,min is 15\,min). Produces $K-1$ points connected by lines.
+    \item \texttt{last}: x-axis is the duration of the non-reference subset. Produces $K-1$ points connected by lines. The last subset is the reference and does not appear as a data point.
+\end{itemize}
+
+\bigskip
+\noindent\textbf{Plot group \texttt{a} --- Edge Fidelity Summary.}
+A $3 \times 2$ canvas with the same layout for both \texttt{consecutive} and \texttt{last} comparison modes. Top-left: all-edge Jaccard curves $J_+$ and $J_-$. Top-right: all-edge Signal Match Rate. Middle-left: overlaid excitatory-source and inhibitory-source Spearman $r_s$. Bottom-left: overlaid excitatory-source and inhibitory-source weighted Spearman $r_s^w$. Middle-right: mean absolute diagonal difference $\Delta_{\text{diag}}$. The top-right and middle-right panels use automatic y-axis scaling. The bottom-right panel is intentionally blank.
+
+\bigskip
+\noindent\textbf{Plot group \texttt{b} --- Weight and Edge-Count Stats.}
+A $1 \times 4$ canvas using per-subset values rather than pairwise comparison values. Panel 1 shows the positive and negative Dale-pruning weight thresholds, \texttt{min\_posW} and \texttt{max\_negW}. Panel 2 shows off-diagonal weight ranges for excitatory-source and inhibitory-source edges, including median trends. Panel 3 shows the number of off-diagonal edges by source type (excitatory, inhibitory, undecided). Panel 4 is reserved/blank.
+
+% ===============================================================
+\section{Script Interface}
+\label{sec:cli}
+% ===============================================================
+
+The script is \texttt{edgeMeterFidelity3c.py}. It is invoked as:
+\begin{verbatim}
+python edgeMeterFidelity3c.py \
+    --basePath <path> \
+    --fitNameTrunk <stem> \
+    --fitTags <tag1> <tag2> ... \
+    --compare_mode <consecutive|last> \
+    [-p <plots>]
+\end{verbatim}
+
+\paragraph{Required arguments.}
+\begin{description}
+    \item[\texttt{--basePath}] Root directory containing \texttt{prismFit/} and receiving \texttt{edgeFidelity/} and \texttt{plots/}.
+    \item[\texttt{--fitNameTrunk}] Common stem shared by all fit files.
+    \item[\texttt{--fitTags}] Ordered list of tags identifying each data subset. The order determines the sequence for consecutive mode and the reference for last mode.
+    \item[\texttt{--compare\_mode}] Either \texttt{consecutive} (default) or \texttt{last}.
+\end{description}
+
+\paragraph{Optional arguments.}
+\begin{description}
+    \item[\texttt{--outName}] Output metric stem in \texttt{edgeFidelity/}; default is \texttt{\{fitNameTrunk\}\_efmHASH4}.
+    \item[\texttt{-p}] Plot selector string (default \texttt{a}): \texttt{a} = edge fidelity summary, \texttt{b} = weight and edge-count stats.
+\end{description}
+
+\end{document}
