@@ -117,9 +117,12 @@ def build_subsets(fit_records, verb=1):
         # NaN means only 1 bag selected the edge (ddof=1 undefined) — treat as 0 uncertainty
         np.nan_to_num(A_sd_selected, nan=0.0, copy=False)
         neuron_type = np.asarray(fit_d["neuron_type"], dtype=np.int8).ravel()
+        single_rates = np.asarray(fit_d["single_rates"], dtype=np.float64).ravel()
         n = A_prune.shape[0]
         if neuron_type.shape != (n,):
             raise ValueError(f"neuron_type shape {neuron_type.shape} != N={n}")
+        if single_rates.shape != (n,):
+            raise ValueError(f"single_rates shape {single_rates.shape} != N={n}")
 
         # parse duration from tag string (e.g. "30min" -> 30.0), fall back to metadata
         duration_min = float("nan")
@@ -146,6 +149,8 @@ def build_subsets(fit_records, verb=1):
 
         off = A_prune.copy()
         np.fill_diagonal(off, 0.0)
+        source_edge_counts = (np.abs(off) > 1e-12).sum(axis=0).astype(np.float64)
+        source_edge_counts[neuron_type == 0] = 0.0
         weight_ranges = {}
         edge_counts = {}
         for cls, key in ((1, "exc"), (-1, "inh"), (0, "und")):
@@ -169,6 +174,8 @@ def build_subsets(fit_records, verb=1):
             "A_prune": A_prune,
             "A_sd_selected": A_sd_selected,
             "neuron_type": neuron_type,
+            "single_rates": single_rates,
+            "source_edge_counts": source_edge_counts,
             "diag": np.diag(A_prune).copy(),
             "n": n,
             "duration_min": duration_min,
@@ -280,8 +287,8 @@ def _spearman_weighted(X, Y, W=None):
 def compute_magnitude_metrics(A1, sigma1, A2, sigma2, e_global, eps):
     """r_s and r_s^w for one pair."""
     idx = np.where(e_global)
-    X = A1[idx]
-    Y = A2[idx]
+    X = np.abs(A1[idx])
+    Y = np.abs(A2[idx])
     S1 = np.nan_to_num(sigma1[idx], nan=0.0)
     S2 = np.nan_to_num(sigma2[idx], nan=0.0)
     W = 1.0 / ((S1 + S2) / 2.0 + eps)
@@ -396,6 +403,24 @@ def assemble_output(comparisons, subsets, mode, eps):
     """Pack all results into numpy arrays for the Plotter."""
     nc = len(comparisons)
     ns = len(subsets)
+    all_rates = np.concatenate([s["single_rates"] for s in subsets])
+    all_rates = all_rates[np.isfinite(all_rates)]
+    if all_rates.size:
+        n_rate_bins = min(30, int(all_rates.size))
+        r0, r1 = float(np.min(all_rates)), float(np.max(all_rates))
+        if r0 == r1:
+            pad = max(0.5, abs(r0) * 0.05)
+            r0, r1 = r0 - pad, r1 + pad
+        rate_edges = np.linspace(r0, r1, n_rate_bins + 1, dtype=np.float64)
+        edge_rate_hist = np.zeros((n_rate_bins, ns), dtype=np.float64)
+        for isub, s in enumerate(subsets):
+            hist, _ = np.histogram(
+                s["single_rates"], bins=rate_edges, weights=s["source_edge_counts"]
+            )
+            edge_rate_hist[:, isub] = hist
+    else:
+        rate_edges = np.array([0.0, 1.0], dtype=np.float64)
+        edge_rate_hist = np.zeros((1, ns), dtype=np.float64)
 
     out = {
         "compare_mode": np.array([mode], dtype=object),
@@ -418,6 +443,8 @@ def assemble_output(comparisons, subsets, mode, eps):
         "n_edges_exc": np.array([s["edge_counts"]["exc"] for s in subsets], dtype=np.int64),
         "n_edges_inh": np.array([s["edge_counts"]["inh"] for s in subsets], dtype=np.int64),
         "n_edges_und": np.array([s["edge_counts"]["und"] for s in subsets], dtype=np.int64),
+        "rate_bin_edges": rate_edges,
+        "edge_count_rate_hist": edge_rate_hist,
     }
 
     # off-diagonal metrics per scope

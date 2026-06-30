@@ -5,7 +5,7 @@
 #SBATCH -A m2043
 # SBATCH --time=30:00
 # SBATCH -q debug
-#SBATCH --time=20:28:00
+#SBATCH --time=16:28:00
 #SBATCH -q regular
 #SBATCH --output=outj/%A.out
 #SBATCH --licenses=scratch
@@ -14,7 +14,7 @@ set -uo pipefail
 SCRIPT_DIR=/global/homes/b/balewski/prjs/2026_UoI-VAR/causal_net/nonStation_ver3c_states_EM_FDR
 cd "$SCRIPT_DIR"
 
-SUFFIX=r5b
+SUFFIX=r5c
 LOGDIR="$SCRIPT_DIR"
 
 srun --exclusive -N1 --gpus-per-node=4 time ./big_scanTime_FDR.sh $SUFFIX 25 35 120 >"${LOGDIR}/L10${SUFFIX}" 2>&1 &

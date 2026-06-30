@@ -64,6 +64,16 @@ class Plotter(PlotterBackbone):
         ax.xaxis.set_major_formatter(self.plt.FuncFormatter(lambda v, _: f"{int(round(v))}"))
         ax.set_xticks(x)
 
+    def _bin_edges_from_centers(self, x):
+        x = np.asarray(x, dtype=np.float64)
+        if x.size == 1:
+            return np.array([x[0] - 0.5, x[0] + 0.5], dtype=np.float64)
+        edges = np.empty(x.size + 1, dtype=np.float64)
+        edges[1:-1] = 0.5 * (x[:-1] + x[1:])
+        edges[0] = x[0] - 0.5 * (x[1] - x[0])
+        edges[-1] = x[-1] + 0.5 * (x[-1] - x[-2])
+        return edges
+
     def _plot_scope_rows(self, fig, axs, x, xlabel, key, ylabel, ylim, out_d, out_md):
         """Fill a 3-row axes array, one row per scope, for a single scalar metric key."""
         for row, scope in enumerate(SCOPES):
@@ -82,8 +92,8 @@ class Plotter(PlotterBackbone):
 
     def plot_jaccard_smr(self, out_d, out_md, figId="a"):
         figId = self.smart_append(figId)
-        fig, axs = self.plt.subplots(3, 2, num=figId, facecolor="white", figsize=(8.4, 6.6))
-        fig.subplots_adjust(hspace=0.45, wspace=0.32)
+        fig, axs = self.plt.subplots(3, 2, num=figId, facecolor="white", figsize=(7.2, 6.6))
+        fig.subplots_adjust(hspace=0.45, wspace=0.28)
         x, xlabel = self._x_and_label(out_d)
 
         ax = axs[0, 0]
@@ -191,8 +201,19 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.3)
         self._apply_int_xticks(ax, sx)
 
-        axs[3].set_axis_off()
-        axs[3].text(0.5, 0.5, "(reserved)", transform=axs[3].transAxes,
-                    ha="center", va="center", fontsize=11, color="gray")
+        ax = axs[3]
+        rate_edges = np.asarray(out_d["rate_bin_edges"], dtype=np.float64)
+        edge_rate_hist = np.asarray(out_d["edge_count_rate_hist"], dtype=np.float64)
+        x_edges = self._bin_edges_from_centers(sx)
+        from matplotlib.colors import LinearSegmentedColormap
+        cmap = LinearSegmentedColormap.from_list(
+            "YlOrBl", ["#fff7bc", "#fec44f", "#d95f0e", "#2b8cbe", "#08519c"]
+        )
+        cmap.set_bad("white")
+        plot_hist = np.ma.masked_where(edge_rate_hist <= 0.0, edge_rate_hist)
+        pcm = ax.pcolormesh(x_edges, rate_edges, plot_hist, shading="auto", cmap=cmap)
+        fig.colorbar(pcm, ax=ax, label="num edges")
+        ax.set(title="recovered exc+inh off-diag edges", xlabel=sxlabel, ylabel="single rate (Hz)")
+        self._apply_int_xticks(ax, sx)
 
         fig.suptitle(self._suptitle(out_md, out_d, "Weight Stats"), fontsize=13)

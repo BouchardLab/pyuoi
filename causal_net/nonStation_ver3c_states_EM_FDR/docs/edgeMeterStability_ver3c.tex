@@ -103,13 +103,18 @@ The denominator counts edges that both data subsets call present (regardless of 
 \section{Off-Diagonal: Parametric Magnitude Consistency Metrics}
 % ===============================================================
 
-Edge weight magnitudes are extracted as 1D vectors over $E_{\text{global}}$. Let $X$ and $Y$ be the weight vectors from two data subsets; entries are zero for edges absent in a given subset.
+Edge weight magnitudes are extracted as 1D vectors over $E_{\text{global}}$. For a pair of data subsets, let
+\[
+  X_m = |A^{(k_1)}_{i_m j_m}|, \qquad
+  Y_m = |A^{(k_2)}_{i_m j_m}|,
+\]
+where $(i_m,j_m)$ runs over the selected off-diagonal edge universe. Entries are zero for edges absent in a given subset. For source-type Spearman curves, this universe is additionally restricted by source column: the excitatory scope keeps edges whose source neuron is classified excitatory in either compared subset, and the inhibitory scope keeps edges whose source neuron is classified inhibitory in either compared subset.
 
 \subsection*{A. Unweighted Spearman Rank Correlation ($r_s$)}
 
-Because regularization scales coefficients dynamically with data length, rank-order preservation is prioritized over linear agreement.
+Because regularization scales coefficients dynamically with data length, rank-order preservation is prioritized over linear agreement. The ranks are ranks of edge magnitude, not signed weight, so excitatory and inhibitory source scopes are treated symmetrically.
 \begin{enumerate}
-    \item Convert $X$ and $Y$ into rank vectors $R_X$ and $R_Y$ (average ranks for ties).
+    \item Convert the magnitude vectors $X$ and $Y$ into rank vectors $R_X$ and $R_Y$ using ascending ranks, with average ranks for ties as in \texttt{scipy.stats.rankdata}. Thus the weakest magnitudes have the smallest ranks and the strongest magnitudes have the largest ranks.
     \item Compute the Pearson correlation of the rank vectors:
 \end{enumerate}
 \[
@@ -193,6 +198,7 @@ The script always saves the computed metric arrays to \texttt{edgeFidelity/\{out
     \item all-edge SMR, stored only for the all-edge scope;
     \item source-type Spearman metrics $r_s$ and $r_s^w$, stored only for excitatory-source and inhibitory-source scopes;
     \item per-comparison mean absolute diagonal difference $\Delta_{\text{diag}}$.
+    \item per-subset source-rate heatmap arrays: shared single-rate bin edges and summed excitatory-plus-inhibitory outgoing edge counts per rate bin;
 \end{itemize}
 
 % ===============================================================
@@ -214,7 +220,7 @@ A $3 \times 2$ canvas with the same layout for both \texttt{consecutive} and \te
 
 \bigskip
 \noindent\textbf{Plot group \texttt{b} --- Weight and Edge-Count Stats.}
-A $1 \times 4$ canvas using per-subset values rather than pairwise comparison values. Panel 1 shows the positive and negative Dale-pruning weight thresholds, \texttt{min\_posW} and \texttt{max\_negW}. Panel 2 shows off-diagonal weight ranges for excitatory-source and inhibitory-source edges, including median trends. Panel 3 shows the number of off-diagonal edges by source type (excitatory, inhibitory, undecided). Panel 4 is reserved/blank.
+A $1 \times 4$ canvas using per-subset values rather than pairwise comparison values. Panel 1 shows the positive and negative Dale-pruning weight thresholds, \texttt{min\_posW} and \texttt{max\_negW}. Panel 2 shows off-diagonal weight ranges for excitatory-source and inhibitory-source edges, including median trends. Panel 3 shows the number of off-diagonal edges by source type (excitatory, inhibitory, undecided). Panel 4 is a 2D heat map with duration on the x-axis and neuron single rate on the y-axis; color gives the summed number of outgoing excitatory-plus-inhibitory source edges in each rate bin. The y-axis uses at most 30 shared rate bins, and a color scale is drawn on the right.
 
 % ===============================================================
 \section{Script Interface}

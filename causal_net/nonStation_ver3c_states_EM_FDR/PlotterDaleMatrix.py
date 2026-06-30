@@ -169,8 +169,9 @@ class Plotter(PlotterBackbone):
 #...!...!..................
     def histo_weights_rates(self,trueD,spikeD,md,figId=3):        
         figId=self.smart_append(figId)        
-        nrow,ncol=1,4
-        fig=self.plt.figure(figId,facecolor='white', figsize=(15,3.5))        
+        nrow,ncol=2,4
+        fig=self.plt.figure(figId,facecolor='white', figsize=(15,7.2))        
+        fig.subplots_adjust(hspace=0.42, wspace=0.34)
         data_name=md['short_name']
         dmd=md['dale_conf']
         numExc=dmd['num_excite']
@@ -179,7 +180,7 @@ class Plotter(PlotterBackbone):
         R_tag = ', R=%.2f' % R_sel 
                 
         A=trueD['A_true']
-        single_rates = spikeD['single_rates']
+        single_rates = np.asarray(spikeD['single_rates'], dtype=np.float64).reshape(-1)
   
         # output:  np.column_stack([i_indices, j_indices, values])
         EposT=get_offdiag_triplets(A,isPos=True)
@@ -196,6 +197,29 @@ class Plotter(PlotterBackbone):
             return counts
         
         edgeCount=count_elements(EnegT)  + count_elements(EposT)
+
+        # Natural neuron indexing: first numExc are excitatory, rest inhibitory
+        inh_mask = np.zeros(numNeur, dtype=bool)
+        inh_mask[numExc:] = True
+        exc_mask = ~inh_mask
+        neurXlab = 'source neuron index'
+        x_vals = np.arange(numNeur)
+
+        A_off = np.asarray(A, dtype=np.float64).copy()
+        np.fill_diagonal(A_off, 0.0)
+        edge_mask = np.abs(A_off) > 1e-12
+        nedge = np.count_nonzero(edge_mask, axis=0)
+        sedge = np.sum(A_off, axis=0)
+        med_weight = np.zeros((numNeur,), dtype=np.float64)
+        for j in range(numNeur):
+            vals = A_off[:, j]
+            vals = vals[np.abs(vals) > 1e-12]
+            if vals.size:
+                med_weight[j] = float(np.median(vals))
+        n_exc = int(np.count_nonzero(exc_mask))
+        n_inh = int(np.count_nonzero(inh_mask))
+        exc_color = 'red'
+        inh_color = 'blue'
         
         #....   weights histogram 
         ax = self.plt.subplot(nrow,ncol,1)
@@ -224,14 +248,7 @@ class Plotter(PlotterBackbone):
         y_max = ax.get_ylim()[1]
         median_text = f"median: {median_val:.2f} (Hz)\n N={single_rates.shape[0]}"
         ax.text( x=median_val * 1.1,  y=y_max * 0.7, s=median_text,  color='red')
-
-        # Natural neuron indexing: first numExc are excitatory, rest inhibitory
-        inh_mask = np.zeros(numNeur, dtype=bool)
-        inh_mask[numExc:] = True
-        exc_mask = ~inh_mask
-        neurXlab = 'source neuron index'
         
-        x_vals = np.arange(numNeur)         
         #....  edge count
         ax = self.plt.subplot(nrow,ncol,2)
         ax.fill_between(x_vals, edgeCount, step='mid', color='salmon', alpha=0.7)
@@ -261,6 +278,67 @@ class Plotter(PlotterBackbone):
         else:
             ax.set_title(f'Single Neurons, state={state_tag}')
         ax.legend()
+
+        ax = self.plt.subplot(nrow,ncol,5)
+        ax.scatter(nedge[exc_mask], sedge[exc_mask], s=16, marker='.', alpha=0.80,
+                   color=exc_color, label=f'exc={n_exc}')
+        ax.scatter(nedge[inh_mask], sedge[inh_mask], s=16, marker='.', alpha=0.80,
+                   color=inh_color, label=f'inh={n_inh}')
+        ax.axhline(0.0, color='tab:blue', ls='--', lw=0.8, alpha=0.9)
+        ax.set(title='True Nedge vs Sedge',
+               xlabel='Nedge (# outgoing edges per source column)', ylabel='Sedge')
+        ax.legend(loc='best', fontsize=9)
+        ax.grid(True, alpha=0.35)
+
+        ax = self.plt.subplot(nrow,ncol,6)
+        ax.scatter(nedge[exc_mask], single_rates[exc_mask], s=16, marker='.', alpha=0.80,
+                   color=exc_color, label=f'exc={n_exc}')
+        ax.scatter(nedge[inh_mask], single_rates[inh_mask], s=16, marker='.', alpha=0.80,
+                   color=inh_color, label=f'inh={n_inh}')
+        ax.set(title='True Nedge vs frequency',
+               xlabel='Nedge (# outgoing edges per source column)', ylabel='frequency (Hz)')
+        ax.legend(loc='best', fontsize=9)
+        ax.grid(True, alpha=0.35)
+
+        ax = self.plt.subplot(nrow,ncol,7)
+        ax.scatter(med_weight[exc_mask], single_rates[exc_mask], s=16, marker='.', alpha=0.80,
+                   color=exc_color, label=f'exc={n_exc}')
+        ax.scatter(med_weight[inh_mask], single_rates[inh_mask], s=16, marker='.', alpha=0.80,
+                   color=inh_color, label=f'inh={n_inh}')
+        ax.axvline(0.0, color='tab:blue', ls='--', lw=0.8, alpha=0.9)
+        ax.set(title='True median weight vs frequency',
+               xlabel='median outgoing edge weight', ylabel='frequency (Hz)')
+        ax.legend(loc='best', fontsize=9)
+        ax.grid(True, alpha=0.35)
+
+        ax = self.plt.subplot(nrow,ncol,8)
+        bins = np.linspace(A_diag.min(), A_diag.max(), 80)
+        nonneg_counts = []
+        for mask, color, label in [
+            (exc_mask, exc_color, f'exc={n_exc}'),
+            (inh_mask, inh_color, f'inh={n_inh}'),
+        ]:
+            name = label.split('=')[0]
+            vals = A_diag[mask]
+            nonneg_counts.append((name, int(np.sum(vals >= 0.0))))
+            ax.hist(vals, bins=bins, color=color, alpha=0.75, label=label, edgecolor=None)
+        ax.axvline(0.0, color='k', ls='--', lw=0.8)
+        ax.legend(loc='best', fontsize=9)
+        tbl = ax.table(
+            cellText=[[name, f'{cnt:d}'] for name, cnt in nonneg_counts],
+            colLabels=['type', '>=0'],
+            cellLoc='center',
+            colLoc='center',
+            bbox=[0.70, 0.46, 0.27, 0.28],
+        )
+        tbl.auto_set_font_size(False)
+        tbl.set_fontsize(8)
+        for cell in tbl.get_celld().values():
+            cell.set_edgecolor('0.65')
+            cell.set_linewidth(0.5)
+            cell.set_facecolor((1.0, 1.0, 1.0, 0.78))
+        ax.set(title='True A diagonal', xlabel='A_true diagonal value', ylabel='neurons')
+        ax.grid(True, alpha=0.35)
  
 
 #............................

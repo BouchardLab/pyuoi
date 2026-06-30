@@ -642,7 +642,7 @@ class Plotter(PlotterBackbone):
         ax.axhline(min_posW, color="tab:blue", ls="--", lw=0.8, alpha=0.9)
         ax.axhline(max_negW, color="tab:blue", ls="--", lw=0.8, alpha=0.9)
         ax.set(
-            title="Nedge vs Sedge",
+            title="Reco Nedge vs Sedge",
             xlabel="Nedge (# outgoing edges per source column)",
             ylabel="Sedge",
         )
@@ -650,7 +650,7 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.35)
 
         ax = fig.add_subplot(gs[0, 1])
-        self._draw_A_offdiag_hist(ax, A_prune, "A_prune off-diagonal", weight_lines=(max_negW, min_posW))
+        self._draw_A_offdiag_hist(ax, A_prune, "Reco A_prune off-diagonal", weight_lines=(max_negW, min_posW))
         ax.text(
             0.98, 0.97, f"sum Nedge={sum_nedge_prune:d}", transform=ax.transAxes,
             va="top", ha="right", fontsize=9, color="k",
@@ -669,7 +669,7 @@ class Plotter(PlotterBackbone):
             0.02, 0.95, f"median={med_cnt:.1f}", transform=ax.transAxes,
             va="top", ha="left", fontsize=9, color="green",
         )
-        ax.set_title(f"A_prune: median non-zero edges={med_cnt:.1f}")
+        ax.set_title(f"Reco A_prune: median non-zero edges={med_cnt:.1f}")
         ax.set_xlabel(f"source neuron index (column), step={blk}")
         ax.set_ylabel("# outgoing non-zero edges")
         ax.grid(True, alpha=0.35)
@@ -696,7 +696,7 @@ class Plotter(PlotterBackbone):
                 )
             else:
                 ax.scatter(nedge[mask], single_rates[mask], s=16, marker=".", alpha=0.80, color=color, label=label)
-        ax.set(title="Nedge vs frequency", xlabel="Nedge (# outgoing edges per source column)", ylabel="frequency (Hz)")
+        ax.set(title="Reco Nedge vs frequency", xlabel="Nedge (# outgoing edges per source column)", ylabel="frequency (Hz)")
         ax.legend(loc="best", fontsize=9)
         ax.grid(True, alpha=0.35)
 
@@ -723,13 +723,13 @@ class Plotter(PlotterBackbone):
             else:
                 ax.scatter(med_weight[mask], single_rates[mask], s=16, marker=".", alpha=0.80, color=color, label=label)
         ax.axvline(0.0, color="tab:blue", ls="--", lw=0.8, alpha=0.9)
-        ax.set(title="Median weight vs frequency", xlabel="median outgoing edge weight", ylabel="frequency (Hz)")
+        ax.set(title="Reco median weight vs frequency", xlabel="median outgoing edge weight", ylabel="frequency (Hz)")
         ax.legend(loc="best", fontsize=9)
         ax.grid(True, alpha=0.35)
 
         ax = fig.add_subplot(gs[1, 2])
         self._draw_A_matrix(
-            ax, A_prune, f"A_prune, nEdges={n_diag_prune}+{n_off_prune}",
+            ax, A_prune, f"Reco A_prune, nEdges={n_diag_prune}+{n_off_prune}",
             num_exc=num_exc,
         )
 
@@ -793,14 +793,14 @@ class Plotter(PlotterBackbone):
         ax.hist(exc_w, bins=80, color="magenta", alpha=0.75)
         ax.axvline(0.0, color="k", ls="--", lw=0.8)
         mark_edge(ax, float(np.min(exc_w[exc_w > 0.0])) if np.any(exc_w > 0.0) else float("nan"))
-        ax.set(title=f"Exc outgoing weights, neurons={n_exc}", xlabel="A_prune weight", ylabel="edges")
+        ax.set(title=f"Reco exc outgoing weights, neurons={n_exc}", xlabel="A_prune weight", ylabel="edges")
         ax.grid(True, alpha=0.35)
 
         ax = fig.add_subplot(gs[0, 1])
         ax.hist(inh_w, bins=80, color="#39FF14", alpha=0.75)
         ax.axvline(0.0, color="k", ls="--", lw=0.8)
         mark_edge(ax, float(np.max(inh_w[inh_w < 0.0])) if np.any(inh_w < 0.0) else float("nan"))
-        ax.set(title=f"Inh outgoing weights, neurons={n_inh}", xlabel="A_prune weight", ylabel="edges")
+        ax.set(title=f"Reco inh outgoing weights, neurons={n_inh}", xlabel="A_prune weight", ylabel="edges")
         ax.grid(True, alpha=0.35)
 
         ax = fig.add_subplot(gs[0, 2])
@@ -832,7 +832,7 @@ class Plotter(PlotterBackbone):
             cell.set_edgecolor("0.65")
             cell.set_linewidth(0.5)
             cell.set_facecolor((1.0, 1.0, 1.0, 0.78))
-        ax.set(title="A diagonal", xlabel="A_prune diagonal value", ylabel="neurons")
+        ax.set(title="Reco A diagonal", xlabel="A_prune diagonal value", ylabel="neurons")
         ax.grid(True, alpha=0.35)
 
         ax = fig.add_subplot(gs[1, 0])

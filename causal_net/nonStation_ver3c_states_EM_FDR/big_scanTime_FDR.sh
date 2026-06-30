@@ -45,8 +45,8 @@ basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3c
 numStates=2
 
 # experimental data
-shortN=Canine_260324_r21_w0_1hz; numStates=1 
-#shortN=Canine_260324_r23_w0_1hz; numStates=2 
+#shortN=Canine_260324_r21_w0_1hz; numStates=1 
+shortN=Canine_260324_r23_w0_1hz; numStates=2 
 
 timeRange=($((scanStartMin * 60)) $((scanStopMin * 60)))
 
@@ -57,7 +57,7 @@ emBatchSize=4096
 
 # ---------- FDR bags: locked A/B fitting ----------
 numBags=40
-bagFrac=0.8
+bagFrac=0.7
 # bagEpochs comes from command-line argument $4
 numScrambles=8
 bagBatchSize=4096

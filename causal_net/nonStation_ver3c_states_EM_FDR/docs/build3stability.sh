@@ -2,7 +2,7 @@
 
 set -e
 
-doc_name=edgeMeterFidelity_ver3c
+doc_name=edgeMeterStability_ver3c
 
 if ! command -v pdflatex >/dev/null 2>&1; then
     module load texlive
