@@ -9,9 +9,26 @@ from UtilBioExp import clip_rebD_time
 
 def real_fit_metadata(md):
     """Return the real-fit metadata block for ordinary or FDR-aggregated fits."""
+    if is_stage_c_metadata(md):
+        return md
     if "bagsFDR_stageA" in md and "real_fit" in md["bagsFDR_stageA"]:
         return md["bagsFDR_stageA"]["real_fit"]
     return md
+
+
+def is_stage_c_metadata(md):
+    return md.get("fit_type") == "prismEM_deBias_stageC" or "deBias_stageC" in md
+
+
+def fit_stage_label(md):
+    if is_stage_c_metadata(md):
+        mode = real_fit_metadata(md).get("train", {}).get("state_mode", "?")
+        return f"Stage (c) deBias, state_mode={mode}"
+    if "bagsFDR_stageB" in md:
+        return "Stage (b) FDR aggregate"
+    if md.get("fit_type", "").startswith("prismEM_FDRbag") or "bagsFDR_stageA" in md:
+        return "Stage (a) FDR bag"
+    return "PRISM-EM"
 
 
 class Plotter(PlotterBackbone):
@@ -31,7 +48,15 @@ class Plotter(PlotterBackbone):
 
     def canvas_title_prefix(self, md):
         data_label = "exper" if md.get("data_type") == "bioExp" else "simu"
-        return f"{data_label} {md['short_name']}"
+        return f"{data_label} {md['short_name']}, {fit_stage_label(md)}"
+
+    def _display_A_label(self, md, prune=False):
+        if is_stage_c_metadata(md):
+            return "A_debias"
+        return "A_prune" if prune else "A_hat"
+
+    def _display_B_label(self, md):
+        return "B_debias" if is_stage_c_metadata(md) else "B_hat"
 
     def summary(self, fitD, md, figId="a"):
         """EM convergence overview."""
@@ -41,6 +66,7 @@ class Plotter(PlotterBackbone):
 
         trainMD = real_fit_metadata(md)["train"]
         title_prefix = self.canvas_title_prefix(md)
+        is_stage_c = is_stage_c_metadata(md)
 
         e_nll = np.asarray(fitD["e_nll_em"])
         m_nll = np.asarray(fitD["m_nll_epoch"])
@@ -82,7 +108,14 @@ class Plotter(PlotterBackbone):
             ax.plot(em_iters, e_nll, "o-", color="tab:blue", markersize=3, linewidth=1.2)
             ax.set(title="E-step NLL", xlabel="EM iteration", ylabel="NLL / bin")
         else:
-            txt = "FDR locked M-step fit\nstate labels from reference EM\nno bag E-step"
+            if is_stage_c:
+                txt = (
+                    "Stage (c) de-biased fit\n"
+                    f"state_mode={trainMD.get('state_mode', '?')}\n"
+                    "display: A_debias, B_debias"
+                )
+            else:
+                txt = "FDR locked M-step fit\nstate labels from reference EM\nno bag E-step"
             if "bagsFDR_stageB" in md:
                 stg = md["bagsFDR_stageB"]
                 txt += f"\nbags={stg.get('num_bags', '?')}  stab_sel_thresh={stg.get('stab_sel_thresh', '?')}"
@@ -176,7 +209,12 @@ class Plotter(PlotterBackbone):
                xlabel="edge value", ylabel="edges")
         ax.grid(True, alpha=0.3)
 
-        if is_locked_fdr:
+        if is_stage_c:
+            title_tail = (
+                f"Stage (c) deBias: state_mode={trainMD.get('state_mode', '?')}, "
+                f"K_epoch={n_m_total}"
+            )
+        elif is_locked_fdr:
             title_tail = f"FDR locked M-step: K_epoch={n_m_total}"
         else:
             title_tail = f"Prism EM: K_EM={n_em} x K_M={m_per_em}"
@@ -276,7 +314,7 @@ class Plotter(PlotterBackbone):
             c1, c2 = c2, c1
         return float(0.5 * (c1 + c2))
 
-    def _plot_corr_A_regions(self, ax, A_true, A_hat):
+    def _plot_corr_A_regions(self, ax, A_true, A_hat, y_label="A_hat"):
         x = np.asarray(A_true, dtype=np.float64).ravel()
         y = np.asarray(A_hat, dtype=np.float64).ravel()
         assert x.shape == y.shape, f"A_true/A_hat shape mismatch after ravel: {x.shape} vs {y.shape}"
@@ -284,7 +322,7 @@ class Plotter(PlotterBackbone):
         self._add_x45_line(ax)
         ax.axhline(0.0, color="k", linestyle="--", linewidth=0.7, alpha=0.55)
         ax.axvline(0.0, color="k", linestyle="--", linewidth=0.7, alpha=0.55)
-        ax.set(title="A fit", xlabel="A_true", ylabel="A_hat")
+        ax.set(title="A fit", xlabel="A_true", ylabel=y_label)
         ax.set_aspect("equal", adjustable="box")
         ax.grid(True, alpha=0.35)
 
@@ -333,7 +371,7 @@ class Plotter(PlotterBackbone):
         ax.set_xlabel("true weight")
         ax.set_ylabel("fitted")
 
-    def _plot_corr_B_divisor(self, ax, B_true, B_hat, state_idx):
+    def _plot_corr_B_divisor(self, ax, B_true, B_hat, state_idx, y_label="B_hat"):
         x = np.asarray(B_true, dtype=np.float64).ravel()
         y = np.asarray(B_hat, dtype=np.float64).ravel()
         assert x.shape == y.shape, f"B_true/B_hat state {state_idx} shape mismatch: {x.shape} vs {y.shape}"
@@ -341,7 +379,7 @@ class Plotter(PlotterBackbone):
         ax.scatter(x, y, s=8, alpha=0.45, color="tab:blue", edgecolors="none")
         self._add_x45_line(ax)
         ax.axvline(divider, color="red", linestyle="--", linewidth=1.0)
-        ax.set(title=f"B fit, state {state_idx}", xlabel="B_true", ylabel="B_hat")
+        ax.set(title=f"B fit, state {state_idx}", xlabel="B_true", ylabel=y_label)
         ax.set_aspect("equal", adjustable="box")
         ax.grid(True, alpha=0.35)
 
@@ -395,6 +433,8 @@ class Plotter(PlotterBackbone):
         A_hat = np.asarray(fitD["A_hat"])
         B_true = np.asarray(md["B_true"])
         B_hat = np.asarray(fitD["B_hat"])
+        A_label = self._display_A_label(md)
+        B_label = self._display_B_label(md)
         if B_true.ndim == 1:
             B_true = B_true[None, :]
         if B_hat.ndim == 1:
@@ -412,11 +452,11 @@ class Plotter(PlotterBackbone):
         self._edge_recovery_stats_ax(ax, fitD, md)
 
         ax = fig.add_subplot(gs[0, 1])
-        self._plot_corr_A_regions(ax, A_true, A_hat)
+        self._plot_corr_A_regions(ax, A_true, A_hat, y_label=A_label)
 
         for m in range(n_state):
             ax = fig.add_subplot(gs[0, 2 + m])
-            self._plot_corr_B_divisor(ax, B_true[m], B_hat[m], m)
+            self._plot_corr_B_divisor(ax, B_true[m], B_hat[m], m, y_label=B_label)
 
         title_prefix = self.canvas_title_prefix(md)
         fig.suptitle(f"{title_prefix}, edge recovery and A/B correlations", fontsize=12)
@@ -576,6 +616,7 @@ class Plotter(PlotterBackbone):
     ):
         A_est = np.asarray(fitD[est_key], dtype=np.float64)
         A_prune = self._A_prune_from_fitD(fitD)
+        prune_label = self._display_A_label(md, prune=True)
         assert A_est.ndim == 2 and A_est.shape[0] == A_est.shape[1], "A_est must be square"
         assert A_prune.shape == A_est.shape, "A_prune shape must match A_hat"
         n_neuron = A_est.shape[0]
@@ -650,7 +691,7 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.35)
 
         ax = fig.add_subplot(gs[0, 1])
-        self._draw_A_offdiag_hist(ax, A_prune, "Reco A_prune off-diagonal", weight_lines=(max_negW, min_posW))
+        self._draw_A_offdiag_hist(ax, A_prune, f"Reco {prune_label} off-diagonal", weight_lines=(max_negW, min_posW))
         ax.text(
             0.98, 0.97, f"sum Nedge={sum_nedge_prune:d}", transform=ax.transAxes,
             va="top", ha="right", fontsize=9, color="k",
@@ -669,7 +710,7 @@ class Plotter(PlotterBackbone):
             0.02, 0.95, f"median={med_cnt:.1f}", transform=ax.transAxes,
             va="top", ha="left", fontsize=9, color="green",
         )
-        ax.set_title(f"Reco A_prune: median non-zero edges={med_cnt:.1f}")
+        ax.set_title(f"Reco {prune_label}: median non-zero edges={med_cnt:.1f}")
         ax.set_xlabel(f"source neuron index (column), step={blk}")
         ax.set_ylabel("# outgoing non-zero edges")
         ax.grid(True, alpha=0.35)
@@ -729,7 +770,7 @@ class Plotter(PlotterBackbone):
 
         ax = fig.add_subplot(gs[1, 2])
         self._draw_A_matrix(
-            ax, A_prune, f"Reco A_prune, nEdges={n_diag_prune}+{n_off_prune}",
+            ax, A_prune, f"Reco {prune_label}, nEdges={n_diag_prune}+{n_off_prune}",
             num_exc=num_exc,
         )
 
@@ -751,6 +792,8 @@ class Plotter(PlotterBackbone):
         neuron_type = np.asarray(fitD["neuron_type"], dtype=np.int8)
         diag_mean = np.asarray(fitD["A_diag_mean"], dtype=np.float64).ravel()
         diag_stderr = np.asarray(fitD["A_diag_stderr"], dtype=np.float64).ravel()
+        A_label = self._display_A_label(md, prune=True)
+        B_label = self._display_B_label(md)
         assert A_prune.ndim == 2 and A_prune.shape[0] == A_prune.shape[1], "A_prune must be square"
         n_neuron = A_prune.shape[0]
         assert neuron_type.shape[0] == n_neuron, "neuron_type length must match A_prune"
@@ -793,14 +836,14 @@ class Plotter(PlotterBackbone):
         ax.hist(exc_w, bins=80, color="magenta", alpha=0.75)
         ax.axvline(0.0, color="k", ls="--", lw=0.8)
         mark_edge(ax, float(np.min(exc_w[exc_w > 0.0])) if np.any(exc_w > 0.0) else float("nan"))
-        ax.set(title=f"Reco exc outgoing weights, neurons={n_exc}", xlabel="A_prune weight", ylabel="edges")
+        ax.set(title=f"Reco exc outgoing weights, neurons={n_exc}", xlabel=f"{A_label} weight", ylabel="edges")
         ax.grid(True, alpha=0.35)
 
         ax = fig.add_subplot(gs[0, 1])
         ax.hist(inh_w, bins=80, color="#39FF14", alpha=0.75)
         ax.axvline(0.0, color="k", ls="--", lw=0.8)
         mark_edge(ax, float(np.max(inh_w[inh_w < 0.0])) if np.any(inh_w < 0.0) else float("nan"))
-        ax.set(title=f"Reco inh outgoing weights, neurons={n_inh}", xlabel="A_prune weight", ylabel="edges")
+        ax.set(title=f"Reco inh outgoing weights, neurons={n_inh}", xlabel=f"{A_label} weight", ylabel="edges")
         ax.grid(True, alpha=0.35)
 
         ax = fig.add_subplot(gs[0, 2])
@@ -832,20 +875,20 @@ class Plotter(PlotterBackbone):
             cell.set_edgecolor("0.65")
             cell.set_linewidth(0.5)
             cell.set_facecolor((1.0, 1.0, 1.0, 0.78))
-        ax.set(title="Reco A diagonal", xlabel="A_prune diagonal value", ylabel="neurons")
+        ax.set(title="Reco A diagonal", xlabel=f"{A_label} diagonal value", ylabel="neurons")
         ax.grid(True, alpha=0.35)
 
         ax = fig.add_subplot(gs[1, 0])
         ax.hist(B_hat[0], bins=80, color="tab:orange", alpha=0.8)
         ax.axvline(0.0, color="k", ls="--", lw=0.8)
-        ax.set(title="B_hat mode 0", xlabel="B value", ylabel="neurons")
+        ax.set(title=f"{B_label} mode 0", xlabel="B value", ylabel="neurons")
         ax.grid(True, alpha=0.35)
 
         ax = fig.add_subplot(gs[1, 1])
         if B_hat.shape[0] >= 2:
             ax.hist(B_hat[1], bins=80, color="tab:purple", alpha=0.8)
             ax.axvline(0.0, color="k", ls="--", lw=0.8)
-            ax.set(title="B_hat mode 1", xlabel="B value", ylabel="neurons")
+            ax.set(title=f"{B_label} mode 1", xlabel="B value", ylabel="neurons")
         else:
             ax.set_axis_off()
         ax.grid(True, alpha=0.35)
@@ -863,12 +906,13 @@ class Plotter(PlotterBackbone):
             ax.scatter(diag_mean[mask], diag_stderr[mask], alpha=0.80, color=color, label=label, **kw)
         ax.axvline(0.0, color="k", ls="--", lw=0.8)
         ax.legend(loc="best", fontsize=9)
-        ax.set(title="A-diag avr over bags", xlabel="mean diagonal A", ylabel="stderr diagonal A")
+        ax.set(title="A-diag summary", xlabel="mean diagonal A", ylabel="stderr diagonal A")
         ax.grid(True, alpha=0.35)
 
         title_prefix = self.canvas_title_prefix(md)
         fig.suptitle(
-            f"{title_prefix}, final weight distributions: exc={n_exc} inh={n_inh} und={n_und}",
+            f"{title_prefix}, final weight distributions ({A_label}, {B_label}): "
+            f"exc={n_exc} inh={n_inh} und={n_und}",
             fontsize=12,
         )
         fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.94])
@@ -878,6 +922,7 @@ class Plotter(PlotterBackbone):
         A_prune = np.asarray(fitD["A_prune"], dtype=np.float64)
         neuron_type = np.asarray(fitD["neuron_type"], dtype=np.int8)
         single_rates = np.asarray(fitD["single_rates"], dtype=np.float64).ravel()
+        A_label = self._display_A_label(md, prune=True)
         n_neuron = A_prune.shape[0]
         off_mask = ~np.eye(n_neuron, dtype=bool)
         n_exc = int(np.sum(neuron_type > 0))
@@ -913,7 +958,7 @@ class Plotter(PlotterBackbone):
         ax.text(0.98, 0.97, f"edges:\n{edge_txt}", transform=ax.transAxes,
                 va="top", ha="right", fontsize=9,
                 bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=2))
-        ax.set(title="Off-diag weights by type", xlabel="A_prune weight", ylabel="edges")
+        ax.set(title="Off-diag weights by type", xlabel=f"{A_label} weight", ylabel="edges")
         ax.grid(True, alpha=0.35)
 
         # --- plot 2: weight vs spike frequency heatmap (column = source neuron) ---
@@ -929,7 +974,7 @@ class Plotter(PlotterBackbone):
                             norm=mcolors.LogNorm(vmin=1, vmax=h.max()))
         fig.colorbar(pcm, ax=ax, label="edges (log)")
         ax.axvline(0.0, color="k", ls="--", lw=0.8)
-        ax.set(title="Weight vs source frequency", xlabel="A_prune weight", ylabel="spike frequency (Hz)")
+        ax.set(title="Weight vs source frequency", xlabel=f"{A_label} weight", ylabel="spike frequency (Hz)")
         ax.grid(True, alpha=0.2)
 
         # --- plot 3: diagonal weight histogram by type ---
@@ -951,7 +996,7 @@ class Plotter(PlotterBackbone):
         ax.axvline(0.0, color="k", ls="--", lw=0.8)
         leg = ax.legend(loc="upper center", fontsize=9, title="neurons")
         leg.get_title().set_fontsize(9)
-        ax.set(title="Diagonal weights by type", xlabel="A_prune diagonal", ylabel="neurons")
+        ax.set(title="Diagonal weights by type", xlabel=f"{A_label} diagonal", ylabel="neurons")
         ax.grid(True, alpha=0.35)
 
         # --- plot 4: diagonal weight vs spike frequency heatmap ---
@@ -963,11 +1008,11 @@ class Plotter(PlotterBackbone):
                              norm=mcolors.LogNorm(vmin=1, vmax=h2.max()))
         fig.colorbar(pcm2, ax=ax, label="neurons (log)")
         ax.axvline(0.0, color="k", ls="--", lw=0.8)
-        ax.set(title="Diagonal vs source frequency", xlabel="A_prune diagonal", ylabel="spike frequency (Hz)")
+        ax.set(title="Diagonal vs source frequency", xlabel=f"{A_label} diagonal", ylabel="spike frequency (Hz)")
         ax.grid(True, alpha=0.2)
 
         title_prefix = self.canvas_title_prefix(md)
-        fig.suptitle(f"{title_prefix}, A_prune off-diagonal weight investigation", fontsize=12)
+        fig.suptitle(f"{title_prefix}, {A_label} off-diagonal weight investigation", fontsize=12)
         fig.subplots_adjust(top=0.88)
 
     def fdr_selection_summary(self, fitD, md, figId="g"):
@@ -1259,6 +1304,20 @@ class Plotter(PlotterBackbone):
             lines.append(f"  ref = {initA['reference_file']}")
         return "\n".join(lines)
 
+    def _debias_init_diagnostics_txt(self, md):
+        stg = md.get("deBias_stageC", {})
+        lines = [
+            "Stage (c) init:",
+            "  A = Stage (b) A_hat",
+            "  B = Stage (b) B_hat",
+            "  support = selected_mask + diag",
+        ]
+        if "num_dale_active" in stg:
+            lines.append(f"  Dale edges = {stg['num_dale_active']}")
+        if "num_free_active" in stg:
+            lines.append(f"  free A params = {stg['num_free_active']}")
+        return "\n".join(lines)
+
     def A_fitted(self, fitD, md, single_rates, figId="b"):
         """Fitted A summary using only arrays stored in the prismEM file."""
         A_init = np.asarray(fitD["A_init"])
@@ -1280,9 +1339,17 @@ class Plotter(PlotterBackbone):
         fig = self.plt.figure(figId, facecolor="white", figsize=(18, 8))
         gs = fig.add_gridspec(2, 4, hspace=0.55, wspace=0.45)
 
+        if is_stage_c_metadata(md):
+            init_label = "A_debias_init"
+            fit_label = "A_debias"
+            init_txt = self._debias_init_diagnostics_txt(md)
+        else:
+            init_label = "A_init"
+            fit_label = "A_hat"
+            init_txt = self._A_init_diagnostics_txt(md)
         rows = [
-            (A_init, "A_init", self._A_init_diagnostics_txt(md)),
-            (A_hat, "A_hat", None),
+            (A_init, init_label, init_txt),
+            (A_hat, fit_label, None),
         ]
         for row, (A, label, diag_txt) in enumerate(rows):
             _, n_diag, n_off = self._count_A_edges(A)
@@ -1320,7 +1387,7 @@ class Plotter(PlotterBackbone):
                 self._overlay_single_rates(ax, single_rates, x_src)
 
         title_prefix = self.canvas_title_prefix(md)
-        fig.suptitle(f"{title_prefix}, A fitted summary: neur. freq. sorted", fontsize=13)
+        fig.suptitle(f"{title_prefix}, {fit_label} fitted summary: neur. freq. sorted", fontsize=13)
         fig.tight_layout(rect=[0, 0, 1, 0.95])
 
     def _state_seq_window(self, trainMD, time_range_sec):

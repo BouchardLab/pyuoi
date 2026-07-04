@@ -38,9 +38,15 @@ inside each bag, independently time-scrambled neurons are refit by the same
 locked M-step, edges are tested against a source-column pooled null, and retained only
 if they recur reliably across bags. The procedure yields, for every
 surviving edge, a selection frequency, a bagged point estimate, a bootstrap
-SD, and a null-referenced effect size. We treat PRISM-EM as a black box
-exposed through two entry points and specify everything needed for an
-implementer who has the PRISM-EM code in hand.
+SD, and a null-referenced effect size. The resulting edge masks are expected
+to be reliable, but the corresponding fitted magnitudes should be interpreted
+as conservative: the locked M-step still uses \(L_1\) shrinkage and may also
+be scaled by spectral-radius enforcement. Therefore these outputs are best
+treated as Stage (b) support estimates, and a follow-up de-biased refit is
+needed for final magnitudes; see the companion writeup
+\texttt{deBiasFit\_states\_ver3c.tex} for details. We treat PRISM-EM as a
+black box exposed through two entry points and specify everything needed for
+an implementer who has the PRISM-EM code in hand.
 \end{abstract}
 
 \tableofcontents
@@ -117,11 +123,16 @@ PRISM-EM fit. FDR bags later sample lagged pairs
 \label{fig:input-spike-cartoon}
 \end{figure}
 
-The deliverable is not a single point estimate of \(A\) but a vetted edge
-list. For each off-diagonal entry \((i,j)\) that survives the procedure we
-report a point estimate, a statistical uncertainty, a stability (selection)
-frequency, and an effect size relative to the null. Self-couplings
-\(A_{ii}\) are excluded from testing throughout.
+The deliverable is not a final unregularized point estimate of \(A\) but a
+vetted edge list and support mask. For each off-diagonal entry \((i,j)\)
+that survives the procedure we report a point estimate, a statistical
+uncertainty, a stability (selection) frequency, and an effect size relative
+to the null. These values are useful for deciding which edges exist, but the
+edge magnitudes are likely underestimated because of the same \(L_1\)
+shrinkage and spectral-radius projection used during fitting. Final
+magnitude recovery is handled by the Stage (c) de-biased refit described in
+\texttt{deBiasFit\_states\_ver3c.tex}. Self-couplings \(A_{ii}\) are
+excluded from testing throughout.
 
 % ===============================================================
 \section{The PRISM-EM Workhorse and Its Two Entry Points}

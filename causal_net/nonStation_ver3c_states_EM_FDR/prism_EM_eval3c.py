@@ -19,9 +19,47 @@ IMPLEMENTED_PLOTS = {"a", "b", "c", "d", "e", "f", "g", "h", "i", "m", "n", "o",
 
 
 def real_fit_metadata(md):
+    if is_stage_c_metadata(md):
+        return md
     if "bagsFDR_stageA" in md and "real_fit" in md["bagsFDR_stageA"]:
         return md["bagsFDR_stageA"]["real_fit"]
     return md
+
+
+def is_stage_c_metadata(md):
+    return md.get("fit_type") == "prismEM_deBias_stageC" or "deBias_stageC" in md
+
+
+def display_fit_data(fitD, fitMD):
+    """Map Stage (c) output arrays onto legacy plotting keys without mutating input."""
+    if not is_stage_c_metadata(fitMD):
+        return fitD
+    for key in ("A_debias", "B_debias"):
+        assert key in fitD, f"Stage (c) display requires {key}"
+
+    disp = dict(fitD)
+    for key in ("A_hat", "A_prune", "A_init", "B_hat", "neuron_Sedge",
+                "A_diag_mean", "A_diag_stderr"):
+        if key in fitD:
+            disp["stageB_" + key] = fitD[key]
+
+    A_debias = np.asarray(fitD["A_debias"])
+    disp["A_hat"] = fitD["A_debias"]
+    disp["B_hat"] = fitD["B_debias"]
+    disp["A_prune"] = fitD["A_debias"]
+    disp["A_init"] = fitD["A_debias_init"] if "A_debias_init" in fitD else fitD["A_hat"]
+    if "neuron_Sedge_debias" in fitD:
+        disp["neuron_Sedge"] = fitD["neuron_Sedge_debias"]
+    else:
+        off_mask = ~np.eye(A_debias.shape[0], dtype=bool)
+        disp["neuron_Sedge"] = (A_debias * off_mask).sum(axis=0).astype(np.float32)
+    if "A_diag_debias" in fitD:
+        diag = np.asarray(fitD["A_diag_debias"], dtype=np.float32)
+    else:
+        diag = np.diag(A_debias).astype(np.float32)
+    disp["A_diag_mean"] = diag
+    disp["A_diag_stderr"] = np.zeros_like(diag, dtype=np.float32)
+    return disp
 
 
 def parse_args():
@@ -280,6 +318,9 @@ def main():
         print(f"Loaded fit ({fit_source}): {fit_f}")
     if args.verb > 1:
         pprint(fitMD)
+    plotD = display_fit_data(fitD, fitMD)
+    stage_c = is_stage_c_metadata(fitMD)
+    primary_A_label = "A_debias" if stage_c else "A_hat"
 
     is_sim = fitMD.get("data_type") != "bioExp"
     requested_sim_only = sorted(set(args.showPlots) & SIM_ONLY_PLOTS)
@@ -301,11 +342,11 @@ def main():
     plot = Plotter(args)
 
     if "a" in args.showPlots:
-        plot.summary(fitD, md, figId=PLOT_FIG_ID["a"])
+        plot.summary(plotD, md, figId=PLOT_FIG_ID["a"])
     if "b" in args.showPlots:
-        plot.A_fitted(fitD, md, fitD["single_rates"], figId=PLOT_FIG_ID["b"])
+        plot.A_fitted(plotD, md, plotD["single_rates"], figId=PLOT_FIG_ID["b"])
     if "c" in args.showPlots:
-        plot.state_seq_fit(fitD, md, figId=PLOT_FIG_ID["c"], time_range_sec=args.time_range_sec)
+        plot.state_seq_fit(plotD, md, figId=PLOT_FIG_ID["c"], time_range_sec=args.time_range_sec)
     if "d" in args.showPlots:
         spikeD, spikeMD, spike_f = load_source_spikes(args.basePath, fitMD, verb=args.verb)
         if args.verb > 0:
@@ -316,33 +357,33 @@ def main():
         plot.spike_bursts(rebD, spikeMD, figId=PLOT_FIG_ID["d"], time_range_sec=args.time_range_sec)
     if "e" in args.showPlots:
         plot.node_outgoing_edge_stats(
-            fitD, md, fitD["single_rates"], fitD["neuron_type"],
-            figId=PLOT_FIG_ID["e"], est_key="A_hat", est_label="A_hat",
+            plotD, md, plotD["single_rates"], plotD["neuron_type"],
+            figId=PLOT_FIG_ID["e"], est_key="A_hat", est_label=primary_A_label,
         )
     if "f" in args.showPlots:
         nodeD, nodeMD, node_f = load_node_metadata(args.basePath, fitMD, args.dataName, verb=args.verb)
         if args.verb > 0:
             print(f"Loaded node metadata: {node_f}")
         plot.neuron_spatial_edges_split(
-            fitD, nodeD, nodeMD, fitD["neuron_type"], fitD["neuron_Sedge"],
+            plotD, nodeD, nodeMD, plotD["neuron_type"], plotD["neuron_Sedge"],
             maxNeurons=args.maxNeurons, figId=PLOT_FIG_ID["f"],
         )
     if "g" in args.showPlots:
         plot.fdr_selection_summary(fitD, md, figId=PLOT_FIG_ID["g"])
     if "h" in args.showPlots:
-        plot.final_weight_distributions(fitD, md, figId=PLOT_FIG_ID["h"])
+        plot.final_weight_distributions(plotD, md, figId=PLOT_FIG_ID["h"])
     if "i" in args.showPlots:
-        plot.offdiag_weight_investigation(fitD, md, figId=PLOT_FIG_ID["i"])
+        plot.offdiag_weight_investigation(plotD, md, figId=PLOT_FIG_ID["i"])
 
     #....  SIM only plots ....
     if "m" in args.showPlots:
-        plot.state_seq_simu(fitD, md, figId=PLOT_FIG_ID["m"], time_range_sec=args.time_range_sec)
+        plot.state_seq_simu(plotD, md, figId=PLOT_FIG_ID["m"], time_range_sec=args.time_range_sec)
     if "n" in args.showPlots:
-        plot.edge_stats_and_ABcorr(fitD, md, figId=PLOT_FIG_ID["n"])
+        plot.edge_stats_and_ABcorr(plotD, md, figId=PLOT_FIG_ID["n"])
     if "o" in args.showPlots:
         plot.matrix_init(fitD, md, figId=PLOT_FIG_ID["o"])
     if "p" in args.showPlots:
-        plot.matrix_init(fitD, md, figId=PLOT_FIG_ID["p"], est_key="A_hat", est_label="A_hat")
+        plot.matrix_init(plotD, md, figId=PLOT_FIG_ID["p"], est_key="A_hat", est_label=primary_A_label)
     if "r" in args.showPlots:
         acceptD = compute_fdr_acceptance_truth(fitD, md)
         plot.fdr_acceptance_truth(acceptD, md, figId=PLOT_FIG_ID["r"])

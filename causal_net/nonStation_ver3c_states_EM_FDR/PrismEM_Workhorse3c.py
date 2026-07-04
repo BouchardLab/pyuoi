@@ -6,6 +6,8 @@ import os
 import time
 from types import SimpleNamespace
 
+os.environ.setdefault("TORCH_CPP_LOG_LEVEL", "ERROR")
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -176,8 +178,21 @@ def normalize_start_target_arg(value, default_start, default_target, name):
     return start, target
 
 
-def init_distributed():
+def init_distributed(verb=0, program_name=None, rank0_only=False):
     is_dist = (int(os.environ.get("WORLD_SIZE", "1")) > 1) or ("RANK" in os.environ)
+    if verb > 0:
+        env_rank = os.environ.get("RANK", "?")
+        env_local = os.environ.get("LOCAL_RANK", "?")
+        env_world = os.environ.get("WORLD_SIZE", "1")
+        tag = program_name or "PRISM"
+        if (not rank0_only) or env_rank in ("0", "?"):
+            print(
+                f"[{tag} pre-init rank_env={env_rank} local_env={env_local}/{env_world}] "
+                f"is_dist={is_dist} MASTER_ADDR={os.environ.get('MASTER_ADDR', '?')} "
+                f"MASTER_PORT={os.environ.get('MASTER_PORT', '?')} "
+                f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', '<unset>')}",
+                flush=True,
+            )
     if is_dist:
         dist.init_process_group(backend="nccl")
         rank = dist.get_rank()
@@ -190,6 +205,15 @@ def init_distributed():
         world_size = 1
         local_rank = 0
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if verb > 0 and ((not rank0_only) or rank == 0):
+        tag = program_name or "PRISM"
+        dev_name = torch.cuda.get_device_name(local_rank) if device.type == "cuda" else "cpu"
+        print(
+            f"[{tag} rank={rank}/{world_size} local_rank={local_rank}] "
+            f"distributed initialized device={device} cuda_available={torch.cuda.is_available()} "
+            f"device_name={dev_name}",
+            flush=True,
+        )
     return DistContext(is_dist, rank, world_size, local_rank, device)
 
 
@@ -315,11 +339,13 @@ def project_to_simplex(v):
     return torch.clamp(v - theta, min=0.0)
 
 
-def run_estep(Y_prev, Y_curr, A, B, c_hat, dt, eta_clip, lambda2, lr, pgd_iter):
+def run_estep(Y_prev, Y_curr, A, B, c_hat, dt, eta_clip, lambda2, lr, pgd_iter,
+              progress_every=0, progress_prefix="E-step"):
     T_eff = c_hat.shape[0]
     log_dt = math.log(dt)
     c_prev = c_hat[0].clone()
     nll_sum = torch.zeros((), dtype=torch.float32, device=c_hat.device)
+    progress_every = int(progress_every)
 
     for t in range(1, T_eff):
         y_p = Y_prev[t - 1]
@@ -339,18 +365,27 @@ def run_estep(Y_prev, Y_curr, A, B, c_hat, dt, eta_clip, lambda2, lr, pgd_iter):
         nll_sum = nll_sum + (lam - y_c * (eta_c + log_dt)).sum()
         c_hat[t] = c_t
         c_prev = c_t
+        if progress_every > 0 and (t % progress_every == 0 or t == T_eff - 1):
+            print(
+                "%s pair %d/%d nll_avg=%.4e"
+                % (progress_prefix, t, T_eff - 1, float((nll_sum / max(1, t)).item())),
+                flush=True,
+            )
 
     return float((nll_sum / max(1, T_eff - 1)).item())
 
 
 def run_estep_shard(Y_prev, Y_curr, A, B, c_hat,
-                    dt, eta_clip, lambda2, lr, pgd_iter, t0, t1):
+                    dt, eta_clip, lambda2, lr, pgd_iter, t0, t1,
+                    progress_every=0, progress_prefix="E-step shard"):
     if t1 < t0:
         return 0.0, 0
     log_dt = math.log(dt)
     c_prev = c_hat[t0 - 1].clone()
     nll_sum = torch.zeros((), dtype=torch.float32, device=c_hat.device)
     n_pairs = 0
+    progress_every = int(progress_every)
+    n_total = int(t1 - t0 + 1)
 
     for t in range(t0, t1 + 1):
         y_p = Y_prev[t - 1]
@@ -371,6 +406,12 @@ def run_estep_shard(Y_prev, Y_curr, A, B, c_hat,
         c_hat[t] = c_t
         c_prev = c_t
         n_pairs += 1
+        if progress_every > 0 and (n_pairs % progress_every == 0 or n_pairs == n_total):
+            print(
+                "%s local_pair %d/%d global_t=%d nll_avg=%.4e"
+                % (progress_prefix, n_pairs, n_total, t, float((nll_sum / max(1, n_pairs)).item())),
+                flush=True,
+            )
 
     return float(nll_sum.item()), n_pairs
 
