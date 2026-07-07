@@ -56,6 +56,21 @@ an implementer who has the PRISM-EM code in hand.
 \section{Scope and Inputs}
 % ===============================================================
 
+The full analysis pipeline is organized into three stages. \textbf{Stage (a)}
+is the ordinary PRISM-EM fit on the chosen spike-train window: it estimates a
+shared connectivity matrix, state-dependent biases, and a reference decoded
+state sequence; this core fitter is specified in
+\texttt{fitEM\_states\_ver3c.tex}. \textbf{Stage (b)} is the
+EM-FDR-Bagging procedure described in this document: it reuses the Stage (a)
+reference state labels, performs bagged locked M-step refits, calibrates
+edges against time-scrambled null fits, and returns a statistically vetted
+support mask with conservative edge magnitudes. \textbf{Stage (c)} is the
+follow-up de-biased refit specified in
+\texttt{deBiasFit\_states\_ver3c.tex}: it freezes the Stage (b) support and
+Dale-sign decisions, removes the \(L_1\) sparsity penalty, and refits final
+edge magnitudes and state biases under the remaining biological and
+stability constraints.
+
 The input is a single spike-train recording of \(N\) neurons over \(T\)
 discrete time bins of width \(\Delta t\), in the format consumed by
 PRISM-EM (\texttt{spikesData/<dataName>.spikes.npz}). The target regime,

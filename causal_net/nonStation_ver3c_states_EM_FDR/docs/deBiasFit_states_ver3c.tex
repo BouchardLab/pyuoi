@@ -5,6 +5,8 @@
 \usepackage{amssymb}
 \usepackage{bm}
 \usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{tikz}
 \usepackage{hyperref}
 
 \geometry{margin=1in}
@@ -25,6 +27,21 @@ This document specifies a follow-on ``Stage (c)'' algorithm designed to recover 
 % ===============================================================
 \section{Introduction and Background}
 % ===============================================================
+
+The full analysis pipeline is organized into three stages. \textbf{Stage (a)}
+is the ordinary PRISM-EM fit on the chosen spike-train window: it estimates a
+shared connectivity matrix, state-dependent biases, and a reference decoded
+state sequence; this core fitter is specified in
+\texttt{fitEM\_states\_ver3c.tex}. \textbf{Stage (b)} is the
+EM-FDR-Bagging procedure specified in
+\texttt{fitFDR\_states\_ver3c.tex}: it reuses the Stage (a) reference state
+labels, performs bagged locked M-step refits, calibrates edges against
+time-scrambled null fits, and returns a statistically vetted support mask
+with conservative edge magnitudes. \textbf{Stage (c)} is the de-biased
+refit described in this document: it freezes the Stage (b) support and
+Dale-sign decisions, removes the \(L_1\) sparsity penalty, and refits final
+edge magnitudes and state biases under the remaining biological and
+stability constraints.
 
 \subsection{Input Data and Model Summary}
 The input consists of a discrete spike-train recording of $N$ neurons over $T$ time bins of width $\Delta t$, yielding a count matrix $Y \in \mathbb{R}^{T \times N}$. The system is modeled as a non-stationary, multi-state Poisson Generalized Linear Model (GLM). The conditional firing rate for neuron $i$ at time $t$ depends on a shared connectivity matrix $A \in \mathbb{R}^{N \times N}$ and a state-dependent bias vector $B_{\hat{S}_t}$:
@@ -63,6 +80,160 @@ This is a bound-constrained optimization problem. We must maximize the Poisson l
     \item \textbf{Dale's Principle (Relaxed):} Edges originating from ``undecided'' nodes that survived pruning must be free to adjust their sign as dictated by the unpenalized data.
     \item \textbf{Free Diagonal:} The diagonal elements $A_{ii}$ are not treated as tested biological edges and must be left free to vary. They therefore belong to the free parameter set, even when neuron $i$ has an excitatory or inhibitory Dale label.
 \end{enumerate}
+
+Figure~\ref{fig:stage-c-debias-cartoon} summarizes the Stage (c) data flow:
+Stage (b) supplies support, signs, initial values, and states; Stage (c)
+turns only the surviving entries into active parameters and optimizes the
+unpenalized likelihood under fixed structural constraints.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm]
+  % Stage B aggregate input
+  \draw[rounded corners, thick, gray!70, fill=gray!8] (0.55,1.10) rectangle (4.00,5.05);
+  \node[gray!80!black] at (2.28,4.78) {\small Lasso+FDR Mask};
+
+  \begin{scope}[shift={(0.87,4.35)}, x=0.47cm, y=0.47cm]
+    \foreach \c in {0,1,2} {
+      \fill[red!12] (\c,0.10) rectangle ++(1,0.28);
+      \node[red!75!black] at (\c+0.5,0.24) {\tiny\bfseries +};
+    }
+    \foreach \c in {3,4} {
+      \fill[blue!12] (\c,0.10) rectangle ++(1,0.28);
+      \node[blue!70!black] at (\c+0.5,0.24) {\tiny\bfseries -};
+    }
+    \fill[green!14] (5,0.10) rectangle ++(1,0.28);
+    \node[green!45!black] at (5.5,0.24) {\tiny\bfseries ?};
+
+    \foreach \r in {0,1,2,3,4,5} {
+      \foreach \c in {0,1,2,3,4,5} {
+        \draw[gray!45, fill=white] (\c,-\r) rectangle ++(1,-1);
+      }
+    }
+    \foreach \k in {0,1,2,3,4,5} {
+      \fill[green!14] (\k,-\k) rectangle ++(1,-1);
+      \node[green!45!black] at (\k+0.5,-\k-0.5) {\tiny \(\delta_{\k}\)};
+    }
+    \foreach \r/\c/\lab in {
+      1/0/\alpha_0, 3/0/\alpha_1,
+      0/1/\alpha_2, 4/1/\alpha_3, 5/1/\alpha_4,
+      3/2/\alpha_5, 5/2/\alpha_6} {
+      \fill[red!12] (\c,-\r) rectangle ++(1,-1);
+      \node[red!75!black] at (\c+0.5,-\r-0.5) {\tiny \(\lab\)};
+    }
+    \foreach \r/\c/\lab in {0/3/\beta_0, 2/3/\beta_1, 1/4/\beta_2} {
+      \fill[blue!12] (\c,-\r) rectangle ++(1,-1);
+      \node[blue!70!black] at (\c+0.5,-\r-0.5) {\tiny \(\lab\)};
+    }
+    \foreach \r/\c/\lab in {2/5/\gamma_0, 4/5/\gamma_1} {
+      \fill[green!14] (\c,-\r) rectangle ++(1,-1);
+      \node[green!45!black] at (\c+0.5,-\r-0.5) {\tiny \(\lab\)};
+    }
+    \foreach \r in {0,1,2,3,4,5} {
+      \foreach \c in {0,1,2,3,4,5} {
+        \draw[gray!45] (\c,-\r) rectangle ++(1,-1);
+      }
+    }
+  \end{scope}
+  \node[gray!80!black] at (2.28,1.29) {\scriptsize out edges (column)};
+
+  % Active parameterization
+  \draw[->, thick] (4.10,3.35) -- (5.65,3.35);
+  \node at (4.88,3.72) {\scriptsize freeze};
+  \draw[rounded corners, thick, blue!65, fill=blue!5] (5.75,1.10) rectangle (9.95,5.05);
+  \node[blue!65!black] at (7.85,4.78) {\small Trainable Values};
+
+  \draw[rounded corners, thick, red!65!black, fill=red!7] (5.98,3.80) rectangle (9.72,4.32);
+  \node[red!70!black, align=center] at (7.85,4.06)
+    {\scriptsize \(+\)Dale: \(\alpha_0,\ldots,\alpha_6\)};
+  \draw[rounded corners, thick, blue!65!black, fill=blue!7] (5.98,3.13) rectangle (9.72,3.65);
+  \node[blue!70!black, align=center] at (7.85,3.39)
+    {\scriptsize \(-\)Dale: \(\beta_0,\ldots,\beta_2\)};
+  \draw[rounded corners, thick, green!45!black, fill=green!10] (5.98,2.46) rectangle (9.72,2.98);
+  \node[green!45!black, align=center] at (7.85,2.72)
+    {\scriptsize free: \(\delta_0,\ldots,\delta_5,\gamma_0,\gamma_1\)};
+  \draw[rounded corners, thick, green!45!black, fill=green!10] (5.98,1.83) rectangle (9.72,2.31);
+  \node[green!45!black, align=center] at (7.85,2.07)
+    {\scriptsize free state biases: \(B\)};
+
+  % Forward pass and objective
+  \draw[->, thick] (10.05,3.35) -- (11.45,3.35);
+  \node at (10.75,3.72) {\scriptsize scatter};
+  \draw[rounded corners, thick, violet!70, fill=violet!6] (11.55,1.10) rectangle (15.15,5.05);
+  \node[violet!70!black] at (13.35,4.78) {\small Forward pass: \(A\)};
+
+  \begin{scope}[shift={(11.94,4.35)}, x=0.47cm, y=0.47cm]
+    \foreach \c in {0,1,2} {
+      \fill[red!12] (\c,0.10) rectangle ++(1,0.28);
+      \node[red!75!black] at (\c+0.5,0.24) {\tiny\bfseries +};
+    }
+    \foreach \c in {3,4} {
+      \fill[blue!12] (\c,0.10) rectangle ++(1,0.28);
+      \node[blue!70!black] at (\c+0.5,0.24) {\tiny\bfseries -};
+    }
+    \fill[green!14] (5,0.10) rectangle ++(1,0.28);
+    \node[green!45!black] at (5.5,0.24) {\tiny\bfseries ?};
+
+    \foreach \r in {0,1,2,3,4,5} {
+      \foreach \c in {0,1,2,3,4,5} {
+        \draw[gray!45, fill=white] (\c,-\r) rectangle ++(1,-1);
+      }
+    }
+    \foreach \k in {0,1,2,3,4,5} {
+      \fill[green!14] (\k,-\k) rectangle ++(1,-1);
+      \node[green!45!black] at (\k+0.5,-\k-0.5) {\tiny \(\delta_{\k}\)};
+    }
+    \foreach \r/\c/\lab in {
+      1/0/\alpha_0, 3/0/\alpha_1,
+      0/1/\alpha_2, 4/1/\alpha_3, 5/1/\alpha_4,
+      3/2/\alpha_5, 5/2/\alpha_6} {
+      \fill[red!12] (\c,-\r) rectangle ++(1,-1);
+      \node[red!75!black] at (\c+0.5,-\r-0.5) {\tiny \(+\lab^2\)};
+    }
+    \foreach \r/\c/\lab in {0/3/\beta_0, 2/3/\beta_1, 1/4/\beta_2} {
+      \fill[blue!12] (\c,-\r) rectangle ++(1,-1);
+      \node[blue!70!black] at (\c+0.5,-\r-0.5) {\tiny \(-\lab^2\)};
+    }
+    \foreach \r/\c/\lab in {2/5/\gamma_0, 4/5/\gamma_1} {
+      \fill[green!14] (\c,-\r) rectangle ++(1,-1);
+      \node[green!45!black] at (\c+0.5,-\r-0.5) {\tiny \(\lab\)};
+    }
+    \foreach \r in {0,1,2,3,4,5} {
+      \foreach \c in {0,1,2,3,4,5} {
+        \draw[gray!45] (\c,-\r) rectangle ++(1,-1);
+      }
+    }
+  \end{scope}
+
+  % Spectral projection feedback
+  \draw[rounded corners, dashed, very thick, black, fill=white]
+    (5.55,-0.15) rectangle (15.75,0.80);
+  \node[black, align=center] at (10.65,0.33)
+    {\scriptsize spectral guard: if \(\rho(A)>\rho_{\max}\), use
+     \(s=\rho_{\max}/\rho(A)\)\\[-0.5mm]
+     \scriptsize \((\alpha_i,\beta_i)\leftarrow\sqrt{s}\,(\alpha_i,\beta_i),\qquad
+     (\gamma_i,\delta_i)\leftarrow s\,(\gamma_i,\delta_i)\)};
+  \draw[->, black, thick] (13.35,1.08) -- (13.35,0.83);
+  \draw[->, black, thick] (7.85,0.83) -- (7.85,1.08);
+\end{tikzpicture}
+\caption{Stage (c) de-biased refit cartoon. Stage (b) determines which
+off-diagonal edges are allowed to exist and which source columns have fixed
+Dale signs. In this toy \(6\times6\) mask, \(\delta_0,\ldots,\delta_5\)
+are free diagonal entries, \(\alpha_0,\ldots,\alpha_6\) are edges from
+positive Dale columns, \(\beta_0,\ldots,\beta_2\) are edges from negative
+Dale columns, and \(\gamma_0,\gamma_1\) are surviving undecided-source
+edges. The de-biased trainer carries only active values: \(\alpha_i\) and
+\(\beta_i\) for Dale-constrained surviving edges, \(\gamma_i\) for
+undecided surviving edges, \(\delta_i\) for all diagonal entries, and \(B\)
+for free state biases. Structural zero cells carry no optimizer state. The
+forward pass scatters these values into the
+effective connectivity matrix \(A\), rebuilds \(A\) for each minibatch,
+evaluates the Poisson negative log-likelihood with \(\lambda_3=0\), handles
+the states as locked or jointly refit according to the run mode, saves
+\texttt{A\_debias} and \texttt{B\_debias}, and applies the spectral-radius
+guard in the transformed parameter space.}
+\label{fig:stage-c-debias-cartoon}
+\end{figure}
 
 % ===============================================================
 \section{Methodology: Active-Set Parameter Transformation}
