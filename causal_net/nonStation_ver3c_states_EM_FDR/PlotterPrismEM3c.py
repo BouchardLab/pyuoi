@@ -275,6 +275,14 @@ class Plotter(PlotterBackbone):
     def _node_outgoing_edge_stats(self, A):
         return self._source_nz_edge_stats(A)
 
+    def _node_incoming_edge_stats(self, A):
+        A = np.asarray(A, dtype=np.float64)
+        n_neuron = A.shape[0]
+        strong = ~np.eye(n_neuron, dtype=bool) & (A != 0)
+        cnt = strong.sum(axis=1).astype(np.int64)
+        sum_target = np.where(strong, A, 0.0).sum(axis=1)
+        return cnt, sum_target
+
     def _corrcoef_safe(self, x, y):
         x = np.asarray(x)
         y = np.asarray(y)
@@ -622,6 +630,7 @@ class Plotter(PlotterBackbone):
         n_neuron = A_est.shape[0]
 
         nedge, sedge = self._node_outgoing_edge_stats(A_est)
+        nedge_in, _ = self._node_incoming_edge_stats(A_est)
         n_bins = max(10, min(40, int(np.sqrt(n_neuron)) * 2))
         stage_b = md["bagsFDR_stageB"]
         min_posW = float(stage_b["min_posW"])
@@ -651,16 +660,10 @@ class Plotter(PlotterBackbone):
                 bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=2),
             )
 
-        num_exc = None
-        dale_conf = md.get("dale_conf")
-        if dale_conf is not None:
-            num_exc = dale_conf.get("num_excite")
-
         figId = self.smart_append(figId)
-        fig = self.plt.figure(figId, facecolor="white", figsize=(14, 8))
-        gs = fig.add_gridspec(2, 3, height_ratios=[1.0, 1.15], hspace=0.45, wspace=0.35)
+        fig = self.plt.figure(figId, facecolor="white", figsize=(18, 8))
+        gs = fig.add_gridspec(2, 4, height_ratios=[1.0, 1.15], hspace=0.45, wspace=0.35)
 
-        _, n_diag_prune, n_off_prune = self._count_A_edges(A_prune)
         cnt_src_prune, _ = self._source_nz_edge_stats(A_prune)
         sum_nedge_prune = int(np.sum(cnt_src_prune))
         x_src = np.arange(n_neuron, dtype=np.int64)
@@ -721,62 +724,75 @@ class Plotter(PlotterBackbone):
         ax2.set_ylabel("frequency (Hz)", color="tab:orange")
         ax2.tick_params(axis="y", labelcolor="tab:orange")
 
-        ax = fig.add_subplot(gs[1, 0])
-        single_rates = np.asarray(single_rates, dtype=np.float64).ravel()
-        for cls, color, label in [
-            (1, "magenta", f"exc={n_exc}"),
-            (-1, "#39FF14", f"inh={n_inh}"),
-            (0, "salmon", f"und={n_und}"),
-        ]:
-            mask = neuron_type == cls
-            if cls == 0:
-                ax.scatter(
-                    nedge[mask], single_rates[mask], s=18, marker="o",
-                    alpha=0.80, color=color, edgecolors="k",
-                    linewidths=0.35, label=label,
-                )
-            else:
-                ax.scatter(nedge[mask], single_rates[mask], s=16, marker=".", alpha=0.80, color=color, label=label)
-        ax.set(title="Reco Nedge vs frequency", xlabel="Nedge (# outgoing edges per source column)", ylabel="frequency (Hz)")
-        ax.legend(loc="best", fontsize=9)
-        ax.grid(True, alpha=0.35)
+        # Keep the top-right slot intentionally empty.
+        fig.add_subplot(gs[0, 3]).axis("off")
 
-        ax = fig.add_subplot(gs[1, 1])
+        single_rates = np.asarray(single_rates, dtype=np.float64).ravel()
         off_mask = ~np.eye(n_neuron, dtype=bool)
-        med_weight = np.zeros((n_neuron,), dtype=np.float64)
+        med_weight_out = np.zeros((n_neuron,), dtype=np.float64)
+        med_weight_in = np.zeros((n_neuron,), dtype=np.float64)
         for j in range(n_neuron):
             vals = A_est[off_mask[:, j], j]
             vals = vals[vals != 0.0]
             if vals.size:
-                med_weight[j] = float(np.median(vals))
-        for cls, color, label in [
-            (1, "magenta", f"exc={n_exc}"),
-            (-1, "#39FF14", f"inh={n_inh}"),
-            (0, "salmon", f"und={n_und}"),
-        ]:
-            mask = neuron_type == cls
-            if cls == 0:
-                ax.scatter(
-                    med_weight[mask], single_rates[mask], s=18, marker="o",
-                    alpha=0.80, color=color, edgecolors="k",
-                    linewidths=0.35, label=label,
-                )
-            else:
-                ax.scatter(med_weight[mask], single_rates[mask], s=16, marker=".", alpha=0.80, color=color, label=label)
-        ax.axvline(0.0, color="tab:blue", ls="--", lw=0.8, alpha=0.9)
-        ax.set(title="Reco median weight vs frequency", xlabel="median outgoing edge weight", ylabel="frequency (Hz)")
-        ax.legend(loc="best", fontsize=9)
-        ax.grid(True, alpha=0.35)
+                med_weight_out[j] = float(np.median(vals))
+            vals = A_est[j, off_mask[j, :]]
+            vals = vals[vals != 0.0]
+            if vals.size:
+                med_weight_in[j] = float(np.median(vals))
 
-        ax = fig.add_subplot(gs[1, 2])
-        self._draw_A_matrix(
-            ax, A_prune, f"Reco {prune_label}, nEdges={n_diag_prune}+{n_off_prune}",
-            num_exc=num_exc,
+        def draw_edge_metric_vs_frequency(
+            ax, x_values, title, xlabel, mark_zero=False, legend_title=None,
+        ):
+            for cls, color, label in [
+                (1, "magenta", f"exc={n_exc}"),
+                (-1, "#39FF14", f"inh={n_inh}"),
+                (0, "salmon", f"und={n_und}"),
+            ]:
+                mask = neuron_type == cls
+                if cls == 0:
+                    ax.scatter(
+                        x_values[mask], single_rates[mask], s=18, marker="o",
+                        alpha=0.80, color=color, edgecolors="k",
+                        linewidths=0.35, label=label,
+                    )
+                else:
+                    ax.scatter(
+                        x_values[mask], single_rates[mask], s=16, marker=".",
+                        alpha=0.80, color=color, label=label,
+                    )
+            if mark_zero:
+                ax.axvline(0.0, color="tab:blue", ls="--", lw=0.8, alpha=0.9)
+            ax.set(title=title, xlabel=xlabel, ylabel="frequency (Hz)")
+            ax.legend(loc="best", fontsize=9, title=legend_title)
+            ax.grid(True, alpha=0.35)
+
+        draw_edge_metric_vs_frequency(
+            fig.add_subplot(gs[1, 0]), nedge,
+            "Reco outgoing num edges",
+            "Nedge (# outgoing edges per source column)",
+        )
+        draw_edge_metric_vs_frequency(
+            fig.add_subplot(gs[1, 1]), nedge_in,
+            "Input to neur.: num edges",
+            "Nedge (# incoming edges per target row)",
+            legend_title="target type",
+        )
+        draw_edge_metric_vs_frequency(
+            fig.add_subplot(gs[1, 2]), med_weight_out,
+            "Reco median outgoing weight",
+            "median outgoing edge weight", mark_zero=True,
+        )
+        draw_edge_metric_vs_frequency(
+            fig.add_subplot(gs[1, 3]), med_weight_in,
+            "Input to neur: incoming weight",
+            "median incoming edge weight", mark_zero=True,
+            legend_title="target type",
         )
 
         title_prefix = self.canvas_title_prefix(md)
         fig.suptitle(
-            f"{title_prefix}, {est_label} per-source outgoing edges (column=source)",
+            f"{title_prefix}, {est_label} outgoing (column=source) and incoming (row=target) edges",
             fontsize=12,
         )
         fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.94])

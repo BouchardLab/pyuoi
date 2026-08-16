@@ -159,10 +159,12 @@ def init_debias_model(active, B_init, eta_clip, ctx):
 
 
 def project_active_spectral_(mdl, rho_max, correction_strength=1.0):
-    """Scale u/v so the reconstructed A obeys the spectral-radius limit."""
+    """Scale u/v so A obeys the limit; rho_max=0 disables projection."""
     with torch.no_grad():
         A = mdl.effective_A()
         rho = float(torch.linalg.eigvals(A).abs().max().item())
+        if float(rho_max) == 0.0:
+            return rho
         alpha = min(1.0, max(0.0, float(correction_strength)))
         if rho > float(rho_max) and alpha > 0.0:
             hard_scale = float(rho_max) / float(rho)
@@ -310,6 +312,8 @@ def _run_one_estep(Yp_gpu, Yc_gpu, model, c_hat_gpu, dt, eta_clip, args, ctx):
 
 
 def _rho_correction_for_iter(iter_idx, args):
+    if float(args.rho_max) == 0.0:
+        return False, 0.0
     delay = int(args.delay_iter_4_ArhoMax)
     target = int(args.target_iter_4_ArhoMax)
     apply_rho = int(iter_idx) > delay

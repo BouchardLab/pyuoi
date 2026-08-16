@@ -14,7 +14,7 @@ import time
 
 import numpy as np
 
-from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
+from toolbox.Util_NumpyIOv2 import json_safe_metadata, read_data_npz, write_data_npz
 
 
 # ---------------------------------------------------------------------------
@@ -423,11 +423,11 @@ def assemble_output(comparisons, subsets, mode, eps):
         edge_rate_hist = np.zeros((1, ns), dtype=np.float64)
 
     out = {
-        "compare_mode": np.array([mode], dtype=object),
+        "compare_mode": np.array([mode], dtype=str),
         "epsilon": np.array([eps]),
         "x": np.array([c["x"] for c in comparisons], dtype=np.float64),
-        "labels": np.array([c["label"] for c in comparisons], dtype=object),
-        "subset_tags": np.array([s["fit_tag"] for s in subsets], dtype=object),
+        "labels": np.array([c["label"] for c in comparisons], dtype=str),
+        "subset_tags": np.array([s["fit_tag"] for s in subsets], dtype=str),
         "subset_x": np.array([s["duration_min"] for s in subsets], dtype=np.float64),
         "diag_mae": np.array([c["diag_mae"] for c in comparisons], dtype=np.float64),
         "min_posW": np.array([s["min_posW"] for s in subsets], dtype=np.float64),
@@ -526,6 +526,7 @@ def main():
     }
 
     out_f = os.path.join(fidelity_dir, f"{args.outName}.npz")
+    out_md = json_safe_metadata(out_md)
     write_data_npz(out_d, out_f, metaD=out_md, verb=args.verb > 1)
     if args.verb > 0:
         print(f"\nSaved fidelity metrics: {out_f}")

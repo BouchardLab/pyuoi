@@ -1,10 +1,9 @@
 # PRISM-EM 3c Training
 
-This directory contains the lag-1 PRISM-EM trainer and the FDR bagging
-fitters.
+This directory contains the lag-1 PRISM-EM trainer, FDR bagging fitters, and
+the Stage (c) de-biased refit.
 
-The two entry points share the same core implementation in
-`PrismEM_Workhorse3c.py`:
+The main pipeline entry points are:
 
 - `prism_EM_train3c.py`: ordinary time-ordered EM fit used for state
   discovery.
@@ -12,6 +11,11 @@ The two entry points share the same core implementation in
   reference-locked A/B refit plus its per-neuron time-shuffle null refits.
 - `prism_EM_FDR_Bags_aggregate3c.py`: EM-FDR-bagging Stage (b), i.e.
   aggregate all bag files into one eval-compatible fit.
+- `prism_deBiasFit3c.py`: Stage (c), i.e. refit the Stage (b)-selected support
+  without another sparsity penalty or pruning pass.
+
+The reference and bag trainers share the core implementation in
+`PrismEM_Workhorse3c.py`; Stage (c) uses `PrismDeBias_Workhorse3c.py`.
 
 The code expects input spike files under:
 
@@ -33,6 +37,44 @@ export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 ```
 
+## Schema-versioned NPZ files
+
+The core 3c pipeline uses `toolbox/Util_NumpyIOv2.py`. Every NPZ file written
+through this module contains a required `schema.JSON` record with format
+`Util_NumpyIO`, schema version `2`, and the encoding, NumPy dtype, and shape of
+each payload record. Metadata are stored as strict JSON in `meta.JSON` and are
+also described by the schema.
+
+Use the v2 functions for all files passed through the schema-enabled pipeline:
+
+```python
+from toolbox.Util_NumpyIOv2 import (
+    json_safe_metadata,
+    read_data_npz,
+    write_data_npz,
+)
+
+data, metadata = read_data_npz(input_file)
+write_data_npz(data, output_file, metaD=json_safe_metadata(metadata))
+```
+
+The v2 reader deliberately uses `allow_pickle=False` and validates the entire
+archive against `schema.JSON`. It rejects legacy schema-less files, mismatched
+dtypes or shapes, undeclared records, and non-string object arrays. Payload
+dictionaries and metadata must be JSON-compatible; NumPy scalars are converted
+by `json_safe_metadata`, and non-finite floating-point metadata values become
+JSON `null`. Do not write pipeline files directly with `numpy.savez*`, because
+that bypasses the required schema.
+
+The schema requirement is active in `gen_daleMatrices3c.py`,
+`gen_nonStationarySpikes3c.py`, `view_daleMatrix3.py`,
+`view_spikesTrain3.py`, `prep_bioexp3c.py`, `view_bioexp.py`,
+`edgeMeterAccuracy3c.py`, `edgeMeterFidelity3c.py`, `prism_EM_train3c.py`,
+`prism_FDR_Bags_train3c.py`, `prism_EM_FDR_Bags_aggregate3c.py`,
+`prism_deBiasFit3c.py`, and `prism_EM_eval3c.py`. Consequently, the spike,
+reference-fit, bag, aggregate, and de-biased files used together in a new run
+must all be v2 archives.
+
 ## Shell Macros
 
 The `.sh` files in this directory are convenience launch macros. They are
@@ -45,11 +87,14 @@ line interfaces.
   checks that four GPUs are visible, and launches `torchrun`. This is mostly
   useful for quick trainer smoke tests.
 
-- `big_fit_bags.sh`: end-to-end example for one complete FDR-bagging run on
-  a chosen dataset and time range. It runs one reference EM fit, loops over
-  `numBags` calls to `prism_FDR_Bags_train3c.py`, and optionally runs the
-  Stage (b) aggregator. Edit `basePath`, `shortN`, `numStates`, `timeRange`,
-  and the training/FDR hyperparameters at the top.
+- `big_fit_bags.sh`: end-to-end example for one complete FDR/de-bias run on a
+  chosen dataset and time range. It runs one reference EM fit, loops over
+  `numBags` calls to `prism_FDR_Bags_train3c.py`, runs the Stage (b)
+  aggregator, and then passes that aggregate directly to
+  `prism_deBiasFit3c.py`. Edit `basePath`, `shortN`, `numStates`, `timeRange`,
+  and the training/FDR hyperparameters at the top. Set `runAggregate=0` to
+  skip aggregation, or `runDebias=0` to stop after aggregation; de-biasing
+  requires aggregation to be enabled.
 
 - `big_scanTime_FDR.sh`: end-to-end run for a single data-duration point in
   a scan. It takes three positional arguments:
@@ -67,10 +112,9 @@ line interfaces.
   files named from `outAgrName` and prints ready-to-run `edgeMaterAbs3c.py`
   metric commands for the two scans.
 
-- `docs/build3gen.sh`, `docs/build3EM.sh`, `docs/build3FDR.sh`,
-  `docs/build3exper.sh`, and `docs/build3edgeMeter.sh`: LaTeX build helpers
-  for the matching documentation files. They load `texlive` if needed, run
-  `pdflatex` twice, and try to open the produced PDF on supported systems.
+- `docs/buildTex.sh`: numbered LaTeX builder for the documentation sources.
+  It places intermediate build products under `docs/tmp/` and leaves only
+  `buildTex.sh`, `.tex`, and `.pdf` files at the top level of `docs/`.
 
 ## Plain EM Fit
 
@@ -293,6 +337,78 @@ Stage (b) also saves FDR diagnostics such as `selection_frequency`,
 selected-edge table (`edge_i`, `edge_j`, `edge_sel_freq`, `edge_A_mean`,
 `edge_A_sd_boot`, `edge_z_null`, `edge_src_null_mean`, `edge_src_null_sd`,
 `edge_src_tau_mean`).
+
+## De-biased Fit Stage (c)
+
+Stage (b) selects the connectivity support, but its edge amplitudes still come
+from regularized bag fits. `prism_deBiasFit3c.py` removes that shrinkage by
+refitting `A` and `B` on the Stage (b) support. All selected off-diagonal edges
+and all diagonal entries are active during this refit; unselected off-diagonal
+entries remain zero. Dale signs are enforced and there is no second pruning or
+selection pass.
+
+To run Stage (c) manually on an aggregate:
+
+```bash
+basePath=/path/to/run
+fdrAgrName=myDataset_em1234_fdr1234_agr1234
+debiasFitName=${fdrAgrName}_debias
+
+time torchrun --standalone --nnodes=1 --nproc_per_node=4 \
+  ./prism_deBiasFit3c.py \
+  --basePath "$basePath" \
+  --fdrFitName "$fdrAgrName" \
+  --outFitName "$debiasFitName" \
+  --state_mode locked \
+  --m_epochs 180 \
+  --batch_size 4096
+```
+
+This reads:
+
+```bash
+$basePath/prismFit/<fdrAgrName>.prismEM.npz
+```
+
+and writes:
+
+```bash
+$basePath/prismFit/<debiasFitName>.prismEM.npz
+```
+
+`state_mode=locked` preserves the Stage (b) state assignments and performs one
+fixed-state M-step. `state_mode=refit` alternates E- and M-steps; use
+`--num_debias_iters` to control their number. The default `state_mode=auto`
+chooses `refit` for multi-state inputs and `locked` for a single state.
+
+The Stage (c) archive preserves Stage (b) results such as `A_hat`, `B_hat`,
+and `selected_mask`, while adding the primary de-biased results as `A_debias`
+and `B_debias`. `prism_EM_eval3c.py` recognizes Stage (c) metadata and displays
+those de-biased arrays:
+
+```bash
+./prism_EM_eval3c.py \
+  --basePath "$basePath" \
+  --dataName "$debiasFitName" \
+  -p a b c e h i
+```
+
+`big_fit_bags.sh` now includes this step immediately after Stage (b). Its
+default settings tie the de-bias epoch count and batch size to the bag-fit
+settings:
+
+```bash
+runAggregate=1
+runDebias=1
+debiasStateMode=locked
+debiasEpochs=$bagEpochs
+debiasBatchSize=$bagBatchSize
+```
+
+For each new random run tag, the macro creates an aggregate named
+`${fdrAgrName}.prismEM.npz`, uses `fdrAgrName` as `--fdrFitName`, and writes
+`${fdrAgrName}_debias.prismEM.npz`. Both paths are printed when the pipeline
+finishes.
 
 ## Saved Bag Contents
 

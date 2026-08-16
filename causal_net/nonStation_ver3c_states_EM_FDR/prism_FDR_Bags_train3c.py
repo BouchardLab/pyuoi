@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
+from toolbox.Util_NumpyIOv2 import json_safe_metadata, read_data_npz, write_data_npz
 from Util_PrismEM import init_A_from_spikes, init_B_from_spikes
 from PrismEM_Workhorse3c import (
     barrier,
@@ -499,10 +499,14 @@ def main():
                     "min_roll_shift_bins": int(min_roll_shift_bins),
                 },
                 "seed_base": int(seed_base),
-                "real_fit": {"train": train_md},
+                # Preserve the complete reference-EM metadata contract used by
+                # aggregation and evaluation; bag-specific training metadata
+                # remains in the top-level ``train`` and ``locked_mstep`` blocks.
+                "real_fit": dict(ref_md),
             }
 
             outF = os.path.join(out_dir, f"{out_stem}.prismFDRbag.npz")
+            outMD = json_safe_metadata(outMD)
             write_data_npz(outD, outF, metaD=outMD, verb=args.verb > 1)
             print(f"\nSaved FDR bag: {outF}")
         barrier(ctx)

@@ -8,12 +8,12 @@ import time
 
 import numpy as np
 
-from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
+from toolbox.Util_NumpyIOv2 import json_safe_metadata, read_data_npz, write_data_npz
 
 
 LABEL_ORDER = np.asarray([-1, 0, 1], dtype=np.int8)
 SOURCE_RECO_ORDER = np.asarray([1, -1, 0], dtype=np.int8)
-SOURCE_RECO_NAMES = np.asarray(["exc", "inh", "und"], dtype=object)
+SOURCE_RECO_NAMES = np.asarray(["exc", "inh", "und"], dtype=str)
 
 
 def parse_args():
@@ -365,15 +365,15 @@ def assemble_metric_arrays(rows):
     )
 
     out = {
-        "fit_name": np.asarray([r["fit_name"] for r in rows], dtype=object),
-        "fit_tag": np.asarray([r["fit_tag"] for r in rows], dtype=object),
-        "fit_file": np.asarray([r["fit_file"] for r in rows], dtype=object),
-        "truth_file": np.asarray([r["truth_file"] for r in rows], dtype=object),
+        "fit_name": np.asarray([r["fit_name"] for r in rows], dtype=str),
+        "fit_tag": np.asarray([r["fit_tag"] for r in rows], dtype=str),
+        "fit_file": np.asarray([r["fit_file"] for r in rows], dtype=str),
+        "truth_file": np.asarray([r["truth_file"] for r in rows], dtype=str),
         "time_range_sec": np.stack([r["time_range_sec"] for r in rows], axis=0).astype(np.float64),
         "confusion3": np.stack([r["confusion3"] for r in rows], axis=0).astype(np.int64),
         "source_type_confusion": np.stack([r["source_type_confusion"] for r in rows], axis=0).astype(np.int64),
         "label_order": LABEL_ORDER.copy(),
-        "source_truth_order": np.asarray(["exc", "inh"], dtype=object),
+        "source_truth_order": np.asarray(["exc", "inh"], dtype=str),
         "source_reco_order": SOURCE_RECO_NAMES.copy(),
     }
     out["confusion3_sum"] = np.sum(out["confusion3"], axis=0).astype(np.int64)
@@ -454,6 +454,7 @@ def main():
     }
 
     out_f = os.path.join(edge_dir, f"{out_name}.npz")
+    out_md = json_safe_metadata(out_md)
     write_data_npz(out_d, out_f, metaD=out_md, verb=args.verb > 1)
     if args.verb > 0:
         print(f"\nSaved edge-meter metrics: {out_f}")

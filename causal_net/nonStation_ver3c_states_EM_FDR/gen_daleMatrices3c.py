@@ -57,7 +57,7 @@ import sys
 import argparse
 from pprint import pprint
 
-from toolbox.Util_NumpyIO import write_data_npz
+from toolbox.Util_NumpyIOv2 import write_data_npz
 from UtilDalePoisson import estimate_rates
 
 ###### Matrix generation ##################
@@ -141,7 +141,7 @@ def init_W(n_units, n_excite, E_true, R, varyW, verb=1):
     n_inhib = n_units - n_excite
     assert n_excite > 0, "n_excite must be greater than 0"
     assert n_inhib > 0, "n_inhib must be greater than 0 (n_units > n_excite)"
-    
+
     # 2. Balance ratio: each target row receives N_E positive source columns
     #    and N_I negative source columns with approximately zero net mean.
     ie_ratio = n_excite / n_inhib
@@ -483,8 +483,7 @@ def main():
     print("  ./view_daleMatrix3.py  --basePath $basePath   --dataName %s  -p b a c d -m 0   -X   " % args.dataName)
     print("  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --time_range_sec 0 20 -p b -m 0   -X " % args.dataName)
     print("  ./gen_nonStationarySpikes3c.py  --basePath $basePath   --inputStates %s     --true_dwell_sec 1.0 " % args.dataName)
-    print("  ./fit_lassoPoisson.py  --basePath $basePath  --inpPath ${basePath}/truthDale --dataName   %s   --num_epochs  50  " % args.dataName)
-   
+
 
 if __name__ == '__main__':
     main()  

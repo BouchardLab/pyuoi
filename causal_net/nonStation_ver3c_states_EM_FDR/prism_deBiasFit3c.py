@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
+from toolbox.Util_NumpyIOv2 import json_safe_metadata, read_data_npz, write_data_npz
 from PrismEM_Workhorse3c import (
     barrier,
     broadcast_array,
@@ -611,6 +611,7 @@ def main():
             out_dir = os.path.join(args.basePath, "prismFit")
             os.makedirs(out_dir, exist_ok=True)
             out_f = os.path.join(out_dir, "%s.prismEM.npz" % args.outFitName)
+            out_md = json_safe_metadata(out_md)
             write_data_npz(out_d, out_f, metaD=out_md, verb=args.verb > 1)
             if args.verb > 0:
                 print("\nSaved Stage (c) deBias fit: %s" % out_f, flush=True)

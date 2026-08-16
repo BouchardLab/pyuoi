@@ -47,7 +47,7 @@ import argparse
 from pprint import pprint
 import numpy as np
 
-from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
+from toolbox.Util_NumpyIOv2 import read_data_npz, write_data_npz
 from gen_daleMatrices3c import estimate_rates
 
 
@@ -252,7 +252,9 @@ def compute_oracle_score(S_true, S_oracle, n_states):
         if mask.sum() > 0:
             score_per_state.append(float((S_oracle[:nmin][mask] == m).mean()))
         else:
-            score_per_state.append(float("nan"))
+            # JSON has no portable NaN value. None round-trips as JSON null and
+            # makes the undefined score explicit in v2 metadata.
+            score_per_state.append(None)
     return avr_score, score_per_state
 
 
@@ -417,19 +419,18 @@ def main():
         print(f"  {'state':>5s}  {'score':>5s}  {'bins':>7s}  {'switches_to':>11s}")
         print(f"  {'-----':>5s}  {'-----':>5s}  {'-------':>7s}  {'-----------':>11s}")
         for m, sc in enumerate(oracle_score_per_state):
+            score_text = "  n/a" if sc is None else f"{sc:5.3f}"
             print(
-                f"  {m:5d}  {sc:5.3f}  {int(target_bins_per_state[m]):7d}  "
+                f"  {m:5d}  {score_text}  {int(target_bins_per_state[m]):7d}  "
                 f"{int(switches_to_per_state[m]):11d}"
             )
 
-    print("\n  ./view_spikesTrain3.py  --basePath $basePath   --dataName %s  --idxState -1 --time_range_sec 0 15   -p b    " % args.dataName)
-    print("\n  ./prism_Estep_train.py --basePath $basePath   --dataName %s      " % args.dataName)
-    print("\n  ./prism_Mstep_train3.py --basePath $basePath   --dataName %s      " % args.dataName)
-
-    print("  ./fit_lassoPoisson3.py  --basePath $basePath  --dataName   %s   --num_epochs  300  " % args.dataName)
-   
-    print("  ./fitPrismEM.sh   --basePath $basePath     --dataName %s  --num_states %d  --num_em_iters 4 --m_epochs 16  --time_range_sec 0 80 " % (args.dataName,n_states))
-    print("  ./bigLassoBoots.sh    --basePath $basePath     --dataName %s  --num_epochs 100  --dropDataFrac 0.33  --num_bootstraps 2   --bootsTag b2   --desyncTime  " % args.dataName)
+    print("\nView generated spikes:")
+    print("  ./view_spikesTrain3.py --basePath $basePath --dataName %s --idxState -1 --time_range_sec 0 15 -p b" % args.dataName)
+    print("\nRun one PRISM-EM fit:")
+    print("  ./prism_EM_train3c.py --basePath $basePath --dataName %s --num_states %d --num_em_iters 4 --m_epochs 16 --time_range_sec 0 80" % (args.dataName, n_states))
+    print("\nRun the full PRISM-EM/FDR bags pipeline (configure dataset selection in the script first):")
+    print("  ./big_fit_bags.sh")
 
 
 if __name__ == "__main__":

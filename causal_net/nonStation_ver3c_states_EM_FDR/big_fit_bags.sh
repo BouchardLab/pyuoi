@@ -1,5 +1,5 @@
 #!/bin/bash
-# Example end-to-end PRISM-EM FDR bagging run.
+# Example end-to-end PRISM-EM FDR bagging + de-bias run.
 # salloc -q interactive -C gpu -t 4:00:00 -N 1 -A m2043
 
 set -euo pipefail
@@ -11,20 +11,17 @@ cd "$(dirname "$0")"
 
 # ---------- dataset selection ----------
 # Synthetic example
-#basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3c
-#shortN=daleN200_55e5a6_ff089c  # N200 3/21  Hz
-#shortN=daleN200_f33b3b_7d8ff1  # N200 6/11  Hz
-#shortN=daleN200_74e6d6_e2b7d7  # N200 12/21 Hz
-#shortN=daleN100_d4f303_4abc4c  # N100 13/27 Hz
-#numStates=2
+#basePath=/pscratch/sd/b/balewski/2026_causalNet_Aug15
+#shortN=daleN200_2290a6_b16fce ; numStates=2  # N200 6/11  Hz
 
 # Experimental example
-basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3c
-#shortN=Canine_260324_r23_w0_1hz; numStates=2
-shortN=Canine_260324_r21_w0_1hz; numStates=1
-#timeRange=(0 3600)
+basePath=/pscratch/sd/b/balewski/2026_causalNet_Aug15
+#shortN=Canine_260324_w0_r23_0.3hz; numStates=2
+shortN=Canine_260324_w0_r23_1hz; numStates=2
+#shortN=Canine_260324_r21_w0_1hz; numStates=1
+timeRange=(0 3600)
 #timeRange=(0 1800)
-timeRange=(1800 3600)
+#timeRange=(1800 3600)
 #timeRange=(0 300)
 
 # ---------- reference EM: state discovery ----------
@@ -40,6 +37,12 @@ numScrambles=6
 bagBatchSize=4096
 runAggregate=1
 
+# ---------- de-bias fit: refit the aggregate FDR support ----------
+runDebias=1
+debiasStateMode=locked
+debiasEpochs=$bagEpochs
+debiasBatchSize=$bagBatchSize
+
 runTag="$(python3 -c 'import secrets; print(secrets.token_hex(2))')"
 
 echo "basePath=$basePath"
@@ -49,10 +52,17 @@ echo "timeRange=${timeRange[*]}  numStates=$numStates"
 emFitName="${shortN}_em${runTag}"
 fdrBagsName="${emFitName}_fdr${runTag}"
 fdrAgrName="${fdrBagsName}_agr${runTag}"
+debiasFitName="${fdrAgrName}_debias"
 
 echo "emFitName=$emFitName"
 echo "fdrBagsName=$fdrBagsName"
 echo "fdrAgrName=$fdrAgrName"
+echo "debiasFitName=$debiasFitName"
+
+if [[ "$runDebias" == "1" && "$runAggregate" != "1" ]]; then
+    echo "ERROR: runDebias=1 requires runAggregate=1" >&2
+    exit 2
+fi
 
 echo
 echo "=== Reference EM fit: state discovery ==="
@@ -98,9 +108,25 @@ if [[ "$runAggregate" == "1" ]]; then
       --stab_sel_thresh 0.7
 fi
 
+if [[ "$runDebias" == "1" ]]; then
+    echo
+    echo "=== De-biased refit of aggregate support ==="
+    time torchrun --standalone --nnodes=1 --nproc_per_node=4 \
+      ./prism_deBiasFit3c.py \
+      --basePath "$basePath" \
+      --fdrFitName "$fdrAgrName" \
+      --outFitName "$debiasFitName" \
+      --state_mode "$debiasStateMode" \
+      --m_epochs "$debiasEpochs" \
+      --batch_size "$debiasBatchSize"
+fi
+
 echo
 echo "Done."
 echo "Bag files: $basePath/prismFDR/${fdrBagsName}.bagNNN.prismFDRbag.npz"
 if [[ "$runAggregate" == "1" ]]; then
     echo "Aggregate: $basePath/prismFit/${fdrAgrName}.prismEM.npz"
+fi
+if [[ "$runDebias" == "1" ]]; then
+    echo "De-biased: $basePath/prismFit/${debiasFitName}.prismEM.npz"
 fi

@@ -22,14 +22,15 @@ import os
 from pprint import pprint
 import numpy as np
 from PlotterBioExp import Plotter
-from toolbox.Util_NumpyIO import read_data_npz
+from toolbox.Util_NumpyIOv2 import read_data_npz
 from UtilBioExp import detect_spike_bursts
 import argparse
 
 
 def _require_bioexp(bioD, bioMD):
+    assert isinstance(bioMD, dict), "bioExp.npz is missing schema-v2 metadata"
     for key in ("metrics_curated", "MEA_idx", "single_rates"):
-        assert key in bioD, f"bioExp.npz missing {key!r}; rerun prep_bioexp3b.py"
+        assert key in bioD, f"bioExp.npz missing {key!r}; rerun prep_bioexp3c.py"
     for key in ("metrics_curated_columns", "short_name", "data_selector", "rate_summary"):
         assert key in bioMD, f"bioExp metadata missing {key!r}"
     assert "freq_range" in bioMD["data_selector"]

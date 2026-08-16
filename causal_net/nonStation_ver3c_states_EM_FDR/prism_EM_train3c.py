@@ -13,7 +13,7 @@ from pprint import pprint
 
 import numpy as np
 
-from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
+from toolbox.Util_NumpyIOv2 import json_safe_metadata, read_data_npz, write_data_npz
 from PrismEM_Workhorse3c import (
     add_prism_em_args,
     barrier,
@@ -109,6 +109,7 @@ def main():
 
         if is_rank0(ctx):
             outFF = os.path.join(outPath, f"{outF}.prismEM.npz")
+            fitMD = json_safe_metadata(fitMD)
             write_data_npz(fitD, outFF, metaD=fitMD, verb=args.verb > 1)
             print(f"\nSaved: {outFF}")
             print(f"  basePath={args.basePath}")

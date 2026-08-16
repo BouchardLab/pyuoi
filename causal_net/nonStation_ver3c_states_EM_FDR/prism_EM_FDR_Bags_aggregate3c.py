@@ -9,7 +9,7 @@ import time
 
 import numpy as np
 
-from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
+from toolbox.Util_NumpyIOv2 import json_safe_metadata, read_data_npz, write_data_npz
 
 
 BASE_FIT_KEYS = (
@@ -578,6 +578,7 @@ def main():
             f"  q_lambda={agg['q_lambda']:.3f} "
             f"stability_false_edge_bound={agg['stability_false_edge_bound']:.3f}"
         )
+    out_md = json_safe_metadata(out_md)
     write_data_npz(out_d, out_f, metaD=out_md, verb=args.verb > 1)
     if args.verb > 0:
         print(f"\nSaved Stage (b) aggregate: {out_f}")

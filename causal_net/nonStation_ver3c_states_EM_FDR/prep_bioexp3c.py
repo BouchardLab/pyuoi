@@ -31,7 +31,7 @@ import sys, os, hashlib
 import numpy as np
 import pandas as pd
 from pprint import pprint
-from toolbox.Util_NumpyIO import read_data_npz, write_data_npz
+from toolbox.Util_NumpyIOv2 import json_safe_metadata, write_data_npz
 
 import argparse
 
@@ -219,6 +219,12 @@ def load_metrics_curated(args, mea_idx_order, spike_key_order):
     df_ord = df.iloc[order_idx].reset_index(drop=True)
     col_names = [str(c) for c in df_ord.columns]
     metrics_2d = df_ord.to_numpy()
+    if metrics_2d.dtype.hasobject:
+        # A heterogeneous DataFrame becomes an object array, which would
+        # require pickle.  Store it as schema-safe Unicode instead.  Numeric
+        # metric consumers select a column and explicitly cast it to float.
+        schema_safe_df = df_ord.where(pd.notna(df_ord), np.nan)
+        metrics_2d = schema_safe_df.astype(str).to_numpy(dtype=str)
     mea_idx_order = _integer_if_possible(df_ord["MEA_idx"].to_numpy())
 
     n_match = len(order_idx)
@@ -362,23 +368,23 @@ if __name__ == "__main__":
 
     #...... WRITE   OUTPUT .........
     outFt = os.path.join(args.dataPath, bioMD['short_name'] + '.bioExp.npz')
-    write_data_npz(bioD, outFt, metaD=bioMD)
+    write_data_npz(bioD, outFt, metaD=json_safe_metadata(bioMD))
     if args.verb > 2:
         print('\n bioD:', sorted(bioD))
         pprint(bioMD)
 
     outFs = outFt.replace('.bioExp.', '.spikes.')
-    write_data_npz(spikeD, outFs, metaD=spikeMD)
+    write_data_npz(spikeD, outFs, metaD=json_safe_metadata(spikeMD))
     if args.verb > 2:
         print('\nspikeD:', sorted(spikeD))
         pprint(spikeMD)
 
     print("\nNext step command:")
     print('   ./view_bioexp.py  --dataPath $dataPath  --dataName   %s  -p  a b c  -T 0 3550  ' % (bioMD['short_name']))
-    print("  ./fit_lassoPoisson.py  --dataPath $dataPath  --dataName %s  --num_epochs  10 " % bioMD['short_name'])
-    print(" ./fitLasso4GPU.sh  --dataPath $dataPath  --dataName %s  --num_epochs  200 " % bioMD['short_name'])
-    print("  ./bootsFit.sh --dataName  %s  --num_epochs  250 --dropDataFrac 0.5 --num_bootstraps 7  " % bioMD['short_name'])
 
-    print("   ./selectEdges_FDR.py  --dataName %s  --num_bootstraps 6 10 -p a c d  " % bioMD['short_name'])
+    print("\nRun one PRISM-EM fit:")
+    print("  ./fitPrismEM.sh --basePath $basePath --dataName %s --num_states 2 --num_em_iters 4 --m_epochs 16 --time_range_sec 0 80" % bioMD['short_name'])
+    print("\nRun the full PRISM-EM/FDR bags pipeline (configure dataset selection in the script first):")
+    print("  ./big_fit_bags.sh")
 
-    print('    --dataPath ' + args.dataPath)
+    print('    dataPath=%s' % args.dataPath)

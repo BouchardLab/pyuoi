@@ -21,7 +21,7 @@ import os
 from pprint import pprint
 import numpy as np
 from PlotterSpikesTrain import Plotter
-from toolbox.Util_NumpyIO import read_data_npz
+from toolbox.Util_NumpyIOv2 import read_data_npz
 import argparse
 #...!...!....................
 def get_parser():
@@ -38,7 +38,7 @@ def get_parser():
     parser.add_argument('-m', '--idxState', type=int, default=0, help="Index into state list; if idxState<0 read spikes from spikesData/")
 
     parser.add_argument('-T','--time_range_sec' , default=[0., 50],  nargs=2,   type=float, help='display data time range in seconds')
-    parser.add_argument('-r','--time_rebin2', default=10, type=int, help='rebin current time axis')
+    parser.add_argument('-r','--time_rebin2', default=5, type=int, help='rebin current time axis')
    
     args = parser.parse_args()
     # make arguments more flexible
@@ -164,7 +164,8 @@ if __name__=="__main__":
         print(f"  {'state':>5s}  {'score':>5s}")
         print(f"  {'-----':>5s}  {'-----':>5s}")
         for m, sc in enumerate(oraE['score_per_state']):
-            print(f"  {m:5d}  {sc:5.3f}")
+            score_text = "  n/a" if sc is None else f"{sc:5.3f}"
+            print(f"  {m:5d}  {score_text}")
 
     #--------------------------------
     # ....  plotting ........
