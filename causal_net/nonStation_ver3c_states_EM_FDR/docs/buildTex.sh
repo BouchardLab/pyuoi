@@ -11,6 +11,7 @@ document_map=(
     5:edgeMeterStability_ver3c
     6:edgeMeterAccuracy_ver3c
     10:preproc_exper_ver3c
+    11:forwardGenSpike_ver3c
 )
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

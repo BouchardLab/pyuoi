@@ -721,6 +721,7 @@ shape $(3, T, N)$), both under \texttt{\$basePath/truthDale/}.
 \begin{verbatim}
 ./gen_nonStationarySpikes3c.py --basePath $basePath \
     --inputStates myData --dataName myData_sw \
+    --time_range_sec 0 80 \
     --true_dwell_sec 1.0 --schedule mc
 \end{verbatim}
 Produces \texttt{myData\_sw.spikes.npz} (shape $(T, N)$) and

@@ -133,6 +133,7 @@ if __name__=="__main__":
     if args.verb>1: pprint(spikeMD)
    
     S_oracle = None
+    num_clipped_neurons_time = None
     if args.idxState >=0:  # per state information
           # Load simulation truth data (Dale matrices, biases, etc.)
         truthFF = os.path.join(args.inpPath, f"{args.dataName}.simTruth.npz")
@@ -149,27 +150,71 @@ if __name__=="__main__":
         spikeMD['sel_spect_radius'] = trueMD['dale_conf']['spectral_radius']
         S_true = None
         
-    if args.idxState <0:  #  multi-state simulations
-        prismFF = os.path.join(args.inpPath, f"{args.dataName}.prismTruth.npz")
-        assert os.path.exists(prismFF), f"missing prismTruth file: {prismFF}"
-        prismD, prismMD = read_data_npz(prismFF, verb=args.verb>0)
-        S_true = prismD['S_true']
-        S_oracle = prismD['S_oracle']
-        if args.verb > 0:  print('loaded prismTruth S_true:', S_true.shape);
-        if args.verb > 1:  pprint(prismMD)
-        spikeMD['sel_spect_radius'] =-77
-        oraE = prismMD['oracle_eval']
-        spikeMD['oracle_score'] = oraE['avr_score']
-        print(f"gen, oracle avr score {oraE['avr_score']:.3f}, {args.dataName}")
-        print(f"  {'state':>5s}  {'score':>5s}")
-        print(f"  {'-----':>5s}  {'-----':>5s}")
-        for m, sc in enumerate(oraE['score_per_state']):
-            score_text = "  n/a" if sc is None else f"{sc:5.3f}"
-            print(f"  {m:5d}  {score_text}")
+    if args.idxState <0:  # multi-state or forward-generated simulations
+        is_forward = (
+            spikeMD.get('data_type') == 'forwardPrism'
+            or 'forward_generation' in spikeMD
+        )
+        if is_forward:
+            truthFF = os.path.join(args.inpPath, f"{args.dataName}.forwardTruth.npz")
+            assert os.path.exists(truthFF), f"missing forwardTruth file: {truthFF}"
+            truthD, truthMD = read_data_npz(truthFF, verb=args.verb>0)
+            assert truthMD.get('data_type') == 'forwardPrismTruth', \
+                f"unexpected forward truth data_type={truthMD.get('data_type')!r}"
+            S_true = np.asarray(truthD['S_forward'])
+            num_clipped_neurons_time = np.asarray(
+                truthD['num_clipped_neurons_time']
+            )
+            num_steps = spikeD['spikes'].shape[0]
+            assert S_true.shape == (num_steps,), \
+                f"S_forward shape={S_true.shape}, expected ({num_steps},)"
+            assert num_clipped_neurons_time.shape == (num_steps,), \
+                ("num_clipped_neurons_time shape="
+                 f"{num_clipped_neurons_time.shape}, expected ({num_steps},)")
+            spikeMD['sel_spect_radius'] = None
+            spikeMD['state_trace_label'] = 'reconstructed state (wrapped)'
+            if args.verb > 0:
+                stage = truthMD.get('forward_generation', {}).get(
+                    'input_stage', 'unknown'
+                )
+                quartiles = np.asarray(
+                    truthD['clipped_neuron_quartiles'], dtype=float
+                )
+                print(
+                    f"loaded forwardTruth: S_forward={S_true.shape}, "
+                    f"source stage={stage}"
+                )
+                print(
+                    "clipped neurons/time quartiles "
+                    f"q25={quartiles[0]:.3g}, q50={quartiles[1]:.3g}, "
+                    f"q75={quartiles[2]:.3g}, q100={quartiles[3]:.3g}"
+                )
+            if args.verb > 1:
+                pprint(truthMD)
+        else:
+            prismFF = os.path.join(args.inpPath, f"{args.dataName}.prismTruth.npz")
+            assert os.path.exists(prismFF), f"missing prismTruth file: {prismFF}"
+            prismD, prismMD = read_data_npz(prismFF, verb=args.verb>0)
+            S_true = prismD['S_true']
+            S_oracle = prismD['S_oracle']
+            if args.verb > 0:  print('loaded prismTruth S_true:', S_true.shape)
+            if args.verb > 1:  pprint(prismMD)
+            spikeMD['sel_spect_radius'] =-77
+            oraE = prismMD['oracle_eval']
+            spikeMD['oracle_score'] = oraE['avr_score']
+            print(f"gen, oracle avr score {oraE['avr_score']:.3f}, {args.dataName}")
+            print(f"  {'state':>5s}  {'score':>5s}")
+            print(f"  {'-----':>5s}  {'-----':>5s}")
+            for m, sc in enumerate(oraE['score_per_state']):
+                score_text = "  n/a" if sc is None else f"{sc:5.3f}"
+                print(f"  {m:5d}  {score_text}")
 
     #--------------------------------
     # ....  plotting ........
-    spikeMD['short_name']=f"{args.dataName}_state{args.idxState}"
+    if args.idxState < 0 and spikeMD.get('data_type') == 'forwardPrism':
+        spikeMD['short_name'] = f"{args.dataName}_forward"
+    else:
+        spikeMD['short_name']=f"{args.dataName}_state{args.idxState}"
     spikeMD['sel_state'] = int(args.idxState)
     args.prjName=spikeMD['short_name']
     spikeMD['plot']={}    
@@ -183,7 +228,10 @@ if __name__=="__main__":
         rebD=rebin_spike_rates(spikeD['spikes'], spikeMD, args.time_rebin2)
         if S_oracle is not None:
             rebD['S_oracle'] = S_oracle
-        plot.freq_vs_time(rebD,spikeMD,figId=2, S_true=S_true, S_oracle=S_oracle)
+        plot.freq_vs_time(
+            rebD, spikeMD, figId=2, S_true=S_true, S_oracle=S_oracle,
+            num_clipped_neurons_time=num_clipped_neurons_time
+        )
 
     plot.display_all()
     print('M:done')

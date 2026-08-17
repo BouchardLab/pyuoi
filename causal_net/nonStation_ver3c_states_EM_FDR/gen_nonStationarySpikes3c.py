@@ -58,7 +58,13 @@ def get_parser():
     parser.add_argument("--inputStates", default=None, help="input simTruth base name")
     parser.add_argument("--dataName", type=str, default=None, help="output spikes base name (default: <inputStates>_<hash6>)")
 
-    parser.add_argument("-t", "--num_steps", type=int, default=None, help="Number of time steps (default: from input evol_conf)")
+    parser.add_argument(
+        "--time_range_sec", type=float, nargs=2, default=None,
+        metavar=("START", "STOP"),
+        help=("Output time range in seconds; STOP-START sets the generated "
+              "duration (default: 0 to the duration in input evol_conf) and "
+              "must align to whole time bins"),
+    )
     parser.add_argument("--state_change_speed", type=float, default=0.33, help="Max coefficient change per step.")
     parser.add_argument("--true_dwell_sec", type=float, default=1.0,
                         help="Mean dwell time in seconds to stay in a target state.")
@@ -94,6 +100,40 @@ def ensure_state_atoms(A_in, B_in):
     assert A.shape[0] == A.shape[1], f"A must be square, got {A.shape}"
     assert A.shape[0] == B.shape[1], f"neuron mismatch: A N={A.shape[0]}, B N={B.shape[1]}"
     return A.astype(float), B.astype(float)
+
+
+def time_range_to_num_steps(time_range_sec, time_step_sec, default_num_steps):
+    """Validate a physical time range and convert its duration to bins."""
+    if time_range_sec is None:
+        num_steps = int(default_num_steps)
+        if num_steps <= 0:
+            raise ValueError("input evol_conf.num_steps must be positive")
+        return np.asarray(
+            [0.0, num_steps * float(time_step_sec)], dtype=np.float64
+        ), num_steps
+
+    time_range = np.asarray(time_range_sec, dtype=np.float64)
+    if time_range.shape != (2,) or not np.all(np.isfinite(time_range)):
+        raise ValueError("--time_range_sec requires two finite values: START STOP")
+    start_sec, stop_sec = (float(x) for x in time_range)
+    if start_sec < 0.0:
+        raise ValueError("--time_range_sec START must be non-negative")
+    if stop_sec <= start_sec:
+        raise ValueError("--time_range_sec requires STOP > START")
+
+    duration_sec = stop_sec - start_sec
+    exact_steps = duration_sec / float(time_step_sec)
+    num_steps = int(round(exact_steps))
+    tolerance = 1e-8 * max(1.0, abs(exact_steps))
+    if abs(exact_steps - num_steps) > tolerance:
+        raise ValueError(
+            "--time_range_sec duration %.12g sec is not an integer multiple "
+            "of time_step_sec=%.12g (%.12g bins)"
+            % (duration_sec, time_step_sec, exact_steps)
+        )
+    if num_steps <= 0:
+        raise ValueError("--time_range_sec selects no time bins")
+    return np.asarray([start_sec, stop_sec], dtype=np.float64), num_steps
 
 
 def _print_state_stats(S_true, n_states, n_steps):
@@ -278,15 +318,28 @@ def main():
     var_time_window_sec = 5 #(sec)
     max_samples = 100_000 # time steps
 
-    if args.num_steps is None:
-        args.num_steps = int(evol_conf_in["num_steps"])
-
-    assert args.num_steps >= 100
     assert step_size > 0
+    args.time_range_sec, args.num_steps = time_range_to_num_steps(
+        args.time_range_sec, step_size, evol_conf_in["num_steps"]
+    )
+
     assert args.state_change_speed > 0
     assert args.true_dwell_sec > 0.0
     assert max_samples >= 100
     assert var_time_window_sec > 0
+    min_stats_steps = 2 * max(
+        1, int(round(var_time_window_sec / float(step_size)))
+    )
+    if args.num_steps < min_stats_steps:
+        raise ValueError(
+            "--time_range_sec must span at least %.6g sec (%d bins) so the "
+            "rate-variance summary contains two %.6g-second windows"
+            % (
+                min_stats_steps * float(step_size),
+                min_stats_steps,
+                var_time_window_sec,
+            )
+        )
 
     true_dwell_steps = max(1, int(np.ceil(float(args.true_dwell_sec) / float(step_size))))
 
@@ -336,6 +389,7 @@ def main():
 
     evol_conf = {
         "num_steps": int(args.num_steps),
+        "time_range_sec": args.time_range_sec.tolist(),
         "step_size": float(step_size),
         "evol_time": float(args.num_steps * step_size),
         "state_change_speed": float(args.state_change_speed),

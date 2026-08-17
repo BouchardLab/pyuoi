@@ -94,7 +94,8 @@ class Plotter(PlotterBackbone):
         ax.grid()
       
 #...!...!..................
-    def freq_vs_time(self,rebD,md,figId=2,S_true=None,S_oracle=None):
+    def freq_vs_time(self,rebD,md,figId=2,S_true=None,S_oracle=None,
+                     num_clipped_neurons_time=None):
         figId=self.smart_append(figId)        
         fig=self.plt.figure(figId,facecolor='white', figsize=(16,11))
         if S_oracle is None and isinstance(rebD, dict) and 'S_oracle' in rebD:
@@ -102,7 +103,7 @@ class Plotter(PlotterBackbone):
 
         tit='dataset '+md['short_name']
         time_step=rebD['time_step2']
-        R_sel = md['sel_spect_radius']
+        R_sel = md.get('sel_spect_radius')
         state_tag = md['sel_state']
          
         # clip time data for display      
@@ -128,7 +129,16 @@ class Plotter(PlotterBackbone):
         medRateDisp = float(np.median(rate2D))
         cntAboveMed = np.sum(rate2D > medRateDisp, axis=1)
            
-        tit0='dataset: %s  state=%d  R=%.3f    nchan=%d  Tbin=%.2f sec'%(md['short_name'], state_tag, R_sel, nchan, time_step)
+        if R_sel is None or not np.isfinite(R_sel) or R_sel < 0:
+            radius_txt = ''
+        else:
+            radius_txt = f'  R={R_sel:.3f}'
+        if md.get('data_type') == 'forwardPrism':
+            selection_txt = 'forward simulation'
+        else:
+            selection_txt = f'state={state_tag}'
+        tit0 = (f"dataset: {md['short_name']}  {selection_txt}{radius_txt}    "
+                f"nchan={nchan}  Tbin={time_step:.2f} sec")
         
         # Layout: top-count trace, heatmap, synchronicity trace, target-state, oracle-state.
         gs = fig.add_gridspec(5, 1, height_ratios=[0.14, 0.52, 0.14, 0.10, 0.10], hspace=0.36)
@@ -191,13 +201,14 @@ class Plotter(PlotterBackbone):
                 ax.set_yticks(np.arange(smin, smax + 1, 1))
                 ax.yaxis.set_major_locator(MaxNLocator(integer=True))
             ax.set_ylabel('state S')
-            ax.set_title(f"target state — {md['short_name']}")
+            state_label = md.get('state_trace_label', 'target state')
+            ax.set_title(f"{state_label} — {md['short_name']}")
             ax.grid()
         else:
             ax.set_axis_off()
         ax.tick_params(axis='x', labelbottom=False)
 
-        # ..... oracle state
+        # ..... oracle state, or eta-clipping diagnostic for forward simulations
         ax = fig.add_subplot(gs[4, 0])
         ax.set_xlim(xL, xR)
         if S_oracle is not None:
@@ -217,6 +228,24 @@ class Plotter(PlotterBackbone):
                 ax.yaxis.set_major_locator(MaxNLocator(integer=True))
             ax.set_ylabel('oracle S')
             ax.set_title(f"oracle state{score_txt}")
+            ax.grid()
+        elif num_clipped_neurons_time is not None:
+            clipped = np.asarray(num_clipped_neurons_time)
+            assert clipped.ndim == 1, \
+                f"num_clipped_neurons_time must be 1D, got shape={clipped.shape}"
+            dt0 = float(md['time_step_sec'])
+            t_clip = np.arange(clipped.shape[0], dtype=float) * dt0
+            sel = (t_clip >= xL) & (t_clip < xR + dt0)
+            if np.any(sel):
+                ax.step(t_clip[sel], clipped[sel], where='post',
+                        color='crimson', linewidth=1.0)
+                ymax = max(1, int(np.max(clipped[sel])))
+                ax.set_ylim(-0.1, ymax + 0.5)
+                ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+            eta_clip = md.get('poisson_eta_clip')
+            clip_txt = '' if eta_clip is None else f' (eta > {eta_clip:g})'
+            ax.set_ylabel('clipped neurons')
+            ax.set_title(f'Poisson eta clipping per time step{clip_txt}')
             ax.grid()
         else:
             ax.set_axis_off()

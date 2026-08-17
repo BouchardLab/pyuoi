@@ -1,0 +1,457 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{hyperref}
+
+\geometry{margin=0.8in}
+
+\title{Forward Spike Generation from a Reconstructed PRISM-EM Model\\
+\large Ver3c aggregate and de-biased model replay}
+\author{Algorithm Specification}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This document specifies the planned
+\texttt{forwardGenSpike\_ver3c.py} program. The program loads a fitted
+PRISM-EM model produced either by the Stage (b) FDR-bag aggregator or the
+Stage (c) de-biased fitter, replays its reconstructed latent-state timeline,
+and draws a new spike train from the fitted switching Poisson GLM.
+Stage (b) inputs use the Dale-pruned connectivity
+\texttt{A\_prune} and fitted biases \texttt{B\_hat}; Stage (c) inputs use
+\texttt{A\_debias} and \texttt{B\_debias}. The reconstructed state path is
+continued cyclically, beginning at its final fitted state. The simulation
+starts with an all-zero spike vector and preserves the exact log-rate
+clipping threshold used during fitting. In addition to the generated spike
+train, the program records the replayed states, the effective model, and a
+time-resolved diagnostic counting how many neurons required log-rate
+clipping at every generated step.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ===============================================================
+\section{Purpose and Scope}
+\label{sec:scope}
+% ===============================================================
+
+The forward generator tests the behavior implied by a reconstructed
+network. It does not refit connectivity, rediscover states, or alter the
+selected support. Instead, it treats the saved model as fixed and samples a
+new realization of the fitted conditional point process.
+
+For a requested time range \([t_L,t_R]\) in seconds, the program produces
+
+\[
+Y^{(f)} \in \mathbb{N}_0^{T_f\times N},
+\]
+
+where \(N\) is inferred from the fitted connectivity matrix. The bin width
+\(\Delta t\), state-dependent bias matrix, reconstructed state timeline, and
+upper log-rate clipping value are all inherited from the input fit. Thus the
+number of generated bins and physical duration are
+
+\[
+T_f=\frac{t_R-t_L}{\Delta t}, \qquad
+T_{\mathrm{seconds}}=t_R-t_L=T_f\,\Delta t.
+\]
+The range duration must contain an integer number of fitted time bins. The
+simulation itself starts from the agreed zero-spike initial condition and
+\texttt{S\_hat[-1]}; consequently, \(t_L\) names the requested range but
+does not introduce a burn-in trajectory.
+
+The generated files follow the version-2 NPZ schema implemented by
+\texttt{toolbox/Util\_NumpyIOv2.py}. Schema-less legacy inputs and archives
+whose declared shapes or dtypes disagree with their stored records are not
+accepted.
+
+% ===============================================================
+\section{Command-Line Interface}
+\label{sec:cli}
+% ===============================================================
+
+The planned command-line arguments are:
+\begin{itemize}
+  \item \texttt{--basePath}: analysis root containing
+        \texttt{prismFit/} and receiving output under
+        \texttt{spikesData/};
+  \item \texttt{--inputModel}: input model stem, without
+        \texttt{.prismEM.npz};
+  \item \texttt{--time\_range\_sec START STOP}: requested output range in
+        seconds. \texttt{STOP-START} must be positive and an integer
+        multiple of the fitted \(\Delta t\);
+  \item \texttt{--dataName}: optional output stem. Its default is
+        \texttt{None};
+  \item \texttt{--seed}: random seed for Poisson sampling, with a planned
+        default of \texttt{42};
+  \item \texttt{-v} or \texttt{--verbosity}: optional diagnostic
+        verbosity.
+\end{itemize}
+
+The input path is
+
+\[
+\texttt{<basePath>/prismFit/<inputModel>.prismEM.npz}.
+\]
+
+If \texttt{--dataName} is supplied, it is used as the common output stem.
+If it is omitted, the stem is
+
+\[
+\texttt{forwardN<N>\_<hash6>},
+\]
+
+where \(N\) is the dimension of the fitted \(A\) matrix and
+\texttt{<hash6>} is a random six-character hexadecimal identifier. For
+example, a model with \(N=200\) may produce
+\texttt{forwardN200\_a1b2c3}.
+
+An example invocation is:
+\begin{verbatim}
+basePath=/path/to/analysis
+
+./forwardGenSpike_ver3c.py \
+  --basePath $basePath \
+  --inputModel daleN200_example_em1234_fdr1234_agr1234_debias \
+  --time_range_sec 0 3600 \
+  --seed 42
+\end{verbatim}
+
+% ===============================================================
+\section{Accepted Input Models}
+\label{sec:input}
+% ===============================================================
+
+The program accepts the two final-fit stages listed in
+Table~\ref{tab:model-keys}. The fit type is determined from metadata and
+confirmed by the required payload keys.
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{llll}
+\toprule
+Input stage & Metadata \texttt{fit\_type} & Connectivity & Biases \\
+\midrule
+Stage (b) aggregate & \texttt{prismEM\_FDRbags\_stageB}
+  & \texttt{A\_prune} & \texttt{B\_hat} \\
+Stage (c) de-biased & \texttt{prismEM\_deBias\_stageC}
+  & \texttt{A\_debias} & \texttt{B\_debias} \\
+\bottomrule
+\end{tabular}
+\caption{Stage-specific model parameters used for forward generation.}
+\label{tab:model-keys}
+\end{table}
+
+Both input types must also provide:
+\begin{itemize}
+  \item \texttt{S\_hat}, the reconstructed hard state at every fitted
+        time bin;
+  \item \texttt{train.time\_step\_sec}, the fitted bin width
+        \(\Delta t\);
+  \item \texttt{train.eta\_clip}, the upper clipping threshold used by
+        the fitted Poisson model;
+  \item \texttt{train.num\_states} and
+        \texttt{train.num\_neurons}, used to verify array shapes.
+\end{itemize}
+
+The top-level \texttt{poisson\_eta\_clip} metadata may be checked for
+consistency, but \texttt{train.eta\_clip} is the authoritative value for
+the model being replayed. The program must fail if the two available values
+disagree materially, rather than silently changing the simulated model.
+
+The following shape checks are required:
+\[
+A\in\mathbb{R}^{N\times N},\qquad
+B\in\mathbb{R}^{M\times N},\qquad
+\hat S\in\{0,\ldots,M-1\}^{T_{\mathrm{fit}}}.
+\]
+For a one-state model, a saved one-dimensional bias vector may be normalized
+to shape \((1,N)\).
+
+No explicit state-transition matrix is required. The saved model does not
+currently contain a learned forward transition matrix, but this is not
+missing information for the selected replay policy because the complete
+reconstructed timeline \texttt{S\_hat} is present. Likewise, no source
+spike vector is required because the requested initial spike state is zero.
+
+% ===============================================================
+\section{Reconstructed-State Replay}
+\label{sec:state-replay}
+% ===============================================================
+
+Let the fitted hard state sequence be
+
+\[
+\hat S=(\hat S_0,\hat S_1,\ldots,\hat S_{L-1}),
+\qquad L=T_{\mathrm{fit}}.
+\]
+
+The generated trajectory begins at the final reconstructed state and then
+wraps around the saved timeline. For generated index
+\(t=0,\ldots,T_f-1\),
+
+\begin{equation}
+\label{eq:state-wrap}
+S^{(f)}_t = \hat S_{(L-1+t)\bmod L}.
+\end{equation}
+
+Therefore \(S^{(f)}_0=\hat S_{L-1}\), the next bin uses \(\hat S_0\), and
+the pattern repeats as many times as needed. If the number of bins derived
+from \texttt{--time\_range\_sec} is shorter than \(L\), only the requested
+prefix of this cyclic continuation is used. If it exceeds \(L\), the same
+state timeline is reused by modular indexing without allocating multiple
+full copies in advance.
+
+The Stage (b) locked M-step and the usual locked Stage (c) refit train the
+bias matrix against hard, one-hot destination-bin state labels. Forward
+generation therefore uses
+
+\[
+C^{(f)}_{tm}=\mathbf{1}\{S^{(f)}_t=m\}
+\]
+
+and does not mix bias atoms using the continuous \texttt{c\_hat} values.
+The one-hot coefficient matrix is saved for traceability in the companion
+forward-truth file.
+
+% ===============================================================
+\section{Forward Poisson Model}
+\label{sec:model}
+% ===============================================================
+
+The simulation begins from an all-zero spike history,
+
+\[
+Y^{(f)}_{-1}=\bm{0}.
+\]
+
+At each generated time step, compute the raw log-rate vector
+
+\begin{equation}
+\label{eq:raw-eta}
+\eta^{\mathrm{raw}}_t
+= A Y^{(f)}_{t-1}+B_{S^{(f)}_t},
+\end{equation}
+
+or, equivalently for row-vector implementations,
+
+\[
+\eta^{\mathrm{raw}}_t
+=Y^{(f)}_{t-1}A^{\mathsf T}+C^{(f)}_tB.
+\]
+
+The clipping operation must match fitting exactly: only the upper tail is
+clipped,
+
+\begin{equation}
+\label{eq:eta-clip}
+\eta_{ti}=\min\left(\eta^{\mathrm{raw}}_{ti},
+\eta_{\mathrm{clip}}\right).
+\end{equation}
+
+The conditional mean spike count and sampled count are
+
+\begin{equation}
+\label{eq:poisson-forward}
+\lambda_{ti}=\exp(\eta_{ti})\,\Delta t,
+\qquad
+Y^{(f)}_{ti}\sim\operatorname{Poisson}(\lambda_{ti}).
+\end{equation}
+
+The same seeded NumPy random generator is used for every step. The state
+timeline is deterministic for a fixed input model and requested length;
+\texttt{--seed} controls only the stochastic Poisson realization. Generated
+counts are stored as \texttt{int32}, avoiding the \texttt{uint8} saturation
+used by some compact experimental preprocessing files.
+
+% ===============================================================
+\section{Tracking Log-Rate Clipping}
+\label{sec:clipping}
+% ===============================================================
+
+Clipping must be measured before Eq.~\eqref{eq:eta-clip} is applied. Define
+
+\begin{equation}
+\label{eq:clip-count}
+K_t=\sum_{i=1}^{N}
+\mathbf{1}\{\eta^{\mathrm{raw}}_{ti}>\eta_{\mathrm{clip}}\}.
+\end{equation}
+
+The integer vector \texttt{num\_clipped\_neurons\_time} stores \(K_t\) for
+all \(T_f\) generated bins. It has range \(0\le K_t\le N\). Equality with
+the threshold is not counted as clipping because the value is unchanged by
+the upper clamp.
+
+The exact histogram is
+
+\begin{equation}
+\label{eq:clip-hist}
+H_k=\sum_{t=0}^{T_f-1}\mathbf{1}\{K_t=k\},
+\qquad k=0,1,\ldots,N.
+\end{equation}
+
+The forward-truth file stores:
+\begin{itemize}
+  \item \texttt{num\_clipped\_neurons\_time}: \(K_t\), shape \((T_f,)\);
+  \item \texttt{clipped\_neuron\_hist}: \(H_k\), shape \((N+1,)\);
+  \item \texttt{clipped\_neuron\_hist\_fraction}:
+        \(H_k/T_f\), shape \((N+1,)\);
+  \item \texttt{clipped\_neuron\_hist\_k}: integer support
+        \(0,1,\ldots,N\);
+  \item \texttt{clipped\_neuron\_quartiles}: the four upper quartile
+        cut points
+        \((q_{25},q_{50},q_{75},q_{100})\) of the \(K_t\) distribution.
+\end{itemize}
+
+Here
+
+\[
+q_p=\operatorname{quantile}\left(\{K_t\}_{t=0}^{T_f-1},p/100\right),
+\qquad p\in\{25,50,75,100\}.
+\]
+
+The histogram and the four quartiles are printed at the end of the run.
+Because \(K_t\) is integer-valued, interpolated quartile values may be
+non-integer; the saved histogram remains the authoritative exact summary.
+The summary should also print the number and fraction of time bins with
+any clipping, making sustained saturation immediately visible.
+
+% ===============================================================
+\section{Output Files}
+\label{sec:outputs}
+% ===============================================================
+
+Let \texttt{<dataName>} denote the supplied or automatically generated core
+name. The program writes:
+
+\[
+\texttt{<basePath>/spikesData/<dataName>.spikes.npz},
+\]
+\[
+\texttt{<basePath>/spikesData/<dataName>.forwardTruth.npz}.
+\]
+
+\subsection{Generated spike file}
+
+The \texttt{.spikes.npz} payload contains:
+\begin{itemize}
+  \item \texttt{spikes}: generated counts, shape \((T_f,N)\),
+        \texttt{int32};
+  \item \texttt{single\_rates}: generated mean rate per neuron in Hz,
+        computed as \(\operatorname{mean}_t(Y^{(f)}_{ti})/\Delta t\).
+\end{itemize}
+
+Its metadata records at least the data type, time step, fit-time
+\texttt{poisson\_eta\_clip}, neuron count, random seed, output name, input
+model name and file, input fit type, selected \(A/B\) keys, and
+\texttt{num\_steps}. Provenance must be copied rather than mutated in place
+and augmented with the forward-generation program and model source.
+
+\subsection{Forward-truth file}
+
+The companion \texttt{.forwardTruth.npz} payload contains:
+\begin{itemize}
+  \item \texttt{A\_forward} and \texttt{B\_forward}: exact arrays used by
+        Eqs.~\eqref{eq:raw-eta}--\eqref{eq:poisson-forward};
+  \item \texttt{S\_forward}: wrapped hard-state sequence, shape
+        \((T_f,)\);
+  \item \texttt{C\_forward}: corresponding one-hot states, shape
+        \((T_f,M)\);
+  \item the clipping timeline, histogram, histogram support, normalized
+        histogram, and quartiles defined in Section~\ref{sec:clipping}.
+\end{itemize}
+
+Its metadata records the state replay rule
+\texttt{last\_state\_then\_cyclic\_wrap}, the zero-spike initial condition,
+the input state-history length, the number of complete wraps, the remainder
+length, \(N\), \(M\), \(\Delta t\), \(\eta_{\mathrm{clip}}\), seed, requested
+time range and duration, and stage-specific parameter selection.
+
+Both archives are written through \texttt{Util\_NumpyIOv2} and therefore
+contain \texttt{schema.JSON}. Metadata are normalized with
+\texttt{json\_safe\_metadata} before writing.
+
+\subsection{Visualization}
+
+The generated pair can be displayed with
+\texttt{view\_spikesTrain3.py}; a typical invocation is:
+\begin{verbatim}
+./view_spikesTrain3.py --basePath $basePath --dataName <dataName> \
+  --idxState -1 --time_range_sec 0 15 -p b
+\end{verbatim}
+The viewer detects \texttt{data\_type=forwardPrism}, loads the matching
+\texttt{.forwardTruth.npz} archive, and displays the generated activity,
+wrapped reconstructed state, and number of eta-clipped neurons at every
+time step. Ordinary multi-state inputs continue to use their
+\texttt{.prismTruth.npz} companion and oracle-state panel.
+
+% ===============================================================
+\section{Algorithm Summary}
+\label{sec:summary}
+% ===============================================================
+
+The complete forward workflow is:
+\begin{enumerate}
+  \item Resolve and schema-validate the input model archive.
+  \item Identify Stage (b) or Stage (c) and select the corresponding
+        \(A/B\) arrays from Table~\ref{tab:model-keys}.
+  \item Validate \(A\), \(B\), \texttt{S\_hat}, \(N\), \(M\),
+        \(\Delta t\), and \(\eta_{\mathrm{clip}}\).
+  \item Choose the output stem from \texttt{--dataName}, or construct
+        \texttt{forwardN<N>\_<hash6>}.
+  \item Build \(S^{(f)}\) by Eq.~\eqref{eq:state-wrap}, beginning at
+        \texttt{S\_hat[-1]} and wrapping as needed; form one-hot
+        \(C^{(f)}\).
+  \item Initialize the previous spike vector to zero.
+  \item For every output bin, evaluate the raw log-rate, count clipped
+        neurons, apply the inherited upper clip, sample Poisson counts, and
+        use those counts as the next lagged input.
+  \item Compute generated single-neuron rates, the clipping histogram, its
+        normalized form, the four quartiles, and the fraction of bins with
+        clipping.
+  \item Write the schema-v2 spike and forward-truth archives and print their
+        paths and clipping summaries.
+\end{enumerate}
+
+No model fitting occurs in this workflow. Reproducibility requires an
+unchanged input archive and the same \texttt{--time\_range\_sec} and
+\texttt{--seed}; the random output hash affects only file naming.
+
+% ===============================================================
+\section{Required Failure Checks}
+\label{sec:checks}
+% ===============================================================
+
+The program should stop with an explicit error if:
+\begin{itemize}
+  \item the input archive is missing or is not schema version 2;
+  \item its fit type is neither a Stage (b) aggregate nor Stage (c)
+        de-biased fit;
+  \item the required stage-specific \(A/B\) arrays are absent;
+  \item \texttt{S\_hat} is absent, empty, non-integral, or contains a state
+        index outside \([0,M-1]\);
+  \item \(A\), \(B\), or metadata dimensions disagree;
+  \item \texttt{--time\_range\_sec} is non-finite, has a negative start,
+        does not satisfy \texttt{STOP > START}, or its duration does not
+        contain an integer number of fitted time bins;
+  \item \(\Delta t\) is not positive, or the fit-time clipping threshold is
+        missing or non-finite;
+  \item an output path already exists, unless an explicit overwrite policy
+        is added later.
+\end{itemize}
+
+These checks ensure that forward generation cannot silently substitute a
+different connectivity array, bias matrix, time scale, clipping threshold,
+or state convention.
+
+\end{document}
