@@ -70,16 +70,19 @@ def bag_indices_from_count(num_bags):
 
 
 def source_type_prune(A_hat, min_posW, max_negW):
-    """Compute source-neuron signs and Dale-style pruned A using columns."""
+    """Classify source columns by mean nonzero weight and apply Dale pruning."""
     A_hat = np.asarray(A_hat, dtype=np.float32)
     n_neuron = A_hat.shape[0]
     A_thr = A_hat.copy()
     np.fill_diagonal(A_thr, 0.0)
 
+    neuron_nedge = np.count_nonzero(A_thr, axis=0).astype(np.int64)
     neuron_sedge = A_thr.sum(axis=0)
+    exc_threshold = float(min_posW) * neuron_nedge
+    inh_threshold = float(max_negW) * neuron_nedge
     neuron_type = np.zeros((n_neuron,), dtype=np.int8)
-    neuron_type[neuron_sedge > float(min_posW)] = 1
-    neuron_type[neuron_sedge < float(max_negW)] = -1
+    neuron_type[neuron_sedge > exc_threshold] = 1
+    neuron_type[neuron_sedge < inh_threshold] = -1
 
     A_prune = A_hat.copy()
     diag_A = np.diag(A_hat).copy()
@@ -88,7 +91,12 @@ def source_type_prune(A_hat, min_posW, max_negW):
     A_prune[:, exc_cols] = np.where(A_prune[:, exc_cols] > 0, A_prune[:, exc_cols], 0.0)
     A_prune[:, inh_cols] = np.where(A_prune[:, inh_cols] < 0, A_prune[:, inh_cols], 0.0)
     np.fill_diagonal(A_prune, diag_A)
-    return A_prune.astype(np.float32), neuron_type, neuron_sedge.astype(np.float32)
+    return (
+        A_prune.astype(np.float32),
+        neuron_type,
+        neuron_sedge.astype(np.float32),
+        neuron_nedge,
+    )
 
 
 def selected_weight_thresholds(A_hat, selected_mask):
@@ -474,7 +482,9 @@ def main():
 
     a_hat = agg["A_hat_final"].astype(np.float32)
     min_posW, max_negW = selected_weight_thresholds(a_hat, agg["selected_mask"])
-    a_prune, neuron_type, neuron_sedge = source_type_prune(a_hat, min_posW, max_negW)
+    a_prune, neuron_type, neuron_sedge, neuron_nedge = source_type_prune(
+        a_hat, min_posW, max_negW
+    )
     b_hat = np.mean(b_aligned, axis=0).astype(np.float32)
 
     ref_d = bag_data[0]
@@ -488,6 +498,7 @@ def main():
     out_d["A_prune"] = a_prune
     out_d["neuron_type"] = neuron_type
     out_d["neuron_Sedge"] = neuron_sedge
+    out_d["neuron_Nedge"] = neuron_nedge
     out_d["B_hat"] = b_hat
 
     out_d.update({
@@ -551,6 +562,10 @@ def main():
         "num_final_edges": int(np.sum(agg["selected_mask"])),
         "min_posW": min_posW,
         "max_negW": max_negW,
+        "source_type_rule": (
+            "exc: Sedge > min_posW*Nedge; "
+            "inh: Sedge < max_negW*Nedge; und: otherwise"
+        ),
         "q_lambda_mean_edges_selected_per_bag": float(agg["q_lambda"]),
         "p_cand": int(agg["p_cand"]),
         "stability_false_edge_bound": float(agg["stability_false_edge_bound"]),

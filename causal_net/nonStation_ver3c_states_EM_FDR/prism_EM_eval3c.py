@@ -15,7 +15,10 @@ from UtilBioExp import detect_spike_bursts
 
 PLOT_FIG_ID = {chr(ord("a") + i): chr(ord("a") + i) for i in range(18)}
 SIM_ONLY_PLOTS = set("mnopqr")
-IMPLEMENTED_PLOTS = {"a", "b", "c", "d", "e", "f", "g", "h", "i", "m", "n", "o", "p", "r"}
+IMPLEMENTED_PLOTS = {
+    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k",
+    "m", "n", "o", "p", "r",
+}
 
 
 def real_fit_metadata(md):
@@ -328,6 +331,11 @@ def main():
         "Plots m-r require simulation truth; requested "
         f"{''.join(requested_sim_only)} for data_type={fitMD.get('data_type')!r}"
     )
+    requested_waveform_plots = sorted(set(args.showPlots) & set("jk"))
+    assert not is_sim or not requested_waveform_plots, (
+        "Plots j-k require biological raw mean waveforms; requested "
+        f"{''.join(requested_waveform_plots)} for data_type={fitMD.get('data_type')!r}"
+    )
     md = {**fitMD, "short_name": args.dataName}
     if any(c in args.showPlots for c in "nopr"):
         md = load_simu_static_truth(args.basePath, fitMD, md, verb=args.verb)
@@ -340,6 +348,14 @@ def main():
 
     args.prjName = args.dataName
     plot = Plotter(args)
+
+    nodeD = nodeMD = None
+    if any(c in args.showPlots for c in "fjk"):
+        nodeD, nodeMD, node_f = load_node_metadata(
+            args.basePath, fitMD, args.dataName, verb=args.verb
+        )
+        if args.verb > 0:
+            print(f"Loaded node metadata: {node_f}")
 
     if "a" in args.showPlots:
         plot.summary(plotD, md, figId=PLOT_FIG_ID["a"])
@@ -361,9 +377,6 @@ def main():
             figId=PLOT_FIG_ID["e"], est_key="A_hat", est_label=primary_A_label,
         )
     if "f" in args.showPlots:
-        nodeD, nodeMD, node_f = load_node_metadata(args.basePath, fitMD, args.dataName, verb=args.verb)
-        if args.verb > 0:
-            print(f"Loaded node metadata: {node_f}")
         plot.neuron_spatial_edges_split(
             plotD, nodeD, nodeMD, plotD["neuron_type"], plotD["neuron_Sedge"],
             maxNeurons=args.maxNeurons, figId=PLOT_FIG_ID["f"],
@@ -374,6 +387,16 @@ def main():
         plot.final_weight_distributions(plotD, md, figId=PLOT_FIG_ID["h"])
     if "i" in args.showPlots:
         plot.offdiag_weight_investigation(plotD, md, figId=PLOT_FIG_ID["i"])
+    if "j" in args.showPlots:
+        plot.neuron_waveforms_by_nedge(
+            plotD, nodeD, nodeMD, plotD["neuron_type"], type_value=1,
+            figId=PLOT_FIG_ID["j"],
+        )
+    if "k" in args.showPlots:
+        plot.neuron_waveforms_by_nedge(
+            plotD, nodeD, nodeMD, plotD["neuron_type"], type_value=-1,
+            figId=PLOT_FIG_ID["k"],
+        )
 
     #....  SIM only plots ....
     if "m" in args.showPlots:

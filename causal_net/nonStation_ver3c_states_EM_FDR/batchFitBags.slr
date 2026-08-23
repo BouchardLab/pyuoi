@@ -5,11 +5,9 @@
 #SBATCH -N 1
 #SBATCH -C gpu
 #SBATCH -A m2043
-#SBATCH --time=30:00
-#SBATCH -q debug
-# SBATCH --time=2:28:00
-# SBATCH -q regular
-#SBATCH --array=0-1
+# SBATCH --time=30:00   -q debug
+#SBATCH --time=17:48:00   -q regular
+# SBATCH --array=0-1
 #SBATCH --output=outj/%A_%a.out
 #SBATCH --licenses=scratch
 
@@ -17,125 +15,8 @@ set -euo pipefail
 
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
 mkdir -p outj
-module load pytorch
-
-bag_idx=${SLURM_ARRAY_TASK_ID:-0}
-
-# Dataset; EM fit must already be:
-#   $basePath/prismFit/${emFitName}.prismEM.npz
-basePath=/pscratch/sd/b/balewski/2026_causalNet_exp_ver3c
-shortN=daleN200_102308_a5d24b
-
-bagTag=""
-emFitName=""
-outFitName=""
-bagFrac=0.8
-bagEpochs=240
-numScrambles=10
-batchSize=4096
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --bagTag)
-      bagTag="$2"
-      shift 2
-      ;;
-    --bagTag=*)
-      bagTag="${1#*=}"
-      shift
-      ;;
-    --emFitName)
-      emFitName="$2"
-      shift 2
-      ;;
-    --emFitName=*)
-      emFitName="${1#*=}"
-      shift
-      ;;
-    --outFitName)
-      outFitName="$2"
-      shift 2
-      ;;
-    --outFitName=*)
-      outFitName="${1#*=}"
-      shift
-      ;;
-    --bag_frac)
-      bagFrac="$2"
-      shift 2
-      ;;
-    --bag_frac=*)
-      bagFrac="${1#*=}"
-      shift
-      ;;
-    --epochs)
-      bagEpochs="$2"
-      shift 2
-      ;;
-    --epochs=*)
-      bagEpochs="${1#*=}"
-      shift
-      ;;
-    --num_scrambles)
-      numScrambles="$2"
-      shift 2
-      ;;
-    --num_scrambles=*)
-      numScrambles="${1#*=}"
-      shift
-      ;;
-    -h|--help)
-      echo "Usage: sbatch [--array=0-N] batchFitBags.slr [--bagTag TAG] [--emFitName NAME] [--outFitName NAME] [--bag_frac F] [--epochs E] [--num_scrambles P]"
-      exit 0
-      ;;
-    *)
-      echo "ERROR: Unknown argument: $1" >&2
-      exit 1
-      ;;
-  esac
-done
-
-if [[ -z "${bagTag}" || "${bagTag,,}" == "none" ]]; then
-  if [[ -n "${SLURM_ARRAY_JOB_ID:-}" ]]; then
-    bagTag="j${SLURM_ARRAY_JOB_ID: -4}"
-  else
-    bagTag="local"
-  fi
-fi
-if [[ -z "${emFitName}" ]]; then
-  emFitName="${shortN}_em${bagTag}"
-fi
-if [[ -z "${outFitName}" ]]; then
-  outFitName="${emFitName}_rmf${bagTag}"
-fi
 
 echo "S: job=${SLURM_JOB_ID:-local} host=$(hostname)"
 echo "S: array_job=${SLURM_ARRAY_JOB_ID:-none} array_task=${SLURM_ARRAY_TASK_ID:-none}"
-echo "S: basePath=${basePath}"
-echo "S: dataName=${shortN}"
-echo "S: bag_idx=${bag_idx}"
-echo "S: bagTag=${bagTag}"
-echo "S: emFitName=${emFitName}"
-echo "S: outFitName=${outFitName}"
-echo "S: bagFrac=${bagFrac}"
-echo "S: bagEpochs=${bagEpochs}"
-echo "S: numScrambles=${numScrambles}"
 
-time torchrun --standalone --nnodes=1 --nproc_per_node=4 \
-  ./prism_FDR_Bags_train3c.py \
-  --basePath "${basePath}" \
-  --dataName "${shortN}" \
-  --emFitName "${emFitName}" \
-  --outFitName "${outFitName}" \
-  --bag_idx "${bag_idx}" \
-  --bag_frac "${bagFrac}" \
-  --epochs "${bagEpochs}" \
-  --batch_size "${batchSize}" \
-  --num_scrambles "${numScrambles}" \
-  --init_A ref \
-  --init_B ref \
-  --null_A_init scrambled_data \
-  --null_B_init scrambled_data
-
-echo
-echo "S: FDR locked-bag fit done for bag_idx=${bag_idx}"
+time ./big_fit_bags.sh  0to4h

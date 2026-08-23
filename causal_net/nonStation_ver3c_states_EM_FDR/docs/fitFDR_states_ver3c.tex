@@ -740,8 +740,10 @@ mutually independent and submitted in parallel.
 
 Stage~(b) is a single postprocessing program pointed at the results
 directory. It performs per-source null pooling, per-bag selection, and
-cross-bag stability selection, then reports the vetted edge list with
-uncertainties.
+cross-bag stability selection. It then classifies source neurons by comparing
+the signed sum of their stable outgoing weights with thresholds scaled by the
+number of nonzero outgoing edges, applies Dale-sign pruning, and reports the
+vetted edge list with uncertainties.
 
 \subsection{Per-source pooled null and per-bag selection}
 \label{sec:persource}
@@ -1422,14 +1424,37 @@ those bag instances where the edge was selected. Diagonal entries are
 the all-bag mean diagonals from the real bag fits; the corresponding
 diagonal mean, standard deviation, and standard error are also saved as
 \texttt{A\_diag\_mean}, \texttt{A\_diag\_std}, and
-\texttt{A\_diag\_stderr}. \texttt{A\_prune}, \texttt{neuron\_type}, and
-\texttt{neuron\_Sedge} are recomputed from this aggregate \texttt{A\_hat}
-using source columns. First \texttt{min\_posW} and \texttt{max\_negW} are
-computed from the stable off-diagonal \texttt{A\_hat} weights. Then
-\texttt{neuron\_Sedge} is the off-diagonal column sum for each source
-neuron, and source columns are classified as excitatory when
-\(\texttt{neuron\_Sedge}>\texttt{min\_posW}\), inhibitory when
-\(\texttt{neuron\_Sedge}<\texttt{max\_negW}\), and undecided otherwise.
+\texttt{A\_diag\_stderr}. \texttt{A\_prune}, \texttt{neuron\_type},
+\texttt{neuron\_Sedge}, and \texttt{neuron\_Nedge} are recomputed from this
+aggregate \texttt{A\_hat} using source columns. First \texttt{min\_posW} and
+\texttt{max\_negW} are computed from the stable off-diagonal \texttt{A\_hat}
+weights. For source column \(j\), define
+\[
+N^{\mathrm{edge}}_j
+ = \#\{i\ne j:\texttt{A\_hat}_{ij}\ne0\},
+\qquad
+S^{\mathrm{edge}}_j
+ = \sum_{i\ne j}\texttt{A\_hat}_{ij}.
+\]
+These quantities are stored as \texttt{neuron\_Nedge} and
+\texttt{neuron\_Sedge}. Source \(j\) is classified as
+\[
+\begin{cases}
+\text{excitatory}, &
+S^{\mathrm{edge}}_j > \texttt{min\_posW}\,N^{\mathrm{edge}}_j,\\
+\text{inhibitory}, &
+S^{\mathrm{edge}}_j < \texttt{max\_negW}\,N^{\mathrm{edge}}_j,\\
+\text{undecided}, & \text{otherwise}.
+\end{cases}
+\]
+For \(N^{\mathrm{edge}}_j>0\), this is equivalently a comparison of the mean
+nonzero outgoing weight \(S^{\mathrm{edge}}_j/N^{\mathrm{edge}}_j\) with
+\texttt{min\_posW} and \texttt{max\_negW}. A source with
+\(N^{\mathrm{edge}}_j=0\) is undecided. The two cutoffs are global
+\emph{individual stable-edge} values; they are not the per-bag null
+thresholds \(\tau_j^{(b)}\). If no stable positive (negative) off-diagonal
+weight exists, the corresponding cutoff is \texttt{NaN} and no source can be
+assigned the excitatory (inhibitory) class by that comparison.
 \texttt{A\_prune} preserves the diagonal, keeps only positive outgoing
 weights for excitatory source columns, keeps only negative outgoing weights
 for inhibitory source columns, and leaves undecided source columns
@@ -1518,9 +1543,23 @@ with \texttt{edge\_i}, \texttt{edge\_j}, \texttt{edge\_sel\_freq},
   \item For surviving edges, compute the bagged mean \(\bar A_{ij}\),
   bootstrap SD \(\widehat{\mathrm{SD}}_{ij}\) (selection-conditional and
   all-bag), and effect size \(z_{ij}\) against the pooled source null.
+  \item From the stable off-diagonal \texttt{A\_hat} weights, set
+  \texttt{min\_posW} to the smallest positive weight and
+  \texttt{max\_negW} to the negative weight closest to zero. For each source
+  column \(j\), compute \texttt{neuron\_Nedge} as the number of nonzero
+  off-diagonal weights and \texttt{neuron\_Sedge} as their signed sum.
+  Classify the source as excitatory when
+  \(\texttt{neuron\_Sedge}>\texttt{min\_posW}\,\texttt{neuron\_Nedge}\),
+  inhibitory when
+  \(\texttt{neuron\_Sedge}<\texttt{max\_negW}\,\texttt{neuron\_Nedge}\),
+  and undecided otherwise. Construct \texttt{A\_prune} by retaining only
+  positive outgoing weights in excitatory columns and only negative outgoing
+  weights in inhibitory columns; leave undecided columns sign-unpruned and
+  restore every diagonal entry unchanged.
   \item Emit the vetted edge list
   \((i,j,\pi_{ij},\bar A_{ij},\widehat{\mathrm{SD}}_{ij},z_{ij})\) plus
-  diagnostics.
+  diagnostics, including \texttt{neuron\_type}, \texttt{neuron\_Sedge},
+  \texttt{neuron\_Nedge}, and \texttt{A\_prune}.
 \end{enumerate}
 
 \paragraph{Closing note.} The method's robustness comes from separating

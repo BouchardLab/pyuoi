@@ -6,8 +6,32 @@ set -euo pipefail
 export OMP_NUM_THREADS=1
 SECONDS=0
 
-module load pytorch
 cd "$(dirname "$0")"
+
+if (( $# > 1 )); then
+    echo "Usage: $0 [0to1h|1to2h|2to3h|3to4h|0to2h|2to4h|0to4h]" >&2
+    exit 2
+fi
+
+timeWindow="${1:-0to1h}"
+case "$timeWindow" in
+    0to1h) timeRange=(0 3600) ;;
+    1to2h) timeRange=(3600 7200) ;;
+    2to3h) timeRange=(7200 10800) ;;
+    3to4h) timeRange=(10800 14400) ;;
+    0to2h) timeRange=(0 7200) ;;
+    2to4h) timeRange=(7200 14400) ;;
+    0to4h) timeRange=(0 14400) ;;
+    *)
+        echo "ERROR: invalid time window '$timeWindow'" >&2
+        echo "Allowed values: 0to1h 1to2h 2to3h 3to4h 0to2h 2to4h 0to4h" >&2
+        exit 2
+        ;;
+esac
+
+module load pytorch
+randomTag="$(python3 -c 'import secrets; print(secrets.token_hex(2))')"
+runTag="${timeWindow}_em${randomTag}"
 
 # ---------- dataset selection ----------
 # Synthetic example
@@ -15,14 +39,9 @@ cd "$(dirname "$0")"
 #shortN=daleN200_2290a6_b16fce ; numStates=2  # N200 6/11  Hz
 
 # Experimental example
-basePath=/pscratch/sd/b/balewski/2026_causalNet_Aug15
-#shortN=Canine_260324_w0_r23_0.3hz; numStates=2
-shortN=Canine_260324_w0_r23_1hz; numStates=2
+basePath=/pscratch/sd/b/balewski/2026_causalNet_Aug23
+shortN=MouseKCL_260729_w5_r18_1hz; numStates=2; decode_dwell_sec=0.10
 #shortN=Canine_260324_r21_w0_1hz; numStates=1
-timeRange=(0 3600)
-#timeRange=(0 1800)
-#timeRange=(1800 3600)
-#timeRange=(0 300)
 
 # ---------- reference EM: state discovery ----------
 numEmIters=12
@@ -43,16 +62,15 @@ debiasStateMode=locked
 debiasEpochs=$bagEpochs
 debiasBatchSize=$bagBatchSize
 
-runTag="$(python3 -c 'import secrets; print(secrets.token_hex(2))')"
 
 echo "basePath=$basePath"
 echo "dataName=$shortN"
 echo "runTag=$runTag"
-echo "timeRange=${timeRange[*]}  numStates=$numStates"
-emFitName="${shortN}_em${runTag}"
-fdrBagsName="${emFitName}_fdr${runTag}"
-fdrAgrName="${fdrBagsName}_agr${runTag}"
-debiasFitName="${fdrAgrName}_debias"
+echo "timeRange=${timeRange[*]}  numStates=$numStates  decode_dwell_sec=$decode_dwell_sec"
+emFitName="${shortN}_${runTag}"
+fdrBagsName="${emFitName}_fdr"
+fdrAgrName="${fdrBagsName}_agr"
+debiasFitName="${fdrAgrName}_deb"
 
 echo "emFitName=$emFitName"
 echo "fdrBagsName=$fdrBagsName"
@@ -73,6 +91,7 @@ time torchrun --standalone --nnodes=1 --nproc_per_node=4 \
   --fitName "$emFitName" \
   --time_range_sec "${timeRange[0]}" "${timeRange[1]}" \
   --num_states "$numStates" \
+  --decode_dwell_sec "$decode_dwell_sec" \
   --num_em_iters "$numEmIters" \
   --m_epochs "$numEMepochs" \
   --batch_size "$emBatchSize" \
@@ -117,6 +136,7 @@ if [[ "$runDebias" == "1" ]]; then
       --fdrFitName "$fdrAgrName" \
       --outFitName "$debiasFitName" \
       --state_mode "$debiasStateMode" \
+      --decode_dwell_sec "$decode_dwell_sec" \
       --m_epochs "$debiasEpochs" \
       --batch_size "$debiasBatchSize"
 fi

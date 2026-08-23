@@ -31,6 +31,16 @@ def fit_stage_label(md):
     return "PRISM-EM"
 
 
+def neuron_type_marker(neuron_type):
+    """Marker convention for excitatory, inhibitory, and undetermined units."""
+    return {1: "o", -1: "^", 0: "s"}[int(neuron_type)]
+
+
+def neuron_type_marker_size(neuron_type, base_size):
+    """Make inhibitory triangles 30 percent larger than other markers."""
+    return 1.3 * base_size if int(neuron_type) == -1 else base_size
+
+
 class Plotter(PlotterBackbone):
     def __init__(self, args):
         PlotterBackbone.__init__(self, args)
@@ -550,13 +560,39 @@ class Plotter(PlotterBackbone):
         ax2.tick_params(axis="y", labelcolor="tab:orange")
         return ax2
 
-    def _draw_A_offdiag_hist(self, ax, A, title, diagnostics_txt=None, weight_lines=None):
+    def _draw_A_offdiag_hist(
+        self, ax, A, title, diagnostics_txt=None, weight_lines=None,
+        neuron_type=None,
+    ):
         A = np.asarray(A)
         n_neuron = A.shape[0]
         off_mask = ~np.eye(n_neuron, dtype=bool)
         A_off = A[off_mask]
         A_off_nz = A_off[np.abs(A_off) > 1e-12]
-        ax.hist(A_off_nz, bins=120, color="saddlebrown", alpha=0.85)
+        if neuron_type is None:
+            ax.hist(A_off_nz, bins=120, color="saddlebrown", alpha=0.85)
+        else:
+            neuron_type = np.asarray(neuron_type, dtype=np.int8)
+            assert neuron_type.shape == (n_neuron,), (
+                "neuron_type length must match A columns"
+            )
+            bin_edges = np.histogram_bin_edges(A_off_nz, bins=120)
+            for cls, color, label in [
+                (1, "magenta", f"exc={int(np.sum(neuron_type > 0))}"),
+                (-1, "forestgreen", f"inh={int(np.sum(neuron_type < 0))}"),
+                (0, "salmon", f"und={int(np.sum(neuron_type == 0))}"),
+            ]:
+                class_mask = off_mask & (neuron_type == cls)[None, :]
+                values = A[class_mask]
+                values = values[np.abs(values) > 1e-12]
+                ax.hist(
+                    values,
+                    bins=bin_edges,
+                    color=color,
+                    alpha=0.20,
+                    label=label,
+                )
+            ax.legend(loc="best", fontsize=9)
         ax.set_yscale("log")
         ax.grid(True, alpha=0.35)
         ax.set_title(title)
@@ -630,11 +666,18 @@ class Plotter(PlotterBackbone):
         n_neuron = A_est.shape[0]
 
         nedge, sedge = self._node_outgoing_edge_stats(A_est)
+        stage_c = md.get("fit_type") == "prismEM_deBias_stageC" or "deBias_stageC" in md
+        if "neuron_Nedge" in fitD and not stage_c:
+            stored_nedge = np.asarray(fitD["neuron_Nedge"], dtype=np.int64)
+            assert np.array_equal(stored_nedge, nedge), (
+                "stored neuron_Nedge does not match nonzero A_hat edges"
+            )
         nedge_in, _ = self._node_incoming_edge_stats(A_est)
         n_bins = max(10, min(40, int(np.sqrt(n_neuron)) * 2))
         stage_b = md["bagsFDR_stageB"]
         min_posW = float(stage_b["min_posW"])
         max_negW = float(stage_b["max_negW"])
+        nedge_scaled_rule = "Nedge" in stage_b.get("source_type_rule", "")
         neuron_type = np.asarray(neuron_type, dtype=np.int8)
         assert neuron_type.shape[0] == n_neuron, "neuron_type length must match A_hat columns"
         n_exc = int(np.sum(neuron_type > 0))
@@ -671,20 +714,30 @@ class Plotter(PlotterBackbone):
         ax = fig.add_subplot(gs[0, 0])
         for cls, color, label in [
             (1, "magenta", f"exc={n_exc}"),
-            (-1, "#39FF14", f"inh={n_inh}"),
+            (-1, "forestgreen", f"inh={n_inh}"),
             (0, "salmon", f"und={n_und}"),
         ]:
             mask = neuron_type == cls
-            if cls == 0:
-                ax.scatter(
-                    nedge[mask], sedge[mask], s=18, marker="o",
-                    alpha=0.80, color=color, edgecolors="k",
-                    linewidths=0.35, label=label,
-                )
-            else:
-                ax.scatter(nedge[mask], sedge[mask], s=16, marker=".", alpha=0.80, color=color, label=label)
-        ax.axhline(min_posW, color="tab:blue", ls="--", lw=0.8, alpha=0.9)
-        ax.axhline(max_negW, color="tab:blue", ls="--", lw=0.8, alpha=0.9)
+            ax.scatter(
+                nedge[mask], sedge[mask],
+                s=neuron_type_marker_size(cls, 18),
+                marker=neuron_type_marker(cls), alpha=0.80, color=color,
+                edgecolors="k" if cls == 0 else "none",
+                linewidths=0.35 if cls == 0 else 0.0, label=label,
+            )
+        if nedge_scaled_rule:
+            boundary_nedge = np.asarray([0, max(1, int(np.max(nedge)))])
+            ax.plot(
+                boundary_nedge, min_posW * boundary_nedge,
+                color="lightskyblue", ls="--", lw=1.2, alpha=0.95,
+            )
+            ax.plot(
+                boundary_nedge, max_negW * boundary_nedge,
+                color="lightskyblue", ls="--", lw=1.2, alpha=0.95,
+            )
+        else:
+            ax.axhline(min_posW, color="tab:blue", ls="--", lw=0.8, alpha=0.9)
+            ax.axhline(max_negW, color="tab:blue", ls="--", lw=0.8, alpha=0.9)
         ax.set(
             title="Reco Nedge vs Sedge",
             xlabel="Nedge (# outgoing edges per source column)",
@@ -694,7 +747,13 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.35)
 
         ax = fig.add_subplot(gs[0, 1])
-        self._draw_A_offdiag_hist(ax, A_prune, f"Reco {prune_label} off-diagonal", weight_lines=(max_negW, min_posW))
+        self._draw_A_offdiag_hist(
+            ax,
+            A_prune,
+            f"Reco {prune_label} off-diagonal",
+            weight_lines=(max_negW, min_posW),
+            neuron_type=neuron_type,
+        )
         ax.text(
             0.98, 0.97, f"sum Nedge={sum_nedge_prune:d}", transform=ax.transAxes,
             va="top", ha="right", fontsize=9, color="k",
@@ -746,21 +805,17 @@ class Plotter(PlotterBackbone):
         ):
             for cls, color, label in [
                 (1, "magenta", f"exc={n_exc}"),
-                (-1, "#39FF14", f"inh={n_inh}"),
+                (-1, "forestgreen", f"inh={n_inh}"),
                 (0, "salmon", f"und={n_und}"),
             ]:
                 mask = neuron_type == cls
-                if cls == 0:
-                    ax.scatter(
-                        x_values[mask], single_rates[mask], s=18, marker="o",
-                        alpha=0.80, color=color, edgecolors="k",
-                        linewidths=0.35, label=label,
-                    )
-                else:
-                    ax.scatter(
-                        x_values[mask], single_rates[mask], s=16, marker=".",
-                        alpha=0.80, color=color, label=label,
-                    )
+                ax.scatter(
+                    x_values[mask], single_rates[mask],
+                    s=neuron_type_marker_size(cls, 18),
+                    marker=neuron_type_marker(cls), alpha=0.80, color=color,
+                    edgecolors="k" if cls == 0 else "none",
+                    linewidths=0.35 if cls == 0 else 0.0, label=label,
+                )
             if mark_zero:
                 ax.axvline(0.0, color="tab:blue", ls="--", lw=0.8, alpha=0.9)
             ax.set(title=title, xlabel=xlabel, ylabel="frequency (Hz)")
@@ -856,7 +911,7 @@ class Plotter(PlotterBackbone):
         ax.grid(True, alpha=0.35)
 
         ax = fig.add_subplot(gs[0, 1])
-        ax.hist(inh_w, bins=80, color="#39FF14", alpha=0.75)
+        ax.hist(inh_w, bins=80, color="forestgreen", alpha=0.75)
         ax.axvline(0.0, color="k", ls="--", lw=0.8)
         mark_edge(ax, float(np.max(inh_w[inh_w < 0.0])) if np.any(inh_w < 0.0) else float("nan"))
         ax.set(title=f"Reco inh outgoing weights, neurons={n_inh}", xlabel=f"{A_label} weight", ylabel="edges")
@@ -867,7 +922,7 @@ class Plotter(PlotterBackbone):
         nonneg_counts = []
         for cls, color, label in [
             (1,  "magenta", f"exc={n_exc}"),
-            (-1, "#39FF14", f"inh={n_inh}"),
+            (-1, "forestgreen", f"inh={n_inh}"),
             (0,  "salmon",  f"und={n_und}"),
         ]:
             mask = neuron_type == cls
@@ -912,14 +967,19 @@ class Plotter(PlotterBackbone):
         ax = fig.add_subplot(gs[1, 2])
         for cls, color, label in [
             (1,  "magenta", f"exc={n_exc}"),
-            (-1, "#39FF14", f"inh={n_inh}"),
+            (-1, "forestgreen", f"inh={n_inh}"),
             (0,  "salmon",  f"und={n_und}"),
         ]:
             mask = neuron_type == cls
             if not np.any(mask):
                 continue
-            kw = dict(s=18, marker="o", edgecolors="k", linewidths=0.5) if cls == 0 else dict(s=16, marker=".")
-            ax.scatter(diag_mean[mask], diag_stderr[mask], alpha=0.80, color=color, label=label, **kw)
+            ax.scatter(
+                diag_mean[mask], diag_stderr[mask],
+                s=neuron_type_marker_size(cls, 18),
+                marker=neuron_type_marker(cls), alpha=0.80, color=color,
+                edgecolors="k" if cls == 0 else "none",
+                linewidths=0.5 if cls == 0 else 0.0, label=label,
+            )
         ax.axvline(0.0, color="k", ls="--", lw=0.8)
         ax.legend(loc="best", fontsize=9)
         ax.set(title="A-diag summary", xlabel="mean diagonal A", ylabel="stderr diagonal A")
@@ -956,7 +1016,7 @@ class Plotter(PlotterBackbone):
         edge_counts = {}
         for cls, color, label in [
             (1,  "magenta", f"exc={n_exc}"),
-            (-1, "#39FF14", f"inh={n_inh}"),
+            (-1, "forestgreen", f"inh={n_inh}"),
             (0,  "salmon",  f"und={n_und}"),
         ]:
             src_mask = neuron_type == cls
@@ -999,7 +1059,7 @@ class Plotter(PlotterBackbone):
         bins_diag = np.linspace(diag_vals.min(), diag_vals.max(), 81)
         for cls, color, label in [
             (1,  "magenta", f"exc={n_exc}"),
-            (-1, "#39FF14", f"inh={n_inh}"),
+            (-1, "forestgreen", f"inh={n_inh}"),
             (0,  "salmon",  f"und={n_und}"),
         ]:
             mask = neuron_type == cls
@@ -1589,13 +1649,15 @@ class Plotter(PlotterBackbone):
             )
         else:
             neuron_type = np.asarray(neuron_type)
-            node_color = np.full(loc_x.shape, und_color, dtype=object)
-            node_color[neuron_type > 0] = "magenta"
-            node_color[neuron_type < 0] = "#39FF14"
-            ax.scatter(
-                loc_x, loc_y, s=node_size, marker="o", c=node_color,
-                edgecolors="k", linewidths=0.4, alpha=0.95, zorder=3,
-            )
+            for cls, color in ((1, "magenta"), (-1, "forestgreen"), (0, und_color)):
+                mask = neuron_type == cls
+                if np.any(mask):
+                    ax.scatter(
+                        loc_x[mask], loc_y[mask],
+                        s=neuron_type_marker_size(cls, node_size),
+                        marker=neuron_type_marker(cls), c=color,
+                        edgecolors="k", linewidths=0.4, alpha=0.95, zorder=3,
+                    )
 
         edge_mask = A_hat != 0
         np.fill_diagonal(edge_mask, False)
@@ -1634,6 +1696,188 @@ class Plotter(PlotterBackbone):
         ax.tick_params(labelsize=9)
         ax.grid(True, alpha=0.35)
         return n_total, int(post_draw.size)
+
+    def neuron_waveforms_by_nedge(
+        self, fitD, nodeD, nodeMD, neuron_type, type_value, figId="j",
+    ):
+        """Plot high, median, and lower-quartile waveforms for one node type."""
+        assert int(type_value) in (-1, 1), "type_value must be 1 (exc) or -1 (inh)"
+        assert int(nodeMD.get("bioexp_schema_version", -1)) == 3, (
+            "Waveform plots require bioexp_schema_version=3"
+        )
+        assert bool(nodeMD.get("waveforms_available", False)), (
+            "Waveform plots require waveforms_available=true in the bioExp metadata"
+        )
+        required = (
+            "raw_mean_templates",
+            "waveform_num_samples",
+            "waveform_unit_ids",
+            "waveform_channel_ids",
+            "waveform_ms_before",
+            "waveform_ms_after",
+            "waveform_grid_distance",
+            "waveform_is_multichannel",
+        )
+        missing = [key for key in required if key not in nodeD]
+        assert not missing, f"Waveform plots require node-data arrays: {missing}"
+
+        waveforms = np.asarray(nodeD["raw_mean_templates"], dtype=np.float64)
+        num_samples = np.asarray(nodeD["waveform_num_samples"], dtype=np.int64)
+        unit_ids = np.asarray(nodeD["waveform_unit_ids"]).reshape(-1)
+        channel_ids = np.asarray(nodeD["waveform_channel_ids"]).reshape(-1)
+        ms_before = np.asarray(nodeD["waveform_ms_before"], dtype=np.float64)
+        ms_after = np.asarray(nodeD["waveform_ms_after"], dtype=np.float64)
+        grid_distance = np.asarray(
+            nodeD["waveform_grid_distance"], dtype=np.float64
+        )
+        is_multichannel = np.asarray(nodeD["waveform_is_multichannel"])
+        neuron_type = np.asarray(neuron_type, dtype=np.int8).reshape(-1)
+        A_est = np.asarray(fitD["A_hat"], dtype=np.float64)
+
+        assert waveforms.ndim == 2, "raw_mean_templates must have shape (N, samples)"
+        n_neuron = waveforms.shape[0]
+        assert A_est.shape == (n_neuron, n_neuron), (
+            f"A_hat shape {A_est.shape} does not match {n_neuron} waveforms"
+        )
+        for name, values in (
+            ("waveform_num_samples", num_samples),
+            ("waveform_unit_ids", unit_ids),
+            ("waveform_channel_ids", channel_ids),
+            ("waveform_ms_before", ms_before),
+            ("waveform_ms_after", ms_after),
+            ("waveform_grid_distance", grid_distance),
+            ("waveform_is_multichannel", is_multichannel),
+            ("neuron_type", neuron_type),
+        ):
+            assert values.shape == (n_neuron,), (
+                f"{name} shape {values.shape} does not match N={n_neuron}"
+            )
+        assert is_multichannel.dtype == np.bool_, (
+            "waveform_is_multichannel must have Boolean dtype"
+        )
+        if "MEA_idx" in nodeD:
+            assert np.array_equal(unit_ids, np.asarray(nodeD["MEA_idx"]).reshape(-1)), (
+                "waveform_unit_ids must align with MEA_idx and the fitted neuron axis"
+            )
+        assert np.all((num_samples > 0) & (num_samples <= waveforms.shape[1])), (
+            "waveform_num_samples must be within the raw_mean_templates width"
+        )
+
+        nedge, _ = self._node_outgoing_edge_stats(A_est)
+        class_indices = np.flatnonzero(neuron_type == int(type_value))
+        type_name = "excitatory" if int(type_value) == 1 else "inhibitory"
+        assert class_indices.size >= 9, (
+            f"Plot requires at least 9 {type_name} nodes, found {class_indices.size}"
+        )
+        order = class_indices[
+            np.lexsort((class_indices, nedge[class_indices]))
+        ]
+        median_start = (order.size - 3) // 2
+        highest_indices = order[-3:][::-1]
+        median_indices = order[median_start:median_start + 3]
+        lower_quartile_nedge = float(
+            np.percentile(nedge[class_indices], 25.0)
+        )
+        reserved = set(highest_indices) | set(median_indices)
+        quartile_candidates = np.asarray(
+            [index for index in class_indices if index not in reserved],
+            dtype=np.int64,
+        )
+        quartile_order = np.lexsort(
+            (
+                quartile_candidates,
+                nedge[quartile_candidates],
+                np.abs(nedge[quartile_candidates] - lower_quartile_nedge),
+            )
+        )
+        lower_quartile_indices = quartile_candidates[quartile_order[:3]]
+        groups = (
+            ("highest", highest_indices),
+            ("median", median_indices),
+            ("25th percentile", lower_quartile_indices),
+        )
+
+        figId = self.smart_append(figId)
+        fig = self.plt.figure(figId, facecolor="white", figsize=(10.5, 7.0))
+        gs = fig.add_gridspec(3, 3, hspace=0.55, wspace=0.30)
+        waveform_color = (
+            "magenta" if int(type_value) == 1 else "forestgreen"
+        )
+        for row, (rank_label, indices) in enumerate(groups):
+            for col, index in enumerate(indices):
+                axis = fig.add_subplot(gs[row, col])
+                count = int(num_samples[index])
+                waveform = waveforms[index, :count]
+                assert np.all(np.isfinite(waveform)), (
+                    f"Unit {unit_ids[index]} waveform contains non-finite samples"
+                )
+                time_ms = np.linspace(
+                    -float(ms_before[index]),
+                    float(ms_after[index]),
+                    count,
+                    endpoint=False,
+                )
+                if count < 2 or time_ms[-1] == time_ms[0]:
+                    average_level = float(np.mean(waveform))
+                else:
+                    interval_integrals = (
+                        0.5
+                        * (waveform[:-1] + waveform[1:])
+                        * np.diff(time_ms)
+                    )
+                    average_level = float(
+                        np.sum(interval_integrals)
+                        / (time_ms[-1] - time_ms[0])
+                    )
+                axis.plot(
+                    time_ms, waveform, color=waveform_color, linewidth=1.7
+                )
+                axis.axhline(
+                    average_level,
+                    color="0.2",
+                    linestyle="--",
+                    linewidth=1.0,
+                )
+                axis.fill_between(
+                    time_ms,
+                    waveform,
+                    average_level,
+                    where=waveform >= average_level,
+                    interpolate=True,
+                    color="tab:orange",
+                    alpha=0.30,
+                )
+                axis.fill_between(
+                    time_ms,
+                    waveform,
+                    average_level,
+                    where=waveform < average_level,
+                    interpolate=True,
+                    color="tab:blue",
+                    alpha=0.25,
+                )
+                axis.axvline(0.0, color="0.45", ls="--", lw=0.8)
+                axis.set_title(
+                    f"{rank_label}\n"
+                    f"unit {unit_ids[index]}, channel {channel_ids[index]}\n"
+                    f"Nedge={nedge[index]}",
+                    fontsize=8,
+                )
+                if row == 2:
+                    axis.set_xlabel("Time (ms)", fontsize=9)
+                axis.set_ylabel("Raw signal", fontsize=9)
+                axis.tick_params(labelsize=8)
+                axis.grid(True, alpha=0.30)
+
+        fig.suptitle(
+            f"{nodeMD['short_name']}: identified {type_name} node waveforms "
+            "by outgoing Nedge",
+            fontsize=10,
+        )
+        fig.subplots_adjust(
+            left=0.07, right=0.98, bottom=0.07, top=0.88,
+            hspace=0.65, wspace=0.30,
+        )
 
     def neuron_spatial_edges_split(
         self, fitD, nodeD, nodeMD, neuron_type, neuron_Sedge,
@@ -1689,9 +1933,9 @@ class Plotter(PlotterBackbone):
             f"A_prune>0, shown edges {n_pos_show}/{n_pos}, neurons {n_exc_show}/{n_exc}",
             fontsize=11, pad=8,
         )
-        ax.scatter([], [], s=32, marker="o", c="magenta", edgecolors="k", label=f"exc={n_exc}")
-        ax.scatter([], [], s=32, marker="o", c="#39FF14", edgecolors="k", label=f"inh={n_inh}")
-        ax.scatter([], [], s=32, marker="o", c="yellow", edgecolors="k", label=f"und={n_und}")
+        ax.scatter([], [], s=neuron_type_marker_size(1, 32), marker=neuron_type_marker(1), c="magenta", edgecolors="k", label=f"exc={n_exc}")
+        ax.scatter([], [], s=neuron_type_marker_size(-1, 32), marker=neuron_type_marker(-1), c="forestgreen", edgecolors="k", label=f"inh={n_inh}")
+        ax.scatter([], [], s=neuron_type_marker_size(0, 32), marker=neuron_type_marker(0), c="yellow", edgecolors="k", label=f"und={n_und}")
         ax.legend(loc="best", fontsize=9)
 
         ax = fig.add_subplot(gs[0, 1])
@@ -1704,9 +1948,9 @@ class Plotter(PlotterBackbone):
             f"A_prune<0, shown edges {n_neg_show}/{n_neg}, neurons {n_inh_show}/{n_inh}",
             fontsize=11, pad=8,
         )
-        ax.scatter([], [], s=32, marker="o", c="magenta", edgecolors="k", label=f"exc={n_exc}")
-        ax.scatter([], [], s=32, marker="o", c="#39FF14", edgecolors="k", label=f"inh={n_inh}")
-        ax.scatter([], [], s=32, marker="o", c="yellow", edgecolors="k", label=f"und={n_und}")
+        ax.scatter([], [], s=neuron_type_marker_size(1, 32), marker=neuron_type_marker(1), c="magenta", edgecolors="k", label=f"exc={n_exc}")
+        ax.scatter([], [], s=neuron_type_marker_size(-1, 32), marker=neuron_type_marker(-1), c="forestgreen", edgecolors="k", label=f"inh={n_inh}")
+        ax.scatter([], [], s=neuron_type_marker_size(0, 32), marker=neuron_type_marker(0), c="yellow", edgecolors="k", label=f"und={n_und}")
         ax.legend(loc="best", fontsize=9)
 
         title_prefix = self.canvas_title_prefix(nodeMD)

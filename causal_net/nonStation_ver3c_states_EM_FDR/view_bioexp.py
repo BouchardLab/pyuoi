@@ -35,6 +35,39 @@ def _require_bioexp(bioD, bioMD):
         assert key in bioMD, f"bioExp metadata missing {key!r}"
     assert "freq_range" in bioMD["data_selector"]
 
+    assert int(bioMD.get("bioexp_schema_version", -1)) == 3, (
+        "bioExp data require bioexp_schema_version=3; rerun prep_bioexp3c.py"
+    )
+    assert bioMD.get("waveforms_available") is True, (
+        "bioExp metadata must declare waveforms_available=true"
+    )
+    waveform_keys = (
+        "raw_mean_templates",
+        "waveform_num_samples",
+        "waveform_unit_ids",
+        "waveform_channel_ids",
+        "waveform_ms_before",
+        "waveform_ms_after",
+        "waveform_n_spikes_used",
+        "waveform_grid_distance",
+        "waveform_is_multichannel",
+    )
+    for key in waveform_keys:
+        assert key in bioD, f"bioExp.npz is missing required record {key!r}"
+    templates = np.asarray(bioD["raw_mean_templates"])
+    num_neurons = np.asarray(bioD["MEA_idx"]).size
+    assert templates.ndim == 2 and templates.shape[0] == num_neurons, (
+        "raw_mean_templates must have shape (num_neurons, num_samples)"
+    )
+    for key in waveform_keys[1:]:
+        assert np.asarray(bioD[key]).size == num_neurons, (
+            f"{key} must contain one value per neuron"
+        )
+    assert np.asarray(bioD["waveform_is_multichannel"]).dtype == np.bool_, (
+        "waveform_is_multichannel must have Boolean dtype"
+    )
+    return True
+
 
 #...!...!....................
 def get_parser():
@@ -87,7 +120,8 @@ if __name__ == "__main__":
     print("bioExp:", bioFF)
     bioD, bioMD = read_data_npz(bioFF)
     if args.verb > 1: pprint(bioMD)
-    _require_bioexp(bioD, bioMD)
+    waveforms_available = _require_bioexp(bioD, bioMD)
+    print("raw mean waveforms:", "available" if waveforms_available else "not available")
 
     plotMD = dict(bioMD)
     args.prjName = bioMD["short_name"]

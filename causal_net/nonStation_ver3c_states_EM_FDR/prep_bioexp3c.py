@@ -19,7 +19,7 @@ Session naming convention:
 - Well000: well number
 
 The script generates .spikes.npz files with standardized spike count matrices
-and associated metadata for further analysis.
+and .bioExp.npz files containing experimental metadata and raw mean waveforms.
 
 Usage:
     ./prep_bioexp.py --sessionName B6J_250619_M08020_000093_Well000 --inputPath /path/to/raw/data/
@@ -34,6 +34,12 @@ from pprint import pprint
 from toolbox.Util_NumpyIOv2 import json_safe_metadata, write_data_npz
 
 import argparse
+
+
+BIOEXP_SCHEMA_VERSION = 3
+WAVEFORM_GRID_PITCH = 17.5
+WAVEFORM_GRID_ORIGIN = np.asarray([0.0, 0.0], dtype=np.float64)
+WAVEFORM_MULTICHANNEL_DISTANCE_THRESHOLD = 1.0
 
 
 #...!...!..................
@@ -133,6 +139,24 @@ def read_spike_npy(md, args):
     return rawD
 
 
+def load_raw_mean_templates(args):
+    """Load the per-unit raw mean waveform records produced by the sorter."""
+    inpF = os.path.join(args.expPath, args.sessionName, "raw_mean_templates.npy")
+    print("waveform npy:", inpF)
+    if not os.path.isfile(inpF):
+        raise FileNotFoundError(f"missing waveform file: {inpF}")
+
+    container = np.load(inpF, allow_pickle=True)
+    if container.shape != () or container.dtype != object:
+        raise ValueError(
+            f"{inpF} must contain a scalar NumPy object holding a dictionary"
+        )
+    templates = container.item()
+    if not isinstance(templates, dict):
+        raise TypeError(f"expected a dictionary in {inpF}")
+    return templates, inpF
+
+
 def _mea_match_key(val):
     """Canonical key for matching MEA_idx across npy dict keys and spreadsheet."""
     if isinstance(val, (bytes, np.bytes_)):
@@ -197,6 +221,151 @@ def _integer_if_possible(vals):
     if np.all(np.isfinite(farr)) and np.all(farr == farr.astype(np.int64)):
         return farr.astype(np.int64)
     return arr
+
+
+def classify_waveform_channel_construction(node_positions):
+    """Classify multi-channel units by distance from the fixed electrode grid."""
+    node_positions = np.asarray(node_positions, dtype=np.float64)
+    if node_positions.ndim != 2 or node_positions.shape[1] != 2:
+        raise ValueError(
+            "node_positions must have shape (num_units, 2), got "
+            f"{node_positions.shape}"
+        )
+    if not np.all(np.isfinite(node_positions)):
+        raise ValueError("node_positions contains non-finite coordinates")
+
+    nearest_grid = WAVEFORM_GRID_ORIGIN + np.rint(
+        (node_positions - WAVEFORM_GRID_ORIGIN) / WAVEFORM_GRID_PITCH
+    ) * WAVEFORM_GRID_PITCH
+    grid_distance = np.linalg.norm(node_positions - nearest_grid, axis=1)
+    is_multichannel = (
+        grid_distance > WAVEFORM_MULTICHANNEL_DISTANCE_THRESHOLD
+    )
+    return grid_distance.astype(np.float64), is_multichannel.astype(bool)
+
+
+def add_raw_mean_waveforms(bioD, bioMD, templates, source_file):
+    """Add waveform records aligned with the frequency-sorted neuron axis."""
+    template_by_unit = {}
+    for template_key, record in templates.items():
+        key = _mea_match_key(template_key)
+        if key in template_by_unit:
+            raise ValueError(
+                f"duplicate waveform unit ID {template_key!r} in {source_file}"
+            )
+        if not isinstance(record, dict):
+            raise TypeError(
+                f"waveform record for unit {template_key!r} must be a dictionary"
+            )
+        template_by_unit[key] = record
+
+    unit_ids = np.asarray(bioD["spike_key"]).ravel()
+    mea_ids = np.asarray(bioD["MEA_idx"]).ravel()
+    if unit_ids.size != mea_ids.size or any(
+        _mea_match_key(unit_id) != _mea_match_key(mea_id)
+        for unit_id, mea_id in zip(unit_ids, mea_ids)
+    ):
+        raise ValueError("spike_key and MEA_idx are not aligned by unit ID")
+    records = []
+    waveforms = []
+    for unit_id in unit_ids:
+        key = _mea_match_key(unit_id)
+        if key not in template_by_unit:
+            raise KeyError(
+                f"selected unit {unit_id!r} has no waveform in {source_file}"
+            )
+        record = template_by_unit[key]
+        if "raw_mean_template" not in record or "primary_channel" not in record:
+            raise KeyError(
+                f"waveform record for unit {unit_id!r} must contain "
+                "raw_mean_template and primary_channel"
+            )
+        if "unit_id" in record and _mea_match_key(record["unit_id"]) != key:
+            raise ValueError(
+                f"waveform key {unit_id!r} disagrees with record unit_id "
+                f"{record['unit_id']!r}"
+            )
+
+        waveform = np.asarray(record["raw_mean_template"], dtype=np.float32)
+        if waveform.ndim != 1 or waveform.size == 0:
+            raise ValueError(
+                f"unit {unit_id!r} waveform must be a non-empty 1D array, "
+                f"got shape {waveform.shape}"
+            )
+        records.append(record)
+        waveforms.append(waveform)
+
+    num_samples = np.asarray([waveform.size for waveform in waveforms], dtype=np.int32)
+    max_samples = int(np.max(num_samples))
+    waveform_2d = np.full(
+        (len(waveforms), max_samples), np.nan, dtype=np.float32
+    )
+    for index, waveform in enumerate(waveforms):
+        waveform_2d[index, : waveform.size] = waveform
+
+    channel_ids = _integer_if_possible(
+        [record["primary_channel"] for record in records]
+    )
+    ms_before = np.asarray(
+        [record.get("ms_before", 0.0) for record in records], dtype=np.float64
+    )
+    ms_after = np.asarray(
+        [
+            record.get("ms_after", int(num_samples[index]))
+            for index, record in enumerate(records)
+        ],
+        dtype=np.float64,
+    )
+    n_spikes_used = np.asarray(
+        [record.get("n_spikes_used", -1) for record in records], dtype=np.int64
+    )
+    grid_distance, is_multichannel = classify_waveform_channel_construction(
+        bioD["node_positions"]
+    )
+    if grid_distance.shape != unit_ids.shape:
+        raise ValueError(
+            "node_positions and waveform unit count do not match: "
+            f"{grid_distance.size} != {unit_ids.size}"
+        )
+
+    bioD["raw_mean_templates"] = waveform_2d
+    bioD["waveform_num_samples"] = num_samples
+    bioD["waveform_unit_ids"] = _integer_if_possible(unit_ids)
+    bioD["waveform_channel_ids"] = channel_ids
+    bioD["waveform_ms_before"] = ms_before
+    bioD["waveform_ms_after"] = ms_after
+    bioD["waveform_n_spikes_used"] = n_spikes_used
+    bioD["waveform_grid_distance"] = grid_distance
+    bioD["waveform_is_multichannel"] = is_multichannel
+
+    bioMD["bioexp_schema_version"] = BIOEXP_SCHEMA_VERSION
+    bioMD["waveforms_available"] = True
+    bioMD["waveform_schema"] = {
+        "version": 2,
+        "template_record": "raw_mean_templates",
+        "neuron_axis": "frequency-sorted; aligned with MEA_idx and spike_key",
+        "sample_padding": "NaN beyond waveform_num_samples",
+        "time_axis": "linspace(-waveform_ms_before, waveform_ms_after, "
+                     "waveform_num_samples, endpoint=False)",
+        "channel_construction_record": "waveform_is_multichannel",
+        "grid_distance_record": "waveform_grid_distance",
+        "grid_pitch_xy": [WAVEFORM_GRID_PITCH, WAVEFORM_GRID_PITCH],
+        "grid_origin_xy": WAVEFORM_GRID_ORIGIN.tolist(),
+        "multichannel_rule": "distance_from_nearest_grid_point > 1",
+        "multichannel_distance_threshold": (
+            WAVEFORM_MULTICHANNEL_DISTANCE_THRESHOLD
+        ),
+    }
+    print(
+        "raw mean waveforms: units=%d, stored shape=%s, single-channel=%d, "
+        "multi-channel=%d"
+        % (
+            len(unit_ids),
+            waveform_2d.shape,
+            int(np.sum(~is_multichannel)),
+            int(np.sum(is_multichannel)),
+        )
+    )
 
 
 def load_metrics_curated(args, mea_idx_order, spike_key_order):
@@ -326,7 +495,8 @@ def unroll_bioexp(rawD, bioMD, args):
     std_fano = float(np.std(fano_factor))
 
     # Print summary statistics
-    print('Neural Statistics Summary:')
+    recording_minutes = pmd['max_time'] / 60.0
+    print('Neural Statistics Summary: %.2f minutes of recording available' % recording_minutes)
     print('num neurons: %d, Avg Rate= %.2f±%.2f Hz, Avg Fano=%.2f±%.2f' % (num_neurons, avg_rate, std_rate, avg_fano, std_fano))
     print('Median rate  %.2f Hz' % median_rate)
 
@@ -362,19 +532,23 @@ if __name__ == "__main__":
     # read raw data
     #rawD=read_spike_dict(bioMD,args)
     rawD = read_spike_npy(bioMD, args)
+    templates, waveform_source = load_raw_mean_templates(args)
 
     #.... filter & unroll data
     bioD, spikeD, spikeMD = unroll_bioexp(rawD, bioMD, args)
+    add_raw_mean_waveforms(bioD, bioMD, templates, waveform_source)
 
     #...... WRITE   OUTPUT .........
     outFt = os.path.join(args.dataPath, bioMD['short_name'] + '.bioExp.npz')
     write_data_npz(bioD, outFt, metaD=json_safe_metadata(bioMD))
+    print("Saved NPZ:", os.path.abspath(outFt))
     if args.verb > 2:
         print('\n bioD:', sorted(bioD))
         pprint(bioMD)
 
     outFs = outFt.replace('.bioExp.', '.spikes.')
     write_data_npz(spikeD, outFs, metaD=json_safe_metadata(spikeMD))
+    print("Saved NPZ:", os.path.abspath(outFs))
     if args.verb > 2:
         print('\nspikeD:', sorted(spikeD))
         pprint(spikeMD)

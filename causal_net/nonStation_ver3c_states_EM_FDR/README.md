@@ -75,6 +75,20 @@ The schema requirement is active in `gen_daleMatrices3c.py`,
 reference-fit, bag, aggregate, and de-biased files used together in a new run
 must all be v2 archives.
 
+Biological experiment archives also carry an application-level
+`bioexp_schema_version`. Version 3 requires raw mean waveform records and does
+not support older biological archives. The
+`raw_mean_templates` is indexed in the same frequency-sorted neuron order as
+`MEA_idx` and `spike_key`, with unit, primary-channel, sample-count, time-window,
+and spike-count fields stored in the accompanying `waveform_*` records. Each
+unit also stores `waveform_grid_distance` and Boolean
+`waveform_is_multichannel`. The latter is true when the unit location is more
+than 1 coordinate unit from the nearest point on the fixed 17.5-by-17.5 grid.
+For biological fits, `prism_EM_eval3c.py -p j` plots excitatory waveforms and
+`-p k` plots inhibitory waveforms. Each 3-by-3 canvas contains three nodes from
+the highest and median outgoing-`Nedge` ranks, plus three nodes nearest the
+class-specific 25th-percentile `Nedge`.
+
 ## Shell Macros
 
 The `.sh` files in this directory are convenience launch macros. They are
