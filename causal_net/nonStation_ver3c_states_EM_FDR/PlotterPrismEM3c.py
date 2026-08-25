@@ -1858,9 +1858,8 @@ class Plotter(PlotterBackbone):
                 )
                 axis.axvline(0.0, color="0.45", ls="--", lw=0.8)
                 axis.set_title(
-                    f"{rank_label}\n"
-                    f"unit {unit_ids[index]}, channel {channel_ids[index]}\n"
-                    f"Nedge={nedge[index]}",
+                    f"{rank_label}, Nedge={nedge[index]}\n"
+                    f"unit={unit_ids[index]}",
                     fontsize=8,
                 )
                 if row == 2:

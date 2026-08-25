@@ -30,7 +30,7 @@ case "$timeWindow" in
 esac
 
 module load pytorch
-randomTag="$(python3 -c 'import secrets; print(secrets.token_hex(2))')"
+randomTag="$(python3 -c 'import secrets; print(secrets.token_hex(3))')"
 runTag="${timeWindow}_em${randomTag}"
 
 # ---------- dataset selection ----------

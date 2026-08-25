@@ -34,14 +34,17 @@ def parse_args():
     )
     parser.add_argument(
         "-p", "--showPlots", nargs="+", default=["a"],
-        help="Plot letters; a=A off-diagonal/diagonal and B state comparisons",
+        help=(
+            "Plot letters; a=A off-diagonal/diagonal and B state comparisons; "
+            "b=A off-diagonal comparisons for data1 excitatory/inhibitory source columns"
+        ),
     )
     return parser.parse_args()
 
 
 def normalize_plot_letters(show_plots):
     letters = "".join(str(item) for item in show_plots).replace(" ", "")
-    unknown = sorted(set(letters) - {"a"})
+    unknown = sorted(set(letters) - {"a", "b"})
     assert not unknown, "Unknown plot letters: %s" % "".join(unknown)
     return letters
 
@@ -76,7 +79,86 @@ def load_debias_fit(base_path, data_name):
         "%s B_debias neuron dimension %d does not match A_debias dimension %d"
         % (inp_f, B.shape[1], A.shape[0])
     )
-    return A, B, inp_f
+    neuron_type = fit_d.get("neuron_type")
+    if neuron_type is not None:
+        neuron_type = np.asarray(neuron_type, dtype=np.int8).reshape(-1)
+    return A, B, neuron_type, fit_md, inp_f
+
+
+def load_neuron_unit_ids(base_path, fit_md, num_neurons, fit_file_name):
+    assert isinstance(fit_md, dict), "%s metadata must be a dictionary" % fit_file_name
+    assert fit_md.get("data_type") == "bioExp", (
+        "%s must be a biological fit with data_type='bioExp' to verify unit IDs"
+        % fit_file_name
+    )
+    provenance = fit_md.get("provenance", {})
+    experiment_name = provenance.get("experiment_name")
+    assert experiment_name, "%s metadata is missing provenance.experiment_name" % fit_file_name
+
+    node_f = os.path.join(base_path, "spikesData", "%s.bioExp.npz" % experiment_name)
+    node_d, _ = read_data_npz(node_f, verb=False)
+    assert "MEA_idx" in node_d, "%s must contain MEA_idx unit IDs" % node_f
+    unit_ids = np.asarray(node_d["MEA_idx"]).reshape(-1)
+    assert unit_ids.size == num_neurons, (
+        "%s MEA_idx has %d unit IDs but %s has %d neuron columns"
+        % (node_f, unit_ids.size, fit_file_name, num_neurons)
+    )
+    return unit_ids
+
+
+def count_unit_id_mismatches(unit_ids1, unit_ids2):
+    unit_ids1 = np.asarray(unit_ids1).reshape(-1)
+    unit_ids2 = np.asarray(unit_ids2).reshape(-1)
+    overlap = min(unit_ids1.size, unit_ids2.size)
+    mismatch_count = abs(unit_ids1.size - unit_ids2.size)
+    mismatch_count += sum(
+        not np.array_equal(unit_ids1[index], unit_ids2[index])
+        for index in range(overlap)
+    )
+    return int(mismatch_count), int(max(unit_ids1.size, unit_ids2.size))
+
+
+def validate_neuron_type(neuron_type, num_neurons, fit_file_name):
+    assert neuron_type is not None, "%s must contain neuron_type for plot b" % fit_file_name
+    neuron_type = np.asarray(neuron_type, dtype=np.int8).reshape(-1)
+    assert neuron_type.shape == (num_neurons,), (
+        "%s neuron_type shape %s does not match %d A-matrix columns"
+        % (fit_file_name, neuron_type.shape, num_neurons)
+    )
+    return neuron_type
+
+
+def jaccard_index(mask1, mask2):
+    mask1 = np.asarray(mask1, dtype=bool).reshape(-1)
+    mask2 = np.asarray(mask2, dtype=bool).reshape(-1)
+    assert mask1.shape == mask2.shape
+    union_count = int(np.count_nonzero(mask1 | mask2))
+    if union_count == 0:
+        return np.nan
+    return float(np.count_nonzero(mask1 & mask2)) / union_count
+
+
+def source_type_offdiagonal_values(A1, A2, neuron_type1, type_value):
+    assert A1.shape == A2.shape
+    assert A1.ndim == 2 and A1.shape[0] == A1.shape[1]
+    neuron_type1 = np.asarray(neuron_type1, dtype=np.int8).reshape(-1)
+    assert neuron_type1.shape == (A1.shape[1],)
+    assert type_value in (-1, 1)
+    off_diagonal = ~np.eye(A1.shape[0], dtype=bool)
+    data1_type_columns = neuron_type1 == type_value
+    selected = off_diagonal & data1_type_columns[None, :]
+    values1 = A1[selected]
+    values2 = A2[selected]
+    both_nonzero = (values1 != 0.0) & (values2 != 0.0)
+    return values1[both_nonzero], values2[both_nonzero]
+
+
+def excitatory_offdiagonal_values(A1, A2, neuron_type1):
+    return source_type_offdiagonal_values(A1, A2, neuron_type1, 1)
+
+
+def inhibitory_offdiagonal_values(A1, A2, neuron_type1):
+    return source_type_offdiagonal_values(A1, A2, neuron_type1, -1)
 
 
 def assert_matching_dimensions(A1, B1, A2, B2):
@@ -100,7 +182,10 @@ def correlation_safe(x, y):
     return float(np.corrcoef(x, y)[0, 1]), int(x.size)
 
 
-def correlation_panel(ax, x, y, title, x_label, y_label, color):
+def correlation_panel(
+    ax, x, y, title, x_label, y_label, color, extra_stats=None,
+    extend_y_from_x=None,
+):
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y, dtype=np.float64).ravel()
     assert x.shape == y.shape
@@ -111,12 +196,20 @@ def correlation_panel(ax, x, y, title, x_label, y_label, color):
 
     ax.scatter(xf, yf, s=8, alpha=0.40, color=color, edgecolors="none")
     if n_value:
-        # Preserve independent x/y autoscaling while showing y=x where the
-        # two visible numeric ranges overlap.
         x_lim = ax.get_xlim()
         y_lim = ax.get_ylim()
-        line_lo = max(x_lim[0], y_lim[0])
-        line_hi = min(x_lim[1], y_lim[1])
+        if extend_y_from_x is not None:
+            assert extend_y_from_x in ("positive", "negative")
+            extra_range = 0.2 * (x_lim[1] - x_lim[0])
+            if extend_y_from_x == "positive":
+                y_lim = (x_lim[0], x_lim[1] + extra_range)
+            else:
+                y_lim = (x_lim[0] - extra_range, x_lim[1])
+            line_lo, line_hi = x_lim
+        else:
+            # Show y=x where the independently autoscaled ranges overlap.
+            line_lo = max(x_lim[0], y_lim[0])
+            line_hi = min(x_lim[1], y_lim[1])
         if line_lo < line_hi:
             ax.plot(
                 [line_lo, line_hi], [line_lo, line_hi], "--",
@@ -127,8 +220,11 @@ def correlation_panel(ax, x, y, title, x_label, y_label, color):
 
     ax.axhline(0.0, color="k", linestyle=":", linewidth=0.7, alpha=0.5)
     ax.axvline(0.0, color="k", linestyle=":", linewidth=0.7, alpha=0.5)
+    stats_text = "Pearson r=%s\nn=%d" % ("%.4f" % r_value, n_value)
+    if extra_stats:
+        stats_text += "\n%s" % extra_stats
     ax.text(
-        0.04, 0.96, "Pearson r=%s\nn=%d" % ("%.4f" % r_value, n_value),
+        0.04, 0.96, stats_text,
         transform=ax.transAxes, ha="left", va="top", fontsize=10,
         bbox=dict(facecolor="white", edgecolor="0.8", alpha=0.8),
     )
@@ -136,6 +232,9 @@ def correlation_panel(ax, x, y, title, x_label, y_label, color):
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     ax.grid(True, alpha=0.3)
+    # Use the same physical scale for x and y so the fit comparison and the
+    # y=x reference are not distorted by a rectangular data aspect.
+    ax.set_aspect("equal", adjustable="box")
 
 
 def plot_a(A1, B1, A2, B2, data_name1, data_name2):
@@ -180,6 +279,49 @@ def plot_a(A1, B1, A2, B2, data_name1, data_name2):
     return fig
 
 
+def plot_b(A1, A2, neuron_type1, neuron_type2, data_name1, data_name2):
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(
+        1, 2, figsize=(11, 5), facecolor="white", constrained_layout=True,
+    )
+    exc1 = np.asarray(neuron_type1).reshape(-1) > 0
+    exc2 = np.asarray(neuron_type2).reshape(-1) > 0
+    inh1 = np.asarray(neuron_type1).reshape(-1) < 0
+    inh2 = np.asarray(neuron_type2).reshape(-1) < 0
+    exc_jaccard = jaccard_index(exc1, exc2)
+    inh_jaccard = jaccard_index(inh1, inh2)
+    exc_values1, exc_values2 = excitatory_offdiagonal_values(A1, A2, neuron_type1)
+    inh_values1, inh_values2 = inhibitory_offdiagonal_values(A1, A2, neuron_type1)
+    correlation_panel(
+        axes[0], exc_values1, exc_values2,
+        "A off-diagonal: data1 excitatory sources, both nonzero",
+        "data1", "data2", "tab:red",
+        extra_stats=(
+            "Exc Jaccard=%s\nexc: data1=%d, data2=%d"
+            % ("%.4f" % exc_jaccard, np.count_nonzero(exc1), np.count_nonzero(exc2))
+        ),
+        extend_y_from_x="positive",
+    )
+    correlation_panel(
+        axes[1], inh_values1, inh_values2,
+        "A off-diagonal: data1 inhibitory sources, both nonzero",
+        "data1", "data2", "tab:blue",
+        extra_stats=(
+            "Inh Jaccard=%s\ninh: data1=%d, data2=%d"
+            % ("%.4f" % inh_jaccard, np.count_nonzero(inh1), np.count_nonzero(inh2))
+        ),
+        extend_y_from_x="negative",
+    )
+
+    fig.suptitle(
+        "Stage (c) excitatory/inhibitory-source comparison\ndata1: %s\ndata2: %s"
+        % (data_name1, data_name2),
+        fontsize=13,
+    )
+    return fig
+
+
 def resolve_output_stem(out_name):
     if out_name is None:
         return "compare_%s" % secrets.token_hex(3)
@@ -198,28 +340,59 @@ def main():
     plot_letters = normalize_plot_letters(args.showPlots)
     out_stem = resolve_output_stem(args.outName)
     assert args.dataName1 != args.dataName2, "dataName1 and dataName2 must identify different fits"
-    A1, B1, inp_f1 = load_debias_fit(args.basePath, args.dataName1)
-    A2, B2, inp_f2 = load_debias_fit(args.basePath, args.dataName2)
+    A1, B1, neuron_type1, fit_md1, inp_f1 = load_debias_fit(
+        args.basePath, args.dataName1
+    )
+    A2, B2, neuron_type2, fit_md2, inp_f2 = load_debias_fit(
+        args.basePath, args.dataName2
+    )
+    unit_ids1 = load_neuron_unit_ids(args.basePath, fit_md1, A1.shape[1], inp_f1)
+    unit_ids2 = load_neuron_unit_ids(args.basePath, fit_md2, A2.shape[1], inp_f2)
+    num_mismatches, num_positions = count_unit_id_mismatches(unit_ids1, unit_ids2)
+    if num_mismatches:
+        print(
+            "Neuron column/unit ID mismatch: %d of %d positions differ; exiting without plots."
+            % (num_mismatches, num_positions)
+        )
+        return
+    print("Neuron column/unit IDs match at all %d positions." % num_positions)
     assert_matching_dimensions(A1, B1, A2, B2)
 
     print("Loaded fit 1: %s  A=%s B=%s" % (inp_f1, A1.shape, B1.shape))
     print("Loaded fit 2: %s  A=%s B=%s" % (inp_f2, A2.shape, B2.shape))
 
-    if "a" in plot_letters:
+    if plot_letters:
         import matplotlib
 
         if not os.environ.get("DISPLAY"):
             matplotlib.use("Agg")
+
+    out_dir = os.path.join(args.basePath, "plots")
+
+    if "a" in plot_letters:
         fig = plot_a(A1, B1, A2, B2, args.dataName1, args.dataName2)
-        out_dir = os.path.join(args.basePath, "plots")
         os.makedirs(out_dir, exist_ok=True)
         out_f = output_file(args.basePath, out_stem, "a")
         fig.savefig(out_f, dpi=150)
         print("Saved comparison canvas: %s" % out_f)
 
-        if os.environ.get("DISPLAY") and "agg" not in matplotlib.get_backend().lower():
-            import matplotlib.pyplot as plt
-            plt.show()
+    if "b" in plot_letters:
+        neuron_type1 = validate_neuron_type(neuron_type1, A1.shape[1], inp_f1)
+        neuron_type2 = validate_neuron_type(neuron_type2, A2.shape[1], inp_f2)
+        fig = plot_b(
+            A1, A2, neuron_type1, neuron_type2, args.dataName1, args.dataName2
+        )
+        os.makedirs(out_dir, exist_ok=True)
+        out_f = output_file(args.basePath, out_stem, "b")
+        fig.savefig(out_f, dpi=150)
+        print("Saved comparison canvas: %s" % out_f)
+
+    if (
+        os.environ.get("DISPLAY")
+        and "agg" not in matplotlib.get_backend().lower()
+    ):
+        import matplotlib.pyplot as plt
+        plt.show()
 
 
 if __name__ == "__main__":
