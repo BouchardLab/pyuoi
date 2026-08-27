@@ -40,6 +40,8 @@ def parse_args():
                         help="Output metric stem in edgeFidelity/; default is fitNameTrunk_efmHASH4")
     parser.add_argument("-p", "--showPlots", nargs="+", default=["a"],
                         help="Plot groups: a=edge fidelity summary b=weight stats")
+    parser.add_argument("--plotFormat", choices=("png", "pdf"), default="png",
+                        help="Output format for saved plots")
     parser.add_argument("-X", "--noXterm", action="store_true",
                         help="Disable X terminal for plotting")
     parser.add_argument("-v", "--verb", type=int, default=1,
@@ -541,7 +543,6 @@ def main():
 
         args.prjName = args.outName
         args.outPath = plot_dir
-        args.formatVenue = "prod"
         plot = Plotter(args)
         if "a" in plot_letters:
             plot.plot_jaccard_smr(out_d, out_md, figId="a")

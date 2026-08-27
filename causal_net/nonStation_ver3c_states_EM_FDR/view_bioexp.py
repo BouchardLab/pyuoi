@@ -78,6 +78,8 @@ def get_parser():
                         help="plots: a=freq histo, b=freq vs time, c=MEA layout, "
                              "d=metrics histograms, e=metrics correlations")
 
+    parser.add_argument("--plotFormat", choices=("png", "pdf"), default="png",
+                        help="Output format for saved plots")
     parser.add_argument("-X", "--noXterm", action="store_true",
                         help="Disable X terminal for plotting")
 

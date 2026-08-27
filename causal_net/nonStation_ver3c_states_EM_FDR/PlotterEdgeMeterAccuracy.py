@@ -3,12 +3,18 @@
 
 import numpy as np
 
-from toolbox.PlotterBackbone import PlotterBackbone
+from toolbox.PlotterBackboneV2 import PlotterBackboneV2
 
 
-class Plotter(PlotterBackbone):
+class Plotter(PlotterBackboneV2):
     def __init__(self, args):
-        PlotterBackbone.__init__(self, args)
+        PlotterBackboneV2.__init__(
+            self,
+            prjName=args.prjName,
+            outPath=args.outPath,
+            noXterm=args.noXterm,
+            plotFormat=args.plotFormat,
+        )
 
     def figId2name(self, fid):
         if isinstance(fid, str):

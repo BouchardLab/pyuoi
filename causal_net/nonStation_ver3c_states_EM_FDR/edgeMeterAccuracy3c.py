@@ -33,6 +33,8 @@ def parse_args():
                         help="Presence tolerance for A_prune")
     parser.add_argument("-p", "--showPlots", nargs="+", default="abc",
                         help="Plot letters/groups, e.g. -p a b")
+    parser.add_argument("--plotFormat", choices=("png", "pdf"), default="png",
+                        help="Output format for saved plots")
     parser.add_argument("-X", "--noXterm", action="store_true",
                         help="Disable X terminal for plotting")
     parser.add_argument("-v", "--verb", type=int, default=1,
@@ -468,7 +470,6 @@ def main():
             raise ValueError(f"Unknown plot letters for edgeMeterAccuracy3c.py: {unknown}")
         args.prjName = out_name
         args.outPath = plot_dir
-        args.formatVenue = "prod"
         plot = Plotter(args)
         if "a" in plot_letters:
             plot.recovery_summary(out_d, out_md, figId="a")

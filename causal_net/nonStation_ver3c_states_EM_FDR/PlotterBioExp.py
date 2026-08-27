@@ -3,7 +3,7 @@
 Plotting utilities for biological experiment data visualization.
 
 This module provides specialized plotting capabilities for experimental
-neural data analysis. The Plotter class extends PlotterBackbone to create
+neural data analysis. The Plotter class extends PlotterBackboneV2 to create
 visualizations tailored for biological neural recordings including:
 - Time series plots of neural activity patterns
 - Statistical summaries and distribution analysis  
@@ -17,7 +17,7 @@ neural experiments, with automatic adaptation to experimental metadata.
 __author__ = "Jan Balewski"
 __email__ = "janstar1122@gmail.com"
 
-from toolbox.PlotterBackbone import PlotterBackbone
+from toolbox.PlotterBackboneV2 import PlotterBackboneV2
 from UtilBioExp import clip_rebD_time
 from matplotlib import cm as cmap
 import matplotlib.ticker as ticker
@@ -94,9 +94,15 @@ def summary_column(md):
 #............................
 #............................
 #............................
-class Plotter(PlotterBackbone):
+class Plotter(PlotterBackboneV2):
     def __init__(self, args):
-        PlotterBackbone.__init__(self,args)
+        PlotterBackboneV2.__init__(
+            self,
+            prjName=args.prjName,
+            outPath=args.outPath,
+            noXterm=args.noXterm,
+            plotFormat=args.plotFormat,
+        )
         
 #...!...!..................
     def freq_histo(self,spikeD,md,figId=1):
@@ -370,4 +376,3 @@ class Plotter(PlotterBackbone):
             fontsize=12,
         )
         fig.tight_layout(rect=[0, 0, 1, 0.94])
-

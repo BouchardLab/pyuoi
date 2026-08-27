@@ -28,8 +28,7 @@ def get_parser():
     parser = argparse.ArgumentParser(description="Visualize spike-train data from simulated Dale network outputs")
     parser.add_argument("-v","--verbosity",type=int,  help="increase output verbosity", default=1, dest='verb')
     parser.add_argument("-p", "--showPlots",  default='a', nargs='+',help="abcd-string listing shown plots")
-    
-    
+    parser.add_argument("--plotFormat", choices=("png", "pdf"), default="png", help="Output format for saved plots")
     parser.add_argument('-X',"--noXterm", action="store_true", help="Disable X terminal for plotting")
 
     parser.add_argument("--basePath",default='/pscratch/sd/b/balewski/2025_causalNet_tmp/',help="head dir for input data")

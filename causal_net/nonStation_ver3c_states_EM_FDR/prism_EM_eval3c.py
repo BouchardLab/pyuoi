@@ -86,6 +86,10 @@ def parse_args():
                         help="Burst panels: per-neuron rate threshold (Hz)")
     parser.add_argument("--maxNeurons", default=24, type=int,
                         help="Spatial split panels: max source neurons per panel")
+    parser.add_argument("--edgeStubLength", default=100.0, type=float,
+                        help="Spatial split panels: max outgoing-edge stub length for other neurons")
+    parser.add_argument("--plotFormat", choices=("png", "pdf"), default="png",
+                        help="Output format for saved plots")
     parser.add_argument("-X", "--noXterm", action="store_true",
                         help="Disable X terminal for plotting")
     parser.add_argument("-v", "--verb", type=int, default=1,
@@ -346,6 +350,53 @@ def main():
         if args.verb > 0:
             print(f"default --time_range_sec from fitted data start: {args.time_range_sec}")
 
+    neuron_type = np.asarray(plotD["neuron_type"])
+    num_exc = int(np.sum(neuron_type > 0))
+    num_inh = int(np.sum(neuron_type < 0))
+    num_und = int(np.sum(neuron_type == 0))
+    A_est = np.asarray(plotD["A_hat"])
+    assert A_est.ndim == 2 and A_est.shape[0] == A_est.shape[1], (
+        "A_hat must be square"
+    )
+    assert neuron_type.shape == (A_est.shape[1],), (
+        "neuron_type length must match A_hat source columns"
+    )
+    offdiag_edges = A_est != 0
+    np.fill_diagonal(offdiag_edges, False)
+    outgoing_edges = np.count_nonzero(offdiag_edges, axis=0)
+    exc_edges = int(np.sum(outgoing_edges[neuron_type > 0]))
+    inh_edges = int(np.sum(outgoing_edges[neuron_type < 0]))
+    und_edges = int(np.sum(outgoing_edges[neuron_type == 0]))
+
+    single_rates = np.asarray(plotD["single_rates"], dtype=np.float64).ravel()
+    assert single_rates.shape == neuron_type.shape, (
+        "single_rates length must match neuron_type"
+    )
+
+    def frequency_median_iqr(mask):
+        values = single_rates[mask & np.isfinite(single_rates)]
+        if values.size == 0:
+            return float("nan"), float("nan")
+        q25, median, q75 = np.percentile(values, [25.0, 50.0, 75.0])
+        return float(median), float(q75 - q25)
+
+    exc_freq, exc_freq_iqr = frequency_median_iqr(neuron_type > 0)
+    inh_freq, inh_freq_iqr = frequency_median_iqr(neuron_type < 0)
+    und_freq, und_freq_iqr = frequency_median_iqr(neuron_type == 0)
+    all_freq, all_freq_iqr = frequency_median_iqr(np.ones(neuron_type.shape, dtype=bool))
+
+    print(
+        "#a,dataName,num exc,num inh,num und,exc edges,inh edges,und edges,"
+        "exc freq med,exc freq iqr,inh freq med,inh freq iqr,"
+        "und freq med,und freq iqr,all freq med,all freq iqr"
+    )
+    print(
+        f"#b,{args.dataName},{num_exc},{num_inh},{num_und},"
+        f"{exc_edges},{inh_edges},{und_edges},"
+        f"{exc_freq:.2f},{exc_freq_iqr:.2f},{inh_freq:.2f},{inh_freq_iqr:.2f},"
+        f"{und_freq:.2f},{und_freq_iqr:.2f},{all_freq:.2f},{all_freq_iqr:.2f}"
+    )
+
     args.prjName = args.dataName
     plot = Plotter(args)
 
@@ -380,6 +431,7 @@ def main():
         plot.neuron_spatial_edges_split(
             plotD, nodeD, nodeMD, plotD["neuron_type"], plotD["neuron_Sedge"],
             maxNeurons=args.maxNeurons, figId=PLOT_FIG_ID["f"],
+            edge_stub_length=args.edgeStubLength,
         )
     if "g" in args.showPlots:
         plot.fdr_selection_summary(fitD, md, figId=PLOT_FIG_ID["g"])

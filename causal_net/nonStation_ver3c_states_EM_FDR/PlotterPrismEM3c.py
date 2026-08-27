@@ -3,7 +3,7 @@
 
 import numpy as np
 
-from toolbox.PlotterBackbone import PlotterBackbone
+from toolbox.PlotterBackboneV2 import PlotterBackboneV2
 from UtilBioExp import clip_rebD_time
 
 
@@ -41,9 +41,15 @@ def neuron_type_marker_size(neuron_type, base_size):
     return 1.3 * base_size if int(neuron_type) == -1 else base_size
 
 
-class Plotter(PlotterBackbone):
+class Plotter(PlotterBackboneV2):
     def __init__(self, args):
-        PlotterBackbone.__init__(self, args)
+        PlotterBackboneV2.__init__(
+            self,
+            prjName=args.prjName,
+            outPath=args.outPath,
+            noXterm=args.noXterm,
+            plotFormat=args.plotFormat,
+        )
 
     def figId2name(self, fid):
         if isinstance(fid, str):
@@ -562,13 +568,17 @@ class Plotter(PlotterBackbone):
 
     def _draw_A_offdiag_hist(
         self, ax, A, title, diagnostics_txt=None, weight_lines=None,
-        neuron_type=None,
+        neuron_type=None, und_outline=False, nonzero_tol=1e-12,
     ):
         A = np.asarray(A)
+        nonzero_tol = float(nonzero_tol)
+        assert np.isfinite(nonzero_tol) and nonzero_tol >= 0.0, (
+            "nonzero_tol must be finite and non-negative"
+        )
         n_neuron = A.shape[0]
         off_mask = ~np.eye(n_neuron, dtype=bool)
         A_off = A[off_mask]
-        A_off_nz = A_off[np.abs(A_off) > 1e-12]
+        A_off_nz = A_off[np.abs(A_off) > nonzero_tol]
         if neuron_type is None:
             ax.hist(A_off_nz, bins=120, color="saddlebrown", alpha=0.85)
         else:
@@ -577,22 +587,50 @@ class Plotter(PlotterBackbone):
                 "neuron_type length must match A columns"
             )
             bin_edges = np.histogram_bin_edges(A_off_nz, bins=120)
-            for cls, color, label in [
-                (1, "magenta", f"exc={int(np.sum(neuron_type > 0))}"),
-                (-1, "forestgreen", f"inh={int(np.sum(neuron_type < 0))}"),
-                (0, "salmon", f"und={int(np.sum(neuron_type == 0))}"),
+            for cls, color, label, zorder in [
+                (1, "magenta", f"exc={int(np.sum(neuron_type > 0))}", 2),
+                (-1, "forestgreen", f"inh={int(np.sum(neuron_type < 0))}", 3),
+                (0, "salmon", f"und={int(np.sum(neuron_type == 0))}", 4),
             ]:
                 class_mask = off_mask & (neuron_type == cls)[None, :]
                 values = A[class_mask]
-                values = values[np.abs(values) > 1e-12]
-                ax.hist(
-                    values,
-                    bins=bin_edges,
-                    color=color,
-                    alpha=0.20,
-                    label=label,
-                )
-            ax.legend(loc="best", fontsize=9)
+                values = values[np.abs(values) > nonzero_tol]
+                label = f"{label}, {values.size}"
+                if cls == 0 and und_outline:
+                    ax.hist(
+                        values,
+                        bins=bin_edges,
+                        histtype="step",
+                        color="black",
+                        linewidth=1.2,
+                        hatch="..",
+                        label=label,
+                        zorder=zorder,
+                    )
+                elif cls == -1:
+                    ax.hist(
+                        values,
+                        bins=bin_edges,
+                        histtype="step",
+                        color=color,
+                        linewidth=1.2,
+                        hatch="//",
+                        label=label,
+                        zorder=zorder,
+                    )
+                else:
+                    ax.hist(
+                        values,
+                        bins=bin_edges,
+                        color=color,
+                        alpha=0.35,
+                        label=label,
+                        zorder=zorder,
+                    )
+            ax.legend(
+                loc="best", fontsize=8, title="neurons, edges",
+                title_fontsize=8, frameon=False,
+            )
         ax.set_yscale("log")
         ax.grid(True, alpha=0.35)
         ax.set_title(title)
@@ -708,7 +746,6 @@ class Plotter(PlotterBackbone):
         gs = fig.add_gridspec(2, 4, height_ratios=[1.0, 1.15], hspace=0.45, wspace=0.35)
 
         cnt_src_prune, _ = self._source_nz_edge_stats(A_prune)
-        sum_nedge_prune = int(np.sum(cnt_src_prune))
         x_src = np.arange(n_neuron, dtype=np.int64)
 
         ax = fig.add_subplot(gs[0, 0])
@@ -749,18 +786,20 @@ class Plotter(PlotterBackbone):
         ax = fig.add_subplot(gs[0, 1])
         self._draw_A_offdiag_hist(
             ax,
-            A_prune,
-            f"Reco {prune_label} off-diagonal",
+            A_est,
+            f"Reco {est_label} off-diagonal",
             weight_lines=(max_negW, min_posW),
             neuron_type=neuron_type,
+            und_outline=True,
+            nonzero_tol=0.0,
         )
         ax.text(
-            0.98, 0.97, f"sum Nedge={sum_nedge_prune:d}", transform=ax.transAxes,
+            0.98, 0.97, f"sum Nedge={int(np.sum(nedge)):d}", transform=ax.transAxes,
             va="top", ha="right", fontsize=9, color="k",
             bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=2),
         )
 
-        ax = fig.add_subplot(gs[0, 2])
+        ax = fig.add_subplot(gs[0, 3])
         blk = 10
         n_blk = n_neuron // blk
         blk_edges = np.arange(n_blk + 1) * blk
@@ -783,8 +822,60 @@ class Plotter(PlotterBackbone):
         ax2.set_ylabel("frequency (Hz)", color="tab:orange")
         ax2.tick_params(axis="y", labelcolor="tab:orange")
 
-        # Keep the top-right slot intentionally empty.
-        fig.add_subplot(gs[0, 3]).axis("off")
+        ax = fig.add_subplot(gs[0, 2])
+        finite_rates = rate[np.isfinite(rate)]
+        assert finite_rates.size > 0, "single_rates must contain finite values"
+        rate_bins = np.histogram_bin_edges(finite_rates, bins=n_bins)
+
+        def frequency_hist_label(name, values):
+            values = np.asarray(values, dtype=np.float64)
+            if values.size == 0:
+                return f"{name}=0, n/a"
+            q25, median, q75 = np.percentile(values, [25.0, 50.0, 75.0])
+            iqr = q75 - q25
+            return f"{name}={values.size}, {median:.1f} +/- {iqr:.1f}"
+
+        ax.hist(
+            finite_rates,
+            bins=rate_bins,
+            histtype="step",
+            color="darkorange",
+            linewidth=1.8,
+            label=frequency_hist_label("all", finite_rates),
+            zorder=5,
+        )
+        for cls, color, name, zorder in [
+            (1, "magenta", "exc", 2),
+            (-1, "forestgreen", "inh", 3),
+            (0, "salmon", "und", 4),
+        ]:
+            values = rate[(neuron_type == cls) & np.isfinite(rate)]
+            label = frequency_hist_label(name, values)
+            if cls == 0:
+                ax.hist(
+                    values, bins=rate_bins, histtype="step", color="black",
+                    linewidth=1.2, hatch="..", label=label, zorder=zorder,
+                )
+            elif cls == -1:
+                ax.hist(
+                    values, bins=rate_bins, histtype="step", color=color,
+                    linewidth=1.2, hatch="//", label=label, zorder=zorder,
+                )
+            else:
+                ax.hist(
+                    values, bins=rate_bins, color=color, alpha=0.35,
+                    label=label, zorder=zorder,
+                )
+        ax.set(
+            title="Neuron frequency by type",
+            xlabel="frequency (Hz)",
+            ylabel="neurons",
+        )
+        ax.legend(
+            loc="best", fontsize=8, title="median +/- IQR (Hz)",
+            frameon=False,
+        )
+        ax.grid(True, alpha=0.35)
 
         single_rates = np.asarray(single_rates, dtype=np.float64).ravel()
         off_mask = ~np.eye(n_neuron, dtype=bool)
@@ -1640,6 +1731,7 @@ class Plotter(PlotterBackbone):
     def _node_Ahat_topology_ax(
         self, ax, loc_x, loc_y, A_hat, sign=None, neuron_type=None,
         node_size=16, source_select=None, und_color="salmon",
+        stub_source_select=None, stub_max_distance=100.0,
     ):
         ax.set_facecolor("white")
         if neuron_type is None:
@@ -1673,12 +1765,39 @@ class Plotter(PlotterBackbone):
         n_total = int(post_idx.size)
         if source_select is not None:
             source_select = np.asarray(source_select, dtype=bool)
+            assert source_select.shape == (loc_x.shape[0],), (
+                "source_select length must match neuron locations"
+            )
             draw_mask = source_select[pre_idx]
             post_draw = post_idx[draw_mask]
             pre_draw = pre_idx[draw_mask]
         else:
             post_draw = post_idx
             pre_draw = pre_idx
+
+        if stub_source_select is not None:
+            stub_source_select = np.asarray(stub_source_select, dtype=bool)
+            assert stub_source_select.shape == (loc_x.shape[0],), (
+                "stub_source_select length must match neuron locations"
+            )
+            stub_max_distance = float(stub_max_distance)
+            assert np.isfinite(stub_max_distance) and stub_max_distance > 0.0, (
+                "stub_max_distance must be finite and positive"
+            )
+            stub_mask = stub_source_select[pre_idx]
+            for i_post, j_pre in zip(post_idx[stub_mask], pre_idx[stub_mask]):
+                color = edge_color
+                if color is None:
+                    color = "red" if A_hat[i_post, j_pre] > 0 else "blue"
+                dx = loc_x[i_post] - loc_x[j_pre]
+                dy = loc_y[i_post] - loc_y[j_pre]
+                distance = np.hypot(dx, dy)
+                scale = min(1.0, stub_max_distance / distance) if distance > 0.0 else 0.0
+                ax.plot(
+                    [loc_x[j_pre], loc_x[j_pre] + scale * dx],
+                    [loc_y[j_pre], loc_y[j_pre] + scale * dy],
+                    color=color, alpha=0.32, linewidth=0.6, zorder=1,
+                )
 
         for i_post, j_pre in zip(post_draw, pre_draw):
             color = edge_color
@@ -1858,8 +1977,7 @@ class Plotter(PlotterBackbone):
                 )
                 axis.axvline(0.0, color="0.45", ls="--", lw=0.8)
                 axis.set_title(
-                    f"{rank_label}, Nedge={nedge[index]}\n"
-                    f"unit={unit_ids[index]}",
+                    f"{rank_label}, Nedge={nedge[index]}, unit={unit_ids[index]}",
                     fontsize=8,
                 )
                 if row == 2:
@@ -1880,7 +1998,7 @@ class Plotter(PlotterBackbone):
 
     def neuron_spatial_edges_split(
         self, fitD, nodeD, nodeMD, neuron_type, neuron_Sedge,
-        maxNeurons=24, figId="f",
+        maxNeurons=24, figId="f", edge_stub_length=100.0,
     ):
         node_pos = np.asarray(nodeD["node_positions"], dtype=np.float64)
         assert node_pos.ndim == 2 and node_pos.shape[1] == 2, (
@@ -1915,6 +2033,8 @@ class Plotter(PlotterBackbone):
 
         exc_sources, n_exc_show = ranked_source_select(1)
         inh_sources, n_inh_show = ranked_source_select(-1)
+        exc_stub_sources = (neuron_type == 1) & ~exc_sources
+        inh_stub_sources = (neuron_type == -1) & ~inh_sources
 
         figId = self.smart_append(figId)
         fig = self.plt.figure(figId, facecolor="white", figsize=(14, 4.8))
@@ -1926,10 +2046,12 @@ class Plotter(PlotterBackbone):
         n_pos, n_pos_show = self._node_Ahat_topology_ax(
             ax, loc_x, loc_y, A_prune, sign="pos",
             neuron_type=neuron_type, node_size=32, source_select=exc_sources,
-            und_color="yellow",
+            und_color="yellow", stub_source_select=exc_stub_sources,
+            stub_max_distance=edge_stub_length,
         )
         ax.set_title(
-            f"A_prune>0, shown edges {n_pos_show}/{n_pos}, neurons {n_exc_show}/{n_exc}",
+            f"A_prune>0, full edges {n_pos_show}/{n_pos}, full-source neurons "
+            f"{n_exc_show}/{n_exc}; other stubs <= {float(edge_stub_length):g}",
             fontsize=11, pad=8,
         )
         ax.scatter([], [], s=neuron_type_marker_size(1, 32), marker=neuron_type_marker(1), c="magenta", edgecolors="k", label=f"exc={n_exc}")
@@ -1941,10 +2063,12 @@ class Plotter(PlotterBackbone):
         n_neg, n_neg_show = self._node_Ahat_topology_ax(
             ax, loc_x, loc_y, A_prune, sign="neg",
             neuron_type=neuron_type, node_size=32, source_select=inh_sources,
-            und_color="yellow",
+            und_color="yellow", stub_source_select=inh_stub_sources,
+            stub_max_distance=edge_stub_length,
         )
         ax.set_title(
-            f"A_prune<0, shown edges {n_neg_show}/{n_neg}, neurons {n_inh_show}/{n_inh}",
+            f"A_prune<0, full edges {n_neg_show}/{n_neg}, full-source neurons "
+            f"{n_inh_show}/{n_inh}; other stubs <= {float(edge_stub_length):g}",
             fontsize=11, pad=8,
         )
         ax.scatter([], [], s=neuron_type_marker_size(1, 32), marker=neuron_type_marker(1), c="magenta", edgecolors="k", label=f"exc={n_exc}")
@@ -1954,7 +2078,7 @@ class Plotter(PlotterBackbone):
 
         title_prefix = self.canvas_title_prefix(nodeMD)
         fig.suptitle(
-            f"{title_prefix}, neuron spatial A_prune topology: max neurons per panel={int(maxNeurons)}",
+            f"{title_prefix}, neuron spatial A_prune topology",
             fontsize=12, y=0.97,
         )
 

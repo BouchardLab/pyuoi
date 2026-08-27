@@ -4,7 +4,7 @@ Plotting utilities for simulated Poisson process visualization.
 
 This module provides specialized plotting capabilities for analyzing
 simulated Dale's principle neural networks. The Plotter class extends
-PlotterBackbone to create visualizations including:
+PlotterBackboneV2 to create visualizations including:
 - Dale connectivity matrix plots with excitatory/inhibitory separation
 - Eigenvalue analysis and network stability visualization
 - Poisson process statistics and firing rate distributions
@@ -17,7 +17,7 @@ networks that follow Dale's principle with Poisson spiking dynamics.
 __author__ = "Jan Balewski"
 __email__ = "janstar1122@gmail.com"
 
-from toolbox.PlotterBackbone import PlotterBackbone
+from toolbox.PlotterBackboneV2 import PlotterBackboneV2
 from matplotlib import cm as cmap
 import matplotlib.ticker as ticker
 from pprint import pprint
@@ -25,7 +25,6 @@ import numpy as np
 import matplotlib.gridspec as gridspec
 import matplotlib.colors as colors
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 from Util_pseudospectra import compute_pseudospectrum
 from UtilDalePoisson import get_offdiag_triplets
@@ -33,9 +32,15 @@ from UtilDalePoisson import get_offdiag_triplets
 #............................
 #............................
 #............................
-class Plotter(PlotterBackbone):
+class Plotter(PlotterBackboneV2):
     def __init__(self, args):
-        PlotterBackbone.__init__(self,args)
+        PlotterBackboneV2.__init__(
+            self,
+            prjName=args.prjName,
+            outPath=args.outPath,
+            noXterm=args.noXterm,
+            plotFormat=args.plotFormat,
+        )
 
 #...!...!..................
     def Dale_matrix_and_eigen(self, A, md, trueD, spikeD, figId=3):
