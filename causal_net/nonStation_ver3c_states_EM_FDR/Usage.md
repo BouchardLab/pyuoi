@@ -186,9 +186,17 @@ The core reconstruction pipeline consists of four sequential stages:
 ```
 
 ### Stage 1: Reference EM Fit (`prism_EM_train3c.py`)
-Discovers discrete network states (e.g. baseline vs. burst state) and fits initial interaction matrices:
+Discovers discrete network states and fits initial interaction matrices.
+
+**Selecting the Number of Latent States (`--num_states`)**:
+Before training, you must decide how many discrete hidden network states you allow:
+- Set `--num_states 1` for stationary network dynamics or recordings without distinct population switching.
+- Set `--num_states 2` (or more) when the network alternates between non-stationary regimes (e.g. quiescent baseline vs. synchronized population bursting states).
+- The state discovery in this reference EM fit determines the state sequence that is subsequently locked for the FDR bagging (`prism_FDR_Bags_train3c.py`) and de-biased refit (`prism_deBiasFit3c.py`) stages.
+
 ```bash
 emFitName="${shortN}_0to1h_emReference"
+numStates=2   # specify 1 for stationary, 2 for dual-state dynamics
 
 torchrun --standalone --nnodes=1 --nproc_per_node=4 \
   ./prism_EM_train3c.py \
@@ -196,7 +204,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=4 \
   --dataName "$shortN" \
   --fitName "$emFitName" \
   --time_range_sec 0 3600 \
-  --num_states 2 \
+  --num_states "$numStates" \
   --decode_dwell_sec 0.10 \
   --num_em_iters 12 \
   --m_epochs 2 \
